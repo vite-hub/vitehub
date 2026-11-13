@@ -217,7 +217,8 @@ const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.numbe
 const changeDetectionInFlight = new WeakSet<PullRequestInbox>()
 
 /**
- * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute.
+ * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute,
+ * and at most once per 1.5 seconds per repository, so many repositories stay within the GraphQL rate limit.
  * Seeds new PRs and marks PRs whose fingerprint changed, or that closed, for a targeted REST probe.
  * This recovers lost webhook deliveries without probing unchanged PRs.
  */
@@ -226,7 +227,7 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
   changeDetectionInFlight.add(inbox)
   try {
   if (((await inbox.metaNumber('change-detect-next')) ?? 0) > now) return
-  await inbox.setMeta('change-detect-next', now + 60_000)
+  await inbox.setMeta('change-detect-next', now + Math.max(60_000, repositories.length * 1_500))
   // The summary query already contains every tracked PR. Reuse it for both
   // change detection and the closed-PR sweep instead of issuing one SQLite
   // read per open PR. On a busy inbox this turns an O(open PRs) sequence of

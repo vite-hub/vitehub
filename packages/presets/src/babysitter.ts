@@ -83,6 +83,8 @@ export interface BabysitterOptions {
    * Select PRs with the same rules as the GitHub Channel, with two differences. A PR passes when it
    * matches either `author.allow` or `authorAssociation.allow`; a match on either deny list rejects it.
    * Logins match case-insensitively and in either bot spelling, so `renovate[bot]` also matches `renovate`.
+   * Without `repository.allow`, the Babysitter serves every repository that its GitHub App installations
+   * can access, except archived ones and those in `repository.deny`, so installing the App on a repository enrolls it.
    */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */

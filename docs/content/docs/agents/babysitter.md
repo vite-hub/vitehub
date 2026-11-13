@@ -50,7 +50,7 @@ The host needs Git, Corepack to install dependencies, and the authenticated CLI 
 
 ## Add the Agent
 
-Extend the preset in `server/agents`. The repository filter is required, because the Babysitter looks for open pull requests only there.
+Extend the preset in `server/agents`. `filter.repository.allow` limits it to the listed repositories. Without it, the Babysitter serves every repository its GitHub App can access ([Choose repositories](#choose-repositories)).
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -79,7 +79,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
+| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
@@ -159,6 +159,24 @@ Create the configured labels in your repositories. With the example above, add `
 - Removing a required label or adding a denied label also cancels the host's active claim on the pull request.
 
 Use `lifecycle.labels` or `filter.labels`, not both: both is a configuration error. Labels only select pull requests. They do not report progress, allow a merge, or skip check and review gates.
+
+## Choose repositories
+
+Without `filter.repository.allow`, the Babysitter serves every repository that its GitHub App can access. Installing the App on a repository enrolls it, and removing the App stops new work there.
+
+```ts [server/agents/babysitter/agent.ts] fragment
+filter: {
+  repository: { deny: ['acme/website'] },
+},
+```
+
+- The host lists the repositories of every App installation when it starts and again every 10 minutes. Suspended installations are skipped.
+- `installation` and `installation_repositories` webhooks update the list at once. GitHub sends them to every App, without a subscription.
+- A delivery from a repository that the list does not have yet adds it, because GitHub sends an App only events of repositories it is installed on.
+- Archived repositories and those in `repository.deny` are skipped.
+- With `repository.allow`, the Babysitter serves only the listed repositories and never lists installations.
+
+The health route reports the current list in `repositories` and where it came from in `repositorySource`: `allow` or `installations`.
 
 ## Limit model passes
 
@@ -358,7 +376,7 @@ To replace the process, send SIGUSR2, wait for the drain route to report `draine
 
 ## How it works
 
-1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute.
+1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute. With more than 40 repositories, the listing runs every 1.5 seconds per repository instead, to stay within the GraphQL rate limit.
 2. When a pull request needs work, the host clones its head and starts one repair pass.
 3. After a repair push, the pass ends within 3 minutes and the pull request waits on the pushed head.
 4. Known check results, pending checks, and its own push events keep it waiting. New feedback, a new failing check, a conflict, or an unresolved review thread wake it.

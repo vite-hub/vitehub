@@ -118,7 +118,8 @@ export interface PullRequestInboxOptions {
   storage?: PullRequestInboxStorage
   /** Separates inboxes that share one storage, for example one per Agent. */
   scope?: string
-  repositories: readonly string[]
+  /** The served repositories, or a function that returns the current lowercase list on each read. */
+  repositories: readonly string[] | (() => readonly string[])
   filter?: GitHubPullRequestFilter
   clock?: () => number
   activityAuthors?: readonly string[]
@@ -243,7 +244,7 @@ export class PullRequestInbox {
   private scope: string
   private ready?: Promise<void>
   private tables: { pullRequests: string; deliveries: string; meta: string; schemaVersion: string }
-  private repositories: string[]
+  private repositoryList: () => readonly string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
   private activityAuthors: Set<string>
@@ -258,7 +259,11 @@ export class PullRequestInbox {
     this.budgets = { ...budgets }
     this.claimStackChildren = claimStackChildren
     this.invalidRow = invalidRow
-    this.repositories = repositories.map(repository => repository.toLowerCase())
+    if (typeof repositories === 'function') this.repositoryList = repositories
+    else {
+      const fixed = repositories.map(repository => repository.toLowerCase())
+      this.repositoryList = () => fixed
+    }
     this.clock = clock
     this.filter = filter
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
@@ -339,8 +344,12 @@ export class PullRequestInbox {
     this.reportedRows.add(key)
     try { this.invalidRow?.({ repository, number, error }) } catch {}
   }
+  private get repositories(): readonly string[] {
+    return this.repositoryList()
+  }
   private repositoryFilter(column = 'repository'): { sql: string; args: string[] } {
-    return { sql: `${column} IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
+    const repositories = [...this.repositories]
+    return { sql: `${column} IN (${repositories.map(() => '?').join(',')})`, args: repositories }
   }
   private ownsComment(comment: GitHubEvidence | undefined): boolean {
     return this.activityAppId !== undefined

@@ -336,7 +336,7 @@ navigation, query, cache, and ranked full-text search.
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
-GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
+GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API. A hosted Session exposes that initial retained revision as `session.revision` when its Store provides one. Stores with retained history but no revision materializer, such as Blob Database, expose the retained head only when its file manifest matches the files copied to the host. Draft changes or unavailable history leave the revision unset and do not prevent the Session from opening.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 

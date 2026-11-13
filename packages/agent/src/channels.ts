@@ -112,7 +112,7 @@ import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, G
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
-import type { Adapter, FileUpload } from "chat"
+import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
 import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
@@ -785,13 +785,13 @@ export interface ChatSendOptions {
   recipient: string
   /**
    * Keeps every send with the same `key` under one root message in a channel. The recipient must be a channel
-   * without a message ID. ViteHub posts the root once, from `root` or else from the first text.
+   * without a message ID. ViteHub posts the root once, from `root` or else from the first message.
    */
-  thread?: { key: string, root?: string }
+  thread?: { key: string, root?: ChatMessage }
   /** A send with an `idempotencyKey` that ViteHub already sent to the recipient returns the stored receipt and posts nothing. */
   idempotencyKey?: string
   /**
-   * With `idempotencyKey`, edits the message stored for the key to this text and returns its receipt.
+   * With `idempotencyKey`, edits the message stored for the key to this message and returns its receipt.
    * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
    */
   update?: boolean
@@ -805,9 +805,16 @@ export interface ChatSendOptions {
   replace?: string
 }
 
-/** An outbound connector for `defineOutboundChannel()` that sends Markdown through a Chat SDK adapter. */
+/**
+ * What a chat adapter sends. Text is Markdown. An object goes to the Chat SDK adapter as is, for example
+ * `{ card: Card(...), fallbackText }` for a Teams Adaptive Card or Slack Block Kit, or `{ raw }` for text without
+ * Markdown conversion.
+ */
+export type ChatMessage = AdapterPostableMessage
+
+/** An outbound connector that sends through a Chat SDK adapter. */
 export interface ChatConnector {
-  send: (text: string, options: ChatSendOptions) => Promise<{ id: string }>
+  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -2985,8 +2992,13 @@ async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: 
   if (error) throw error
 }
 
+/** Text is Markdown. The Chat SDK reads a plain string as raw text, so wrap it. */
+function chatPostable(message: ChatMessage): AdapterPostableMessage {
+  return typeof message === "string" ? { markdown: message } : message
+}
+
 /**
- * An outbound connector for `defineOutboundChannel()` that sends Markdown through one Chat SDK adapter.
+ * An outbound connector that sends through one Chat SDK adapter.
  * Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `<channel>:`.
  */
 function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector {
@@ -3002,7 +3014,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
     return adapter
   }
   return {
-    async send(text, { recipient, thread, idempotencyKey, update, replace }) {
+    async send(message, { recipient, thread, idempotencyKey, update, replace }) {
       if (typeof recipient !== "string" || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
       if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
       if (replace !== undefined && (typeof replace !== "string" || !replace || !idempotencyKey || replace === idempotencyKey)) {
@@ -3016,7 +3028,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           if (!chat.openDM) throw new TypeError(`[vitehub] The ${label} adapter cannot open direct messages.`)
           return await chat.openDM(recipient.slice(5))
         }
-        const post = async () => ({ id: (await chat.postMessage(await target(), { markdown: text })).id })
+        const post = async () => ({ id: (await chat.postMessage(await target(), chatPostable(message))).id })
         if (!idempotencyKey) return await post()
         const kv = await connectorKV(name)
         const receiptKeyFor = (key: string) => `${name}:messages:${connectorHash(`${recipient}\0${key}`)}`
@@ -3024,7 +3036,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         const receipt = await withConnectorLock(receiptKey, async () => {
           const stored = await connectorKVGet(kv, receiptKey)
           if (typeof stored?.id === "string") {
-            if (update) await chat.editMessage(await target(), stored.id, { markdown: text })
+            if (update) await chat.editMessage(await target(), stored.id, chatPostable(message))
             return { id: stored.id }
           }
           const receipt = await post()
@@ -3060,11 +3072,11 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         }
         if (typeof stored?.id === "string") {
           // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
-          if (update && threadId) await chat.editMessage(threadId, stored.id, { markdown: text })
+          if (update && threadId) await chat.editMessage(threadId, stored.id, chatPostable(message))
           return { id: stored.id }
         }
         if (!threadId) {
-          const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
+          const root = await postChannelMessage(recipient, chatPostable(thread.root ?? message))
           if (!root.id) throw new Error(`[vitehub] ${label} did not return a root message ID.`)
           threadId = threads.rootThreadId(chat, recipient, root)
           await connectorKVSet(kv, `${key}:root`, { threadId })
@@ -3073,10 +3085,10 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
             return { id: root.id }
           }
         }
-        const message = await chat.postMessage(threadId, { markdown: text })
-        if (!message.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
-        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: message.id })
-        return { id: message.id }
+        const sent = await chat.postMessage(threadId, chatPostable(message))
+        if (!sent.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
+        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: sent.id })
+        return { id: sent.id }
       })
       if (replacedKey) {
         await withConnectorLock(key, async () => {
@@ -3090,16 +3102,16 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
   }
 }
 
-/** A chat adapter that also sends: `useChannel(name).send(text, options)` posts through it. */
+/** A chat adapter that also sends: `useChannel(name).send(message, options)` posts through it. */
 export type ChatChannelAdapter<TChannel> = TChannel & {
-  send: (text: string, options: ChatSendOptions) => Promise<{ id: string }>
+  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 /** Adds `send` to a chat adapter. The connector is built on the first send, from the adapter's own options. */
 function withChatSend<TChannel extends object>(channel: TChannel, createConnector: () => ChatConnector): ChatChannelAdapter<TChannel> {
   let connector: ChatConnector | undefined
   return Object.assign(channel, {
-    send: async (text: string, options: ChatSendOptions) => await (connector ??= createConnector()).send(text, options),
+    send: async (message: ChatMessage, options: ChatSendOptions) => await (connector ??= createConnector()).send(message, options),
   })
 }
 
@@ -3835,12 +3847,12 @@ function isChannelDefinitionValue(value: unknown): value is ChannelDefinition {
 }
 
 /** An adapter from `webhook()` or `stripe()`. */
-function isWebhookAdapter(adapter: ChannelAdapter<never>): adapter is WebhookChannelAdapter {
+function isWebhookAdapter(adapter: ChannelAdapter<never, never>): adapter is WebhookChannelAdapter {
   return isRecord((adapter as { webhook?: unknown }).webhook)
 }
 
 /** A built-in adapter such as `slack()`, which is already an Agent Channel. */
-function isAgentChannelAdapter(adapter: ChannelAdapter<never>): adapter is ChannelAdapter<never> & AgentChannelDefinition {
+function isAgentChannelAdapter(adapter: ChannelAdapter<never, never>): adapter is ChannelAdapter<never, never> & AgentChannelDefinition {
   return "messages" in adapter
 }
 

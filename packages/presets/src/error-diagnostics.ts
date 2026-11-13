@@ -3,6 +3,10 @@ import { defineErrors } from "@vite-hub/runtime"
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
+    PRESETS_BABYSITTER_REPOSITORIES_INVALID: {
+      why: 'Babysitter filter.repository.allow lists no "owner/name" repository.',
+      fix: 'List repositories as "owner/name", or remove filter.repository.allow so the Babysitter serves every repository that its GitHub App can access.',
+    },
     PRESETS_MERGE_DRAFT_AUTHORS_INVALID: {
       why: "Babysitter merge.markDraftsReady must be an array of GitHub logins.",
       fix: "Set merge.markDraftsReady to non-empty GitHub logins, such as [\"octocat\", \"renovate[bot]\"], or remove it.",
