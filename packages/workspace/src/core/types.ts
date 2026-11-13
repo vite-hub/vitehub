@@ -231,6 +231,8 @@ export interface ExecResult {
 
 export interface WorkspaceSession {
   readonly executionAuthority: ExecutionAuthority
+  /** Retained revision used to materialize this Session, when the Store provides one. */
+  readonly revision?: string
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
@@ -721,6 +723,8 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
   /** Stable provider name used for inspection and diagnostics. */
   name?: string
   mount?: WorkspaceSourceMount
@@ -737,6 +741,11 @@ export interface WorkspaceSource {
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
+  /**
+   * Returns a Source that holds only the items that match `include`, inside the items this Source holds.
+   * GitHub Sources fetch only the matching paths.
+   */
+  subset?(include: readonly string[]): WorkspaceSource
 }
 
 export interface WorkspaceSourceSyncPolicy {
@@ -755,6 +764,8 @@ type WorkspaceSourceBindingOptions = Pick<
 
 export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {
   source: WorkspaceSourceInput
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
 }
 
 export type WorkspaceCustomSourceInput = WorkspaceSourceDefinition & WorkspaceSourceBindingOptions

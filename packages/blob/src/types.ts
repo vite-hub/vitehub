@@ -53,7 +53,7 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
-export type BlobOperation = "del" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
+export type BlobOperation = "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
  * `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
@@ -62,7 +62,14 @@ export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION
 
 export type BlobSignOptions =
   | { expiresIn: number, method: "GET" }
-  | { contentType?: string, createOnly?: boolean, expiresIn: number, method: "PUT" }
+  | {
+    contentType?: string
+    createOnly?: boolean
+    expiresIn: number
+    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` driver binds it. */
+    maxSize?: BlobSize
+    method: "PUT"
+  }
 
 export interface BlobSignedRequest {
   headers: Record<string, string>
@@ -131,7 +138,8 @@ export interface BlobDriverAdapter<TOptions> {
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
   resumeMultipartUpload?(pathname: string, uploadId: string): Promise<BlobDriverMultipartUpload>
-  sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
+  /** `store` names the Blob Store, for a driver that signs links to the app itself. */
+  sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
 /** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
@@ -280,7 +288,7 @@ export interface BlobStorage {
   readonly media: BlobMedia
   /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
-  del(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
   get(pathname: string): Promise<Result<Blob | null, BlobErrorCode>>
   /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
   handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>>
@@ -357,10 +365,13 @@ export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
 
 export interface FsBlobStoreConfig {
   base?: string
-  defaultUrlExpiresIn?: number
   driver: "fs"
   /** A local store cannot be remote: `remote: true` fails with `BLOB_C0018`. */
   remote?: boolean
+  /**
+   * Origin of the links that `sign()` returns, such as `https://app.example`. Add the base URL of the app when it has
+   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`.
+   */
   urlBaseUrl?: string
 }
 

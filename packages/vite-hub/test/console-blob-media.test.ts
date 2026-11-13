@@ -55,11 +55,11 @@ describe("Console Blob media client", () => {
     await expect(client.get("missing.txt")).rejects.toThrow("No object missing.txt in store default.")
   })
 
-  it("deletes each object through blob.del and reports the ones that failed", async () => {
+  it("deletes each object through blob.delete and reports the ones that failed", async () => {
     mocks.request.mockResolvedValueOnce({ deleted: true }).mockRejectedValueOnce(new Error("Object is locked."))
     const client = createConsoleBlobMediaClient("/blob", { store: "media" })
     await expect(client.remove(["a.png", "b.png"])).resolves.toEqual({ failed: [{ message: "Object is locked.", pathname: "b.png" }], removed: ["a.png"] })
-    expect(mocks.request).toHaveBeenNthCalledWith(1, "/blob", { body: { action: "del", pathname: "a.png", store: "media" }, method: "POST" })
+    expect(mocks.request).toHaveBeenNthCalledWith(1, "/blob", { body: { action: "delete", pathname: "a.png", store: "media" }, method: "POST" })
   })
 
   it("uploads a file as base64 through blob.put", async () => {

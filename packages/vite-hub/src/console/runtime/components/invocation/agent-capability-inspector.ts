@@ -3,7 +3,7 @@ import type { Spec } from "@json-render/core";
 import { type ComponentOptionsMixin, computed, type DefineComponent, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { ToolList } from "@vite-hub/ui/tool-list";
+import { ToolList } from "@vite-hub/ui";
 import type { AgentInvocationView } from "./types.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {

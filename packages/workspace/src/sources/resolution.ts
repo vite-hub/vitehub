@@ -888,6 +888,8 @@ async function resolveWorkspaceSource(
   if (!resolved) return undefined
 
   const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
+  // Normalization carries policy from every enclosing binding.
+  if (source.skills === false) resolvedSource.skills = false
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsSource(options.selectedWorkspaceScope, normalized)) return undefined
 

@@ -324,7 +324,7 @@ describe("Process Runtime on more than one process", () => {
     await install(first, { leases, now, registry })
     await install(await startProcess(), { leases, now, registry })
 
-    const run = await first.execute.runSchedule("report")
+    const run = await first.execute.runScheduleFrom(registry, "report")
     await sleep(100)
 
     expect(run.status).toBe("succeeded")

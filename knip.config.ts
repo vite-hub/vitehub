@@ -128,6 +128,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   agent: {
     // `run-node-tests.mjs` runs this file outside Vitest.
     entry: ["test/browser-smoke-cleanup.test.mjs"],
+    // The real SSH provider tests use the host's OpenSSH key generator.
+    ignoreBinaries: ["ssh-keygen"],
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },
@@ -317,6 +319,26 @@ const config: KnipConfiguration = {
         "@vite-hub/source",
         "h3",
         "vue-tsc",
+      ],
+    },
+    "packages/docs/playground": {
+      entry: [
+        ...appEntries("packages/docs/playground"),
+        // Markdown and Nuxt auto-import these components and their helpers.
+        "app/components/**/*.vue",
+        "app/utils/*.ts",
+        // Maintainers run these content and illustration tools directly.
+        "scripts/*.mjs",
+        "illustrations/*.mjs",
+        ".claude/skills/illustration-isometric-mono/scripts/*.mjs",
+      ],
+      ignoreDependencies: [
+        // Nuxt Icon loads icon collections by name from the app and the docs layer.
+        /^@iconify-json\//,
+        // The docs MCP endpoint loads agents/mcp on Cloudflare.
+        "agents",
+        // The README runs Wrangler directly for local migrations and Worker previews.
+        "wrangler",
       ],
     },
     "playground/logs": { entry: appEntries("playground/logs"), vite: false },

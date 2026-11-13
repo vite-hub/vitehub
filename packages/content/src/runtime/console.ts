@@ -713,7 +713,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           expect: expected.map(({ id, digest, locale }) => ({ collection: collection.name, id, digest, ...(locale === undefined ? {} : { locale }) })),
           metadata: writeMetadata(context),
         })
-        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })), ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}) }
+        return {
+          revision: result.revision?.id ?? null,
+          documents: result.documents.map(document => ({ ...document })),
+          ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}),
+          ...(result.previews ? { previews: result.previews.map(preview => ({ ...preview, expiresAt: preview.expiresAt.toISOString() })) } : {}),
+        }
       })
     },
 

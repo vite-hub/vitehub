@@ -67,7 +67,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       head: async pathname => (await activeDriver()).head(pathname),
       list: async options => (await activeDriver()).list(options),
       put: async (pathname, body, options) => (await activeDriver()).put(pathname, body, options),
-      sign: (pathname, options) => nativeDriver.sign!(pathname, options),
+      sign: (pathname, options, context) => nativeDriver.sign!(pathname, options, context),
     } satisfies BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>
   }
 
@@ -192,9 +192,9 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
-    async del(pathnames) {
-      const [error, storage] = await resolveStorageResult("del", name)
-      return error ? [error, undefined] : storage.del(pathnames)
+    async delete(pathnames) {
+      const [error, storage] = await resolveStorageResult("delete", name)
+      return error ? [error, undefined] : storage.delete(pathnames)
     },
     async get(pathname) {
       const [error, storage] = await resolveStorageResult("get", name)

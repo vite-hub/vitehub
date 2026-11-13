@@ -75,7 +75,7 @@ ViteHub writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Then a s
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `delete()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
@@ -110,7 +110,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or returns `null`. |
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
-| `blob.del(pathnames)` | Deletes one or more files. |
+| `blob.delete(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
 | `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
@@ -181,7 +181,7 @@ The optional `transform` gets the original `Blob` and returns the response `Blob
 
 ViteHub checks the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes apart from content metadata. If source metadata changes during the read, ViteHub reads again before it transforms. Stable ETags decide cache writes, not provider timestamps.
 
-Change the key when the transform changes, and put any size or format in it. Each source and key has one cache entry, replaced after the source changes. Different keys are separate variants. `blob.del(originalPath)` removes the original and its variants. Serving a missing source also clears its variants. A failed cleanup is logged and does not undo the delete. Nothing evicts old entries in the background: list them with `blob.list({ prefix: '_vitehub/derived/' })` and remove them with `blob.del`.
+Change the key when the transform changes, and put any size or format in it. Each source and key has one cache entry, replaced after the source changes. Different keys are separate variants. `blob.delete(originalPath)` removes the original and its variants. Serving a missing source also clears its variants. A failed cleanup is logged and does not undo the delete. Nothing evicts old entries in the background: list them with `blob.list({ prefix: '_vitehub/derived/' })` and remove them with `blob.delete`.
 
 Filesystem cache keys merge repeated slashes. On case-insensitive filesystems, keep filename casing consistent, or other casings leave unused variants.
 
@@ -383,11 +383,29 @@ const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', 
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently.
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` driver binds it, and the other drivers fail the request.
 
-The `cloudflare-r2` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
+The `fs` driver, the `cloudflare-r2` driver, and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
 Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and writes use a Workers binding. A binding alone cannot make a presigned URL, so set `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` in runtime env. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) expire after 1 second to 7 days. The [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
+
+### Signed links of `fs` stores
+
+A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob/signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob/signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
+
+The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, and the `contentType` and `maxSize` of a `PUT`. The route rejects a request that does not match its link:
+
+| Request | Status | Code |
+| --- | --- | --- |
+| The link expired. | `403` | `BLOB_R0042` |
+| The URL, the method, or the `Content-Type` changed, or another secret signed the link. | `403` | `BLOB_R0041` |
+| The method is not `GET` or `PUT`. | `405` | `BLOB_R0041` |
+| The body is larger than `maxSize`. | `413` | `BLOB_R0043` |
+
+Without a root secret of at least 32 characters, `blob.sign()` returns `BLOB_OPERATION_FAILED` with `BLOB_R0040` in `cause`. Set `VITEHUB_SECRET` for `vite dev` too: the secret that ViteHub generates in development does not sign these links. The `fs` driver cannot bind `createOnly`.
+
+> [!NOTE]
+> A link works on another instance only when that instance has the same `VITEHUB_SECRET` and reads the same folder, such as a shared volume. Each instance derives the key from the secret, so a restart keeps the links valid.
 
 ## Blob reference schemas
 

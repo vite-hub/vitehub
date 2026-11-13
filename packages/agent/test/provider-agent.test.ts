@@ -1,7 +1,9 @@
 import type { AgentProviderCredentialContext } from "../src/types.ts"
+import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
+import { decodeColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { forgeAccessKey } from "../src/internal/forge-access.ts"
-import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { access, chmod, link, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -108,7 +110,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
-  onStartSession?: (input: { mcp?: { authorizationHeader: string, endpoint: string } }) => Promise<void>
+  onStartSession?: (input: { mcp?: { authorizationHeader: string, endpoint: string }, skillRoots?: readonly string[] }) => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: unknown
   turnResumeCursor?: unknown
@@ -133,7 +135,7 @@ function runtime(threadId: string, events: unknown[], options: {
       await options.onSendTurn?.(mcp)
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
-    startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
+    startSession: vi.fn(async (input: { mcp?: typeof mcp, skillRoots?: readonly string[] }) => {
       mcp = input.mcp
       await options.onStartSession?.(input)
       // Model the launcher's consumption of the private thread configuration.
@@ -5112,14 +5114,20 @@ cli_auth_credentials_store = "keyring"
         expect(instructions).toContain(`"id": "${checkoutSha}"`)
         expect(instructions).toContain('"root": ""')
         expect(instructions).not.toContain('"root": "docs"')
-        await expect(readFile(join(root, "portal", ".agents/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
-        await expect(readFile(join(root, "portal", ".codex/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
-        await expect(readFile(join(root, "portal", ".claude/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
-        await expect(readFile(join(root, "portal", ".agents/skills/outer-only/SKILL.md"), "utf8")).resolves.toBe("# Outer Only\n")
-        // The Agent's own Skill comes from the invocation context, not the Workspace store, and stays inside the checkout.
-        await expect(readFile(join(root, "portal", ".agents/skills/own-review/SKILL.md"), "utf8")).resolves.toBe("# Own Review\n")
+        // The checkout keeps only its own Skills. Codex reads the others from one folder outside it.
+        await expect(readdir(join(root, "portal"))).resolves.toEqual(expect.arrayContaining([".codex", ".git"]))
+        await expect(access(join(root, "portal", ".agents"))).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(access(join(root, "portal", ".claude"))).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(readdir(join(root, "portal", ".codex/skills"))).resolves.toEqual(["agent-browser"])
+        const [skillRoot] = provider.startSession.mock.lastCall?.[0].skillRoots ?? []
+        expect(skillRoot).toBeDefined()
+        expect(skillRoot!.startsWith(`${root}/`)).toBe(false)
+        await expect(readdir(skillRoot!)).resolves.toEqual(expect.arrayContaining(["outer-only", "own-review"]))
+        await expect(access(join(skillRoot!, "agent-browser"))).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(readFile(join(skillRoot!, "outer-only/SKILL.md"), "utf8")).resolves.toBe("# Outer Only\n")
+        // The Agent's own Skill comes from the invocation context, not the Workspace store.
+        await expect(readFile(join(skillRoot!, "own-review/SKILL.md"), "utf8")).resolves.toBe("# Own Review\n")
         await expect(access(join(root, ".agents/skills/own-review"))).rejects.toMatchObject({ code: "ENOENT" })
-        await expect(readFile(join(root, "portal", ".git/info/exclude"), "utf8")).resolves.toContain("/.agents/skills/own-review/SKILL.md")
       },
     })
     const session = {
@@ -6001,6 +6009,47 @@ cli_auth_credentials_store = "keyring"
     }) as never)
   })
 
+  it.each(["current", "advanced", "unavailable"])("records the materialized Workspace revision with %s optional history", async (history) => {
+    const threadId = `thread-workspace-revision-${history}`
+    let materialized = false
+    const runContext = context(threadId, {
+      workspace: {
+        fs: {},
+        history: { head: vi.fn(async () => {
+          expect(materialized).toBe(true)
+          if (history === "unavailable") throw new Error("history provider unavailable")
+          return { id: history === "advanced" ? "later" : "prepared", ref: "run-1" }
+        }) },
+        materializeSources: vi.fn(async () => {
+          materialized = true
+          return { sources: [] }
+        }),
+        startSession: vi.fn(async () => ({
+          revision: "prepared",
+          close: vi.fn(async () => undefined),
+          exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+          readFile: vi.fn(async () => new Uint8Array()),
+        })),
+        tools: {},
+      },
+      workspaceDefinition: { name: "docs" },
+      workspaceMode: "read",
+    })
+    await setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "codex" },
+      runtime: { name: "vite" },
+      workspace: { mode: "read", name: "docs" },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(getAgentTelemetryConfiguration(runContext.context)?.value.workspace).toEqual({
+          mode: "read", name: "docs", revision: "prepared", ...(history === "current" ? { ref: "run-1" } : {}),
+        })
+      },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+  })
+
   it("writes successful workspace sessions back before cleanup", async () => {
     const threadId = "thread-workspace"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -6280,23 +6329,29 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).toBe("native instructions after rematerialization")
   })
 
-  it("keeps colocated Skills readable and out of Workspace writeback", async () => {
-    const threadId = "thread-workspace-colocated-skills"
+  it.each(["codex", "claude-code"] as const)("keeps discovered Skills readable and out of the Workspace for %s with root documentation", async (provider) => {
+    const threadId = `thread-workspace-colocated-skills-${provider}`
     let root = ""
+    let skillRoots: readonly string[] | undefined
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        await expect(readFile(`${root}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Review\n")
+      async onStartSession(input) {
+        if (provider === "codex") skillRoots = input.skillRoots
+        else {
+          const launchArgs = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs ?? "")
+          const [, directory] = /--add-dir "([^"]+)"/.exec(launchArgs) ?? []
+          expect(directory).toBeDefined()
+          skillRoots = [join(directory!, ".claude/skills")]
+        }
+        expect(skillRoots).toHaveLength(1)
+        await expect(readFile(join(skillRoots![0]!, "review/SKILL.md"), "utf8")).resolves.toBe("# Review\n")
+        await expect(readFile(join(skillRoots![0]!, "review/references/checklist.md"), "utf8")).resolves.toBe("- tests\n")
+        await expect(readdir(root)).resolves.toEqual([])
       },
     })
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
-      diff: vi.fn(async () => {
-        await expect(access(`${root}/skills/review/SKILL.md`)).rejects.toMatchObject({ code: "ENOENT" })
-        await expect(access(`${root}/skills/review`)).rejects.toMatchObject({ code: "ENOENT" })
-        await expect(access(`${root}/skills`)).rejects.toMatchObject({ code: "ENOENT" })
-        return { entries: [] }
-      }),
+      diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
       readFile: vi.fn(async () => new Uint8Array()),
     }
@@ -6314,16 +6369,39 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     })
+    const agentRoot = await mkdtemp(join(tmpdir(), "vitehub-discovered-skills-"))
+    try {
+      await mkdir(join(agentRoot, "skills/review/references"), { recursive: true })
+      await writeFile(join(agentRoot, "agent.ts"), "export default {}")
+      await writeFile(join(agentRoot, "skills/README.md"), "Skill documentation")
+      await writeFile(join(agentRoot, "skills/review/SKILL.md"), "# Review\n")
+      await writeFile(join(agentRoot, "skills/review/references/checklist.md"), "- tests\n")
+      runContext.context.set("agent.colocatedSkills", decodeColocatedAgentSkills(readColocatedAgentSkills(join(agentRoot, "agent.ts"))))
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider }).generate(runContext as never)
+    } finally {
+      await rm(agentRoot, { force: true, recursive: true })
+    }
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.commit).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
+    // The private Skill folder lasts one Invocation.
+    await expect(access(skillRoots![0]!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("rejects a colocated Skill path outside a provider skill root", async () => {
+    const threadId = "thread-workspace-colocated-skill-outside-root"
+    const runtimeCount = createProviderRuntime.mock.calls.length
+    const runContext = context(threadId)
     runContext.context.set("agent.colocatedSkills", {
       review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
-
-    expect(session.diff).toHaveBeenCalledOnce()
-    expect(session.commit).not.toHaveBeenCalled()
-    expect(session.close).toHaveBeenCalledOnce()
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "AGENT_R0712" })
+    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
   })
 
   it("preserves Workspace Source precedence over colocated Skills and keeps provider edits", async () => {
@@ -6331,10 +6409,11 @@ cli_auth_credentials_store = "keyring"
     const skillPath = ".agents/skills/review/SKILL.md"
     let root = ""
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        for (const provider of [".agents", ".codex", ".claude"]) {
-          await expect(readFile(`${root}/${provider}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Explicit Source\n")
-        }
+      async onStartSession(input) {
+        // Codex reads the Workspace Skill natively, so the colocated Skill is not added.
+        expect(input.skillRoots).toBeUndefined()
+        await expect(readdir(root)).resolves.toEqual([".agents"])
+        await expect(readFile(join(root, skillPath), "utf8")).resolves.toBe("# Explicit Source\n")
         await writeFile(join(root, skillPath), "# Provider edit\n")
       },
     })
@@ -6376,37 +6455,49 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
-  it("makes canonical and legacy Skill directories mutually readable without overwriting collisions", async () => {
-    const gmailSource = { content: "# Gmail\nUse gmail_search.\n" }
-    const gmailPath = ".agents/skills/gmail/SKILL.md"
-    const threadId = "thread-workspace-provider-skill-compatibility"
+  it.each(["codex", "claude-code"] as const)("gives %s the Workspace Skills it cannot read natively from a folder outside the Workspace", async (provider) => {
+    const threadId = `thread-workspace-provider-skill-folder-${provider}`
     let root = ""
+    let entries: string[] = []
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        for (const provider of [".agents", ".codex", ".claude"]) {
-          await expect(readFile(`${root}/${provider}/skills/gmail/SKILL.md`, "utf8")).resolves.toBe(gmailSource.content)
+      async onStartSession(input) {
+        const launchArgs = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs ?? "")
+        let skillRoot: string
+        if (provider === "codex") {
+          expect(input.skillRoots).toHaveLength(1)
+          expect(launchArgs).not.toContain("--add-dir")
+          skillRoot = input.skillRoots![0]!
         }
-        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
-        await expect(readFile(`${root}/.claude/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
-        await expect(readFile(`${root}/.agents/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
-        await expect(readFile(`${root}/.codex/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
-        await expect(readFile(`${root}/.codex/skills/collision/SKILL.md`, "utf8")).resolves.toBe("# Codex collision\n")
-        await expect(readFile(`${root}/.agents/skills/collision/SKILL.md`, "utf8")).resolves.toBe("# Canonical collision\n")
-        await rm(`${root}/.codex/skills/canonical`)
-        await mkdir(`${root}/.codex/skills/canonical`)
-        await writeFile(`${root}/.codex/skills/canonical/SKILL.md`, "# Provider replacement\n")
+        else {
+          expect(input.skillRoots).toBeUndefined()
+          const [, directory] = /--add-dir "([^"]+)"/.exec(launchArgs) ?? []
+          expect(directory).toBeDefined()
+          skillRoot = join(directory!, ".claude/skills")
+        }
+        expect(skillRoot.startsWith(`${root}/`)).toBe(false)
+        const names = (await readdir(skillRoot)).sort()
+        if (provider === "codex") {
+          // Codex reads `.agents/skills` and `.codex/skills` in its working directory.
+          expect(names).toEqual(["legacy"])
+          await expect(readFile(join(skillRoot, "legacy/SKILL.md"), "utf8")).resolves.toBe("# Legacy\n")
+        }
+        else {
+          // Claude Code reads only `.claude/skills`. The first root wins a name collision.
+          expect(names).toEqual(["canonical", "collision", "gmail"])
+          await expect(readFile(join(skillRoot, "collision/SKILL.md"), "utf8")).resolves.toBe("# Canonical collision\n")
+          await expect(readFile(join(skillRoot, "gmail/SKILL.md"), "utf8")).resolves.toBe("# Gmail\n")
+        }
+        // The Workspace keeps exactly the Skills it had.
+        entries = [
+          ...(await readdir(root)).sort(),
+          ...(await Promise.all([".agents", ".claude", ".codex"].map(async directory => (await readdir(join(root, directory, "skills"))).sort().join(",")))),
+        ]
       },
     })
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
-      diff: vi.fn(async () => {
-        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Provider replacement\n")
-        await expect(access(`${root}/.agents/skills/legacy`)).rejects.toMatchObject({ code: "ENOENT" })
-        await expect(readFile(`${root}/.agents/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
-        await expect(readFile(`${root}/.claude/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
-        return { entries: [] }
-      }),
+      diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
       readFile: vi.fn(async () => new Uint8Array()),
     }
@@ -6414,72 +6505,30 @@ cli_auth_credentials_store = "keyring"
       fs: {},
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
-        await mkdir(join(root, gmailPath, ".."), { recursive: true })
-        await writeFile(join(root, gmailPath), gmailSource.content)
-        await mkdir(`${root}/.agents/skills/canonical`, { recursive: true })
-        await mkdir(`${root}/.agents/skills/collision`, { recursive: true })
-        await mkdir(`${root}/.claude/skills/legacy`, { recursive: true })
-        await mkdir(`${root}/.codex/skills/collision`, { recursive: true })
-        await writeFile(`${root}/.agents/skills/canonical/SKILL.md`, "# Canonical\n")
-        await writeFile(`${root}/.agents/skills/collision/SKILL.md`, "# Canonical collision\n")
-        await writeFile(`${root}/.claude/skills/legacy/SKILL.md`, "# Legacy\n")
-        await writeFile(`${root}/.codex/skills/collision/SKILL.md`, "# Codex collision\n")
+        for (const [path, content] of Object.entries({
+          ".agents/skills/gmail/SKILL.md": "# Gmail\n",
+          ".agents/skills/canonical/SKILL.md": "# Canonical\n",
+          ".agents/skills/collision/SKILL.md": "# Canonical collision\n",
+          ".claude/skills/legacy/SKILL.md": "# Legacy\n",
+          ".codex/skills/collision/SKILL.md": "# Codex collision\n",
+        })) {
+          await mkdir(join(root, path, ".."), { recursive: true })
+          await writeFile(join(root, path), content)
+        }
         return session
       }),
       tools: {},
     }
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+    await createProviderAgentAdapter({ provider }).generate(context(threadId, {
       workspace,
       workspaceAutoCommit: true,
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     }) as never)
 
-    expect(session.diff).toHaveBeenCalledOnce()
-    expect(session.close).toHaveBeenCalledOnce()
-  })
-
-  it.each([".codex", ".codex/skills", ".codex/skills/canonical"])("preserves a provider replacement file at %s during Skill cleanup", async (replacementPath) => {
-    const threadId = `thread-workspace-replaced-skill-parent-${replacementPath}`
-    let root = ""
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
-        await rm(join(root, replacementPath), { recursive: true })
-        await writeFile(join(root, replacementPath), "Provider replacement")
-      },
-    })
-    const session = {
-      close: vi.fn(async () => undefined),
-      commit: vi.fn(async () => undefined),
-      diff: vi.fn(async () => {
-        await expect(readFile(join(root, replacementPath), "utf8")).resolves.toBe("Provider replacement")
-        await expect(readFile(`${root}/.agents/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
-        return { entries: [] }
-      }),
-      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
-      readFile: vi.fn(async () => new Uint8Array()),
-    }
-    const workspace = {
-      fs: {},
-      startSession: vi.fn(async (options: { target: string }) => {
-        root = options.target
-        await mkdir(`${root}/.agents/skills/canonical`, { recursive: true })
-        await writeFile(`${root}/.agents/skills/canonical/SKILL.md`, "# Canonical\n")
-        return session
-      }),
-      tools: {},
-    }
-
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
-      workspace,
-      workspaceAutoCommit: true,
-      workspaceDefinition: { mode: "write", name: "docs" },
-      workspaceMode: "write",
-    }) as never)
+    expect(entries).toEqual([".agents", ".claude", ".codex", "canonical,collision,gmail", "legacy", "collision"])
     expect(session.diff).toHaveBeenCalledOnce()
     expect(session.close).toHaveBeenCalledOnce()
   })
@@ -6489,10 +6538,9 @@ cli_auth_credentials_store = "keyring"
     const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skills-"))
     await mkdir(`${external}/skills/escaped`, { recursive: true })
     await writeFile(`${external}/skills/escaped/SKILL.md`, "# External\n")
-    let root = ""
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       async onStartSession() {
-        await expect(access(`${root}/.agents/skills/escaped`)).rejects.toMatchObject({ code: "ENOENT" })
+        expect(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs ?? "")).not.toContain("--add-dir")
       },
     })
     const session = {
@@ -6505,8 +6553,7 @@ cli_auth_credentials_store = "keyring"
     const workspace = {
       fs: {},
       startSession: vi.fn(async (options: { target: string }) => {
-        root = options.target
-        await symlink(external, `${root}/.claude`, "dir")
+        await symlink(external, `${options.target}/.agents`, "dir")
         return session
       }),
       tools: {},
@@ -6515,124 +6562,22 @@ cli_auth_credentials_store = "keyring"
     try {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId, { workspace }) as never)
-      await expect(readFile(`${external}/skills/escaped/SKILL.md`, "utf8")).resolves.toBe("# External\n")
+      await expect(readdir(external)).resolves.toEqual(["skills"])
+      await expect(readdir(`${external}/skills`)).resolves.toEqual(["escaped"])
     }
     finally {
       await rm(external, { force: true, recursive: true })
     }
   })
 
-  it("replaces a colocated Skill symlink during execution and restores it without changing its external target", async () => {
-    const threadId = "thread-workspace-symlinked-skill-file"
-    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-target-"))
-    const externalFile = join(external, "SKILL.md")
-    await writeFile(externalFile, "# External\n")
-    let root = ""
-    const skillPath = ".agents/skills/review/SKILL.md"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        expect((await lstat(join(root, skillPath))).isSymbolicLink()).toBe(false)
-        for (const provider of [".agents", ".codex", ".claude"]) {
-          await expect(readFile(`${root}/${provider}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Review\n")
-        }
-      },
-    })
-    const session = {
-      close: vi.fn(async () => {
-        expect(await readlink(join(root, skillPath))).toBe(externalFile)
-        await expect(readFile(externalFile, "utf8")).resolves.toBe("# External\n")
-      }),
-      commit: vi.fn(async () => undefined),
-      diff: vi.fn(async () => ({ entries: [] })),
-      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
-      readFile: vi.fn(async () => new Uint8Array()),
-    }
-    const workspace = {
-      fs: {},
-      startSession: vi.fn(async (options: { target: string }) => {
-        root = options.target
-        await mkdir(join(root, skillPath, ".."), { recursive: true })
-        await symlink(externalFile, join(root, skillPath))
-        return session
-      }),
-      tools: {},
-    }
-    const runContext = context(threadId, { workspace })
-    runContext.context.set("agent.colocatedSkills", {
-      review: { content: "# Review\n", workspacePath: skillPath },
-    })
-
-    try {
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
-      expect(session.close).toHaveBeenCalledOnce()
-    }
-    finally {
-      await rm(external, { force: true, recursive: true })
-    }
-  })
-
-  it.each([false, true])("does not restore a Skill through a replaced parent with external file %s", async (existingTarget) => {
-    const threadId = "thread-workspace-symlinked-skill-file"
-    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-target-"))
-    const externalFile = join(external, "SKILL.md")
-    if (existingTarget) await writeFile(externalFile, "# External\n")
-    let root = ""
-    const skillPath = ".agents/skills/review/SKILL.md"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
-        expect((await lstat(join(root, skillPath))).isSymbolicLink()).toBe(false)
-        await rm(join(root, ".agents/skills/review"), { recursive: true })
-        await symlink(external, join(root, ".agents/skills/review"), "dir")
-      },
-    })
-    const session = {
-      close: vi.fn(async () => {
-        expect(await readlink(join(root, ".agents/skills/review"))).toBe(external)
-        if (existingTarget) {
-          expect((await lstat(externalFile)).isFile()).toBe(true)
-          await expect(readFile(externalFile, "utf8")).resolves.toBe("# External\n")
-        }
-        else await expect(lstat(externalFile)).rejects.toMatchObject({ code: "ENOENT" })
-      }),
-      commit: vi.fn(async () => undefined),
-      diff: vi.fn(async () => ({ entries: [] })),
-      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
-      readFile: vi.fn(async () => new Uint8Array()),
-    }
-    const workspace = {
-      fs: {},
-      startSession: vi.fn(async (options: { target: string }) => {
-        root = options.target
-        await mkdir(join(root, skillPath, ".."), { recursive: true })
-        await symlink(externalFile, join(root, skillPath))
-        return session
-      }),
-      tools: {},
-    }
-    const runContext = context(threadId, { workspace })
-    runContext.context.set("agent.colocatedSkills", {
-      review: { content: "# Review\n", workspacePath: skillPath },
-    })
-
-    try {
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
-      expect(session.close).toHaveBeenCalledOnce()
-    }
-    finally {
-      await rm(external, { force: true, recursive: true })
-    }
-  })
-
-  it.each([false, true])("rejects colocated Skill materialization through Workspace symlinks with existing target %s", async (existingTarget) => {
+  it("does not write colocated Skills through a linked Workspace directory", async () => {
     const threadId = "thread-workspace-symlinked-skills"
-    const runtimeCount = createProviderRuntime.mock.calls.length
     const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-parent-"))
-    if (existingTarget) {
-      await mkdir(join(external, "review"))
-      await writeFile(join(external, "review/SKILL.md"), "# External\n")
-    }
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession(input) {
+        await expect(readFile(join(input.skillRoots![0]!, "review/SKILL.md"), "utf8")).resolves.toBe("# Review\n")
+      },
+    })
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
@@ -6643,24 +6588,21 @@ cli_auth_credentials_store = "keyring"
     const workspace = {
       fs: {},
       startSession: vi.fn(async (options: { target: string }) => {
-        await symlink(external, `${options.target}/skills`)
+        await symlink(external, `${options.target}/.agents`, "dir")
         return session
       }),
       tools: {},
     }
     const runContext = context(threadId, { workspace })
     runContext.context.set("agent.colocatedSkills", {
-      review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
+      review: { content: "# Review\n", workspacePath: ".agents/skills/review/SKILL.md" },
     })
 
     try {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
-
-      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
-      expect(session.diff).not.toHaveBeenCalled()
+      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+      await expect(readdir(external)).resolves.toEqual([])
       expect(session.close).toHaveBeenCalledOnce()
-      if (existingTarget) await expect(readFile(join(external, "review/SKILL.md"), "utf8")).resolves.toBe("# External\n")
     }
     finally {
       await rm(external, { force: true, recursive: true })

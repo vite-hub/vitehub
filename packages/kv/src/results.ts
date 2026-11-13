@@ -6,6 +6,6 @@ export const kvDevMaximumListLimit = 1_000
 export const kvDevDefaultListLimit = 100
 
 /** The operations that `vitehub kv` runs, without the `kv.` prefix. There is no `clear` operation. */
-export const kvOperationNames = ["list", "get", "has", "set", "del"] as const
+export const kvOperationNames = ["list", "get", "has", "set", "delete"] as const
 
 export type KVDevOperation = typeof kvOperationNames[number]

@@ -13,7 +13,7 @@ icon: i-lucide-network
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/file-tree`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { FileTree } from "@vite-hub/ui";

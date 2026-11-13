@@ -7,9 +7,10 @@ import {
   forgeErrorStatus,
   forgeProvider,
   readForgeEnv,
+  useForge,
   withSignal,
 } from "@vite-hub/forge";
-import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
+import type { Forge, ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
@@ -130,20 +131,41 @@ async function sendGitHub(input: string | URL | Request, init: RequestInit): Pro
 }
 
 /** A lazy connection: the repository name is checked on the first request. */
-export function connectGitHubRepository(repository: string, token: string): GitHubRepository {
-  let provider: Promise<GitHubProvider> | undefined;
+/** How the Store signs in to GitHub: a token, or a GitHub App installation with its own rate limit. */
+export type GitHubCredential = { token: string } | { app: Forge<"github"> };
+
+/**
+ * A lazy connection: the repository name is checked on the first request. A GitHub App credential mints an
+ * installation token for the repository, keeps it until a minute before it expires, then mints the next one.
+ */
+export function connectGitHubRepository(repository: string, credential: string | GitHubCredential): GitHubRepository {
+  const signIn = typeof credential === "string" ? { token: credential } : credential;
+  let provider: { token: string; provider: Promise<GitHubProvider> } | undefined;
   // The answers of this connection. A new Store starts with none; the shared KV store outlives it.
   const memory = createGitHubReadMemory();
+  const fetch = async (input: string | URL | Request, init?: RequestInit) => await requestGitHub(input, init, memory);
+  const token = async (): Promise<string> => {
+    if ("token" in signIn) return signIn.token;
+    const [error, minted] = await signIn.app.token({ repository });
+    if (error) throw workspaceError(`[vitehub] GitHub workspace could not get a GitHub App token for ${repository}: ${error.message}`, { cause: error });
+    return minted.token;
+  };
   return {
     name: repository,
-    blobReadKey: (sha) => JSON.stringify([repository, token, sha]),
+    blobReadKey: (sha) => JSON.stringify([repository, "token" in signIn ? signIn.token : "app", sha]),
     provider: async () => {
       splitGitHubRepository(repository);
-      // A failed load lets the next request try again.
-      return await (provider ||= forgeProvider({ fetch: async (input, init) => await requestGitHub(input, init, memory), forge: "github", token, userAgent: "vitehub-workspace" }).catch((error: unknown) => {
-        provider = undefined;
-        throw error;
-      }));
+      const current = await token();
+      if (provider?.token !== current) {
+        // Workspace owns conditional reads and immutable KV entries; do not add a second validator layer.
+        const next = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace", conditionalRequests: false }) };
+        // A failed load lets the next request try again.
+        next.provider.catch(() => {
+          if (provider === next) provider = undefined;
+        });
+        provider = next;
+      }
+      return await provider.provider;
     },
     ref: (client) => {
       const { owner, repo } = splitGitHubRepository(repository);
@@ -215,6 +237,19 @@ function readLocationEnv(name: string, env: Record<string, string | undefined>):
   return env[name]?.trim() || undefined;
 }
 
+/**
+ * The GitHub App of the Server Env, when `VITEHUB_GITHUB_APP_ID` is set: its installation tokens have a rate limit of
+ * their own, apart from the personal tokens of the people who share an account. Read from the active Cloudflare bindings,
+ * then from `env`. `VITEHUB_GITHUB_INSTALLATION_ID` skips the lookup of the installation for the repository.
+ */
+export function readGitHubEnvApp(
+  env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
+): Forge<"github"> | undefined {
+  const lookup = (name: string): unknown => getActiveCloudflareBinding<unknown>(name) ?? env[name];
+  if (!readForgeEnv(forgeEnv.github.appId, lookup)) return undefined;
+  return useForge({ env: lookup, fetch: requestGitHub, userAgent: "vitehub-workspace" });
+}
+
 /** The Server Env GitHub token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`, from the active Cloudflare bindings and then from `env`. */
 export function readGitHubEnvToken(
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
@@ -230,7 +265,7 @@ export function requireGitHubOption(
 ): string {
   if (!value) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0072({
-      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN or the token option." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
+      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN, the token option, or a GitHub App with VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
     });
   }
   return value;
@@ -336,6 +371,21 @@ export function resolveGitHubRefsOption(options: GitHubWorkspaceOptions): GitHub
     throw workspaceError(`[vitehub] GitHub workspace store refs.published and refs.draft name the same branch: ${published}.`);
   }
   return published || draft ? { ...(published ? { published } : {}), ...(draft ? { draft } : {}) } : undefined;
+}
+
+/**
+ * How the Store signs in: the `token` option, else a GitHub App from `VITEHUB_GITHUB_APP_ID`, else
+ * `VITEHUB_GITHUB_TOKEN`. The App comes before the env token, the same order as `useForge()`.
+ */
+export function resolveGitHubCredential(
+  options: GitHubWorkspaceOptions,
+  env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
+): GitHubCredential {
+  const token = resolveGitHubOption(options.token);
+  if (token && !isMaskedGitHubTokenOption(token)) return { token };
+  const app = readGitHubEnvApp(env);
+  if (app) return { app };
+  return { token: requireGitHubOption("a token", readGitHubEnvToken(env)) };
 }
 
 export function resolveGitHubTokenOption(

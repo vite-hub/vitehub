@@ -1,23 +1,34 @@
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { globSync, readFileSync } from "node:fs"
+import { join, resolve } from "node:path"
 
-import { H3, H3Event } from "h3"
+import { H3 } from "h3"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { DocsPublicConfig } from "../src/nuxt.ts"
 
-const getItem = vi.fn<(key: string) => Promise<unknown>>()
-const useKV = vi.fn((_base: string) => ({ getItem }))
-const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase"> = {
+const fixtures = resolve(import.meta.dirname, "fixtures/content")
+const readFixture = async (key: string) => readFileSync(join(fixtures, key.replaceAll(":", "/")), "utf8")
+const getItem = vi.fn<(key: string) => Promise<unknown>>(readFixture)
+const getKeys = vi.fn(async () => globSync("**/*.md", { cwd: fixtures }).map(key => key.replaceAll("/", ":")))
+// The pages that the `rawMarkdown` option rewrote at build time.
+const rewritten = new Map<string, string>()
+const useKV = vi.fn((base: string) => base === "assets:docs-agent"
+  ? { getItem: async (key: string) => rewritten.get(key) ?? null }
+  : { getItem, getKeys, getItemRaw: getItem })
+const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase" | "mcp"> = {
   appBase: "/",
-  site: { name: "Fixture", url: "https://docs.example.com", description: "", logo: null, badge: null },
+  site: { name: "Fixture", url: "https://docs.example.com", description: "Fixture docs.", logo: null, badge: null },
   sitemap: ["/tutorials", "/docs/kv", "/a&b"],
+  mcp: { name: "fixture", url: "https://docs.example.com/mcp", guide: null },
 }
 
 // The handlers use the real `nitro/h3`. Storage and runtime config need a Nitro build, so they are fakes.
 vi.mock("nitro/kv", () => ({ useKV }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: docsConfig } }) }))
 vi.mock("#docs/content", () => ({ content: undefined }))
+vi.mock("#docs/agent", () => ({ default: { llms: { details: "Rules for agents.", sections: [{ title: "Links", links: [{ title: "API", href: "https://docs.example.com/openapi.json" }] }] } } }))
 // The app's `parser` module: a Comark plugin that adds a paragraph, so the test sees which parser ran.
 vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({
@@ -26,71 +37,90 @@ vi.mock("#docs/parser", () => ({
 }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
 })
 
 const { default: raw } = await import("../src/runtime/server/raw.ts")
 const { default: sitemap } = await import("../src/runtime/server/sitemap.ts")
+const { default: llms } = await import("../src/runtime/server/llms.ts")
+const { default: mcp } = await import("../src/runtime/server/mcp.ts")
 const { default: page } = await import("../src/runtime/server/page.ts")
 const { default: search } = await import("../src/runtime/server/search.ts")
-const { default: source } = await import("../src/runtime/server/agent-source.ts")
-const app = new H3().get("/raw/**", raw).get("/sitemap.xml", sitemap)
+const { docsAgentCopy } = await import("../src/agent-copy.ts")
+const { findDocsPage } = await import("../src/navigation.ts")
+const { default: manifest } = await import("#docs/manifest")
+const app = new H3().get("/raw/**", raw).get("/sitemap.xml", sitemap).get("/llms.txt", llms).get("/llms-full.txt", llms).get("/sitemap.md", llms).post("/mcp", mcp)
+
+/** The copy of a fixture page, from the file as the build bundles it. */
+async function copyOf(path: string, siteUrl = "https://docs.example.com") {
+  const found = findDocsPage(manifest, path)!.page
+  return docsAgentCopy(manifest, found, await readFixture(found.file), siteUrl)
+}
+
+async function tool(name: string, args: Record<string, unknown> = {}) {
+  const response = await app.fetch(new Request("https://docs.example.com/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", "accept": "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  }))
+  const body = await response.json() as { result: { content: Array<{ text: string }>, isError?: boolean } }
+  return body.result
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getItem.mockImplementation(readFixture)
+  rewritten.clear()
   docsConfig.appBase = "/"
   docsConfig.site.url = "https://docs.example.com"
 })
 
+describe("parser option", () => {
+  const app = new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
+
+  it("parses the page route and search with the app's Comark plugins and the site's repository", async () => {
+    getItem.mockImplementation(async key => `${await readFixture(key)}\nFixed in #12.\n`)
+    const response = await app.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+    const { nodes } = (await response.json()).document
+    expect(nodes).toContainEqual(["p", {}, "Added by the app plugin"])
+    // `docs.github.repo` is the repository that `#12` links to.
+    expect(JSON.stringify(nodes)).toContain("https://github.com/vite-hub/vitehub/issues/12")
+    const index = await app.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+    expect(await index.json()).toContainEqual(expect.objectContaining({ id: expect.stringMatching(/^\/docs\/kv/), content: expect.stringContaining("Added by the app plugin") }))
+  })
+})
+
 describe("raw Markdown route", () => {
-  it.each(["# Introduction\n\nHello", ""])("returns the stored Markdown unchanged: %j", async (markdown) => {
-    getItem.mockResolvedValue(markdown)
-    const response = await app.fetch(new Request("https://docs.example.com/raw/docs/kv.md"))
+  it("serves the agent copy of a page from Content, with the links of its section", async () => {
+    const response = await app.fetch(new Request("https://docs.example.com/raw/docs/kv/configure.md"))
+    const copy = await copyOf("/docs/kv/configure")
 
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
-    expect(await response.text()).toBe(markdown)
-    expect(useKV).toHaveBeenCalledWith("assets:docs-raw")
-    expect(getItem).toHaveBeenCalledWith("docs/kv.md")
+    expect(await response.text()).toBe(`${copy.markdown}${copy.footer}`)
+    expect(copy.footer).toContain("<!-- vitehub-docs:section-links -->")
   })
 
   it("serves the home page from its own raw copy", async () => {
-    getItem.mockResolvedValue("# Home\n")
+    const copy = await copyOf("/")
     const response = await app.fetch(new Request("https://docs.example.com/raw/index.md"))
-
-    expect(await response.text()).toBe("# Home\n")
-    expect(getItem).toHaveBeenCalledWith("index.md")
+    expect(await response.text()).toBe(`${copy.markdown}${copy.footer}`)
   })
 
-  it("decodes the path before it reads storage", async () => {
-    getItem.mockResolvedValue("# Spaced\n")
-    await app.fetch(new Request("https://docs.example.com/raw/docs/a%20b.md"))
-    expect(getItem).toHaveBeenCalledWith("docs/a b.md")
+  it("reads the pages that rawMarkdown rewrote at build time", async () => {
+    rewritten.set("docs_0/docs/kv/ttl.md", "---\ntitle: TTL\n---\nRewritten for agents.\n")
+    expect(await (await app.fetch(new Request("https://docs.example.com/raw/docs/kv/ttl.md"))).text()).toContain("Rewritten for agents.")
+    expect(useKV).toHaveBeenCalledWith("assets:docs-agent")
   })
 
-  it.each(["%ZZ", "%E0%A4%A"])("returns 404 for malformed escapes %s without reading storage", async (path) => {
-    // H3 rejects the malformed path before routing with 400. Called directly, the handler still answers 404.
-    const event = new H3Event(new Request(`https://docs.example.com/raw/docs/${path}.md`))
-    event.context.params = { _: `docs/${path}.md` }
-    await expect(raw(event)).rejects.toMatchObject({ statusCode: 404 })
-    expect(getItem).not.toHaveBeenCalled()
-  })
-
-  it("returns 404 for a page without a raw copy", async () => {
-    getItem.mockResolvedValue(null)
-    const response = await app.fetch(new Request("https://docs.example.com/raw/missing.md"))
+  it.each(["/raw/missing.md", "/raw/docs/kv.html", "/raw/docs/kv/index.md"])("returns 404 for %s", async (path) => {
+    const response = await app.fetch(new Request(`https://docs.example.com${path}`))
     expect(response.status).toBe(404)
-  })
-
-  it("rejects paths that are not Markdown without reading storage", async () => {
-    const response = await app.fetch(new Request("https://docs.example.com/raw/docs/kv.html"))
-    expect(response.status).toBe(404)
-    expect(getItem).not.toHaveBeenCalled()
   })
 })
 
 describe("sitemap route", () => {
-  it("lists every manifest page and the extra paths once, sorted, on the canonical origin", async () => {
+  it("lists every indexed page from Content and the extra paths once, sorted, on the canonical origin", async () => {
     const response = await app.fetch(new Request("https://preview.example.com/sitemap.xml"))
     const body = await response.text()
     const locations = [...body.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1])
@@ -109,19 +139,30 @@ describe("sitemap route", () => {
   })
 })
 
+describe("llms files and MCP", () => {
+  it("lists the pages under Docs, after the extra sections, with links to the raw copies", async () => {
+    const response = await app.fetch(new Request("https://docs.example.com/llms.txt"))
+    const text = await response.text()
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+    expect(text.startsWith("# Fixture\n\n> Fixture docs.\n\nRules for agents.\n\n## Overview\n\n- [Fixture](https://docs.example.com/raw/index.md)\n\n## Documentation Sets")).toBe(true)
+    expect(text.indexOf("## Links")).toBeLessThan(text.indexOf("## Docs"))
+    expect(text).toContain("](https://docs.example.com/raw/docs/kv/configure.md)")
+    expect(await (await app.fetch(new Request("https://docs.example.com/sitemap.md"))).text()).toContain("](https://docs.example.com/raw/docs/kv/configure.md)")
+  })
 
-describe("parser option", () => {
-  const app = new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
+  it("joins the copies in llms-full.txt without the section links", async () => {
+    const full = await (await app.fetch(new Request("https://docs.example.com/llms-full.txt"))).text()
+    const copy = await copyOf("/docs/kv/configure")
+    expect(full).toContain(copy.markdown)
+    expect(full).not.toContain("<!-- vitehub-docs:section-links -->")
+  })
 
-  it("parses the page route and search with the app's Comark plugins and the site's repository", async () => {
-    getItem.mockImplementation(async key => `${readFileSync(resolve(import.meta.dirname, "fixtures/content", key), "utf8")}\nFixed in #12.\n`)
-    const response = await app.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
-    const { nodes } = (await response.json()).document
-    expect(nodes).toContainEqual(["p", {}, "Added by the app plugin"])
-    // `docs.github.repo` is the repository that `#12` links to.
-    expect(JSON.stringify(nodes)).toContain("https://github.com/vite-hub/vitehub/issues/12")
-    const index = await app.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
-    expect(await index.json()).toContainEqual(expect.objectContaining({ id: expect.stringMatching(/^\/docs\/kv/), content: expect.stringContaining("Added by the app plugin") }))
+  it("lists and reads pages through the MCP tools of Content", async () => {
+    const pages = JSON.parse((await tool("list-pages")).content[0]!.text) as Array<{ path: string, url: string }>
+    expect(pages).toContainEqual(expect.objectContaining({ path: "/docs/kv/configure", url: "https://docs.example.com/docs/kv/configure" }))
+    const read = JSON.parse((await tool("get-page", { path: "/docs/kv/configure" })).content[0]!.text) as { content: string }
+    expect(read.content).toBe((await copyOf("/docs/kv/configure")).markdown)
+    expect((await tool("get-page", { path: "/docs/missing" })).isError).toBe(true)
   })
 })
 
@@ -131,10 +172,10 @@ describe("docs resources below an application base", () => {
     .get("/portal/api/_docs/search.json", search)
     .get("/portal/raw/**", raw)
     .get("/portal/sitemap.xml", sitemap)
+    .get("/portal/llms.txt", llms)
 
   it("serves page JSON and search while keeping page paths app-relative", async () => {
     docsConfig.appBase = "/portal/"
-    getItem.mockImplementation(async key => readFileSync(resolve(import.meta.dirname, "fixtures/content", key), "utf8"))
     const response = await based.fetch(new Request("https://docs.example.com/portal/api/_docs/page/docs/kv.json"))
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ page: { path: "/docs/kv" } })
@@ -143,38 +184,14 @@ describe("docs resources below an application base", () => {
     expect(await index.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: expect.stringMatching(/^\/docs\/kv/) })]))
   })
 
-  it("reads raw Markdown independently of the mount prefix and prefixes sitemap URLs", async () => {
+  it("reads raw Markdown below the mount prefix and prefixes every public URL", async () => {
     docsConfig.appBase = "/portal/"
-    getItem.mockResolvedValue("# KV")
+    const copy = await copyOf("/docs/kv", "https://docs.example.com/portal")
     const response = await based.fetch(new Request("https://docs.example.com/portal/raw/docs/kv.md"))
     expect(response.status).toBe(200)
-    expect(await response.text()).toBe("# KV")
-    expect(getItem).toHaveBeenCalledWith("docs/kv.md")
+    expect(await response.text()).toBe(`${copy.markdown}${copy.footer}`)
     const xml = await based.fetch(new Request("https://docs.example.com/portal/sitemap.xml"))
     expect(await xml.text()).toContain("https://docs.example.com/portal/docs/kv")
-  })
-
-  it("lists public discovery paths and reads them back from app-relative manifest entries", async () => {
-    docsConfig.appBase = "/portal/"
-    expect(source.list()).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/portal/docs/kv" })]))
-    getItem.mockResolvedValue("# KV")
-    expect(await source.get("/portal/docs/kv")).toMatchObject({ markdown: "# KV" })
-    expect(getItem).toHaveBeenCalledWith("docs/kv.md")
-  })
-
-  it.each([
-    { appBase: "/portal/", siteUrl: "https://docs.example.com" },
-    { appBase: "/portal/", siteUrl: "https://runtime.example.com" },
-    { appBase: "/runtime/", siteUrl: "https://docs.example.com" },
-    { appBase: "/runtime/", siteUrl: "https://runtime.example.com" },
-  ])("leaves generated section links out of llms-full.txt with runtime config $siteUrl and $appBase", async ({ appBase, siteUrl }) => {
-    const { docsRawSectionLinks } = await import("../src/navigation.ts")
-    const { default: manifest } = await import("#docs/manifest")
-    const markdown = "# Configure\n\n## In this section\n\nAuthor-written links.\n"
-    getItem.mockResolvedValue(markdown + docsRawSectionLinks(manifest, "/docs/kv/configure", "https://docs.example.com/portal"))
-    docsConfig.appBase = appBase
-    docsConfig.site.url = siteUrl
-    expect(await source.get(`${appBase}docs/kv/configure`)).toMatchObject({ markdown })
-    expect(getItem).toHaveBeenCalledWith("docs/kv/configure.md")
+    expect(await (await based.fetch(new Request("https://docs.example.com/portal/llms.txt"))).text()).toContain("](https://docs.example.com/portal/raw/docs/kv.md)")
   })
 })

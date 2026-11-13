@@ -249,7 +249,18 @@ describe("Agent definition layers", () => {
       normalizeWorkspaceSourcesMetadata(agent.sources as never).map(source => [source.key, source.materialize]),
     )
     expect(modes(base)).toEqual({ docs: "startup", pinned: "lazy" })
-    expect(modes(child)).toEqual({ docs: "none", extra: "none", pinned: "lazy" })
+    // A provider Agent still fetches the Skill folders of a Source with materialize none.
+    expect(modes(child)).toEqual({
+      "__vitehubSourceSkills:docs:.agents/skills": "startup",
+      "__vitehubSourceSkills:docs:.codex/skills": "startup",
+      "__vitehubSourceSkills:docs:.claude/skills": "startup",
+      "__vitehubSourceSkills:extra:.agents/skills": "startup",
+      "__vitehubSourceSkills:extra:.codex/skills": "startup",
+      "__vitehubSourceSkills:extra:.claude/skills": "startup",
+      docs: "none",
+      extra: "none",
+      pinned: "lazy",
+    })
     expect(() => defineAgent({ driver: codexDriver(), workspace: { materialize: "eager" as never } })).toThrow("materialize must be one of")
   })
 
@@ -324,6 +335,21 @@ describe("Agent instruction layers", () => {
     await expect(resolve(dynamicChild)).resolves.toBe("Base rules.\n\nReply to Ada.\n\nChild rules.")
     expect(parentCallback).toHaveBeenCalledWith(context)
     await expect(resolve(templateChild)).resolves.toBe("Before\nDefault\nAfter\n\nChild rules.")
+  })
+
+  it("passes the complete document of a configured preset chain to a child extend function", async () => {
+    const preset = defineAgent({
+      options: {},
+      configure: () => defineAgent({ workspace: {}, driver: codexDriver({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } }) }),
+    })
+    const middle = defineAgent({ extends: preset, driver: { instructions: "Middle" } })
+    const child = defineAgent({ extends: middle, driver: { instructions: { extend: inherited => `${inherited}\nChild` } } })
+    const replaced = defineAgent({ extends: child, driver: { instructions: "Replaced" } })
+    // SAFETY: These instructions read no Invocation context.
+    const resolve = (agent: typeof child) => resolveAgentInstructions(agent.__vitehubWorkspaceAgentOptions.driver.instructions, { context: new Map() } as never)
+    await expect(resolve(middle)).resolves.toBe("Before\nMiddle\nAfter")
+    await expect(resolve(child)).resolves.toBe("Before\nMiddle\nAfter\nChild")
+    await expect(resolve(replaced)).resolves.toBe("Replaced")
   })
 
   it("gives a model Driver the instructions that a child extend function returns", async () => {

@@ -28,7 +28,7 @@ The run takes a few minutes. It does these steps:
 1. Starts Postgres 17 and Redis 7 from `compose.yaml` on free ports. With
    `--no-redis`, it starts only Postgres.
 2. Packs the workspace packages and installs the fixture app from `app/` in a
-   temporary directory outside the repository, with Nuxt 5 and the `node` preset.
+   temporary directory outside the repository, with Nuxt 5 and the `node` host.
 3. Builds the app once with `nuxt build`.
 4. Starts three instances of `.output/server/index.mjs` at the same time. Each
    instance has its own working directory, as if it ran on its own host.
@@ -66,7 +66,7 @@ them to the script.
 
 ## What the instances share
 
-On the `node` preset, the default file stores of Queue and Blob resolve
+On the `node` host, the default file stores of Queue and Blob resolve
 `.vitehub/data` from the working directory when the server starts. Three
 processes in one directory would share these files by accident, without a lock.
 Real instances run on different hosts and do not share them. So each instance

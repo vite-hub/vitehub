@@ -193,7 +193,7 @@ describe("vitehub database up", () => {
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
     const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
 
-    expect(() => renderMigrateOnStartPlugin(config, { databases: ["default"], drizzleImport: "db", migrationsImport: "migrations", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
+    expect(() => renderMigrateOnStartPlugin(config, { databases: ["default"], registryImport: "db", migrationsImport: "migrations", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
       code: "DATABASE_MIGRATIONS_OLD_LAYOUT",
       why: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`),
     }))
@@ -286,6 +286,20 @@ describe("vitehub database migrate", () => {
     expect(result.stderr).toContain(`${init}/migration.sql`)
     expect(result.stdout).not.toContain("no pending migrations")
   }, 120_000)
+
+  it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await mkdir(project.database.migrationsDir, { recursive: true })
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+
+    // No URL and no PG* variables: the generated Kit config uses PGlite in .vitehub/data/database/pglite.
+    await expect(project.run("migrate", [], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0]).toEqual(expect.arrayContaining([expect.arrayContaining(["migrate"])]))
+    expect(existsSync(join(project.rootDir, ".vitehub/data/database"))).toBe(true)
+  })
 
   it("fails without a resolved Database config instead of skipping the check", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
@@ -608,7 +622,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
       expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
       expect(applied.stdout).toContain("applied 0002_sign_project_calls.sql.")
       await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([
-        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"],
+        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"], ["0003_comments.sql"],
       ])
       const columns = (await d1.rows("SELECT name FROM pragma_table_info('console_projects')")).flat()
       expect(columns).toContain("key_sealed")
@@ -618,7 +632,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
 
       const staged = join(project.rootDir, "staged")
       await copyD1MigrationFiles(migrationsDir, staged)
-      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql"])
+      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql", "0003_comments.sql"])
       await expect(readFile(join(staged, "0000_careful_stature.sql"), "utf8")).resolves.toBe(initial)
     }
     finally {

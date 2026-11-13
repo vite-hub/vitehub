@@ -15,7 +15,7 @@ the Streamable HTTP transport and needs no API key. It has two read-only tools:
 | `list-pages` | The title, path, description, and URL of every documentation page. |
 | `get-page` | The title, description, URL, and Markdown content of one page. Use a path from `list-pages`, for example `/docs/kv`. |
 
-The server only reads the docs. It does not connect to your app or run ViteHub operations.
+The server only reads the docs. It does not connect to your app or run ViteHub operations. For your apps, use the [Console address](#use-your-apps-through-the-console).
 
 ## Add the server to your client
 
@@ -117,6 +117,27 @@ curl -s https://vitehub.dev/mcp \
 ```
 
 The response lists `get-page` and `list-pages`.
+
+## Use your apps through the Console
+
+The ViteHub Console serves the same MCP on two addresses:
+
+| Address | Sign-in | Tools |
+| --- | --- | --- |
+| `https://console.vitehub.dev/mcp` | None | `list-pages` and `get-page`, the docs tools above. |
+| `https://console.vitehub.dev/mcp/account` | Your Console account, with OAuth | The docs tools, and tools for the apps of your team: `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, and `run_operation`. |
+
+Add the account address to your client:
+
+```bash [Terminal]
+claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
+```
+
+The client opens the Console in your browser. Sign in with GitHub or a passkey, and allow the client. The tools act on the team that you opened last in the Console, with your role in it.
+
+To link an app, ask the agent to call `link_app` with the URL of the app. Only owners and admins of the team can link. The answer has one variable line with the public key of the link, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`. Set it in the environment of the app, set `console: { auth: 'token' }` in its ViteHub config, and deploy. Then `check_app` answers `linked: true`.
+
+`run_operation` runs one operation of the app, such as `kv.list`. The Console signs the call for you as an MCP call, and the agent's sign-in never reaches your app. Your app applies its MCP rules: it refuses operations that it keeps from MCP clients, and runs an operation that deletes or publishes data only when the agent sends `confirm: true`, so the agent asks you first.
 
 ## Use the server with the skill
 

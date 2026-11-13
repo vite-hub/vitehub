@@ -66,6 +66,20 @@ describe("Nitro cache on KV", () => {
     })
   })
 
+  it("returns raw entries as the bytes that were stored", async () => {
+    const namespace = createNamespace()
+    const storage = createStorage()
+    storage.mount("cache", createKVCacheDriver())
+    // A PNG's signature: 0x89 and the bytes after it aren't valid UTF-8, so reading them as text would mangle them.
+    const bytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00, 0xC3])
+
+    await runWithActiveCloudflareEnv({ KV: namespace }, async () => {
+      await storage.setItemRaw("cache:og.png", bytes)
+      expect(new Uint8Array(await storage.getItemRaw("cache:og.png") as Uint8Array)).toEqual(bytes)
+      expect(await storage.getItemRaw("cache:missing.png")).toBeNull()
+    })
+  })
+
   it.each(["", ":", "/", ":://"])("keeps an empty normalized base %j inside the default prefix", async (base) => {
     const namespace = createNamespace()
     const storage = createStorage()

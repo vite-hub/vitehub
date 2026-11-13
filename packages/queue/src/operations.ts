@@ -15,7 +15,7 @@ function defineQueueOperation<Input, Output>(definition: Omit<OperationDefinitio
 
 const list = defineQueueOperation<Record<string, never>, QueueListResult>({
   cli: { namespace: "queue" },
-  description: "List the Queue Definitions of the app and the provider that sends their jobs. The local provider also reports where it stores jobs and the job counts.",
+  description: "List the Queue Definitions of the app and the provider that sends their jobs. The local and postgres providers also report where they store jobs and the job counts.",
   input: v.strictObject({}),
   kind: "read",
   name: "queue.list",
@@ -67,7 +67,7 @@ function formatJob({ job }: { job: LocalQueueJobDetail }): string {
     ...(job.idempotencyKey ? [`Idempotency key: ${job.idempotencyKey}`] : []),
     ...(job.error ? [`Error: ${job.error.code ? `${job.error.code} ` : ""}${job.error.message}`] : []),
     ...(job.error?.stack ? ["Stack:", job.error.stack] : []),
-    `File: ${job.file}`,
+    ...(job.file ? [`File: ${job.file}`] : []),
     "Payload:",
     JSON.stringify(job.payload ?? null, null, 2),
     "",
@@ -76,7 +76,7 @@ function formatJob({ job }: { job: LocalQueueJobDetail }): string {
 
 const jobsList = defineQueueOperation<QueueJobsListInput, QueueJobsListResult>({
   cli: { command: "jobs list", format: formatJobs, namespace: "queue" },
-  description: "List the stored Queue jobs, newest first: pending, running, and dead jobs. In `vite dev` every job runs in the dev server, so this lists them for any provider.",
+  description: "List the stored Queue jobs, newest first: pending, running, and dead jobs, from the local or postgres provider. In `vite dev` every job runs in the dev server, so this lists them for any provider.",
   input: v.strictObject({
     queue: v.optional(queueName),
     state: v.optional(v.picklist(["dead", "pending", "running"])),
@@ -118,8 +118,9 @@ const jobsClear = defineQueueOperation<QueueJobsClearInput, { cleared: number }>
 })
 
 /**
- * The `queue.*` operations: list and send, and the stored jobs of the local provider. `vite dev` runs every job with
- * the local provider. Cloudflare and Vercel do not let a producer read their queue, so the job operations fail there.
+ * The `queue.*` operations: list and send, and the stored jobs of the local and postgres providers. `vite dev` runs
+ * every job with the local provider. Cloudflare and Vercel do not let a producer read their queue, so the job
+ * operations fail there.
  */
 export const queueOperations: readonly AnyOperation[] = [list, send, jobsList, jobsShow, jobsRetry, jobsClear]
 

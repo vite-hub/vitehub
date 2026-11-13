@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const run = promisify(execFile);
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -155,7 +155,13 @@ process.once("SIGTERM", async () => { await server.close(); process.exit(0) })
     expect(withCredentials).not.toHaveProperty("credentialEnvironment");
     for (const observation of [withoutCredentials, withCredentials]) {
       expect(observation.cwd.startsWith(`${runnerTmp}/vitehub-sandbox-check.`)).toBe(true);
-      await expect(stat(observation.cwd)).rejects.toMatchObject({ code: "ENOENT" });
+      // The check ends its SSH connection, then the runner removes the workspace. The CLI does not wait for the runner.
+      await vi.waitFor(
+        async () => {
+          await expect(stat(observation.cwd)).rejects.toMatchObject({ code: "ENOENT" });
+        },
+        { timeout: 5_000 },
+      );
     }
     expect(withCredentials.home).toBe(join(withCredentials.cwd, "codex"));
     await expect(stat(runnerCodexHome)).rejects.toMatchObject({ code: "ENOENT" });
