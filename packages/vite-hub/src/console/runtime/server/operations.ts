@@ -525,10 +525,10 @@ const sitePagePath = v.optional(v.pipe(text, v.maxLength(2048)))
 const siteId = v.pipe(text, v.minLength(1), v.maxLength(64))
 const siteAccess = () => import("./site-access.ts")
 
-/** Site access: browsers that use the page tools without an app sign-in. See `site-access.ts`. */
+/** Site access: the Console signs browsers in to the app for the page tools. See `site-access.ts`. */
 const siteOperations = [
   defineConsoleOperation({
-    description: "Return a one-time link that gives the browser that opens it a member pass, then opens the page. With qr: true, it works for 10 minutes, for a phone.",
+    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone.",
     input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()) }),
     kind: "write",
     mcp: false,
@@ -537,24 +537,24 @@ const siteOperations = [
     section: "site",
   }),
   defineConsoleOperation({
-    description: "List the browsers that hold a page pass: Console members and invited guests.",
+    description: "List the app sessions of Console members and invited guests: one per browser.",
     input: v.strictObject({}),
     kind: "read",
-    name: "site.passes",
-    run: async (_input, context) => (await siteAccess()).listPasses(context),
+    name: "site.sessions",
+    run: async (_input, context) => (await siteAccess()).listSessions(context),
     section: "site",
   }),
   defineConsoleOperation({
     cli: { positional: ["id"] },
-    description: "Revoke the page pass of one browser.",
+    description: "Sign one browser out. Revoking a guest's browser deletes the guest.",
     input: v.strictObject({ id: siteId }),
     kind: "destructive",
-    name: "site.revoke-pass",
-    run: async ({ id }, context) => (await siteAccess()).revokePass(context, id),
+    name: "site.revoke-session",
+    run: async ({ id }, context) => (await siteAccess()).revokeSession(context, id),
     section: "site",
   }),
   defineConsoleOperation({
-    description: "Invite a guest: a one-time link that gives one browser a pass with a name and grants, such as comments.write. Guests never get the Console.",
+    description: "Invite a guest: a one-time link that signs one browser in as a new app user with a name and roles, such as comments-write. Guests never get the Console.",
     input: v.strictObject({
       expiresInDays: v.optional(v.picklist([1, 7, 30])),
       grants: v.pipe(v.array(v.pipe(text, v.maxLength(128))), v.maxLength(32)),
@@ -585,7 +585,7 @@ const siteOperations = [
     section: "site",
   }),
   defineConsoleOperation({
-    description: "List the grants that a page pass may hold. Console is for members only.",
+    description: "List the roles that Site access gives. Console is for members only.",
     input: v.strictObject({}),
     kind: "read",
     name: "site.grants",

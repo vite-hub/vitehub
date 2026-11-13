@@ -179,7 +179,7 @@
     "packages/sandbox/src/internal/cloudflare-durable-object.ts": 5,
     "packages/sandbox/src/internal/toolchain.ts": 1,
     "packages/sandbox/src/internal/trusted-host.ts": 2,
-    "packages/sandbox/src/ssh.ts": 12,
+    "packages/sandbox/src/ssh.ts": 13,
     "packages/sandbox/src/task/runtime/entry-script.ts": 2,
     "packages/schedule/src/runtime/operations.ts": 1,
     "packages/schedule/src/runtime/process.ts": 1,
