@@ -18,9 +18,8 @@ icon: i-lucide-code-2
 | `hubAuth` from `@vite-hub/auth/vite` | Add Auth discovery, the route, and generated server aliases. |
 | `useAuth`, `auth`, `getAuth` from `vite-hub/auth/server` | Use the Better Auth instance in server code. |
 | Default export of `vite-hub/auth/server` | The Auth route as a Fetchable, `{ fetch(request) }`. Mount it when you set `route: false`. |
-| `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `vite-hub/auth/server` | Mount or call the Auth handler manually. |
+| `handleAuth`, `createAuthHandler` from `vite-hub/auth/server` | Mount or call the Auth handler manually. |
 | `withAuth` from `vite-hub/auth/server` | Run a handler only when a session exists. |
-| `requireAuthAccessRoutes` from `vite-hub/auth/server` | Guard selected access routes. |
 | `withAuthorization` from `vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization` from `vite-hub/auth/server` | Check the session inside a handler. They return the checked session or throw an HTTP error. |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
@@ -108,7 +107,6 @@ Server code reads the Better Auth instance of a request with `useAuth(event)`.
 ```ts [server/api/session.get.ts]
 import { useAuth } from 'vite-hub/auth/server'
 import { defineHandler } from 'h3'
-import type {} from 'vite-hub/runtime/h3'
 
 export default defineHandler(event => useAuth(event).api.getSession({ headers: event.req.headers }))
 ```
@@ -141,7 +139,6 @@ Every refusal of the guards has one JSON body in H3's error format, with a stabl
 ```ts [server/api/me.get.ts]
 import { requireAuth } from 'vite-hub/auth/server'
 import { defineHandler } from 'h3'
-import type {} from 'vite-hub/runtime/h3'
 
 export default defineHandler(async (event) => {
   const { user } = await requireAuth(event)
@@ -219,14 +216,7 @@ The callback receives the signed-in `user`, `session`, and request. ViteHub defi
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
-Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request that an access route matches. Manual hosts can use it with a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app.
-
-- Pass `{ route, method?, authorize?: true }` entries in the order of the Definition's `access.routes`.
-- A route ending in `/**` matches its base path and everything below. Other routes match only that path.
-- All matching rules apply. `authorize: true` needs the matching runtime callback.
-- Requests that match nothing do not load the Auth Definition or session.
-
-`requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` to a signed-out browser instead of redirecting to provider sign-in. Use it when the host shows its own sign-in page and starts provider sign-in on a click. By default, it keeps the `access.signIn` redirect.
+The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
 The [Console](/docs/development/console#protect-the-console-route) endpoint does not use these access routes. It takes only signed requests and one-time links.
 

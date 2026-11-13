@@ -1,7 +1,7 @@
 import { consoleBodySha256 } from "@vite-hub/internal/console-signature"
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
 import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"

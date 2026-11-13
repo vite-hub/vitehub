@@ -17,10 +17,13 @@
         "../../packages/auth/src/runtime/empty-definition.ts"
       ],
       "#vitehub/auth/server": [
-        "../../packages/auth/src/server.ts"
+        "../../packages/auth/src/internal/server.ts"
       ],
       "#vitehub/env/server": [
         "../../packages/auth/src/runtime/env.d.ts"
+      ],
+      "@vite-hub/auth/internal/server": [
+        "../../packages/auth/src/internal/server.ts"
       ],
       "@vite-hub/auth/server": [
         "../../packages/auth/src/server.ts"

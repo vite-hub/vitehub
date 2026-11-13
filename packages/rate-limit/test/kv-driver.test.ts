@@ -186,8 +186,8 @@ describe("kv provider at runtime", () => {
 
     await expect(resolveRateLimitProvider()).resolves.toBe("kv")
     expect(info).toHaveBeenCalledWith(expect.stringContaining("KV store \"default\" (redis)"))
-    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject({ allowed: true })
-    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject({ allowed: false })
+    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: true }])
+    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: false }])
     expect([...kv.values.values()]).toEqual([2])
     await expect(peekRateLimit("uploads", "user")).resolves.toMatchObject({ counters: [{ used: 2 }], provider: "kv", scope: "global", status: "known" })
     await expect(resetRateLimit("uploads", "user")).resolves.toMatchObject({ scope: "global", status: "reset" })
@@ -199,8 +199,8 @@ describe("kv provider at runtime", () => {
     const kv = fakeKV()
     setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
 
-    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject({ allowed: true })
-    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject({ allowed: false })
+    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: true }])
+    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: false }])
     expect(kv.values.size).toBe(0)
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("uses fs-lite, which has no shared atomic increment"))

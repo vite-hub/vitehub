@@ -46,7 +46,7 @@ beforeAll(async () => {
   await writeFile(join(root, "server/api/run.post.ts"), [
     "import { defineEventHandler, getQuery } from \"h3\"",
     "import { defineAgent, startAgentInvocation, agentWorkflow } from \"vite-hub/agent\"",
-    "import { getRuntimeContext } from \"vite-hub/runtime/h3\"",
+    "import { getRuntimeContext } from \"vite-hub/runtime\"",
     "import greeter from \"../agents/greeter\"",
     "import hello from \"../agents/hello\"",
     "",

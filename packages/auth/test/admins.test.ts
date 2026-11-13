@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthConsole } from "../src/console-runtime.ts"
-import { createAuthForRequest, resetAuth } from "../src/server.ts"
+import { createAuthForRequest, resetAuth } from "../src/internal/server.ts"
 
 const origin = "https://app.example.com"
 const github = { clientId: "client", clientSecret: "secret" }

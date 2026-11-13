@@ -24,7 +24,7 @@ Authenticate first. Then pass only checked identity facts:
 
 ```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {

@@ -483,7 +483,7 @@ it('clears external runtime aliases on each internal-first Vite SSR load', async
   const { root } = await fixture(false)
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))
   const probe = join(root, 'runtime-probe.mjs')
-  await writeFile(probe, "export { registerPublicUrlAgentName, resolvePublicUrl } from '@vite-hub/runtime'")
+  await writeFile(probe, "export { registerPublicUrlAgentName } from '@vite-hub/runtime/internal/public-url'; export { resolvePublicUrl } from '@vite-hub/runtime'")
   await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
   await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
   await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
@@ -516,7 +516,8 @@ it('preserves earlier aliases across lazy loads and clears aliases when the pare
   await writeFile(join(second, 'agent.ts'), "import { codexDriver, defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-second', driver: codexDriver(), runtime: false })")
   await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
   const entry = join(root, 'aliases.ts')
-  await writeFile(entry, `import { registerPublicUrlAgentName, resolvePublicUrl } from '@vite-hub/runtime'
+  await writeFile(entry, `import { registerPublicUrlAgentName } from '@vite-hub/runtime/internal/public-url'
+import { resolvePublicUrl } from '@vite-hub/runtime'
 export async function inspect() {
   registerPublicUrlAgentName('stale', 'review')
   const { default: registry } = await import(${JSON.stringify(join(root, '.vitehub/agent/registry.mjs'))})
@@ -534,6 +535,7 @@ export async function inspect() {
       define: { __VITEHUB_PUBLIC_URL__: JSON.stringify({ agents: { review: 'https://first.example', second: 'https://second.example' } }) },
       plugins: [{ name: 'published-agent-aliases', setup(builder) {
         builder.onResolve({ filter: /^@vite-hub\/runtime$/ }, () => ({ path: join(packageRoot, '../runtime/dist/index.js') }))
+        builder.onResolve({ filter: /^@vite-hub\/runtime\/internal\/public-url$/ }, () => ({ path: join(packageRoot, '../runtime/dist/internal/public-url.js') }))
         builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === '@vite-hub/agent' ? '.' : `.${args.path.slice('@vite-hub/agent'.length)}`].import) }))
       } }],
     })
