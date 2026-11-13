@@ -1,0 +1,34 @@
+{
+  "$schema": "https://shadcn-vue.com/schema/registry.json",
+  "name": "vitehub",
+  "homepage": "https://vitehub.dev",
+  "items": [
+    {
+      "name": "vitehub",
+      "type": "registry:style",
+      "title": "ViteHub",
+      "description": "The ViteHub look for @vite-hub/kit parts: the shadcn tokens with ViteHub values, light and dark, and the default style family. It installs no Reka UI.",
+      "extends": "none",
+      "files": [
+        {
+          "path": "src/styles/default.css",
+          "type": "registry:file",
+          "target": "styles/vitehub.css"
+        }
+      ]
+    },
+    {
+      "name": "vitehub-ui-skill",
+      "type": "registry:item",
+      "title": "ViteHub UI agent skill",
+      "description": "A skill that tells a coding agent how to use, style, and install ViteHub UI parts.",
+      "files": [
+        {
+          "path": "registry/vitehub-ui/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/vitehub-ui/SKILL.md"
+        }
+      ]
+    }
+  ]
+}
