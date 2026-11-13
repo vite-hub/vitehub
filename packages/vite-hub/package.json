@@ -667,6 +667,36 @@
       "import": "./dist/source/vite.js",
       "default": "./dist/source/vite.js"
     },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js",
+      "default": "./dist/sync.js"
+    },
+    "./sync/client": {
+      "types": "./dist/sync/client.d.ts",
+      "import": "./dist/sync/client.js",
+      "default": "./dist/sync/client.js"
+    },
+    "./sync/database": {
+      "types": "./dist/sync/database.d.ts",
+      "import": "./dist/sync/database.js",
+      "default": "./dist/sync/database.js"
+    },
+    "./sync/operations": {
+      "types": "./dist/sync/operations.d.ts",
+      "import": "./dist/sync/operations.js",
+      "default": "./dist/sync/operations.js"
+    },
+    "./sync/runtime": {
+      "types": "./dist/sync/runtime.d.ts",
+      "import": "./dist/sync/runtime.js",
+      "default": "./dist/sync/runtime.js"
+    },
+    "./sync/vue": {
+      "types": "./dist/sync/vue.d.ts",
+      "import": "./dist/sync/vue.js",
+      "default": "./dist/sync/vue.js"
+    },
     "./ui": {
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js",
@@ -913,6 +943,7 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/sync": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -992,6 +1023,7 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/sync": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -1140,6 +1172,9 @@
       "optional": true
     },
     "@vite-hub/shell": {
+      "optional": true
+    },
+    "@vite-hub/sync": {
       "optional": true
     },
     "@vite-hub/ui": {

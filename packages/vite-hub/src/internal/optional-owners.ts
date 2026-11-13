@@ -40,6 +40,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
+    | "@vite-hub/sync"
     | "@vite-hub/ui"
     | "@vite-hub/workflow"
     | "@vite-hub/workspace"
@@ -89,6 +90,8 @@ export const optionalFeaturePackages = {
   "sandboxTask": features.sandboxTask.packages,
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
+  // `server/sync/` turns Sync on, and its change log goes to the Database.
+  "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
   // An Agent turns Workflow on unless the app sets `workflow: false`.
   "workflow": features.workflow.packages,

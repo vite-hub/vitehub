@@ -137,6 +137,12 @@ the same behavior.
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
 | `vite-hub/source/mcp` | MCP Resources implementation. Needs `@modelcontextprotocol/sdk`. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
+| `vite-hub/sync` | `defineSync()` for `server/sync/<name>.ts`: a table that the browser keeps a local copy of, `recordSyncChanges()` for writes from server code, `syncRoute()`, and the wire types. Re-exports `@vite-hub/sync`. |
+| `vite-hub/sync/client` | `createSync()`: the local copy of a Sync table, with writes queued in IndexedDB. Re-exports `@vite-hub/sync/client`. |
+| `vite-hub/sync/database` | The `vitehub_sync_changes`, `vitehub_sync_mutations`, and `vitehub_sync_state` tables as `syncSchema` and `syncTables`. Re-exports `@vite-hub/sync/database`. |
+| `vite-hub/sync/operations` | The `sync.list` and `sync.changes` operations of `vitehub sync` and MCP. Re-exports `@vite-hub/sync/operations`. |
+| `vite-hub/sync/runtime` | `createSyncHandler()`, which the generated Sync route calls, and `installedSync()`. Apps do not import it. Re-exports `@vite-hub/sync/runtime`. |
+| `vite-hub/sync/vue` | `useSync()`: the reactive rows and writes of a Sync table. Re-exports `@vite-hub/sync/vue`; auto-imported in Nuxt. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | Every AI interface component, headless message scrolling, and default styles. |
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor` with uploads to Blob. Kept out of the root import, so it loads Tiptap only where you use it. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |

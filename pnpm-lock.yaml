@@ -4077,6 +4077,9 @@ importers:
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../shell
+      '@vite-hub/sync':
+        specifier: workspace:*
+        version: link:../sync
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../ui
