@@ -58,7 +58,7 @@ export function validateChannelDefinition(value: unknown): asserts value is Chan
  *   on: { 'checkout.session.completed': event => sendQueue('fulfil', event.data) },
  * })
  */
-export function defineChannel<TAdapter extends ChannelAdapter<never>>(
+export function defineChannel<TAdapter extends ChannelAdapter<never, never>>(
   definition: ChannelDefinitionOptions<TAdapter>,
 ): ChannelDefinition<TAdapter> {
   validateChannelDefinition(definition)
