@@ -599,6 +599,8 @@ const changelogAgent = agentWithSkills(
 
 Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
 
+A discovered child Agent with its own `skills/` folder also keeps the colocated Skills of its parent. A child Skill folder replaces the parent folder with the same name, including its references.
+
 ### Presets from a package
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
