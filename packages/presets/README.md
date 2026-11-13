@@ -79,6 +79,14 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+With only `filter.repository.allow`, the Babysitter serves pull requests whose
+author is an owner, member, or collaborator, skips those labelled
+`babysitter:skip`, and merges ready ones directly. A direct merge holds a pull
+request from someone without write access until a maintainer approves its head.
+Any `filter.author` or `filter.authorAssociation` rule replaces the author
+default, `lifecycle.labels` or `filter.labels` replace the label, and
+`merge: false` turns merging off.
+
 `filter.authorAssociation` selects authors by their GitHub `author_association`,
 such as `{ allow: ["OWNER", "MEMBER", "COLLABORATOR"] }`. A pull request passes
 when its author matches `filter.author.allow` or `filter.authorAssociation.allow`,
