@@ -176,6 +176,8 @@ describe("GitHub reconcile runs when the pull request branch moves", () => {
   it("keeps every live handle when runs finish out of order", async () => {
     const { comment, completed, pullRequestEvent, runs } = await setup("cancel", [], { concurrencyLimit: 2 })
     await comment("a", 1)
+    // Delivery acceptance does not guarantee Driver start order with two queue slots.
+    await vi.waitFor(() => expect(runs).toHaveLength(1))
     await comment("b", 2)
     await vi.waitFor(() => expect(runs).toHaveLength(2))
     runs[1]!.finish()
