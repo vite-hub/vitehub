@@ -1111,11 +1111,9 @@ describe("Agent invocation console", () => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [] },
       basePath: "/api/auth",
-      database: { mode: "default" },
       definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
       rootDir: root,
       route: "/api/auth",
-      secondaryStorage: false,
       tables: false,
     }
     try {

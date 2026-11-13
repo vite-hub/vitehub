@@ -704,7 +704,7 @@ describe("Workspace Source Sync", () => {
     const workspace = await useRegisteredWorkspace("markdown-helper-sync")
     await workspace.sync({ sources: ["docs"] })
 
-    await expect(workspace.readFile("docs/README.md")).resolves.toBe("# Markdown\n")
+    await expect(workspace.readFile("README.md")).resolves.toBe("# Markdown\n")
   })
 
   it("rejects ambiguous plain object source configuration", async () => {
