@@ -1,10 +1,10 @@
 import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_D1, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
-import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { parseJSONC } from "confbox/jsonc"
@@ -53,6 +53,7 @@ import type { EnvDeclarations } from "@vite-hub/env"
 import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
 import { resolveViteHubServerImports, type ServerAutoImport } from "./nuxt-server-imports.ts"
 
 const databaseRuntimeState = ownModule(import.meta.url, "internal/database-runtime-state")
@@ -691,6 +692,17 @@ function restoreNoExternals(config: Record<string, unknown>, incomingNoExternals
   if (incomingNoExternals !== undefined) config.noExternals = incomingNoExternals
 }
 
+/**
+ * A workspace links ViteHub packages from their source folders, so their real paths do not contain `@vite-hub/`.
+ * Nitro loads such a package from Node, which cannot read the generated aliases.
+ */
+function linkedViteHubPackageRoots(projectRoot: string): string[] {
+  const nodeModules = join(projectRoot, "node_modules")
+  const scope = join(nodeModules, "@vite-hub")
+  const links = [join(nodeModules, "vite-hub"), ...(existsSync(scope) ? readdirSync(scope).map(name => join(scope, name)) : [])]
+  return links.filter(existsSync).map(link => realpathSync(link)).filter(root => !root.split(sep).includes("node_modules"))
+}
+
 /** Add packages that Nitro must bundle, unless Nitro already bundles every package. */
 function addNoExternals(config: Record<string, unknown>, entries: string[]): void {
   if (config.noExternals === true) return
@@ -895,6 +907,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...nuxt.options.vitehub,
     ...inlineOptions,
   } as ViteHubNuxtOptions
+  assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
   const moduleOptions = { ...configuredModuleOptions, host: configuredModuleOptions.host ?? detectHost() ?? "node" }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
@@ -1418,7 +1431,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Node, which loads external modules, cannot read those aliases.
-    addNoExternals(config, ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])
+    addNoExternals(config, ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot, ...linkedViteHubPackageRoots(projectRoot)])
     if (incomingNoExternals === false && Array.isArray(config.noExternals)) nitro3ExternalLists.set(config, config.noExternals)
     else nitro3ExternalLists.delete(config)
     // When Nuxt builds Nitro in a Vite environment, the ViteHub plugins already run there.
@@ -1466,7 +1479,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // off, the config says so. vitehub() stubs only the Upstash driver; there a missing config makes the KV runtime fall
     // back to environment defaults.
     const kv = resolvedKVFromPlugin(retainedKVPlugin, effectiveKV)
-    if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
+    if (!kv) {
+      const virtual = (config.virtual ??= {}) as Record<string, string>
+      if (virtual["#vitehub/kv/config"] === undefined || virtual["#vitehub/kv/config"] === disabledKVConfigModule) {
+        virtual["#vitehub/kv/config"] = disabledKVConfigModule
+        // Nitro's final Vite environment must also resolve imports from linked workspace packages. Its virtual
+        // config alone is not available to Nuxt's bare import resolver in that environment.
+        const disabledConfig = join(projectRoot, ".vitehub/nuxt/disabled-kv-config.mjs")
+        await mkdir(dirname(disabledConfig), { recursive: true })
+        await writeFile(disabledConfig, disabledKVConfigModule, "utf8")
+        alias["#vitehub/kv/config"] ??= disabledConfig
+      }
+    }
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
     if (!hasRedisStore(kv)) alias[redisDriverSpecifier] ??= disabledRedisDriver
     addNitroImports(config, serverAutoImports)

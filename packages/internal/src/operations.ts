@@ -653,7 +653,12 @@ export function assertOperationProject(request: Request, root: string | undefine
  */
 export function assertOperationConfirmation(request: Request, call: OperationCallKind): void {
   if (request.headers.get(operationConfirmationHeader) !== "required") return
-  if (call.kind !== "destructive" || call.readOnly) return
+  assertOperationConfirmed(call, false)
+}
+
+/** Refuse a destructive call that the caller did not confirm with `409` `INTERNAL_R0026`. Reads and writes pass. */
+export function assertOperationConfirmed(call: OperationCallKind, confirmed: boolean): void {
+  if (confirmed || call.kind !== "destructive" || call.readOnly) return
   throw Object.assign(internalErrorDiagnostics.INTERNAL_R0026(), { status: 409 })
 }
 

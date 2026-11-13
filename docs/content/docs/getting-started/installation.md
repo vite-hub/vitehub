@@ -304,6 +304,6 @@ This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, usin
 
 ## Model and coding providers
 
-Install a provider package only when you use it. Model Drivers need `ai` and the credentials in [Agent Drivers](/docs/agents/agent-drivers). The built-in coding Drivers use `@openai/codex@0.149.1` or `@anthropic-ai/claude-agent-sdk@0.3.246`. ViteHub bundles their runtime, so pnpm settings do not change.
+Install a provider package only when you use it. Model Drivers need `ai` and the credentials in [Agent Drivers](/docs/agents/agent-drivers). The built-in coding Drivers use `@openai/codex@0.149.1` or `@anthropic-ai/claude-agent-sdk@0.3.321`. ViteHub bundles their runtime, so pnpm settings do not change.
 
 A Node.js build copies the native coding-provider packages for the build computer's OS, CPU, and Linux libc. Build on the same type of computer you deploy to.

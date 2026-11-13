@@ -30,7 +30,7 @@ The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 pro
 
 ```sh
 pnpm add @openai/codex@0.149.1
-pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
 ViteHub resolves those project dependencies directly. Production self-hosted Node builds on macOS and Linux copy only the build host's native payload, including the Linux libc variant, so build on the same host type used for deployment. Without `@openai/codex`, the Codex Driver keeps using `codex` from the host `PATH`. The Claude Code Driver requires the Agent SDK; when its native package is unavailable at runtime, ViteHub leaves T3's host `claude` command fallback unchanged. Claude Code credentials and Codex credentials without an explicit `driver.credentials` resolver must be available to the host process.

@@ -35,6 +35,8 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
     .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
+    // The ViteHub MCP of the Console sees only the operations that MCP clients may call.
+    .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations }

@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { github } from "@vite-hub/source"
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
+
+import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 
 import type { DocsPackedFiles } from "../src/files.ts"
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
@@ -196,7 +199,7 @@ describe("docs in an existing app", () => {
   it.each([false, true])("builds docs classes in the app's Tailwind build, with mapped sources: %s", async (mapped) => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" })
     writeFileSync(join(app.srcDir, "main.css"), '@import "tailwindcss";\n@import "@nuxt/ui";\n')
-    const options = await setupDocs(mapped ? { sources: [{ dir: app.dir }] } : { dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
+    const options = await setupDocs(mapped ? { sources: [app.dir] } : { dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
     const docsCss = templates.get("docs/docs.css")!
     expect(docsCss()).toContain('@import "tailwindcss";')
     options.alias["~"] = app.srcDir
@@ -366,8 +369,8 @@ describe("docs Nuxt setup", () => {
       {
         base: "/",
         sources: [
-          { dir: join(dir, "a"), mount: "/a" },
-          { dir: join(dir, "b"), mount: "/b" },
+          { source: join(dir, "a"), mount: "/a" },
+          { source: join(dir, "b"), mount: "/b" },
         ],
         components: "./markdown-components.ts",
       },
@@ -390,6 +393,54 @@ describe("docs Nuxt setup", () => {
     ]);
   });
 
+  it.each([true, false])("copies and serves the pages of a github() Source (dev: %s)", async (dev) => {
+    const fake = createFakeGitHub({ owner: "acme", repo: "docs" });
+    vi.stubGlobal("fetch", vi.fn(fake.fetch));
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token");
+    vi.stubEnv("FORGES_GITHUB_TOKEN", "");
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    });
+    fake.commit("main", {
+      "docs/guide/start.md": "---\ntitle: Start\n---\nFrom a Source",
+      "docs/draft.md": "---\ntitle: Draft\n---\n",
+    });
+    const options = await setupDocs(
+      {
+        base: "/",
+        sources: [{ source: github({ repo: "acme/docs", root: "docs" }), mount: "/remote", exclude: ["draft.md"] }],
+        rawMarkdown: markdown => `${markdown}\nRewritten.`,
+      },
+      "/",
+      dev,
+    );
+    const copied = join(options.buildDir, "docs/sources/docs-0");
+    expect(readFileSync(join(copied, "guide/start.md"), "utf8")).toBe("---\ntitle: Start\n---\nFrom a Source");
+    expect(existsSync(join(copied, "draft.md"))).toBe(false);
+    const nitro: { serverAssets?: unknown[], virtual?: Record<string, string | (() => string)> } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    if (dev) expect(nitro.serverAssets).toContainEqual({ baseName: "docs-0", dir: copied, pattern: "**/*.md" });
+    else expect(nitro.serverAssets ?? []).toEqual([]);
+    // `nuxi build` empties the build folder after the modules load, so the copy is written again before the build.
+    rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
+    for (const hook of hooks.get("build:before") ?? []) await hook();
+    expect(readFileSync(join(copied, "guide/start.md"), "utf8")).toContain("From a Source");
+    expect(readFileSync(join(options.buildDir, "docs/agent/docs_0/guide/start.md"), "utf8")).toContain("Rewritten.");
+    if (!dev) {
+      const template = nitro.virtual?.["#docs/files"];
+      if (typeof template !== "function") throw new Error("#docs/files is not generated");
+      const { default: files } = await import(`data:text/javascript,${encodeURIComponent(template())}`) as { default: DocsPackedFiles };
+      expect(files.index["docs-0"]?.["guide/start.md"]).toBeDefined();
+      expect(files.index["docs-0"]?.["draft.md"]).toBeUndefined();
+      expect(files.index["docs-agent"]?.["docs_0/guide/start.md"]).toBeDefined();
+    }
+    // Content renders the raw copy on request, so the build writes none.
+    expect(existsSync(join(options.buildDir, "docs/raw"))).toBe(false);
+    // A Source has no folder to watch.
+    expect(watchContent).not.toHaveBeenCalled();
+  });
+
   it("packs the pages and rewritten agent copies of a build into one module instead of a server asset per file", async () => {
     const dir = mkdtempSync(join(tmpdir(), "docs-packed-"));
     roots.push(dir);
@@ -397,7 +448,7 @@ describe("docs Nuxt setup", () => {
       mkdirSync(join(dir, name));
       writeFileSync(join(dir, name, "index.md"), `---\ntitle: ${name}\n---\nSource ${name}`);
     }
-    await setupDocs({ base: "/", sources: [{ dir: join(dir, "a"), mount: "/a" }, { dir: join(dir, "b"), mount: "/b" }], rawMarkdown: markdown => `${markdown}\nRewritten.` });
+    await setupDocs({ base: "/", sources: [{ source: join(dir, "a"), mount: "/a" }, { source: join(dir, "b"), mount: "/b" }], rawMarkdown: markdown => `${markdown}\nRewritten.` });
     const nitro: { serverAssets?: Array<{ baseName: string }>, virtual?: Record<string, string | (() => string)> } = {};
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
     expect(nitro.serverAssets?.filter(asset => asset.baseName.startsWith("docs")) ?? []).toEqual([]);
@@ -495,8 +546,8 @@ describe("docs Nuxt setup", () => {
           ...(multiple
             ? {
                 sources: [
-                  { dir: join(content, "docs"), mount: "/docs" },
-                  { dir: second, mount: "/other" },
+                  { source: join(content, "docs"), mount: "/docs" },
+                  { source: second, mount: "/other" },
                 ],
               }
             : {}),

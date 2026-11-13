@@ -75,18 +75,24 @@ The module reads the folder at build time. In development it watches the folder:
 
 ### Multiple sources and Markdown components
 
-Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and reads its original Markdown through Nitro server assets. A build packs the Markdown of every source and the raw copies into one gzip module, so a site with thousands of pages stays far below Cloudflare's limit of 5,000 Worker modules.
+Read pages from more than one place with `sources`. It replaces `dir`. Each entry is a folder relative to the app root, a Source from `vite-hub/source`, such as `glob()` or `github()`, or `{ source, mount?, exclude?, frontmatter? }` with one of them. `mount` is the public path of the pages, `exclude` leaves out file globs, and `frontmatter` adapts metadata before schema validation.
+
+The module reads the `.md` and `.navigation.yml` files of every source through ViteHub Content when it builds. In development the server reads folders through Nitro server assets, and the module watches them. The build copies the pages of any other Source into `.nuxt/docs/sources/docs-<index>/` and serves that copy, so a `github()` Source shows its branch as it was at build time. A production build packs the Markdown and rewritten agent copies into one gzip module to stay below Cloudflare’s module limit. A `glob()` Source lists dot files only when its `include` names them, such as `**/.navigation.yml`, and reads only below the app root.
 
 `sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
 
 ```ts
+import { github, glob } from "vite-hub/source"
+
 export default defineNuxtConfig({
   modules: ["@vite-hub/docs/nuxt"],
   docs: {
     base: "/",
     sources: [
-      { dir: "pages", exclude: ["partials/**"] },
-      { dir: "../packages/zoom/docs", mount: "/zoom" },
+      { source: "pages", exclude: ["partials/**"] },
+      { source: "../packages/zoom/docs", mount: "/zoom" },
+      { source: glob({ cwd: "guides", include: ["**/*.md", "**/.navigation.yml"] }), mount: "/guides" },
+      { source: github({ repo: "acme/api", root: "docs" }), mount: "/api" },
     ],
     sections: { zoom: { category: "Packages", order: 1 } },
     components: "./markdown-components.ts",
@@ -94,7 +100,7 @@ export default defineNuxtConfig({
 })
 ```
 
-`sections` overrides `.navigation.yml` fields by section id. A source's synchronous `frontmatter(data, { file, path, markdown })` callback can supply generated titles or migrate legacy fields. Its return value still passes the full docs schema. `file` stays relative to the source directory; `path` is the public page path.
+`sections` overrides `.navigation.yml` fields by section id. A source's synchronous `frontmatter(data, { file, path, markdown })` callback can supply generated titles or migrate legacy fields. Its return value still passes the full docs schema. `file` stays relative to the source; `path` is the public page path.
 
 The `components` module exports a default map of Comark tags to Vue components. Components passed directly to `DocsMarkdown` override that map. Both maps override app blocks in `components/content/`, which override the built-in Comark blocks and load on demand.
 
@@ -397,7 +403,7 @@ Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and s
 
 The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
 
-The preset does not inherit `docs.dir` or `docs.sources`. With another `dir`, import `glob` from `@vite-hub/workspace` and override `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`. With mapped sources, replace the default `pages` Source and add a glob for each mapped folder. Mirror each source's `exclude` as `ignore`, and set each glob's Workspace `mount` to `pages` plus its public mount, such as `pages/zoom`. This keeps file paths aligned with the assistant's page-link instructions. All glob folders must be inside the Workspace's `sourceRootDir`; use a common project root when pages live outside the Nuxt app. Frontmatter adapters apply to site metadata only; the assistant reads the source Markdown.
+The preset does not inherit `docs.dir` or `docs.sources`. With another `dir`, import `glob` from `@vite-hub/workspace` and override `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`. With `sources`, replace the default `pages` Source and add a glob for each folder. Mirror each source's `exclude` as `ignore`, and set each glob's Workspace `mount` to `pages` plus its public mount, such as `pages/zoom`. This keeps file paths aligned with the assistant's page-link instructions. All glob folders must be inside the Workspace's `sourceRootDir`; use a common project root when pages live outside the Nuxt app. Frontmatter adapters apply to site metadata only; the assistant reads the source Markdown.
 
 Limits:
 
@@ -436,7 +442,7 @@ export default defineContent({
 
 ## Inspect
 
-- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. The build lists the pages and `.navigation.yml` files through ViteHub Content: `createDocsContent()` gives one `glob()` Source per content folder, named `docs_<index>`. A script reads the whole manifest with `await createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
+- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. The build lists the pages and `.navigation.yml` files through ViteHub Content: `createDocsContent()` gives one Content Source per docs source, named `docs_<index>`: a `glob()` Source for a folder, or the Source that `sources` names. A script reads the whole manifest with `await createDocsManifest({ dir, base })`, or `{ dir, base, sources, rootDir }`, from `@vite-hub/docs/server`.
 - The agent copy of each page is in `.nuxt/docs/raw/`.
 - The Markdown blocks that pages can use are in `.nuxt/docs/components.mjs`.
 - A running site serves the parsed page at `/api/_docs/page/<page>.json` and the search index at `/api/_docs/search.json`.
