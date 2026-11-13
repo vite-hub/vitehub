@@ -21,8 +21,8 @@ const accessRouteKeys = new Set(["authorize", "method", "route"])
 
 function validateAuthDatabase(value: unknown): void {
   // `authDatabase()` resolves the Database of each request, so a static Definition can hold it.
-  if (typeof value === "undefined" || authDatabaseName(value) !== undefined) return
-  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+  if (typeof value === "undefined" || value === "memory" || authDatabaseName(value) !== undefined) return
+  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
 }
 
 /** `runtime` was a second way to resolve options. Its shallow merge replaced whole objects such as `advanced`. */
@@ -110,7 +110,7 @@ export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>
 
 // `runtime` in the constraint makes a Definition that still sets it report `runtime` itself. Without it, TypeScript
 // reports that the object is not a resolver function.
-export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "runtime">>(
+export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "database" | "runtime">>(
   options: AuthDefinitionOptions<TOptions>,
 ): AuthDefinition<AuthDefinitionOptions<TOptions>>
 
