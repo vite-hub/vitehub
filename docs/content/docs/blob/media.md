@@ -387,6 +387,39 @@ useHead({
 
 With custom `blob.images.sizes`, pass the same values as `widths`. The server snaps other widths anyway.
 
+## Nuxt Image
+
+With [`@nuxt/image`](https://image.nuxt.com) in `modules` and `blob.serve` set, `vite-hub/nuxt` adds a Nuxt Image provider named `vitehub`. It turns `<NuxtImg>` modifiers into variant URLs of the served store.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@nuxt/image', 'vite-hub/nuxt'],
+  vitehub: {
+    blob: { driver: 'fs', serve: true },
+  },
+})
+```
+
+```vue [pages/index.vue]
+<template>
+  <NuxtImg provider="vitehub" src="photos/cat.jpg" width="400" height="300" fit="cover" format="avif" />
+</template>
+```
+
+The `src` is the Blob pathname, or the `url` of a media record. The example requests `/api/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
+
+| Modifier | Parameter |
+| --- | --- |
+| `width`, `height` | `w`, `h`, snapped up to the allowed sizes, so equal variants share one URL and one CDN cache entry |
+| `fit` | `cover`, or `inside` for `inside` and `contain`. Other values are ignored. |
+| `format` | `fmt`: `webp`, `avif`, `jpeg` (or `jpg`), `png`. Other values are ignored. |
+| `quality` | `q`, from 1 to 100 |
+| `crop` | `crop`, a named crop of the record. Pass it as `:modifiers="{ crop: 'mobile' }"`. |
+
+The provider reads `blob.serve.route`, `blob.serve.publicBaseUrl`, and `blob.images.sizes` from the `vitehub` key of `nuxt.config.ts`. Options passed inline to the module are not read. ViteHub does not make `vitehub` the default provider, because images in `public/` would then go to the Blob route. To use it for every image, set `image: { provider: 'vitehub' }`.
+
+To change or replace the provider, define `image.providers.vitehub` yourself. Your entry wins. The provider file is `vite-hub/blob/nuxt-image`, with the options `baseURL` and `imageSizes`.
+
 ## Media in Content
 
 `image()` and `file()` references store `{ pathname, contentType, size }` and nothing else. Read alt text, dimensions, and crops from the record when you render:

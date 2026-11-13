@@ -34,6 +34,7 @@ import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, has
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
+import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -846,7 +847,7 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: ViteHubOpt
 /** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
-  getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
+  getModuleDependencies: (nuxt?: { options: Parameters<typeof nuxtImageProviderDependency>[0] }) => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
     compatibility: { server: "nitro3" }
     configKey: "vitehub"
@@ -1581,13 +1582,14 @@ viteHubNuxtModule.getMeta = async () => ({
   name: "vite-hub/nuxt",
 })
 
-viteHubNuxtModule.getModuleDependencies = async () => {
+viteHubNuxtModule.getModuleDependencies = async (nuxt) => {
   // Nuxt asks for the dependencies first on each start of the app, also after a start that failed before Vite closed
   // its plugins. Forget the package checks of an earlier start, so a reload sees the packages installed since then.
   startPackageChecks()
-  if (!isPackageInstalled("@nuxt/ui")) return {}
+  const image = nuxt ? nuxtImageProviderDependency(nuxt.options) : undefined
+  if (!isPackageInstalled("@nuxt/ui")) return { ...image }
   const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-  return ui?.viteHubUIIconDependencies ?? {}
+  return { ...ui?.viteHubUIIconDependencies, ...image }
 }
 
 export default viteHubNuxtModule

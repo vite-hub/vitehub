@@ -215,6 +215,8 @@ The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Size
 
 `responsiveImage()` uses the same default size list for its `srcset` widths. If you set `blob.images.sizes`, pass that list as `responsiveImage(record, { imageSizes })` so the width descriptors match the served variants.
 
+`@vite-hub/blob/nuxt-image` is a `@nuxt/image` provider for the serve route. It maps `width`, `height`, `fit`, `format`, `quality`, and a `crop` modifier to the variant parameters, and snaps sizes like the server. `vite-hub/nuxt` registers it as `vitehub` when the app uses `@nuxt/image` and sets `blob.serve`.
+
 ## Signed requests
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
