@@ -245,7 +245,7 @@ describe("Agent plugin", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await mkdir(join(root, "server", "channels"), { recursive: true })
     await writeFile(file, source, "utf8")
-    await writeFile(join(root, "server", "channels", "hooks.ts"), "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook() })", "utf8")
+    await writeFile(join(root, "server", "channels", "hooks.ts"), "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })", "utf8")
     const plugin = hubAgent()
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
       command: "serve",

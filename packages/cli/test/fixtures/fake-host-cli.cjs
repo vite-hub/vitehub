@@ -50,6 +50,10 @@ function wrangler() {
     process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ name: key, type: "secret_text" }))))
     return
   }
+  if (argv[0] === "d1" && argv[1] === "migrations" && argv[2] === "apply") {
+    process.stdout.write("✅ No migrations to apply!\n")
+    return
+  }
   const preview = argv[0] === "versions"
   const config = JSON.parse(readFileSync(resolve(flag("--config")), "utf8"))
   config.name = flag("--name") ?? config.name

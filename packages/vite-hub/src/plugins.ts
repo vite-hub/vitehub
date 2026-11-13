@@ -35,6 +35,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -87,6 +88,7 @@ export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
+export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
@@ -460,6 +462,21 @@ export interface ViteHubOptions {
    * unless the app configures Worker routing.
    */
   publicUrl?: string | ((agentName: string) => string)
+  /**
+   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
+   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
+   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
+   * you run sets the header. Default: `false`.
+   */
+  trustProxy?: boolean
+  /**
+   * Refuse browser writes from other origins that carry cookies, with 403, before any middleware or route runs. A
+   * request is refused when its method is not GET, HEAD, or OPTIONS, it has a `Cookie` header, and its
+   * `Sec-Fetch-Site` is `same-site` or `cross-site`, or its `Origin` is not the app's origin. Requests without cookies,
+   * such as bearer-token clients and webhooks, pass. `exclude` lists path prefixes that take writes from other sites.
+   * Default: `false`.
+   */
+  sameOriginWrites?: boolean | SameOriginWritesOptions
   agent?: boolean | AgentOptions
   auth?: boolean | AuthOptions
   blob?: boolean | BlobOptions
@@ -1393,6 +1410,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (options.trustProxy || options.sameOriginWrites) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
 
