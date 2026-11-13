@@ -508,8 +508,9 @@ export interface ViteHubOptions {
   health?: boolean | HealthOptions
   kv?: boolean | KVOptions
   /**
-   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
-   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. MCP clients sign in with `mcpOAuth()`
+   * from `vite-hub/auth/mcp`, so it needs `auth`, unless `mcp: { auth: false }` lets anyone call every tool. Needs
+   * `@vite-hub/mcp`.
    */
   mcp?: boolean | McpOptions
   /**
@@ -1548,9 +1549,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.bundle) plugins.push(hubBundle())
   if (options.mcp) {
     const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
-    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    const { auth: mcpAuth = true, ...mcpOptions } = mcpConfig
     if (mcpAuth && !options.auth) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] The MCP server needs Auth, so that only signed-in MCP clients call its tools. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } to let anyone call every tool." })
     }
     plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
       ...mcpOptions,
