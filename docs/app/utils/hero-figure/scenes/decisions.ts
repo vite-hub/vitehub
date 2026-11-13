@@ -33,7 +33,7 @@ const GROUPS: [Group, string, string[]][] = [
   ["category", "Category", ["running", "hiking", "tennis"]],
   ["sort", "Sort", ["Newest", "Price: low", "Price: high"]],
 ];
-const HUE: Record<Color, string> = { black: "#262626", white: "#fafafa", red: "#dc2626", blue: "#2563eb" };
+const HUE: Record<Color, string> = { black: "var(--color-neutral-800)", white: "var(--color-neutral-50)", red: "var(--color-red-600)", blue: "var(--color-blue-600)" };
 // [name, color, category, price]. The array order is newest first.
 const SHOES: [string, Color, string, number][] = [["Glide", "red", "running", 59], ["Trek", "white", "hiking", 79], ["Ace", "white", "tennis", 70], ["Pace", "red", "running", 45], ["Summit", "black", "hiking", 89], ["Swift", "blue", "running", 65], ["Volley", "blue", "tennis", 68], ["Ridge", "red", "hiking", 95]];
 const QUERIES: Query[] = [

@@ -56,6 +56,11 @@
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js",
+      "default": "./dist/markdown.js"
+    },
     "./preview": {
       "types": "./dist/preview.d.ts",
       "import": "./dist/preview.js",
@@ -97,6 +102,7 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "birpc": "catalog:runtime",

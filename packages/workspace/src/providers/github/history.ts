@@ -429,6 +429,25 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     return await head
   }
 
+  /** Whether the history of `branch` has the commit `id`: the commit is the merge base of both. */
+  async function branchContains(branch: string, id: string): Promise<boolean> {
+    if (!/^[0-9a-f]{40}$/i.test(id)) return false
+    const head = await readBranchHead(branch)
+    if (!head) return false
+    if (head.toLowerCase() === id.toLowerCase()) return true
+    // Compare immutable commits so the ancestry proof can be shared through the read cache.
+    return await githubRequest(client(), async (provider, repo) => {
+      try {
+        const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(head)}...${encodeURIComponent(id)}`, { query: { per_page: 1 } })).data
+        return String(Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha")).toLowerCase() === id.toLowerCase()
+      }
+      catch (error) {
+        if (isUnrelatedHistoryError(error) || githubRequestStatus(error) === 404) return false
+        throw error
+      }
+    }, "compare")
+  }
+
   const list = async (listOptions: WorkspaceHistoryListOptions = {}): Promise<WorkspaceHistoryListResult> => {
     const { branch, ref } = resolveRef(listOptions.ref)
     const limit = listOptions.limit ?? 20
@@ -442,6 +461,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor does not belong to ref "${ref}".` })
     }
     const afterId = revisionCursor ?? (listOptions.cursor && /^[0-9a-f]{40}$/i.test(listOptions.cursor) ? listOptions.cursor : undefined)
+    // A cursor lists the history of its commit. That commit must be a commit of this ref, so a cursor cannot list another
+    // branch, such as the draft branch from a published listing.
+    if (afterId !== undefined && !await branchContains(branch, afterId)) {
+      throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor does not belong to ref "${ref}".` })
+    }
     const page = afterId ? 1 : pageFromCursor(ref, listOptions.cursor)
     // The first page starts at the head commit, so every page names a commit and its answer never changes.
     const start = afterId ?? (page === 1 ? await readBranchHead(branch) : branch)

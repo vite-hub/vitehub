@@ -41,7 +41,7 @@ const css = `.vh-hero-shell .shx{position:absolute;inset:0;display:flex;flex-dir
 .vh-hero-shell .sh-chip.warn b{color:var(--warn)}
 .vh-hero-shell .sh-term{position:relative;flex:1;min-height:0;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
 .vh-hero-shell .sh-bar{display:flex;justify-content:space-between;padding:7px 14px;font:11px var(--mono);color:var(--dim);box-shadow:inset 0 -1px 0 var(--line)}
-.vh-hero-shell .sh-view{position:absolute;left:0;right:0;top:30px;bottom:0;overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 6px);mask-image:linear-gradient(to bottom,transparent 0,#000 6px)}
+.vh-hero-shell .sh-view{position:absolute;left:0;right:0;top:30px;bottom:0;overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,transparent 0,var(--ui-text-highlighted) 6px);mask-image:linear-gradient(to bottom,transparent 0,var(--ui-text-highlighted) 6px)}
 .vh-hero-shell .sh-body{padding:7px 14px;transform:translateY(calc(var(--s,0)*-19px - min(var(--s,0),1)*7px));transition:transform 400ms var(--out)}
 .vh-hero-shell .sh-ln{display:flex;justify-content:space-between;gap:12px;height:19px;font:12px/19px var(--mono);color:var(--muted);white-space:nowrap;opacity:0;transition:opacity 200ms ease}
 .vh-hero-shell .sh-ln.on{opacity:1}

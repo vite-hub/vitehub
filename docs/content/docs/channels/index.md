@@ -77,7 +77,7 @@ export default defineEventHandler(async () => {
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true, channels: true, queue: true },
+  vitehub: { host: 'node', agent: true, channels: true, queue: true },
 })
 ```
 :::
@@ -88,7 +88,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true, channels: true, queue: true }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true }), nitro()],
 })
 ```
 :::
@@ -98,7 +98,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true, channels: true, queue: true })],
+  plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true })],
 })
 ```
 :::

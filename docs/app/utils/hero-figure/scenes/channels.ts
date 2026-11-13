@@ -121,7 +121,7 @@ export default defineScene<ChannelsPlan>({
     const dst = pick(r, CHATS);
     const ev: Event = src === "stripe"
       ? { id: pick(r, ["evt_1Q8", "evt_3Kq", "evt_7Zm", "evt_2Hx"]), name: "checkout.session.completed", short: "checkout", msg: pick<[string, string]>(r, [["New order", "$42.00"], ["New order", "$18.50"], ["Order paid", "$120.00"]]) }
-      : { id: pick(r, ["dl_51a", "dl_9c2", "dl_7e0"]), name: "pull_request.opened", short: "pull_request", msg: pick<[string, string]>(r, [["PR #128 opened", "fix login"], ["PR #131 opened", "add search"], ["PR #96 opened", "docs"]]) };
+      : { id: pick(r, ["dl_51a", "dl_9c2", "dl_7e0"]), name: "pull_request.opened", short: "pull_request", msg: pick<[string, string]>(r, [["PR #1128 opened", "fix login"], ["PR #1131 opened", "add search"], ["PR #96 opened", "docs"]]) };
     const forged = r() < 0.5;
     const arr = 1500;
     const ok = arr + snap(800 + r() * 300), close = ok + 700;

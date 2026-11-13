@@ -1,3 +1,6 @@
+import { formatDiagnostic } from "nostics"
+import { getStandardContext } from "@vite-hub/runtime/h3"
+
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
@@ -15,18 +18,28 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
-import { contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { checkContentDocuments, contentCheckResult, parseContentFiles } from "./check.ts"
+import type { ContentCheckFinding, ContentCheckInput, ContentCheckOptions, ContentCheckResult } from "./check.ts"
+import { contentSource, contentSourceKeys, contentSourceKind, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
+import { createContentHistory } from "./history.ts"
+import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
 import { createContentSourceHeads } from "./source-heads.ts"
 import { createContentReadScope } from "./read-scope.ts"
 import type { ContentSourceHeads } from "./source-heads.ts"
+import type { ContentSourceRef } from "./source-refs.ts"
 import type { ContentSnapshotTarget } from "./snapshots.ts"
 import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
-import { createContentPreview } from "./preview.ts"
-import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { createContentPreview, createRequestScope } from "./preview.ts"
+import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
+import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
+import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
+import { contentLlmsFile } from "./llms.ts"
+import type { ContentLlmsOptions } from "./llms.ts"
 import type {
   AnyContentCollection,
   ContentCollection,
@@ -62,16 +75,18 @@ import type {
   ContentSchedulesOptions,
   ContentUnscheduleOptions,
 } from "./schedules.ts"
-import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+import type { ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { contentCheckLimits, contentCheckRules } from "./check.ts"
+export type { ContentCheckCode, ContentCheckFinding, ContentCheckOptions, ContentCheckResult, ContentCheckRule, ContentCheckSeverity } from "./check.ts"
 export { defineContentTypesPlugin, generateContentTypes } from "./types.ts"
 export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
 /** Comark's registry interfaces. Generated Content types extend them through this module. */
 export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBase } from "comark-content"
 export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
-export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
+export type { BuiltContentCommit, BuiltContentSnapshot, ContentCommitSnapshotIndex, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -91,7 +106,11 @@ export type {
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { registerContentKV } from "./kv.ts"
 export type { ContentKV } from "./kv.ts"
-export type { ContentSourceHead, ContentSourceHeads, ContentSourceView } from "./source-heads.ts"
+export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
+export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
+export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
+export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
+export type { ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
@@ -128,7 +147,13 @@ export type {
   ContentHeadSite,
 } from "./head.ts"
 export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
-export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export type { ContentRssOptions, ContentSitemapEntry, ContentSitemapOptions, DefineContentLlmsOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export { renderContentRss } from "./rss.ts"
+export type { ContentRssChannel, ContentRssItem } from "./rss.ts"
+export { renderContentLlms, renderContentSitemapMarkdown } from "./llms.ts"
+export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsSection, ContentSitemapMarkdownPage } from "./llms.ts"
+export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNotFound } from "./markdown-negotiation.ts"
+export type { ContentMarkdownErrorLink, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
 export type {
   ContentCollectionDefinition,
   ContentDocumentUrl,
@@ -185,8 +210,6 @@ export interface ContentHandler {
   fetch(request: Request): Promise<Response>
 }
 
-/** H3 middleware: it returns nothing to pass the request on to the next handler. */
-export type ContentMiddleware = (event: { req: Request }) => Promise<Response | undefined>
 
 type PluginMethods<TPlugin> = TPlugin extends ContentPlugin<infer TMethods, any> ? TMethods : unknown
 type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
@@ -277,9 +300,23 @@ export type DefineContentOptions<
   /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
-   * Markdown document of those collections at its URL plus `.md`. ViteHub generates the routes when this call sets them.
+   * Markdown document of those collections at its URL plus `.md`, and at its URL for `Accept: text/markdown`;
+   * `rss: true` serves `/rss.xml` with the newest Markdown pages; `llms: true` serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. ViteHub generates the routes when this call
+   * sets them.
    */
   seo?: DefineContentSeoOptions
+  /**
+   * Options of `content.check()`. `advance()` runs its error rules before it moves the head of a `github()` Source.
+   * `ignoreLinks` names link targets that other routes serve, such as `/docs/*\/diagnostics/**`. `site` defaults to
+   * `seo.site`.
+   */
+  check?: ContentCheckOptions
+  /**
+   * Serve each allowed ref of the `github()` Source at a URL: `/tree/<branch>/-/<path>`, `/blob/<sha>/<path>`, and
+   * `/pr/<number>/<path>`. ViteHub generates the routes when this call sets it. With more than one `github()` Source,
+   * name the one to preview: `{ source: "docs" }`.
+   */
+  previews?: boolean | { source: string }
 }
 
 /** Document operations added by `collections`. */
@@ -355,11 +392,22 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** The robots.txt text for `defineContent({ seo: { robots } })`. */
   robots(options?: ContentSitemapOptions): string
   /**
+   * The RSS 2.0 feed of `defineContent({ seo: { rss } })`: the published Markdown pages that the sitemap lists, newest
+   * first by the date of their latest `content.history()` entry. `site` defaults to `seo.site`, else
+   * `http://localhost`.
+   */
+  rss(options?: ContentSitemapOptions): Promise<string>
+  /**
    * The Markdown copy that a path such as `/blog/hello.md` names: the published document at `/blog/hello`, under its
    * title and description, with root-relative links made absolute when `site` is known. Null when no published
    * Markdown document has that URL.
    */
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
+  /**
+   * A file for agents from the published Markdown documents with a URL, as `defineContent({ seo: { llms } })` serves
+   * it: `llms.txt` (default), `llms-full.txt` with every page, or `sitemap.md`. Links point at the `.md` copies.
+   */
+  llms(options?: ContentLlmsOptions): Promise<string>
 }
 
 /**
@@ -378,7 +426,21 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
    * The head commit of each `github()` Source. With a GitHub token, Content serves one validated commit per Source, keeps
    * it in ViteHub KV, and moves it with `advance()`. Reads follow a moved head within 5 seconds.
    */
-  sources: ContentSourceHeads
+  sources: ContentSourceHeads & ContentSourcePreviewRoutes
+  /**
+   * The published history of the page at an app path, such as `/docs/guide`, newest first: `{ entries, cursor }`, with
+   * entries of `{ id, at, author, message, url }`. Null when no page has that path. A collection document lists its
+   * `published` revisions, never drafts. A `github()` Source page lists the commits that changed its file, up to the
+   * commit that readers get. It is safe to show on a public page, for "last updated", RSS, or a history panel.
+   */
+  history(path: string, options?: ContentHistoryOptions): Promise<ContentHistoryResult | null>
+  /**
+   * Check the documents of the Sources, with no built HTML and no network: frontmatter against the Source `schema`,
+   * links to pages that do not exist, links to missing headings, and the search rules of `@vite-hub/docs` (title and
+   * description length, duplicates, heading order). A `github()` Source is checked at `sha`, or at the latest commit of
+   * its branch, and its head does not move. `vitehub content check` prints the same result.
+   */
+  check(options?: { source?: string, sha?: string }): Promise<ContentCheckResult>
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
@@ -401,7 +463,10 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, check: checkOptions = {}, live = "auto", route = true, previews = false, ...sharedOptions } = options
+  if (previews !== true && previews !== false && (Object(previews) !== previews || typeof previews.source !== "string")) {
+    throw contentErrorDiagnostics.CONTENT_R0045({ message: "[vitehub] defineContent({ previews }) must be true, false, or { source: \"<github() Source name>\" }." })
+  }
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
@@ -443,21 +508,65 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
-  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
+  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
+  // Source for the commit cache. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
+  const check: ContentCheckOptions = { ...checkOptions, ...(checkOptions.site ?? seo?.site ? { site: checkOptions.site ?? seo?.site } : {}) }
   // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
   const reuseParsed = !customPlugins.some(Boolean) && !options.plugins?.some(Boolean)
-  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, { privateBranches: presetDefaults.privateBranches ?? [] }, reuseParsed)
+  const heads = createContentSourceHeads({ ...sharedOptions, basePath: "/api/content" }, {
+    privateBranches: presetDefaults.privateBranches ?? [],
+    check,
+    targets: source => loadCheckTargets([source]),
+  }, reuseParsed)
+
+  async function loadCheckTargets(checked: readonly string[]): Promise<NonNullable<ContentCheckInput["targets"]>> {
+    // Other Sources add link targets, but their availability must not reject an unrelated commit.
+    // Retain failed Sources' URL scopes so links into them cannot silently become route warnings.
+    const names = Object.keys(inputs).filter(name => !checked.includes(name))
+    const loaded = await Promise.allSettled(names.map(async name => (await loadCheckInput(name, undefined, true)).input))
+    return loaded.map((result, index) => {
+      const name = names[index]!
+      if (result.status === "fulfilled") return { ...result.value, ...(result.value.failures?.length ? { unavailable: name } : {}) }
+      const url = contentSourceUrl(inputs[name])
+      return { items: [], unavailable: name, ...(url === undefined ? {} : { url }) }
+    })
+  }
+
+  async function loadCheckInput(name: string, sha?: string, published = false): Promise<{ sha: string | null, input: ContentCheckInput }> {
+    if (heads.github(name)) return await heads.inspect(name, sha, published)
+    const input = inputs[name]!
+    const adapted = contentSource(input)
+    const files = await Promise.all((await adapted.keys()).map(async key => ({ key, path: key, content: await adapted.getItem(key) })))
+    const parsed = await parseContentFiles(name, files, { prefix: adapted.prefix, schema: adapted.schema }, { ...sharedOptions, basePath: "/api/content" }, true)
+    const url = contentSourceUrl(input)
+    return { sha: null, input: {
+      source: name,
+      files,
+      items: parsed.commit?.items ?? [],
+      failures: parsed.failures,
+      ...(adapted.schema ? { schema: adapted.schema } : {}),
+      ...(url === undefined ? {} : { url }),
+      options: check,
+    } }
+  }
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
-    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input))
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input, snapshots?.[name]))
     heads.attach(name, instance)
     if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
+    else if (heads.github(name)) snapshotTargets.push({ name, instance, keys: async () => [], commit: () => heads.snapshot(name) })
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
+  /** The preview of the current request: the ref of its URL, and the commit that `allow()` checked. */
+  /**
+   * The ref of a preview request, its commit view, held open for the whole request, and the query that internal links
+   * keep, such as a signed-link token.
+   */
+  const refScope = createRequestScope<{ target: ContentSourceRef, preview: ContentSourcePreview, view: ComarkContent, query?: string }>(previews !== false)
   const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
   const documentsRuntime: ContentCollectionsRuntime | undefined = createCollections
     ? createCollections({
@@ -534,18 +643,42 @@ export function defineContent<
     }
     await Promise.all(refreshes)
   })
-  /** Run a read on the hub of the current request's ref after refreshing stale instances. */
-  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, select: (...args: TArgs) => readonly string[] | undefined): (...args: TArgs) => Promise<TResult> {
+  /** The hubs of preview requests: the hub of the request's ref with the Source instance replaced by its commit view. */
+  const viewHubs = new WeakMap<ComarkContent, WeakMap<ContentHub<ComarkContent[]>, ContentHub<ComarkContent[]>>>()
+  function viewHub(base: ContentHub<ComarkContent[]>, view: ComarkContent): ContentHub<ComarkContent[]> {
+    let byBase = viewHubs.get(view)
+    if (!byBase) viewHubs.set(view, byBase = new WeakMap())
+    let composed = byBase.get(base)
+    if (!composed) {
+      composed = contentHub(base.instances.map(instance => instance.name === view.name ? view : instance), { basePath: "/api/content", logger: options.logger })
+      byBase.set(base, composed)
+    }
+    return composed
+  }
+  /**
+   * Run a read on the hub of the current request's ref after refreshing stale instances. In a preview request, the
+   * `github()` Source reads the commit of the ref, and `rewrite` puts internal links of the result under the prefix.
+   */
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>, select: (...args: TArgs) => readonly string[] | undefined, rewrite?: (result: TResult, prefix: string, query: string | undefined) => TResult | Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
       // Comark can serve cached artifacts and shared indexes without calling guarded instance methods.
       await heads.sync(select(...args))
+      let base = hub
       if (documentsRuntime && preview.active()) {
         await sync("draft")
-        return await method(draftHub().hub, ...args)
+        base = draftHub().hub
       }
-      await sync("published")
-      return await method(hub, ...args)
+      else await sync("published")
+      const active = refScope.getStore()
+      if (!active) return await method(base, ...args)
+      const result = await heads.read(active.target, view => method(viewHub(base, view), ...args))
+      return rewrite ? await rewrite(result, active.preview.prefix, active.query) : result
     }
+  }
+  /** The hub of a synchronous read: the commit view of a preview request, else the published hub. */
+  function previewHub(): ContentHub<ComarkContent[]> {
+    const view = refScope.getStore()?.view
+    return view ? viewHub(hub, view) : hub
   }
   function requireDocuments(): ContentCollectionsRuntime {
     if (!documentsRuntime) {
@@ -568,6 +701,32 @@ export function defineContent<
     const url = contentSourceUrl(input)
     return url === undefined ? [] : [{ name, url, list: () => from(name).list() }]
   })
+  /**
+   * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
+   * `github()` Source. Shared atomic date leases can coordinate refreshes across server instances.
+   */
+  async function routedPages(site: string | undefined, waitUntil: ContentSitemapOptions["waitUntil"]): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
+    const pages = await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)
+    const dates = new Map<ContentRoutedPage, string>()
+    await Promise.all([...new Set(routedSources.map(source => source.name))].map(async (name) => {
+      const dated = pages.filter(page => page.collection === name && page.key !== undefined)
+      const found = await historyApi.dates(name, dated.map(page => page.key!), waitUntil ? { waitUntil } : {})
+      for (const page of dated) {
+        const date = found.get(page.key!)
+        if (date) dates.set(page, date)
+      }
+    }))
+    return { pages, dates }
+  }
+  /** Compute the page dates of a `github()` Source at its new head, so no feed or sitemap request waits for them. */
+  async function warmDates(name: string): Promise<void> {
+    if (!seo?.sitemap && !seo?.rss) return
+    const source = routedSources.filter(routed => routed.name === name)
+    if (!source.length) return
+    const pages = await contentRoutedPages([], undefined, source)
+    await historyApi.refresh(name, pages.flatMap(page => page.key === undefined ? [] : [page.key]))
+  }
+  heads.onMove(warmDates)
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
@@ -577,10 +736,27 @@ export function defineContent<
     live,
     route,
     hasPolicy: policy !== undefined,
-    sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
-      await contentSitemapEntries(documentsRuntime ? [...documentsRuntime.collections.values()] : [], siteFor(sitemapOptions), routedSources),
+    sitemap: async (sitemapOptions?: ContentSitemapOptions) => {
+      const { pages, dates } = await routedPages(siteFor(sitemapOptions), sitemapOptions?.waitUntil)
+      return contentSitemapEntries(pages, dates)
+    },
+    rss: async (rssOptions?: ContentSitemapOptions) => {
+      const site = siteFor(rssOptions) ?? "http://localhost"
+      const options = seo?.rss !== null && typeof seo?.rss === "object" ? seo.rss : {}
+      const { pages, dates } = await routedPages(site, rssOptions?.waitUntil)
+      return renderContentRss(contentRssChannel(options, site), contentRssItems(pages, dates, options.limit ?? contentRssLimit))
+    },
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
+    llms: async (llmsOptions: ContentLlmsOptions = {}) => {
+      const llms = seo?.llms
+      return await contentLlmsFile(
+        documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+        typeof llms === "object" ? llms : {},
+        siteFor(llmsOptions),
+        llmsOptions.file ?? "llms.txt",
+      )
+    },
     robots: (sitemapOptions?: ContentSitemapOptions) => {
       const robots = seo?.robots
       return renderContentRobots({
@@ -630,23 +806,148 @@ export function defineContent<
       return await policy(decision) === true
     },
   } as ContentDocumentsRuntime<TCollections>
+  const sourceNames = Object.keys(inputs)
+  /**
+   * The published document that readers get at an app path: a routed collection document, or a singleton with a `url`.
+   * A locale without a translation serves the source locale version, so its history is the history of that version.
+   */
+  async function publishedPage(documents: ContentCollectionsRuntime, path: string): Promise<ContentResolved | null> {
+    let found = await documents.resolve(path, { ref: "published" })
+    if (!found) {
+      const target = pagePath(path)
+      for (const collection of documents.collections.values()) {
+        if (collection.kind !== "singleton" || !collection.routable) continue
+        const document = await collection.get({ ref: "published" })
+        if (document && String(document.url) === document.url && pagePath(document.url) === target) {
+          found = { collection: collection.name, id: document.id }
+          break
+        }
+      }
+    }
+    if (!found || found.locale === undefined) return found
+    const served = await documents.collection(found.collection).get(found.id, { ref: "published", locale: found.locale })
+    return served?.locale === undefined ? found : { ...found, locale: served.locale }
+  }
+  const historyApi = createContentHistory({
+    ...(seo?.dateLeases ? { dateLeases: seo.dateLeases } : {}),
+    ...(documentsRuntime ? { resolve: (path: string) => publishedPage(documentsRuntime, path) } : {}),
+    revisions: (collection, id, revisionOptions) => requireDocuments().revisions(collection, id, revisionOptions),
+    page: async (path) => {
+      if (!sourceNames.length) return null
+      const target = pagePath(path)
+      const found = (await runtime.list(sourceNames)).find(file => pagePath(file.path) === target)
+      if (!found) return null
+      // Comark keys a file as `<source>/<Source key>`.
+      const { source, key } = found.meta
+      return { source, key: key.startsWith(`${source}/`) ? key.slice(source.length + 1) : key }
+    },
+    github: name => heads.github(name),
+    published: name => heads.published(name),
+  })
+  /** The `github()` Source that preview URLs read: the one that `previews` names, or the only one. */
+  function previewSource(): string {
+    const names = heads.names()
+    if (typeof previews === "object") {
+      if (names.includes(previews.source)) return previews.source
+      throw contentErrorDiagnostics.CONTENT_R0045({ message: `[vitehub] defineContent({ previews: { source: ${JSON.stringify(previews.source)} } }) names no github() Source. github() Sources: ${names.join(", ") || "none"}.` })
+    }
+    if (names.length === 1) return names[0]!
+    throw contentErrorDiagnostics.CONTENT_R0045({ message: names.length
+      ? `[vitehub] defineContent({ previews: true }) found more than one github() Source: ${names.join(", ")}. Name one with previews: { source }.`
+      : "[vitehub] defineContent({ previews: true }) needs a github() Source in sources." })
+  }
+  const reportedDenials = new Set<string>()
+  const previewRoutes: ContentSourcePreviewRoutes = {
+    current: () => refScope.getStore()?.preview ?? null,
+    async route(request, next) {
+      const url = new URL(request.url)
+      const parsed = previews === false ? null : parseContentPreviewPath(url.pathname)
+      if (!parsed) return await next(request)
+      const name = previewSource()
+      const access = await heads.api.allow(parsed.ref, request, name)
+      if (!access.allowed) {
+        // The response must not tell a private ref from a missing one, so the app answers as for any unknown path.
+        const key = `${name}:${parsed.ref}`
+        if (!reportedDenials.has(key) && reportedDenials.size < 100) {
+          reportedDenials.add(key)
+          console.warn(formatDiagnostic(access.error))
+        }
+        return await next(request)
+      }
+      const site = configuredSite ?? url.origin
+      const { target } = access
+      const current: ContentSourcePreview = {
+        source: target.source,
+        ref: target.ref,
+        kind: target.kind,
+        sha: target.sha,
+        pull: target.pull,
+        route: parsed.route,
+        prefix: parsed.prefix,
+        path: parsed.path,
+        url: new URL(parsed.path, site).href,
+      }
+      const page = new URL(url)
+      page.pathname = parsed.path
+      const query = previewLinkQuery(request.url, access.reason)
+      // The commit view stays open for the whole request, so synchronous reads such as `from()` and `query()` use it.
+      const response = await heads.read(target, async view => await refScope.run({ target, preview: current, view, ...(query ? { query } : {}) }, async () => await next(requestWithUrl(request, page.href))))
+      return previewResponse(response, current, access.reason, request.url)
+    },
+  }
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
     ...documentsApi,
-    sources: heads.api,
+    get instances() { return previewHub().instances },
+    sources: Object.assign(heads.api, previewRoutes),
+    history: historyApi.history,
+    async check(checkInput = {}) {
+      const { source: only, sha } = checkInput
+      if (only !== undefined && !Object.hasOwn(inputs, only)) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] content.check() found no Content source ${JSON.stringify(only)}. Sources: ${Object.keys(inputs).join(", ") || "none"}.` })
+      const names = only === undefined ? Object.keys(inputs) : [only]
+      if (sha !== undefined) {
+        const github = names.filter(name => heads.github(name))
+        if (github.length !== 1) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] content.check({ sha }) needs one github() Source. Name it with content.check({ source, sha }).` })
+        names.splice(0, names.length, github[0]!)
+      }
+      const sources: ContentCheckResult["sources"] = []
+      const findings: ContentCheckFinding[] = []
+      // Checked Sources use their candidate commits; the rest contribute their published link targets.
+      const loaded = new Map(await Promise.all(names.map(async name => [name, await loadCheckInput(name, sha)] as const)))
+      const targets = await loadCheckTargets(names)
+      for (const name of names) {
+        const inspected = loaded.get(name)!
+        const checked = checkContentDocuments({
+          ...inspected.input,
+          targets: [...targets, ...[...loaded].filter(([source]) => source !== name).map(([, value]) => value.input)],
+        })
+        sources.push({ source: name, sha: inspected.sha, pages: checked.pages })
+        findings.push(...checked.findings)
+      }
+      return contentCheckResult(sources, findings)
+    },
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key) as ContentHub["get"],
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key, rewriteContentLinks) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
-    handler: fresh((target, request: Request) => target.handler(request), readScope.request),
+    handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names }), names => readScope.names(names)),
+    manifest: fresh(target => target.manifest(), () => undefined),
+    // The synchronous reads of a preview request use the commit view of its ref, as `get()` and `list()` do.
+    stat: (key: string) => previewHub().stat(key),
+    // SAFETY: Each wrapper forwards the name unchanged, so the generic builder and instance types of the hub hold.
+    query: ((name: string) => previewHub().query(name)) as ContentRuntime["query"],
+    from: ((name: string) => previewHub().from(name)) as ContentRuntime["from"],
     async dispose() {
       documentsRuntime?.dispose()
       // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
       await Promise.all([heads.dispose(), hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
-    getSource: (name = "default") => byName.get(name)?.getSource(name),
+    getSource: (name = "default") => {
+      const view = refScope.getStore()?.view
+      return (view?.name === name ? view : byName.get(name))?.getSource(name)
+    },
     cache: {
       get: <T = ContentFile>(key: string) => cacheForKey(key).get<T>(key),
       set: <T = ContentFile>(key: string, value: T) => cacheForKey(key).set(key, value),
@@ -667,15 +968,28 @@ export function defineContent<
       },
     },
   }
+  if (hub.media) Object.defineProperty(runtime, "media", { enumerable: true, get: () => previewHub().media })
   setContentSnapshotTargets(runtime, snapshotTargets)
   // Preserve custom plugin methods; Comark's hub owns cross-source search, query and media.
   for (const instance of instances) {
     for (const [key, value] of Object.entries(instance)) {
-      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, { enumerable: true, value })
+      if (!Object.hasOwn(runtime, key)) Object.defineProperty(runtime, key, {
+        enumerable: true,
+        get: () => {
+          const view = refScope.getStore()?.view
+          return view?.name === instance.name ? Reflect.get(view, key) : value
+        },
+      })
     }
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.
   return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
+}
+
+/** An app path without its query, hash, and trailing slash, in lower case, as Comark Content stores page paths. */
+function pagePath(path: string): string {
+  const bare = path.split(/[?#]/, 1)[0]!.replace(/\/+$/, "")
+  return (bare.startsWith("/") ? bare : `/${bare}`).toLowerCase()
 }
 
 /**
@@ -696,7 +1010,27 @@ export function defineContentHandler(
   }
 }
 
-type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "seo" | "sitemap">
+type SeoRuntime = Pick<ContentDocumentsRuntime, "llms" | "markdown" | "robots" | "rss" | "seo" | "sitemap">
+
+/**
+ * The `waitUntil` of a request for `content.sitemap()` and `content.rss()`, and the `Cache-Control` of the answer. An
+ * answer that left work for after the response has dates of the previous head, so no cache keeps it.
+ */
+function deferredWork(request: Request): { options: { waitUntil?: (promise: Promise<unknown>) => void }, cacheControl(): string } {
+  const waitUntil = getStandardContext(request).waitUntil
+  let deferred = false
+  return {
+    options: waitUntil
+      ? {
+          waitUntil: (promise) => {
+            deferred = true
+            waitUntil(promise)
+          },
+        }
+      : {},
+    cacheControl: () => deferred ? "no-store" : "public, max-age=0, must-revalidate",
+  }
+}
 
 /**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
@@ -707,9 +1041,25 @@ export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler
     async fetch(request) {
       if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
       const site = content.seo.site ?? new URL(request.url).origin
-      return new Response(renderContentSitemap(await content.sitemap({ site })), {
-        headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-      })
+      const later = deferredWork(request)
+      const xml = renderContentSitemap(await content.sitemap({ site, ...later.options }))
+      return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": later.cacheControl() } })
+    },
+  }
+}
+
+/**
+ * Serve `/rss.xml` from `content.rss()`. Links use `defineContent({ seo: { site } })`, or the request origin. ViteHub
+ * generates this route when `defineContent({ seo: { rss: true } })`.
+ */
+export function defineContentRssHandler(content: SeoRuntime): ContentHandler {
+  return {
+    async fetch(request) {
+      const rss = content.seo?.rss
+      if (rss === undefined || rss === false) return new Response("Not Found", { status: 404 })
+      const later = deferredWork(request)
+      const xml = await content.rss({ site: content.seo?.site ?? new URL(request.url).origin, ...later.options })
+      return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": later.cacheControl() } })
     },
   }
 }
@@ -731,22 +1081,21 @@ export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler 
 }
 
 /**
- * Serve `<url>.md` from `content.markdown()` as H3 middleware, not as a Fetchable route: Nitro routes cannot match a
- * suffix, so a request for any other path, or for a page without a published Markdown document, returns nothing and
- * passes through. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
+ * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from `content.llms()`. The last path segment of the request
+ * picks the file. ViteHub generates the three routes when `defineContent({ seo: { llms: true } })`.
  */
-export function defineContentMarkdownHandler(content: SeoRuntime): ContentMiddleware {
-  return async (event) => {
-    if (content.seo?.markdown !== true) return
-    const request = event.req
-    if (request.method !== "GET" && request.method !== "HEAD") return
-    const url = new URL(request.url)
-    if (!url.pathname.endsWith(".md")) return
-    const markdown = await content.markdown(url.pathname, { site: content.seo.site ?? url.origin })
-    if (markdown === null) return
-    return new Response(request.method === "HEAD" ? null : markdown, {
-      headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-    })
+export function defineContentLlmsHandler(content: SeoRuntime): ContentHandler {
+  return {
+    async fetch(request) {
+      const llms = content.seo?.llms
+      const url = new URL(request.url)
+      const file = (["llms.txt", "llms-full.txt", "sitemap.md"] as const).find(name => url.pathname.endsWith(`/${name}`))
+      if (llms === undefined || llms === false || !file) return new Response("Not Found", { status: 404 })
+      const text = await content.llms({ site: content.seo?.site ?? url.origin, file })
+      return new Response(request.method === "HEAD" ? null : text, {
+        headers: { "content-type": file === "sitemap.md" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
+      })
+    },
   }
 }
 
@@ -754,4 +1103,13 @@ export function defineContentMarkdownHandler(content: SeoRuntime): ContentMiddle
 function isComarkParsePlugin(plugin: unknown): plugin is { name?: unknown } {
   if (typeof plugin !== "object" || plugin === null) return false
   return "pre" in plugin || "post" in plugin || "markdownItPlugins" in plugin
+}
+
+/** The JSON of `/api/content` with internal links under the preview prefix. Other responses stay as they are. */
+async function rewriteJsonLinks(response: Response, prefix: string, query: string | undefined): Promise<Response> {
+  if (!response.headers.get("content-type")?.includes("json")) return response
+  const headers = new Headers(response.headers)
+  headers.delete("content-length")
+  headers.delete("etag")
+  return new Response(JSON.stringify(rewriteContentLinks(await response.json(), prefix, query)), { status: response.status, statusText: response.statusText, headers })
 }

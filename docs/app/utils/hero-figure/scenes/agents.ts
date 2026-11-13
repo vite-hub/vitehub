@@ -81,15 +81,15 @@ interface Times {
 type AgentsPlan = TimelinePlan<{ s: Story & { name: string }; A: Times }>;
 
 const STORIES: [Story, Story, Story] = [
-  { names: ["Maya", "Theo"], q: "Can you fix issue #318?", issue: ["#318", "Build fails on main"], file: "src/env.ts",
-    old: "import { cfg } from './config'", fix: "import { cfg } from './settings'", pr: ["#319", "Fix the config import"],
-    a: "Done. config.ts is now settings.ts. PR #319 fixes the import." },
+  { names: ["Maya", "Theo"], q: "Can you fix issue #1318?", issue: ["#1318", "Build fails on main"], file: "src/env.ts",
+    old: "import { cfg } from './config'", fix: "import { cfg } from './settings'", pr: ["#1319", "Fix the config import"],
+    a: "Done. config.ts is now settings.ts. PR #1319 fixes the import." },
   { names: ["Kai", "Zoe"], q: "Can you take issue #42?", issue: ["#42", "Docs link in README is broken"], file: "README.md",
     old: "[Docs](https://acme.dev/doc)", fix: "[Docs](https://acme.dev/docs)", pr: ["#43", "Fix the docs link"],
     a: "The link pointed to /doc. PR #43 changes it to /docs." },
-  { names: ["Lin", "Sam"], q: "Please look at issue #207.", issue: ["#207", "Typo on the sign-in button"], file: "src/SignIn.vue",
-    old: "<button>Sing in</button>", fix: "<button>Sign in</button>", pr: ["#208", "Fix the sign-in typo"],
-    a: "I fixed the typo in SignIn.vue. PR #208 is ready for review." },
+  { names: ["Lin", "Sam"], q: "Please look at issue #1207.", issue: ["#1207", "Typo on the sign-in button"], file: "src/SignIn.vue",
+    old: "<button>Sing in</button>", fix: "<button>Sign in</button>", pr: ["#1208", "Fix the sign-in typo"],
+    a: "I fixed the typo in SignIn.vue. PR #1208 is ready for review." },
 ];
 
 export default defineScene<AgentsPlan>({

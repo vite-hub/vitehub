@@ -17,7 +17,7 @@ Set `i18n.locales` in the ViteHub options. The first locale is the source locale
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } },
+  vitehub: { host: "node", i18n: { locales: ["en", "es", "pt-BR"] } },
 })
 ```
 :::
@@ -32,7 +32,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
     nitro(),
   ],
 })
@@ -48,7 +48,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
   ],
 })
 ```
@@ -280,7 +280,7 @@ By default, translations are files in your repository, and a new translation nee
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
+  vitehub: { host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
 })
 ```
 :::
@@ -295,7 +295,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
     nitro(),
   ],
 })
@@ -311,7 +311,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
   ],
 })
 ```

@@ -397,3 +397,31 @@ test('a claim keeps its head across unrelated events, but not across a source pu
     assert.equal(await pushed.holdsClaimedHead(claim), false)
   } finally { await pushed.close() }
 })
+
+test('claims main repairs, then priority-labelled PRs, before reviewed heads', async () => {
+  const repository = 'vite-hub/vitehub'
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], priorityLabels: ['Agent:Priority'], mainRepairBranchPrefix: 'repair-main-' })
+  try {
+    const seed = (number: number, ref: string, labels: unknown[] = []) => inbox.seed(repository, { number, state: 'open', user: { login: 'dev' },
+      head: { sha: `h${number}`, ref }, base: { ref: 'main' }, labels, updated_at: '2026-10-01T00:00:00Z' })
+    // Oldest first: #1 has a stored review, #2 a priority label, #3 repairs main, #4 needs a model pass.
+    await seed(1, 'fix-1')
+    await seed(2, 'fix-2', [{ name: 'agent:priority' }])
+    await seed(3, 'repair-main-0123abcd')
+    await seed(4, 'fix-4', [{ name: 'docs' }])
+    await inbox.setMeta(`review-assessment:${repository}#1`, { version: 2, head: 'h1', evidenceKey: 'key', feedback: [] })
+    assert.deepEqual((await inbox.claim(4)).map(claim => claim.snapshot.number), [3, 2, 1, 4])
+  } finally { await inbox.close() }
+})
+
+test('a main repair never exhausts its no-progress budget', async () => {
+  const repository = 'vite-hub/vitehub'
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 1 }, mainRepairBranchPrefix: 'repair-main-' })
+  try {
+    await inbox.seed(repository, { number: 1, state: 'open', head: { sha: 'h1', ref: 'repair-main-0123abcd' }, base: { ref: 'main' } })
+    await inbox.seed(repository, { number: 2, state: 'open', head: { sha: 'h2', ref: 'fix-2' }, base: { ref: 'main' } })
+    for (const claim of await inbox.claim(2)) assert.ok(await inbox.finish(claim, { text: 'no change', retry: true, progress: { kind: 'no-progress' } }))
+    assert.equal((await inbox.get(repository, 1))?.progressBudget?.exhausted, false)
+    assert.equal((await inbox.get(repository, 2))?.progressBudget?.exhausted, true)
+  } finally { await inbox.close() }
+})

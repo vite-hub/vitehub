@@ -36,7 +36,7 @@ export default defineDatabase({
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     // On Node, tables are saved in local SQLite
     database: true,
   },
@@ -52,7 +52,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       // On Node, tables are saved in local SQLite
       database: true,
     }),
@@ -69,7 +69,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       // On Node, tables are saved in local SQLite
       database: true,
     }),
@@ -80,7 +80,7 @@ export default defineConfig({
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 // List every note
 export default defineEventHandler(() => {
@@ -92,7 +92,7 @@ export default defineEventHandler(() => {
 ```ts [server/api/notes.post.ts]
 import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 // Add a note and return the new row
 export default defineEventHandler(async (event) => {
@@ -110,7 +110,7 @@ export default defineEventHandler(async (event) => {
 ```ts [server/api/notes/[id].get.ts]
 import { eq } from 'drizzle-orm'
 import { defineEventHandler, getRouterParam } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 // Read one note by its id
 export default defineEventHandler(async (event) => {
@@ -151,7 +151,7 @@ export default defineEventHandler(async (event) => {
 ::agent-only{skill="database"}
 Use Database for relational data with Drizzle. Define tables in a Database Definition and query through the generated `useDatabase()` handle.
 
-Import `useDatabase` from `vite-hub/database/drizzle` and select the discovered database by name. Do not import generated database definitions or provider bindings into application code. Keep migrations and transaction boundaries with the Database owner.
+Import `useDatabase` from `vite-hub/database` and select the discovered database by name. Do not import generated database definitions or provider bindings into application code. Keep migrations and transaction boundaries with the Database owner.
 
 Prove a migration, a typed read, a write, and a restart or remote-host read. Inspect generated schema and provisioning output before deployment.
 ::

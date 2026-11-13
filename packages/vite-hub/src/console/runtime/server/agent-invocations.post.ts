@@ -5,7 +5,7 @@ import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-
 import * as v from "valibot"
 
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
-import { console } from "../../server.ts"
+import { agentConsole } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
@@ -128,7 +128,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
   const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext({
     agentIdentity: { name },
-    capabilities: { ...await getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console: agentConsole },
     memo: memo(),
     request: consoleRequest(event),
     runtime: "unknown" as const,

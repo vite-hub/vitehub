@@ -41,7 +41,6 @@
     "h3": "catalog:unjs",
     "knip": "catalog:tooling",
     "nitro": "catalog:unjs",
-    "nitropack": "catalog:unjs",
     "oxlint": "catalog:tooling",
     "pkg-pr-new": "0.0.91",
     "semver": "^7.8.5",

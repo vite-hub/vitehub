@@ -19,7 +19,7 @@ const css = `.vh-hero-email svg.icon{position:static;inset:auto;width:13px;heigh
 .vh-hero-email svg.icon path{fill:inherit;stroke:inherit;stroke-dasharray:none;vector-effect:none}.vh-hero-email svg.icon path[stroke]{fill:none;stroke:currentColor}
 .vh-hero-email .tail.spin{display:inline-block}
 .vh-hero-email .em{position:absolute;inset:0}
-.vh-hero-email .em-l{position:absolute;border-radius:10px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line),0 10px 24px -14px rgb(0 0 0/.22);transition:opacity 450ms var(--out),transform 550ms var(--out),box-shadow 300ms ease}
+.vh-hero-email .em-l{position:absolute;border-radius:10px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--line),0 10px 24px -14px color-mix(in oklab,var(--color-neutral-950) 22%,transparent);transition:opacity 450ms var(--out),transform 550ms var(--out),box-shadow 300ms ease}
 .vh-hero-email .em-hd{display:flex;align-items:center;gap:6px;height:30px;padding-right:5px!important;padding:0 12px;box-shadow:inset 0 -1px 0 var(--line);font:11px var(--mono);color:var(--dim);white-space:nowrap;overflow:hidden}
 .vh-hero-email .em-a{left:0;top:0;width:60%}
 .vh-hero-email .em-a.back{opacity:.6;transform:scale(.98);transform-origin:0 0}
@@ -37,7 +37,7 @@ const css = `.vh-hero-email svg.icon{position:static;inset:auto;width:13px;heigh
 .vh-hero-email .sk{border-radius:4px;transition:color 300ms ease 150ms,background-color 300ms ease}
 .vh-hero-email .em-b:not(.on) .sk{color:transparent;background:var(--soft)}
 .vh-hero-email .em-b:not(.on) .pj{visibility:hidden}
-.vh-hero-email .em-b.ok{box-shadow:inset 0 0 0 1px var(--ok),0 10px 24px -14px rgb(0 0 0/.22)}
+.vh-hero-email .em-b.ok{box-shadow:inset 0 0 0 1px var(--ok),0 10px 24px -14px color-mix(in oklab,var(--color-neutral-950) 22%,transparent)}
 .vh-hero-email .em-bd{padding:8px 12px 10px}
 .vh-hero-email .em-f{display:grid;grid-template-columns:40px 1fr;height:18px;align-items:center;font:11px var(--mono);color:var(--dim)}
 .vh-hero-email .em-f span{color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

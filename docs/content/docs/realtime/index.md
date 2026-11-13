@@ -90,7 +90,7 @@ export default defineWorkspace({
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     // Keep rooms in this server process
     realtime: { authority: 'memory' },
     workspace: true,
@@ -110,7 +110,7 @@ export default defineConfig({
     vue(),
     nitro(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       // Keep rooms in this server process
       realtime: { authority: 'memory' },
       workspace: true,
@@ -129,7 +129,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       // Keep rooms in this server process
       realtime: { authority: 'memory' },
       workspace: true,

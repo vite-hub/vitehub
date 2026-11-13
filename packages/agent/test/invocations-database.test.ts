@@ -3,7 +3,7 @@ import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import { Miniflare } from "miniflare"
 
 const useDatabase = vi.fn()
-vi.mock("@vite-hub/database/drizzle", () => ({ useDatabase }))
+vi.mock("@vite-hub/database", () => ({ useDatabase }))
 
 import type { AgentInvocationStoreCreateInput } from "@vite-hub/agent/server"
 

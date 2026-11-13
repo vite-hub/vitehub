@@ -58,7 +58,7 @@ export default defineEventHandler(async (event) => {
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     // On Cloudflare, jobs go to Cloudflare Queues
     queue: true,
   },
@@ -74,7 +74,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       // On Cloudflare, jobs go to Cloudflare Queues
       queue: true,
     }),
@@ -91,7 +91,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       // On Cloudflare, jobs go to Cloudflare Queues
       queue: true,
     }),

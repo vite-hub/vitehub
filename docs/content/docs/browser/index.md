@@ -72,7 +72,7 @@ export default defineEventHandler(() => {
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', browser: true },
+  vitehub: { host: 'cloudflare', browser: true },
 })
 ```
 :::
@@ -85,7 +85,7 @@ import { vitehub } from 'vite-hub'
 // Adds the Cloudflare browser setting for you
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', browser: true }),
+    vitehub({ host: 'cloudflare', browser: true }),
     nitro(),
   ],
 })
@@ -99,7 +99,7 @@ import { vitehub } from 'vite-hub'
 // Adds the Cloudflare browser setting for you
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', browser: true }),
+    vitehub({ host: 'cloudflare', browser: true }),
   ],
 })
 ```

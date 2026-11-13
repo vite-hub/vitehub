@@ -31,7 +31,7 @@ Add `workflow: true` to the ViteHub options of your app. Keep the other options 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', workflow: true },
+  vitehub: { host: 'node', workflow: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true }), nitro()],
+  plugins: [vitehub({ host: 'node', workflow: true }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true })],
+  plugins: [vitehub({ host: 'node', workflow: true })],
 })
 ```
 ::::

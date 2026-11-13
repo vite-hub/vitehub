@@ -28,9 +28,9 @@ interface RealtimePlan {
 }
 
 const PAIRS: [Person, Person][] = [
-  [["Ada", "#2563eb"], ["Kai", "#c2410c"]],
-  [["Lea", "#0e7490"], ["Sam", "#b45309"]],
-  [["Mia", "#2563eb"], ["Tom", "#be185d"]],
+  [["Ada", "var(--color-blue-600)"], ["Kai", "var(--color-orange-700)"]],
+  [["Lea", "var(--color-cyan-700)"], ["Sam", "var(--color-amber-700)"]],
+  [["Mia", "var(--color-blue-600)"], ["Tom", "var(--color-pink-700)"]],
 ];
 const DOCS: Doc[] = [
   { h: "Welcome", a: "We meet on Mondays at 10.", b: "Bring one question for the demo." },
@@ -46,7 +46,7 @@ const css = `.vh-hero-realtime .r-root{position:absolute;inset:0;display:grid;gr
 .vh-hero-realtime .r-st>span{display:inline-block;animation:vh-fig-c 250ms var(--out);overflow:hidden;text-overflow:ellipsis}
 .vh-hero-realtime .r-st.ok{color:var(--ok)}
 .vh-hero-realtime .r-avs{margin-left:auto;display:flex}
-.vh-hero-realtime .r-av{width:22px;height:22px;border-radius:99px;display:flex;align-items:center;justify-content:center;font:600 10px Geist,sans-serif;color:#fff;background:var(--c);box-shadow:0 0 0 2px var(--bg);transform:scale(0);transition:transform 420ms cubic-bezier(.34,1.56,.64,1)}
+.vh-hero-realtime .r-av{width:22px;height:22px;border-radius:99px;display:flex;align-items:center;justify-content:center;font:600 10px Geist,sans-serif;color:var(--vh-on-media);background:var(--c);box-shadow:0 0 0 2px var(--bg);transform:scale(0);transition:transform 420ms cubic-bezier(.34,1.56,.64,1)}
 .vh-hero-realtime .r-av+.r-av{margin-left:-5px}
 .vh-hero-realtime .r-av.on{transform:none}
 .vh-hero-realtime .r-doc{flex:1;padding:16px 18px;font-size:13px;line-height:1.6}
@@ -55,7 +55,7 @@ const css = `.vh-hero-realtime .r-root{position:absolute;inset:0;display:grid;gr
 .vh-hero-realtime .r-p.dim{color:var(--muted)}
 .vh-hero-realtime .r-cr{position:relative;display:inline-block;width:2px;height:16px;margin-left:1px;vertical-align:-3px;background:var(--c)}
 .vh-hero-realtime .r-cr.me{width:1px;background:var(--fg)}
-.vh-hero-realtime .r-cr b{position:absolute;left:-1px;bottom:100%;padding:1px 5px;border-radius:4px 4px 4px 0;background:var(--c);color:#fff;font:500 10px/1.3 Geist,sans-serif;white-space:nowrap;transition:opacity 300ms ease}
+.vh-hero-realtime .r-cr b{position:absolute;left:-1px;bottom:100%;padding:1px 5px;border-radius:4px 4px 4px 0;background:var(--c);color:var(--vh-on-media);font:500 10px/1.3 Geist,sans-serif;white-space:nowrap;transition:opacity 300ms ease}
 .vh-hero-realtime .r-cr.idle b{opacity:0}
 .vh-hero-realtime .r-cr.blink{animation:rtblink 900ms steps(1) infinite}
 @keyframes rtblink{50%{opacity:0}}

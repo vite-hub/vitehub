@@ -18,7 +18,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -37,7 +37,7 @@ import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -55,7 +55,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -73,7 +73,7 @@ export default defineConfig({
 | `remote` | `boolean` | `false` | `true` makes `vite dev` send real email through the provider. Else a dev send stays in the [development outbox](/docs/email/hosts#development-outbox). Builds ignore it. |
 | `outbox` | `false \| { limit?: number }` | `{ limit: 50 }` | Sets up the [development outbox](/docs/email/hosts#development-outbox) in `vite dev`. `false` needs `remote: true`. Never in build output. |
 
-No `email`, or `email: false`, keeps Email off. `email: true` picks `cloudflare-email`, which needs Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. On other presets, set `driver: 'resend'`.
+No `email`, or `email: false`, keeps Email off. `email: true` picks `cloudflare-email`, which needs Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. On other hosts, set `driver: 'resend'`.
 
 ViteHub writes the driver name, plain options, and `env()` declarations into a generated server-only module. A credential from an `env()` source without a default stays in the runtime environment.
 
