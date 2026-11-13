@@ -351,6 +351,62 @@ Set `adminClaim: false` on another Auth Definition to make it ignore the host's 
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
+## Sign in through a trusted proxy
+
+A reverse proxy can sign people in before the request reaches the app, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. The proxy sends the person's identity, or a credential for it, in a request header. `forwardAuth()` turns that header into a Better Auth session.
+
+Anyone who reaches the app without the proxy can send the same header. So Auth trusts the header only when your `verify` function proves it and returns the identity. This example proves the GitHub token that oauth2-proxy forwards with `--pass-access-token`, by asking GitHub who owns it:
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { forwardAuth } from 'vite-hub/auth/forward'
+
+interface GitHubUser {
+  id: number
+  login: string
+  name: string | null
+  email: string | null
+  avatar_url: string
+}
+
+export default defineAuth({
+  plugins: [
+    forwardAuth({
+      header: 'x-auth-request-access-token',
+      verify: async ({ value }) => {
+        const response = await fetch('https://api.github.com/user', {
+          headers: { authorization: `Bearer ${value}`, 'user-agent': 'acme' },
+        })
+        if (!response.ok) return null
+        const user: GitHubUser = await response.json()
+        return {
+          providerId: 'github',
+          accountId: String(user.id),
+          email: user.email ?? `${user.id}+${user.login}@users.noreply.github.com`,
+          emailVerified: user.email !== null,
+          name: user.name ?? user.login,
+          image: user.avatar_url,
+          accessToken: value,
+        }
+      },
+    }),
+  ],
+})
+```
+
+| `verify` | Result |
+| --- | --- |
+| Returns an identity | The request uses a session of that identity. Auth signs it in the first time, as a Better Auth account with `providerId` and `accountId`, and sets the session cookie. |
+| Returns `null` | Auth ignores the header. The request keeps the session of its cookie, or stays signed out. |
+| Throws | The request fails. |
+
+- Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
+- Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
+- The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
+- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
+- When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
+
 ## Sign MCP clients in
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.

@@ -69,6 +69,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0060: withFix("Keep one abilities file at `shared/abilities.ts`. Remove the other files listed in the message, or add the app file to replace layer rules."),
     AUTH_C0061: withFix("Return `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Or return another Better Auth adapter. Remove `database` to keep sessions in memory."),
     AUTH_C0062: withFix("Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, or remove `secondaryStorage`."),
+    AUTH_C0067: withFix("Pass both options, for example `forwardAuth({ header: 'x-auth-request-access-token', verify: async ({ value }) => lookUpIdentity(value) })`. `verify` must prove the header, for example with the provider or a secret that only the proxy sends."),
     AUTH_B0001: withFix("Set `env.projectRoot` of `@vite-hub/auth/nuxt` to the `projectRoot` of the `hubEnv()` plugin, or remove `env.projectRoot`."),
     AUTH_B0002: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a rule for the guarded path that turns the cache off, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. If the page is public, remove the route from `access.routes`."),
     AUTH_R0005: withFix("Add `server/auth.ts` with `export default defineAuth({})`. For a Nuxt layer, add it to the app."),
@@ -86,5 +87,6 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub database generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
     AUTH_R0020: withFix("Add the named rule to `shared/abilities.ts` with `defineAbilities()`, or use an existing ability name."),
     AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
+    AUTH_R0022: withFix("Return `null` from `verify` to ignore the header, or an object with `providerId`, `accountId`, `email`, `name`, and `emailVerified`, for example `{ providerId: 'github', accountId: String(user.id), email, name: user.login, emailVerified: true }`."),
   },
 })
