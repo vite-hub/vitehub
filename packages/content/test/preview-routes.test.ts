@@ -14,7 +14,7 @@ import { mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../../
 import { contentRefTokenParameter, defineContent, defineContentPreset, defineContentPreviewRoutesPlugin, parseContentPreviewPath, registerContentKV, rewriteContentLinks } from "../src/index.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
-import type { ContentPreviewPath, ContentSourcePreview } from "../src/index.ts"
+import type { ContentAuthorize, ContentPreviewPath, ContentSourcePreview } from "../src/index.ts"
 import type { ContentHub } from "comark-content"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -132,10 +132,10 @@ function repository() {
   }
 }
 
-function server(options: { previews?: boolean | { source: string }, sources?: Record<string, ReturnType<typeof github>> } = {}) {
+function server(options: { previews?: boolean | { source: string }, sources?: Record<string, ReturnType<typeof github>>, authorize?: ContentAuthorize } = {}) {
   const drafts = defineContentPreset({ name: "drafts", options: {}, configure: () => ({ privateBranches: [draftBranch] }) })
   const content = defineContent({
-    route: "public",
+    ...options.authorize ? { authorize: options.authorize } : { route: "public" as const },
     extends: drafts,
     sources: options.sources ?? { docs: github({ repo: "acme/docs", ref: "main" }) },
     previews: options.previews ?? true,
@@ -259,6 +259,29 @@ describe("content.sources.route()", () => {
     expect(response.status).toBe(200)
     expect(text).toContain("Draft guide")
     expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it("asks authorize for read before it serves a ref, unless a signed link opened it", async () => {
+    const { pulls } = repository()
+    const policy = vi.fn<ContentAuthorize>(({ user }) => user?.id === "ana")
+    const content = server({ authorize: policy })
+    const url = `https://docs.example/pr/${pulls.open}/guide`
+    const denied = await serve(content, url)
+    expect(denied.response.status).toBe(401)
+    expect(denied.response.headers.get("cache-control")).toBe("private, no-store")
+    expect(denied.seen).toEqual([])
+    expect(policy).toHaveBeenLastCalledWith({ user: null, action: "read" })
+    const ben = await content.sources.route(new Request(url), app(content), { user: () => ({ id: "ben" }) })
+    expect(ben.status).toBe(403)
+    const ana = await content.sources.route(new Request(url), app(content), { user: () => ({ id: "ana" }) })
+    expect(ana.status).toBe(200)
+    expect(await ana.text()).toContain("Guide on feat/open")
+    expect(ana.headers.get("cache-control")).toBe("private, no-store")
+    policy.mockClear()
+    const { token } = await content.sources.sign(draftBranch, "docs")
+    const signed = await serve(content, `https://docs.example/tree/${draftBranch}/-/guide?${contentRefTokenParameter}=${encodeURIComponent(token)}`)
+    expect(signed.response.status).toBe(200)
+    expect(policy).not.toHaveBeenCalled()
   })
 
   it("keeps a signed link on internal links and redirects of its ref", async () => {

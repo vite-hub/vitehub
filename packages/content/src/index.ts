@@ -42,6 +42,8 @@ import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLim
 import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
+import { contentReadDenied, contentReadGated, contentReadResponse } from "./read-gate.ts"
+import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
 import type {
   AnyContentCollection,
@@ -94,6 +96,7 @@ export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBa
 export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
 export type { BuiltContentCommit, BuiltContentSnapshot, ContentCommitSnapshotIndex, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
+export type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
@@ -230,8 +233,8 @@ type ContentMethods<TPlugins extends ReadonlyArray<ContentPlugin<any, any>>> =
   TPlugins["length"] extends 0 ? unknown : UnionToIntersection<PluginMethods<TPlugins[number]>>
 
 /**
- * What a Content surface asks permission for. `read` is a request to the `/api/content/**` route, which serves
- * published documents and Sources. `read-draft` opens collections and their drafts, such as in the Console. `write`
+ * What a Content surface asks permission for. `read` is a request to a reader of published documents and Sources:
+ * `/api/content/**`, the sitemap, RSS, `llms.txt`, Markdown copies, `/mcp`, and preview URLs. `read-draft` opens collections and their drafts, such as in the Console. `write`
  * saves or removes documents, and `publish` publishes them.
  */
 export type ContentAction = "read" | "read-draft" | "write" | "publish"
@@ -248,8 +251,8 @@ export interface ContentActor {
 }
 
 /**
- * The target of a Content action. `read` targets the whole `/api/content/**` route, which reads every Source and
- * collection in one request, so it has no `collection`. The other actions target one collection.
+ * The target of a Content action. `read` targets every published Source and collection at once, as a reader such as
+ * `/api/content/**` or `/llms-full.txt` does, so it has no `collection`. The other actions target one collection.
  */
 export type ContentActionTarget<TCollection extends string = string> =
   | { action: "read", collection?: undefined, id?: undefined }
@@ -274,7 +277,8 @@ export type ContentCanContext<TCollection extends string = string> = ContentActi
 }
 
 /**
- * Decide whether a user or an Agent Actor may take a Content action. The `/api/content/**` route asks it for `read`.
+ * Decide whether a user or an Agent Actor may take a Content action. Every reader of published Content asks it for
+ * `read`: `/api/content/**`, the SEO routes except `robots.txt`, and preview URLs.
  * Surfaces such as the Console editor and the Content Agent Capability call it through `content.can()`. The runtime
  * methods themselves are trusted server API and do not.
  */
@@ -301,10 +305,11 @@ export type DefineContentOptions<
    */
   markdown?: NonNullable<ContentOptions["markdown"]> & { preset?: false }
   /**
-   * The `/api/content/**` route. `true` (default) asks `authorize` with `action: "read"` for each request, and serves
-   * everyone when there is no policy. A `github()` Source can read a private repository with a token, so with one,
-   * set `authorize` or say `route: "public"`. `"public"` serves everyone without `authorize`. `false` serves no route,
-   * and keeps server methods and Console editing available.
+   * The `/api/content/**` route. `true` (default) serves it. Each request to it, to the `seo` routes except
+   * `robots.txt`, and to preview URLs asks `authorize` with `action: "read"`; without a policy they serve everyone.
+   * A `github()` Source can read a private repository with a token, so with one, set `authorize` or say
+   * `route: "public"`. `"public"` serves all of them to everyone without `authorize`. `false` serves no
+   * `/api/content/**`, and keeps server methods, Console editing, and the other readers available.
    */
   route?: boolean | "public"
   /** One read-only Source, served as the `default` instance. */
@@ -412,8 +417,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
   /**
-   * `defineContent({ route })`: `true` when `/api/content/**` asks `authorize` for `read`, `"public"` when it serves
-   * everyone, `false` when there is no route. Server methods and Console editing remain available.
+   * `defineContent({ route })`: `true` when `/api/content/**` is served, `"public"` when it and the other readers serve
+   * everyone without `authorize`, `false` when there is no `/api/content/**`. Server methods and Console editing remain available.
    */
   readonly route: boolean | "public"
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
@@ -569,8 +574,19 @@ export function defineContent<
   }
   // A `github()` Source reads with a token, so its private files must not become public without a decision.
   const tokenSources = Object.entries(inputs).flatMap(([name, input]) => input !== undefined && contentSourceKind(input) === "github" ? [name] : [])
-  if (route === true && !policy && tokenSources.length) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] /api/content/** would serve the github() Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source can read a private repository with a token. Set authorize to decide who may read, route: "public" when the repository is public, or route: false.` })
+  if (route !== "public" && !policy && tokenSources.length) {
+    const readers = [
+      ...route ? ["/api/content/**"] : [],
+      ...seo?.sitemap ? ["/sitemap.xml"] : [],
+      ...seo?.rss ? ["/rss.xml"] : [],
+      ...seo?.llms ? ["/llms.txt"] : [],
+      ...seo?.markdown ? [".md copies"] : [],
+      ...seo?.mcp ? ["/mcp"] : [],
+      ...previews === false ? [] : ["preview URLs"],
+    ]
+    if (readers.length) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${readers.join(", ")} would serve the github() Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or route: "public" when the repository is public.${route ? " route: false removes /api/content/**." : ""}` })
+    }
   }
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
   // Source for the commit cache. Collections stay editable, so they parse.
@@ -1044,6 +1060,8 @@ export function defineContent<
     }
   }
   const reportedDenials = new Set<string>()
+  // Who reads published Content through preview URLs, as through `/api/content/**`.
+  const readAccess: ContentReadAccess = { route, hasPolicy: policy !== undefined, can: async ({ user }) => policy !== undefined && await policy({ user, action: "read" }) === true }
   const previewRoutes: ContentSourcePreviewRoutes = {
     async previewLinks(pull, linkOptions = {}) {
       if (previews === false) throw contentErrorDiagnostics.CONTENT_R0079()
@@ -1092,7 +1110,7 @@ export function defineContent<
       return { source: name, repo: String(repo), sha: view.sha, pull: view.pull!, access, expiresAt: signed?.expiresAt ?? null, pages }
     },
     current: () => refScope.getStore()?.preview ?? null,
-    async route(request, next) {
+    async route(request, next, options = {}) {
       const url = new URL(request.url)
       const parsed = previews === false ? null : parseContentPreviewPath(url.pathname)
       if (!parsed) return await next(request)
@@ -1106,6 +1124,12 @@ export function defineContent<
           console.warn(formatDiagnostic(access.error))
         }
         return await next(request)
+      }
+      // A Console preview cookie or a signed token is a grant from the server. Every other ref is published Content.
+      const gated = access.reason !== "console" && access.reason !== "token" && contentReadGated(readAccess)
+      if (gated) {
+        const denied = await contentReadDenied(readAccess, request, options)
+        if (denied) return denied
       }
       const site = configuredSite ?? url.origin
       const { target } = access
@@ -1125,7 +1149,7 @@ export function defineContent<
       const query = previewLinkQuery(request.url, access.reason)
       // The commit view stays open for the whole request, so synchronous reads such as `from()` and `query()` use it.
       const response = await heads.read(target, async view => await refScope.run({ target, preview: current, view, ...(query ? { query } : {}) }, async () => await next(requestWithUrl(request, page.href))))
-      return previewResponse(response, current, access.reason, request.url)
+      return previewResponse(response, current, access.reason, request.url, gated)
     },
   }
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
@@ -1239,44 +1263,30 @@ function pagePath(path: string): string {
   return (bare.startsWith("/") ? bare : `/${bare}`).toLowerCase()
 }
 
-/** Options of `defineContentHandler()`. */
-export interface ContentHandlerOptions {
-  /**
-   * The signed-in user of a request, which `authorize` gets as `user`. The generated route reads the ViteHub Auth
-   * session when the app has Auth. Without this option, `user` is null.
-   */
-  user?: (request: Request) => ContentUser | null | undefined | Promise<ContentUser | null | undefined>
-}
-
 /**
  * Serve the Comark Content Web handler as a Fetchable route. With a Content runtime, each request first asks
  * `authorize` with `action: "read"`, unless `defineContent({ route: "public" })` or there is no policy. A denied
- * request gets 401 without a user and 403 with one. A request with a valid preview cookie reads the `draft` ref and
- * gets `Cache-Control: private, no-store`.
+ * request gets 401 without a user and 403 with one. An answer that `authorize` decided, and a request with a valid
+ * preview cookie, which reads the `draft` ref, get `Cache-Control: private, no-store`.
  */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview, route?: boolean | "public", hasPolicy?: boolean, can?: ContentDocumentsRuntime["can"] },
+  content: Pick<ComarkContent, "handler"> & ContentReadAccess & { preview?: ContentPreview },
   options: ContentHandlerOptions = {},
 ): ContentHandler {
   return {
     async fetch(request) {
       if (content.route === false) return new Response("Not Found", { status: 404 })
-      if (content.route !== "public" && content.hasPolicy) {
-        const user = await options.user?.(request) ?? null
-        // A runtime that claims a policy but cannot check it denies.
-        if (!(content.can ? await content.can({ user, action: "read" }) : false)) {
-          return new Response(user ? "Forbidden" : "Unauthorized", { status: user ? 403 : 401, headers: { "cache-control": "private, no-store" } })
-        }
-      }
+      const denied = await contentReadDenied(content, request, options)
+      if (denied) return denied
       const dispatch = () => content.handler(request)
-      return await (content.preview
+      return contentReadResponse(content, await (content.preview
         ? content.preview.run(request, dispatch)
-        : dispatch())
+        : dispatch()))
     },
   }
 }
 
-type SeoRuntime = Pick<ContentDocumentsRuntime, "llms" | "markdown" | "robots" | "rss" | "seo" | "sitemap">
+type SeoRuntime = Pick<ContentDocumentsRuntime, "llms" | "markdown" | "robots" | "rss" | "seo" | "sitemap"> & ContentReadAccess
 
 /**
  * The `waitUntil` of a request for `content.sitemap()` and `content.rss()`, and the `Cache-Control` of the answer. An
@@ -1300,32 +1310,38 @@ function deferredWork(request: Request): { options: { waitUntil?: (promise: Prom
 
 /**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
- * ViteHub generates this route when `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
+ * It asks `authorize` for `read` as `defineContentHandler()` does. ViteHub generates this route when
+ * `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
  */
-export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler {
+export function defineContentSitemapHandler(content: SeoRuntime, options: ContentHandlerOptions = {}): ContentHandler {
   return {
     async fetch(request) {
       if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
+      const denied = await contentReadDenied(content, request, options)
+      if (denied) return denied
       const site = content.seo.site ?? new URL(request.url).origin
       const later = deferredWork(request)
       const xml = renderContentSitemap(await content.sitemap({ site, ...later.options }))
-      return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": later.cacheControl() } })
+      return contentReadResponse(content, new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": later.cacheControl() } }))
     },
   }
 }
 
 /**
  * Serve `/rss.xml` from `content.rss()`. Links use `defineContent({ seo: { site } })`, or the request origin. ViteHub
- * generates this route when `defineContent({ seo: { rss: true } })`.
+ * generates this route when `defineContent({ seo: { rss: true } })`. It asks `authorize` for `read` as
+ * `defineContentHandler()` does.
  */
-export function defineContentRssHandler(content: SeoRuntime): ContentHandler {
+export function defineContentRssHandler(content: SeoRuntime, options: ContentHandlerOptions = {}): ContentHandler {
   return {
     async fetch(request) {
       const rss = content.seo?.rss
       if (rss === undefined || rss === false) return new Response("Not Found", { status: 404 })
+      const denied = await contentReadDenied(content, request, options)
+      if (denied) return denied
       const later = deferredWork(request)
       const xml = await content.rss({ site: content.seo?.site ?? new URL(request.url).origin, ...later.options })
-      return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": later.cacheControl() } })
+      return contentReadResponse(content, new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": later.cacheControl() } }))
     },
   }
 }
@@ -1348,19 +1364,22 @@ export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler 
 
 /**
  * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from `content.llms()`. The last path segment of the request
- * picks the file. ViteHub generates the three routes when `defineContent({ seo: { llms: true } })`.
+ * picks the file. It asks `authorize` for `read` as `defineContentHandler()` does. ViteHub generates the three routes
+ * when `defineContent({ seo: { llms: true } })`.
  */
-export function defineContentLlmsHandler(content: SeoRuntime): ContentHandler {
+export function defineContentLlmsHandler(content: SeoRuntime, options: ContentHandlerOptions = {}): ContentHandler {
   return {
     async fetch(request) {
       const llms = content.seo?.llms
       const url = new URL(request.url)
       const file = (["llms.txt", "llms-full.txt", "sitemap.md"] as const).find(name => url.pathname.endsWith(`/${name}`))
       if (llms === undefined || llms === false || !file) return new Response("Not Found", { status: 404 })
+      const denied = await contentReadDenied(content, request, options)
+      if (denied) return denied
       const text = await content.llms({ site: content.seo?.site ?? url.origin, file })
-      return new Response(request.method === "HEAD" ? null : text, {
+      return contentReadResponse(content, new Response(request.method === "HEAD" ? null : text, {
         headers: { "content-type": file === "sitemap.md" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-      })
+      }))
     },
   }
 }

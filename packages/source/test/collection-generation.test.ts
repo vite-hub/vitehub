@@ -262,6 +262,32 @@ it.each([
   }
 })
 
+it("passes the Auth session user to every Content reader except robots.txt", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\n\nexport default defineContent({ authorize: ({ user }) => user !== null, previews: true, seo: { sitemap: true, robots: true, rss: true, mcp: true, llms: true } })\n`)
+    await prepareSourceGeneration({ projectRoot, auth: true, contentImportBase: "vite-hub/content" })
+    const read = (name: string) => readFile(join(projectRoot, ".vitehub/content", name), "utf8")
+    const user = "{ user: async request => (await useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }"
+    for (const [name, helper] of [["sitemap.mjs", "defineContentSitemapHandler"], ["rss.mjs", "defineContentRssHandler"], ["mcp.mjs", "defineContentMcpHandler"], ["llms.mjs", "defineContentLlmsHandler"]]) {
+      const file = await read(name!)
+      expect(file, name).toContain(`export default ${helper}(content, ${user})`)
+      expect(file, name).toContain('import { useAuth } from "#vitehub/auth/server"')
+    }
+    expect(await read("robots.mjs")).toContain("export default defineContentRobotsHandler(content)")
+    expect(await read("robots.mjs")).not.toContain("useAuth")
+    // Entries that load when the server starts import Auth on the first request that asks.
+    const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
+    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
+    expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
+    expect(await read("markdown.mjs")).not.toContain("import { useAuth }")
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it("removes the Collection types wrapper that earlier versions wrote", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
   try {

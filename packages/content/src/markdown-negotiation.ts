@@ -1,5 +1,8 @@
 // Markdown negotiation and the Markdown 404 body. This module imports no Markdown parser, so the generated middleware
 // can load it when the server starts and load server/content.ts only on the first request that asks for Markdown.
+import { contentReadDenied, contentReadGated } from "./read-gate.ts"
+
+import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { DefineContentSeoOptions } from "./sitemap.ts"
 
 /** The `Vary` value of every response that depends on the `Accept` header. */
@@ -112,7 +115,7 @@ export function renderContentMarkdownNotFound(options: { path: string, site: str
 export type ContentMiddleware = (event: { req: Request, res?: { status?: number, headers: Headers, errHeaders?: Headers } }, next?: () => unknown) => Promise<unknown>
 
 /** The part of a Content runtime that Markdown copies need. */
-export interface ContentMarkdownRuntime {
+export interface ContentMarkdownRuntime extends ContentReadAccess {
   readonly seo: DefineContentSeoOptions | undefined
   markdown(path: string, options?: { site?: string }): Promise<string | null>
 }
@@ -160,10 +163,11 @@ function markdownVary(...values: (string | null | undefined)[]): string {
  * - A page URL with `Accept: text/markdown` before `text/html` returns the same copy. Page responses get `Vary: Accept`.
  * - A Markdown request that no handler answers gets a Markdown 404 body.
  *
- * Every other request passes through. Pass the Content runtime, or a function that loads it: the middleware then loads
- * Content only for requests that ask for Markdown. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
+ * Every other request passes through. A Markdown request first asks `authorize` with `action: "read"`, as
+ * `/api/content/**` does. Pass the Content runtime, or a function that loads it: the middleware then loads Content only
+ * for requests that ask for Markdown. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
  */
-export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>)): ContentMiddleware {
+export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>), options: ContentHandlerOptions = {}): ContentMiddleware {
   return async (event, next) => {
     if (typeof content !== "function" && !content.seo?.markdown) return
     const request = event.req
@@ -196,12 +200,14 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     const runtime = typeof content === "function" ? await content() : content
     const seo = runtime.seo
     if (!seo?.markdown) return
+    const denied = await contentReadDenied(runtime, request, options)
+    if (denied) return vary(denied)
     const site = seo.site ?? url.origin
     const respond = (body: string, status = 200) => new Response(request.method === "HEAD" ? null : body, {
       status,
       headers: {
         "content-type": "text/markdown; charset=utf-8",
-        "cache-control": status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
+        "cache-control": contentReadGated(runtime) ? "private, no-store" : status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
         ...negotiated ? { vary: contentMarkdownVary } : {},
       },
     })

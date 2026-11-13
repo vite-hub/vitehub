@@ -11,7 +11,7 @@ icon: i-lucide-circle-alert
 - A project has one Content file. A second `content.ts` (or `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`) in any server directory fails route generation with `SOURCE_B0007`. The file must export `content`, else generation fails with `SOURCE_B0008`.
 - Define `source` or `sources`, not both.
 - `plugins` takes Comark Content plugins. A Comark parse plugin there throws `CONTENT_R0006`. Pass it in `markdown.plugins`.
-- These throw `CONTENT_R0006`: `collections` without `workspace` or `extends: cms`, `extends` with `workspace`, a collection not made by `documents()`, a collection named like a Source, a `route` other than `true`, `false`, or `'public'`, or a `github()` Source with the default `route` and no `authorize`.
+- These throw `CONTENT_R0006`: `collections` without `workspace` or `extends: cms`, `extends` with `workspace`, a collection not made by `documents()`, a collection named like a Source, a `route` other than `true`, `false`, or `'public'`, or a `github()` Source without `authorize` that `/api/content/**`, an SEO route other than `robots`, or `previews` would serve, unless `route` is `'public'`.
 - `documents()` paths are relative globs with `*`, `**`, and `?` that end in one extension, such as `posts/**/*.md`. `path` can be a list of globs with that extension. An empty list, a repeated glob, mixed extensions, or a glob without a wildcard throws `CONTENT_R0006`. `content.resolve()` throws `CONTENT_R0008` for a path that is not a string. Every field is a Standard Schema validator.
 - `defineContent()` needs `AsyncLocalStorage` from `node:async_hooks` in the runtime.
 - Generated Content HTTP routes require Nitro 3, including Nuxt 5. Routes expose `fetch(request)` with a Web `Request`; Markdown middleware reads `event.req`.
@@ -37,8 +37,8 @@ icon: i-lucide-circle-alert
 - `updatedAt` walks the ref back once per revision per runtime, with one Database query per 100 revisions plus one per outside commit. It stops at a cached answer, and reports `null` past 5,000 revisions.
 - Frontmatter is YAML, and values must survive a JSON round trip. A `Date` is stored as an ISO string.
 - A field without a Standard JSON Schema, such as an async Valibot schema, shows as `{}` in `schema`, and `defineContent()` warns once per field. Content converts synchronous Valibot schemas itself.
-- `/api/content/**` serves published documents, or drafts with a valid [preview cookie](/docs/content/preview). With a policy, it asks `authorize` for `read` first, and a denied request gets `401` or `403`. Content has no write routes, and runtime methods do not call `authorize`.
-- Without `authorize`, `content.can()` denies every action, and `/api/content/**` serves everyone.
+- `/api/content/**` serves published documents, or drafts with a valid [preview cookie](/docs/content/preview). With a policy, it, the SEO routes except `/robots.txt`, and preview URLs ask `authorize` for `read` first, and a denied request gets `401` or `403`. Content has no write routes, and runtime methods do not call `authorize`.
+- Without `authorize`, `content.can()` denies every action, and the Content readers serve everyone.
 - The Store retains every revision. There is no pruning.
 - [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. It cannot inspect or publish a deployed app.
 

@@ -196,6 +196,8 @@ The page runs at `/docs/kv` through your real routes, and every read of the Sour
 
 Content asks `content.sources.allow()` first. A ref that it denies gets your app's own 404, the same answer as for any unknown path. The draft branch of the CMS, its publish branches, and fork pull requests without the `preview:enabled` label need the preview cookie or a link from `content.sources.sign()`.
 
+With `authorize`, a preview URL also asks it for `read`, as `/api/content/**` does, unless the preview cookie or a signed link opened the ref. A denied request gets `401` or `403`, and an allowed one gets `Cache-Control: private, no-store`. `route: 'public'` skips the check.
+
 A preview response has `X-Robots-Tag: noindex` and a canonical `Link` header to the production URL. Its `Cache-Control` is `private, no-store` for the cookie or a signed link, `immutable` for a `/blob` commit in the published history, and one minute for other refs. These are upper bounds: shorter application `max-age` and `s-maxage` values and revalidation directives stay in place. A response with its own cache policy does not become immutable only because the Source commit is published. A response that your route marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. Nitro's cache skips preview requests. A ref that a signed link opened keeps the link token on its internal links and redirects.
 
 In Nuxt, the client router does not know the prefix yet. A page that reads its route on the client sees the preview URL after hydration.

@@ -1,8 +1,10 @@
 import { serveMcp } from "@vite-hub/internal/runtime/mcp-server"
+import { contentReadDenied, contentReadResponse } from "./read-gate.ts"
 import { siteOrigin } from "./sitemap.ts"
 
 import type { McpServer, McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { ContentHandler } from "./index.ts"
+import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { ContentRoutedPage, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 
 /** `defineContent({ seo: { mcp } })`. */
@@ -72,7 +74,7 @@ export function contentPageSummary(page: ContentRoutedPage, site: string): Conte
 }
 
 /** The runtime that the MCP server reads. */
-export interface ContentMcpRuntime {
+export interface ContentMcpRuntime extends ContentReadAccess {
   readonly seo: DefineContentSeoOptions | undefined
   pages(options?: ContentPagesOptions): Promise<ContentPageSummary[]>
   page(path: string, options?: ContentSitemapOptions): Promise<ContentPageMarkdown | null>
@@ -85,7 +87,7 @@ function json(value: unknown): McpToolResult {
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
-/** The public read-only page MCP server of `defineContent({ seo: { mcp } })` for one site origin. */
+/** The read-only page MCP server of `defineContent({ seo: { mcp } })` for one site origin. */
 export function contentMcpServer(content: ContentMcpRuntime, site: string): McpServer {
   const options = typeof content.seo?.mcp === "object" ? content.seo.mcp : {}
   const name = options.name ?? new URL(site).host
@@ -122,16 +124,19 @@ Use a path from list-pages or from a link, such as /blog/hello.`,
 }
 
 /**
- * Serve the public read-only page MCP server at `/mcp`: `list-pages` and `get-page` over the published Markdown pages
- * that the sitemap lists. URLs use `defineContent({ seo: { site } })`, or the request origin. ViteHub generates this
- * route when `defineContent({ seo: { mcp: true } })`.
+ * Serve the read-only page MCP server at `/mcp`: `list-pages` and `get-page` over the published Markdown pages that the
+ * sitemap lists. URLs use `defineContent({ seo: { site } })`, or the request origin. Each request first asks
+ * `authorize` with `action: "read"`, as `/api/content/**` does. ViteHub generates this route when
+ * `defineContent({ seo: { mcp: true } })`.
  */
-export function defineContentMcpHandler(content: ContentMcpRuntime): ContentHandler {
+export function defineContentMcpHandler(content: ContentMcpRuntime, options: ContentHandlerOptions = {}): ContentHandler {
   return {
     async fetch(request) {
       const mcp = content.seo?.mcp
       if (mcp === undefined || mcp === false) return new Response("Not Found", { status: 404 })
-      return await serveMcp(request, contentMcpServer(content, content.seo?.site ? siteOrigin(content.seo.site) : new URL(request.url).origin))
+      const denied = await contentReadDenied(content, request, options)
+      if (denied) return denied
+      return contentReadResponse(content, await serveMcp(request, contentMcpServer(content, content.seo?.site ? siteOrigin(content.seo.site) : new URL(request.url).origin)))
     },
   }
 }

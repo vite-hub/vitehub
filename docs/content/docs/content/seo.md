@@ -15,9 +15,11 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`contentHead()`](#head-tags) | Head tags from a document, its `seo()` values, and site defaults. |
 | [`defineContent({ seo })`](#sitemap-and-robotstxt) | Generated `/sitemap.xml` and `/robots.txt`. |
 | [`seo: { rss }`](#rss-feed) | A generated `/rss.xml` with the newest pages, dated from their history. |
-| [`seo: { mcp }`](#page-mcp-server) | A public read-only MCP server at `/mcp`, so agents can list and read your pages. |
+| [`seo: { mcp }`](#page-mcp-server) | A read-only MCP server at `/mcp`, so agents can list and read your pages. |
 | [`seo: { markdown, llms }`](#markdown-for-agents) | Markdown copies of each page, `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
+
+With `authorize`, every generated SEO route except `/robots.txt` asks it for `read` first, as `/api/content/**` does, and answers with `Cache-Control: private, no-store`. Set `route: 'public'`, or return `true` for `action: 'read'`, to serve them to crawlers and agents. See [Public route](/docs/content/configure#public-route).
 
 ## Document URLs
 
@@ -232,7 +234,7 @@ Add the feed to your pages with `contentHead(document, { rss: true })`. `content
 
 ## Page MCP server
 
-`seo: { mcp: true }` serves a public read-only MCP server at `/mcp`. Agents connect to it to find and read your pages. It has the same two tools as the MCP server of a [docs site](/docs/docs-site/configure), so an agent that knows one knows the other.
+`seo: { mcp: true }` serves a read-only MCP server at `/mcp`. Agents connect to it to find and read your pages. It has the same two tools as the MCP server of a [docs site](/docs/docs-site/configure), so an agent that knows one knows the other.
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
