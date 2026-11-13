@@ -284,8 +284,8 @@ export default defineContent({
 
 The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
 
-- `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description, a link to `/llms-full.txt`, then one section per collection or Source, named by its `label`, with a link to the `.md` copy of each page and its description.
-- `/llms-full.txt` joins the copy of every page, home page first.
+- `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description as a quote, the details, a link to `/llms-full.txt`, then one section per collection or Source, named by its `label`, with a link to the `.md` copy of each page and its description. Link titles are escaped, so a `]` in a title does not break the link.
+- `/llms-full.txt` starts with the same title, description, and details, then has the copy of every page, home page first. Each page starts with `URL:` and its page URL, so an agent can cite it, and a `---` line separates the pages.
 - `/sitemap.md` lists every page, grouped by the first segment of its URL.
 
 They list the same Markdown pages as the sitemap: published documents with a URL, and the Markdown files of Sources with a `url`, without `seo.noindex` or a `seo.canonical` that points elsewhere. Drafts and JSON and YAML documents are not listed. A `noindex` page still has its `.md` copy.
