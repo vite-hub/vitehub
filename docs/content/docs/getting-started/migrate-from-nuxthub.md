@@ -563,6 +563,57 @@ export default defineNuxtConfig({
 })
 ```
 
+### Cache tags
+
+Tags clear related cache entries together. Import `defineCachedFunction()` and
+`defineCachedHandler()` from `vite-hub/cache`. They take Nitro's options, plus
+`tags`:
+
+```ts [server/utils/posts.ts]
+import { defineCachedFunction } from "vite-hub/cache"
+
+export const getPost = defineCachedFunction(
+  async (id: string) => {
+    const response = await fetch(`https://api.example.com/posts/${id}`)
+    return response.json()
+  },
+  { maxAge: 3600, getKey: (id: string) => id, tags: (id: string) => ["posts", `post:${id}`] },
+)
+```
+
+Call `invalidateTag()` after the data changes:
+
+```ts [server/api/posts/[id].put.ts]
+import { defineHandler, getRouterParam } from "nitro/h3"
+import { invalidateTag } from "vite-hub/cache"
+
+export default defineHandler(async (event) => {
+  // Save the post, then:
+  await invalidateTag(`post:${getRouterParam(event, "id")}`)
+  return { ok: true }
+})
+```
+
+- `tags` is a list, or a function of the cached function's arguments. For
+  `defineCachedHandler()`, the function gets the event.
+- `invalidateTag()` takes one tag or a list. The next call of each entry with
+  one of these tags runs the function again. It does not serve the old value,
+  also with `swr: true`. Entries without these tags do not change.
+- A result is not stored when one of its tags is invalidated while the function
+  runs.
+- ViteHub stores one record per tag in the `cache` mount, under `tags:` and
+  the URI-encoded tag, with no TTL. Each read of a tagged entry reads its tag records. It
+  never lists keys, so tags work with every `cache` driver.
+- Cloudflare KV can take up to 60 seconds to show a new tag record in other
+  locations. Until then, those locations can serve the old entry.
+- Vercel Runtime Cache can evict any record, also a tag record. An entry whose
+  tag record was evicted can come back until its `maxAge` ends.
+- Without the `cache` option, Nitro keeps the cache in memory, and the tag
+  records too. Each server instance then has its own tags.
+- In Nuxt, `invalidateTag()` is auto-imported when `cache` is on. Nitro's
+  `defineCachedFunction()` and `defineCachedHandler()` stay auto-imported and
+  have no `tags`, so import the ViteHub ones from `vite-hub/cache`.
+
 ## Deploy
 
 ViteHub uses NuxtHub's Cloudflare binding names: `DB` for D1, `KV` for Workers
