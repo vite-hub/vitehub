@@ -1,5 +1,6 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
 import { getQueueRuntimeConfig, getQueueRuntimeJobStore, listQueueDefinitionNames } from "../internal/runtime/state.ts"
 import { dynamicQueue } from "./client.ts"
@@ -86,9 +87,7 @@ function failure(error: unknown): unknown {
 
 export async function listQueues(): Promise<QueueListResult> {
   const config = getQueueRuntimeConfig()
-  if (config === false) {
-    throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
-  }
+  if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())
   const names = listQueueDefinitionNames()
   if (config?.provider === "local" || config?.provider === "postgres") {
     const status = config.provider === "postgres"
@@ -142,9 +141,7 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
  */
 async function localJobs(): Promise<QueueJobStore> {
   const config = getQueueRuntimeConfig()
-  if (config === false) {
-    throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
-  }
+  if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())
   const store = config?.provider === "postgres"
     ? await getQueueRuntimeJobStore()
     : config ? (await import("../internal/runtime/local-client.ts")).useLocalQueueEngine(config) : undefined

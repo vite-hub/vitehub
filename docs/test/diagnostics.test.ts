@@ -26,7 +26,7 @@ describe("diagnostic catalogs", () => {
   })
 
   it("reads `why` and `fix`, with each template expression as a placeholder", () => {
-    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "Add `hubQueue()` to the Vite config and do not set `queue: false`." })
+    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host." })
     // A function `why` shows the most detailed text that it can return.
     expect(code("QUEUE_BINDING_NOT_FOUND").why).toBe("The Cloudflare queue binding \"<binding>\" is not in the Worker env.")
     expect(code("QUEUE_PROVIDER_FAILED").group).toBe("Runtime errors")
@@ -58,8 +58,17 @@ describe("diagnostic catalogs", () => {
       expect(code(name)).toMatchObject({ pkg: "agent", docsBase: "https://vitehub.dev/docs/agents/diagnostics" })
     }
     for (const name of ["MCP_B0001", "MCP_B0002"]) {
-      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/development/diagnostics" })
+      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/mcp/diagnostics" })
     }
+  })
+
+  it("names the `vitehub()` option in each fix that names an owner plugin", () => {
+    // These fixes are about an owner plugin that the app adds itself, so `vitehub()` has no part in them.
+    const ownerPluginOnly = new Set(["AUTH_B0001", "QUEUE_PLUGIN_INCOMPATIBLE"])
+    const missing = codes
+      .filter(candidate => /\bhub[A-Z]\w*\(/.test(candidate.fix ?? "") && !candidate.fix!.includes("vitehub(") && !ownerPluginOnly.has(candidate.code))
+      .map(candidate => `${candidate.code}: ${candidate.fix}`)
+    expect(missing).toEqual([])
   })
 })
 

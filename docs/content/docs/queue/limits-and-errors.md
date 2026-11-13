@@ -93,11 +93,11 @@ A queue file threw when it loaded. `error.cause` holds the import error.
 
 ### QUEUE_DEFINITION_NOT_FOUND
 
-No queue has this name, or a Cloudflare queue maps to no Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the queues, so a script outside it, or an app built without Queue, finds none. With `queue: false`, `sendQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
+No queue has this name, or a Cloudflare queue maps to no Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the queues, so a script outside it, or an app built without Queue, finds none. In Vitest, with `hubQueue(false)`, `sendQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
 
 ### QUEUE_DISABLED
 
-The Vite config sets `queue: false`, or this runtime has no Queue config.
+The Queue config that this runtime installed is `false`. The generated Vitest setup installs `false` when `hubQueue()` gets `false`, or when `queue.provider` does not match the host. A dev or built server registers no Queue runtime in these cases, so Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](#queue_definition_not_found) there.
 
 ### QUEUE_INVALID_BINDING
 
@@ -137,7 +137,7 @@ The generated runtime got another provider. Set `queue.provider` to match the de
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
-The Queue runtime has no client factory, which the generated server output installs. Add `hubQueue()` to the Vite config, build, and run the built server.
+The Queue runtime has no client factory, which the generated server output installs. Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build and run the built server.
 
 ### QUEUE_VERCEL_SDK_INVALID
 

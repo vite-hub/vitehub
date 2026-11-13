@@ -364,7 +364,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     title: "KV",
   }),
   mcp: feature({
-    docs: "/docs/development/app-mcp",
+    docs: "/docs/mcp",
     hosts: everywhere("nitro", "Nitro"),
     id: "mcp",
     packages: ["@vite-hub/mcp"],

@@ -153,7 +153,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `requestOrigin` | The current request's origin. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps need no separate auth URL variable. |
 | `request` | The current request headers and URL, if there is a request. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition and `runtime` callbacks once (twice with proxy trust, below). Each new request gets fresh options.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition and `runtime` callbacks once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
 
 ### Behind a proxy that ends TLS
 
@@ -356,7 +356,7 @@ With a claim code set, Auth sets `verification.storeInDatabase: true`, including
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
 
-With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/development/app-mcp) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 

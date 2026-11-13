@@ -80,17 +80,43 @@ export default defineConfig({
 :::
 ::
 
-Set other Queue options directly in `vitehub({ queue: { ... } })` or the Nuxt `vitehub.queue` object. With the Queue package alone, pass them to `hubQueue()`:
+Set other Queue options directly in `vitehub({ queue: { ... } })` or the Nuxt `vitehub.queue` object. An option that you set wins over the preset:
 
-```ts [vite.config.ts]
-import { hubQueue } from '@vite-hub/queue/vite'
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-
-export default defineConfig({
-  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' }), nitro()],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } })],
+})
+```
+:::
+::
+
+With `@vite-hub/queue` alone, pass the same options to `hubQueue()` from `@vite-hub/queue/vite`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -103,7 +129,7 @@ export default defineConfig({
 
 ### `queue: false`
 
-Turns off runtime dispatch and the generated Vercel consumer functions. Runtime calls throw `QUEUE_DISABLED`.
+Turns Queue off. The server then has no Queue runtime, so `sendQueue()` throws `QUEUE_DEFINITION_NOT_FOUND`. This applies to `vitehub()` and to `hubQueue(false)` from `@vite-hub/queue`. `hubQueue(false)` also adds no Vercel consumer functions. In Vitest, the generated test setup installs the `false` config, so Queue calls throw `QUEUE_DISABLED`.
 
 ## Providers
 

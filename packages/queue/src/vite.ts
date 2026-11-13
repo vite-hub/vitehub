@@ -1,3 +1,4 @@
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -9,10 +10,12 @@ import { resolve } from "pathe"
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, generatedQueueTestSetup, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
+import type { NormalizedQueueOptions } from "./internal/vite-build.ts"
 import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueOptions } from "./types.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -28,6 +31,7 @@ export { inspectQueueDefinitions, type QueueInspectionOptions, queueConsoleSecti
 interface QueueProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>
+    durability?: DurabilityPluginMetadata["durability"]
     inspect?: () => ViteHubInspectionContributor | undefined
     operations?: readonly OperationContributionEntry[]
     queue?: {
@@ -228,6 +232,8 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
   let localDevelopment = false
   let preview = false
   let nitroQueue: QueueOptions | undefined = queue
+  // The Queue config of the generated Nitro plugin, which the durability report describes.
+  let writtenQueue: NormalizedQueueOptions | undefined
   let nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
   let nuxtProjectRoot: string | undefined
   let resolveNuxtDefinitions: (() => DiscoveredQueueDefinition[]) | undefined
@@ -273,6 +279,14 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
   return {
     name: "@vite-hub/queue/vite",
     vitehub: {
+      durability: () => {
+        const resolvedQueue = writtenQueue ?? (nitroQueue === false ? undefined : normalizeQueueOptions(queue, { hosting }))
+        if (!resolvedQueue || !resolvedQueue.provider) return []
+        const base: unknown = Reflect.get(resolvedQueue, "base")
+        const database: unknown = Reflect.get(resolvedQueue, "database")
+        const input = { provider: resolvedQueue.provider, ...(typeof base === "string" ? { base } : {}), ...(typeof database === "string" ? { database } : {}) }
+        return [{ export: "queueDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "queue" }]
+      },
       // The Console, `vitehub queue`, and agents run these.
       operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: operationsModule }],
       inspect: () => {
@@ -329,7 +343,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
           const nuxtState = { nuxtConfiguredDefinitions, nuxtProjectRoot, resolveNuxtDefinitions }
           nuxtStates.set(root, nuxtState)
           if (state) Object.assign(state, nuxtState)
-          await writeQueueNitroIntegration(projectRoot, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase, database())
+          writtenQueue = await writeQueueNitroIntegration(projectRoot, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase, database())
           recordNodeWrite(projectRoot, projectQueue, configuredNitro, definitions)
           return configuredNitro
         },
@@ -373,7 +387,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : queue
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       localDevelopment = config.command === "serve" && !preview
-      await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase, database())
+      writtenQueue = await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase, database())
       recordNodeWrite(config.root, queue, nitro, configuredDefinitions)
       buildStates.set(config, {
         configuredDefinitions,
@@ -398,7 +412,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
         && (/\/server\/queues\//.test(file) || nuxtServerQueueDirs.some(dir => file.startsWith(dir)))
       if (!/\.queue\.(?:c|m)?[jt]s$/i.test(file) && !isDirectoryDefinition) return
       resolved = context.server.config
-      await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.(), localDevelopment, internalOptions.importBase, database())
+      writtenQueue = await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, resolveNuxtDefinitions?.(), localDevelopment, internalOptions.importBase, database())
     },
     async buildStart() {
       // The Database integration can resolve its Definitions after this plugin made the Nitro config. Read them again,
@@ -411,7 +425,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
         if (write.postgres === postgresDatabase) continue
         write.postgres = postgresDatabase
         hosting = resolveQueueHosting(write.queue, write.nitro, postgresDatabase)
-        await writeQueueNitroIntegration(rootDir, write.nitroQueue, hosting, write.cloudflareQueues, write.definitions, write.development, internalOptions.importBase, database())
+        writtenQueue = await writeQueueNitroIntegration(rootDir, write.nitroQueue, hosting, write.cloudflareQueues, write.definitions, write.development, internalOptions.importBase, database())
       }
     },
     buildEnd(error) {

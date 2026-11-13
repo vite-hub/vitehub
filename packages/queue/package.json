@@ -46,6 +46,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
       "import": "./dist/runtime/hosted.js",

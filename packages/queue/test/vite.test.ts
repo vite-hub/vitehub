@@ -561,12 +561,18 @@ describe("hubQueue", () => {
     ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
     const pluginFile = join(root, ".vitehub", "nitro", "queue", "plugin.ts")
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { provider: "local" } }])
     expect(await readFile(pluginFile, "utf8")).toContain('"provider": "local"')
     database.resolve("postgresql")
     await (plugin.buildStart as unknown as () => Promise<void>)()
     const nitroPlugin = await readFile(pluginFile, "utf8")
     expect(nitroPlugin).toContain('"provider": "postgres"')
     expect(nitroPlugin).toContain("module.databases")
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { database: "default", provider: "postgres" } }])
+    database.resolve("sqlite")
+    await (plugin.buildStart as unknown as () => Promise<void>)()
+    expect(await readFile(pluginFile, "utf8")).toContain('"provider": "local"')
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { provider: "local" } }])
   })
 
   it("writes the Nitro plugin of the Nuxt project root again when the Database resolves at buildStart", async () => {
@@ -581,10 +587,12 @@ describe("hubQueue", () => {
     // Nuxt builds with Vite in its source directory.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", nitro: { preset: "node-server" }, plugins: [database], root: join(root, "app") } as never)
     const pluginFile = join(root, ".vitehub", "nitro", "queue", "plugin.ts")
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { provider: "local" } }])
     expect(await readFile(pluginFile, "utf8")).toContain('"provider": "local"')
     database.resolve("postgresql")
     await (plugin.buildStart as unknown as () => Promise<void>)()
     expect(await readFile(pluginFile, "utf8")).toContain('"provider": "postgres"')
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { database: "default", provider: "postgres" } }])
   })
 
   it("starts an explicit postgres provider without a Database on QUEUE_POSTGRES_URL", async () => {
