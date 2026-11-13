@@ -1,6 +1,6 @@
 import { consoleDiagnostic, consoleDiagnosticBody, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { installRequestStandardContext } from "@vite-hub/runtime"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleHttpError, type ConsoleHttpError } from "./http-error.ts"

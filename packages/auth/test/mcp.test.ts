@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
 import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
-import { createAuthForRequest } from "../src/server.ts"
+import { createAuthForRequest } from "../src/internal/server.ts"
 
 import type { McpOAuthAuth, McpOAuthOptions } from "../src/mcp.ts"
 

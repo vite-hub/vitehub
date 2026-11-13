@@ -3224,6 +3224,12 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -3233,6 +3239,9 @@ importers:
       standard-context:
         specifier: catalog:runtime
         version: 0.0.4
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
     devDependencies:
       '@libsql/client':
         specifier: catalog:database

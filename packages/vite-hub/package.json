@@ -157,11 +157,6 @@
       "import": "./dist/auth/presets.js",
       "default": "./dist/auth/presets.js"
     },
-    "./auth/runtime/server": {
-      "types": "./dist/auth/runtime/server.d.ts",
-      "import": "./dist/auth/runtime/server.js",
-      "default": "./dist/auth/runtime/server.js"
-    },
     "./auth/schema": {
       "types": "./dist/auth/schema.d.ts",
       "import": "./dist/auth/schema.js",
@@ -597,16 +592,6 @@
       "import": "./dist/runtime/durability.js",
       "default": "./dist/runtime/durability.js"
     },
-    "./runtime/h3": {
-      "types": "./dist/runtime/h3.d.ts",
-      "import": "./dist/runtime/h3.js",
-      "default": "./dist/runtime/h3.js"
-    },
-    "./runtime/node": {
-      "types": "./dist/runtime/node.d.ts",
-      "import": "./dist/runtime/node.js",
-      "default": "./dist/runtime/node.js"
-    },
     "./sandbox": {
       "types": "./dist/sandbox.d.ts",
       "import": "./dist/sandbox.js",
@@ -817,16 +802,6 @@
       "types": "./dist/sandbox/ssh.d.ts",
       "import": "./dist/sandbox/ssh.js",
       "default": "./dist/sandbox/ssh.js"
-    },
-    "./auth/console": {
-      "types": "./dist/auth/console.d.ts",
-      "import": "./dist/auth/console.js",
-      "default": "./dist/auth/console.js"
-    },
-    "./auth/console-runtime": {
-      "types": "./dist/auth/console-runtime.d.ts",
-      "import": "./dist/auth/console-runtime.js",
-      "default": "./dist/auth/console-runtime.js"
     },
     "./logs": {
       "types": "./dist/logs.d.ts",

@@ -72,7 +72,7 @@ const exceptions: readonly GrantException[] = [
   { file: "packages/agent/src/internal/channel-delivery.ts", pattern: "Symbol.for(\"vitehub.agent.channel-delivery-ownership-verifier\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
   { file: "packages/workspace/src/storage/materialization.ts", pattern: "Symbol.for(\"vitehub.workspace.revisionMaterializer\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
   { file: "packages/workspace/src/storage/target.ts", pattern: "Symbol.for(\"vitehub.workspace.storeTarget\")", reason: "Follow-up: no open PR replaces this key yet.", rule: "symbol-for-capability" },
-  { file: "packages/auth/src/server.ts", pattern: "requireAuthAccessRoutes", reason: "Access-route middleware. It runs before the host route handler and cannot pass a grant to it.", rule: "response-guard" },
+  { file: "packages/auth/src/internal/server.ts", pattern: "requireAuthAccessRoutes", reason: "Access-route middleware. It runs before the host route handler and cannot pass a grant to it.", rule: "response-guard" },
 ]
 
 const credentialName = /^(?:secret|token|signature|state)$|(?:Secret|Token|Signature|State)$/

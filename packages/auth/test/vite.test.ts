@@ -129,7 +129,7 @@ describe("hubAuth", () => {
     await resolvePluginConfig(plugin, root)
 
     expect(resolveAuthServer(plugin)).toBe(`\0${AUTH_SERVER_ID}`)
-    expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
+    expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/internal/server"`)
     expect(loadAuthServer(plugin)).toContain(`export { default } from "@vite-hub/auth/server"`)
     await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
   })
@@ -369,9 +369,11 @@ describe("hubAuth", () => {
     const root = await createTempProject()
     await writeAuth(root)
     await mkdir(join(root, "node_modules/@vite-hub/auth"), { recursive: true })
-    await writeFile(join(root, "node_modules/@vite-hub/auth/package.json"), JSON.stringify({ name: "@vite-hub/auth", exports: { ".": { types: "./index.d.ts" }, "./server": { types: "./server.d.ts" } } }))
+    await writeFile(join(root, "node_modules/@vite-hub/auth/package.json"), JSON.stringify({ name: "@vite-hub/auth", exports: { ".": { types: "./index.d.ts" }, "./internal/server": { types: "./internal/server.d.ts" }, "./server": { types: "./server.d.ts" } } }))
     await writeFile(join(root, "node_modules/@vite-hub/auth/index.d.ts"), "export declare function defineAuth<T>(options: T): T\n")
-    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "export declare const marker: \"ok\"\ndeclare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\n")
+    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "declare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\n")
+    await mkdir(join(root, "node_modules/@vite-hub/auth/internal"), { recursive: true })
+    await writeFile(join(root, "node_modules/@vite-hub/auth/internal/server.d.ts"), "export declare const marker: \"ok\"\n")
     await mkdir(join(root, ".vitehub/env"), { recursive: true })
     await writeFile(join(root, ".vitehub/env/server.d.ts"), "export interface ServerEnv {}\n")
 

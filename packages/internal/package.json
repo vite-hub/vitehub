@@ -113,6 +113,11 @@
       "import": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./operation-definition": {
+      "types": "./dist/operation-definition.d.ts",
+      "import": "./dist/operation-definition.js",
+      "default": "./dist/operation-definition.js"
+    },
     "./operation-registry": {
       "types": "./dist/operation-registry.d.ts",
       "import": "./dist/operation-registry.js",

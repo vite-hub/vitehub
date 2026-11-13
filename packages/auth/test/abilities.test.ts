@@ -13,7 +13,7 @@ vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 import { checkAbility } from "../src/ability-check.ts"
 import { defineAbilities, deny, guest } from "../src/abilities.ts"
 import { defineAuth } from "../src/definition.ts"
-import authRoute, { AbilityError, can, requireAbility, resetAuth } from "../src/server.ts"
+import authRoute, { AbilityError, can, requireAbility, resetAuth } from "../src/internal/server.ts"
 import abilities from "./fixtures/abilities.ts"
 
 const origin = "https://app.example.com"

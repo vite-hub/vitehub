@@ -40,8 +40,7 @@ import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
-import * as frameworkRuntimeNode from "vite-hub/runtime/node";
-import * as ownerRuntimeNode from "@vite-hub/runtime/node";
+import * as ownerRuntimeNode from "@vite-hub/runtime/internal/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/internal/database-runtime-state.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
@@ -123,6 +122,10 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  // Private Auth startup and Console entries have no public distribution facade.
+  "@vite-hub/auth/console",
+  "@vite-hub/auth/console-runtime",
+  "@vite-hub/auth/runtime/server",
   // The generated durability boot plugin of a Node server imports each primitive's reporter by file.
   "@vite-hub/agent/durability",
   "@vite-hub/blob/durability",
@@ -135,7 +138,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/workflow/durability",
   "@vite-hub/workspace/durability",
   "@vite-hub/mcp/runtime",
-  "@vite-hub/runtime/shutdown",
+  "@vite-hub/runtime/internal/shutdown",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
   // It loads the libSQL driver only when the build can select SQLite or libSQL.
   "@vite-hub/agent/invocations/app",
@@ -185,8 +188,13 @@ function sourceForwarderTargets(source: string): string[] | undefined {
   return targets;
 }
 
+// `vite-hub/operations` forwards the operation contract of the Runtime package.
+const renamedForwarders = new Map([["./operations", "@vite-hub/runtime/operations"]]);
+
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
-  const [owner, ...rest] = subpath.replace(/^\.\//, "").split("/");
+  const renamed = renamedForwarders.get(subpath);
+  if (renamed) return renamed;
+  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
 
@@ -247,7 +255,7 @@ describe("framework package contract", () => {
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter);
     expect(frameworkWebContainer.bootWebContainer).toBe(ownerWebContainer.bootWebContainer);
     expect(frameworkWebContainerConnect.defineConnect).toBe(ownerWebContainerConnect.defineConnect);
-    expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
+    expect(frameworkCapabilities.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
   });
 
   it("keeps the Database environment setter on its owner runtime instance", () => {
@@ -280,7 +288,7 @@ describe("framework package contract", () => {
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
     // Generated code imports these forwarders by path, so an app reaches the owner without installing it.
-    const generatedForwarders = ["src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts", "src/internal/agent-invocations-libsql.ts"];
+    const generatedForwarders = ["src/_internal/auth/internal/server.ts", "src/_internal/auth/runtime/server.ts", "src/_internal/runtime/internal/h3.ts", "src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts", "src/internal/agent-invocations-libsql.ts"];
     expect(sourceForwarders).toEqual([...exportedForwarders, ...generatedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries
@@ -300,7 +308,6 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
-      "./operations",
       "./skills",
       "./test",
     ]);
@@ -336,6 +343,7 @@ describe("framework package contract", () => {
 
       for (const subpath of Object.keys(Object(ownerExports))) {
         if (manifest.exports[distributionSubpath(packageName, subpath)]) continue;
+        if ([...renamedForwarders.values()].includes(ownerSpecifier(packageName, subpath))) continue;
         if (ownerOnlyReason(packageName, subpath)) continue;
         unclassified.push(ownerSpecifier(packageName, subpath));
       }
