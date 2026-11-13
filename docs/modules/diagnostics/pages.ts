@@ -22,6 +22,8 @@ export const diagnosticSections: Record<string, string> = {
   "gateways": "gateways",
   "i18n": "i18n",
   "internal": "development",
+  // The catalog of `@vite-hub/kit`, for the UI that Agents send.
+  "kit": "ui",
   "kv": "kv",
   "markdown-template": "agents",
   "mcp": "mcp",

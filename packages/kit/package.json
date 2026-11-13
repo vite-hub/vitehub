@@ -73,6 +73,16 @@
       "import": "./dist/carousel.js",
       "default": "./dist/carousel.js"
     },
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "import": "./dist/catalog.js",
+      "default": "./dist/catalog.js"
+    },
+    "./catalog/vue": {
+      "types": "./dist/catalog/vue.d.ts",
+      "import": "./dist/catalog/vue.js",
+      "default": "./dist/catalog/vue.js"
+    },
     "./checkbox": {
       "types": "./dist/checkbox.d.ts",
       "import": "./dist/checkbox.js",
@@ -386,24 +396,37 @@
     "@ui-sdk/vue": "0.1.0-beta.2"
   },
   "devDependencies": {
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
     "@nuxt/kit": "4.6.2",
     "@nuxt/schema": "4.6.4",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "nostics": "catalog:runtime",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
     "@nuxt/kit": "^4.0.0 || ^5.0.0-0",
     "@nuxt/schema": "^4.0.0 || ^5.0.0-0",
     "nuxt": "^4.0.0 || ^5.0.0-0",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "zod": "^4.3.6"
   },
   "peerDependenciesMeta": {
+    "@json-render/core": {
+      "optional": true
+    },
+    "@json-render/vue": {
+      "optional": true
+    },
     "@nuxt/kit": {
       "optional": true
     },
@@ -411,6 +434,9 @@
       "optional": true
     },
     "nuxt": {
+      "optional": true
+    },
+    "zod": {
       "optional": true
     }
   },

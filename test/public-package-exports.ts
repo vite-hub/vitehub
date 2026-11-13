@@ -54,6 +54,10 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
   ["@vite-hub/forms/vue", { "@formisch/vue": "both" }],
   ["@vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
+  // The catalog checks specs with Zod and builds json-render catalogs. The parts of the kit import none of these.
+  ["@vite-hub/kit/catalog", { "@json-render/core": "both", "@json-render/vue": "runtime", "zod": "runtime" }],
+  // The catalog's Vue renderer reads the json-render state store. Its declarations name the json-render registry.
+  ["@vite-hub/kit/catalog/vue", { "@json-render/vue": "both" }],
   // The Nuxt module loads @nuxt/kit. Its declarations do not import it.
   ["@vite-hub/kit/nuxt", { "@nuxt/kit": "runtime" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
@@ -134,12 +138,14 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 // `vite-hub/agent`, need the owner package.
 const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
 
-function optionalPeersForExport(specifier: string, subpath: string) {
+function optionalPeersForExport(specifier: string, subpath: string, manifest: ReturnType<typeof readPackageManifest>) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }
   const feature = subpath.replace(/^\.\//, "").split("/")[0]
   if (specifier.startsWith("vite-hub/") && feature && optionalFrameworkOwners.has(feature)) usage[`@vite-hub/${feature}`] ??= "both"
   if (/(?:^|\/)vite$/.test(subpath)) usage.vite ??= "both"
-  if (/(?:^|\/)vue$/.test(subpath)) usage.vue ??= "both"
+  // A `vue` subpath needs Vue. A package that requires Vue for every subpath, such as `@vite-hub/kit`, has it already.
+  const requiresVue = manifest.peerDependencies?.vue !== undefined && manifest.peerDependenciesMeta?.vue?.optional !== true
+  if (/(?:^|\/)vue$/.test(subpath) && !requiresVue) usage.vue ??= "both"
   if (specifier === "vite-hub/ui" || specifier.startsWith("vite-hub/ui/")) usage.vue ??= "both"
   const entries = Object.entries(usage)
   return {
@@ -177,7 +183,7 @@ export const publicPackageExportContracts: readonly PublicPackageExportContract[
     const target = exportTarget(rawTarget)
     if (!target) throw new Error(`${info.packageName} ${subpath} has no import, default, or types target`)
     const specifier = exportSpecifier(info.packageName, subpath)
-    const optionalPeers = optionalPeersForExport(specifier, subpath)
+    const optionalPeers = optionalPeersForExport(specifier, subpath, manifest)
     return {
       kind: exportKind(info.packageName, subpath, specifier, target),
       ...optionalPeers,

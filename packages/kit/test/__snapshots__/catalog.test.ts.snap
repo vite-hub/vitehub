@@ -1,0 +1,94 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`@vite-hub/kit/catalog > writes the model prompt for a surface 1`] = `
+"# UI
+
+You can answer with UI. Write it as a JSON spec. The spec renders as a chat modal, such as a Slack modal. Make the root a Form.
+
+\`\`\`json
+{ "version": 1, "root": "root", "elements": { "root": { "type": "Stack", "props": {}, "children": ["title"] }, "title": { "type": "Text", "props": { "text": "Hello" } } }, "state": {} }
+\`\`\`
+
+Rules:
+- \`elements\` maps an id to an element. \`root\` is the id of the top element. Call it "root".
+- An element has \`type\` (a component below) and \`props\`. Only components that take children have \`children\`: a list of ids, in order.
+- Use each id once in \`children\`. The elements form a tree.
+- Bind an input to a state path with \`{ "$bindState": "/path" }\`. Put its first value in \`state\`, such as \`"state": { "path": "" }\`.
+- Read a state path in a prop with \`{ "$state": "/path" }\` where the prop allows it.
+- An event sends an action: \`"on": { "press": { "action": "approve", "params": { "note": { "$state": "/note" } } } }\`.
+- Use at most 128 elements and 20 levels.
+- Use only the components and props below.
+
+Components:
+
+## Stack
+Lays out its children in a column, or in a row with direction "horizontal". Chat surfaces show a row as a column, except a row of Buttons.
+Props:
+- direction?: "vertical" | "horizontal"
+- align?: "start" | "center" | "end" | "stretch"
+- justify?: "start" | "center" | "end" | "spaceBetween"
+Takes children.
+
+## Text
+A paragraph of plain text.
+Props:
+- text: string | { "$state": string }
+- tone?: "default" | "muted"
+Takes no children.
+
+## Heading
+The title of a section. Level 1 is the largest.
+Props:
+- text: string (not empty)
+- level?: 1 | 2 | 3 | 4
+Takes no children.
+
+## KeyValue
+A label with one value, such as Status: Deployed.
+Props:
+- label: string | { "$state": string }
+- value: string | { "$state": string }
+Takes no children.
+
+## Form
+Holds inputs and a submit button with submitLabel. Bind the submit action in on.submit, and pass the values with {"$state": "/path"} params.
+Props:
+- submitLabel: string (not empty)
+Events:
+- submit: The user submitted the form.
+Takes children.
+
+## Input
+One line of text from the user. Bind value to a state path.
+Props:
+- label: string (not empty)
+- value: { "$bindState": string }
+- placeholder?: string
+- type?: "text" | "email" | "number" | "password" | "url"
+Takes no children.
+
+## Textarea
+Several lines of text from the user. Bind value to a state path.
+Props:
+- label: string (not empty)
+- value: { "$bindState": string }
+- placeholder?: string
+Takes no children.
+
+## Select
+One choice from a list that opens on demand. Bind value to a state path.
+Props:
+- label: string (not empty)
+- value: { "$bindState": string }
+- options: { "label": string, "value": string }[] (at least 1)
+- placeholder?: string
+Takes no children.
+
+## RadioGroup
+One choice from a short list with every option in view. Bind value to a state path.
+Props:
+- label: string (not empty)
+- value: { "$bindState": string }
+- options: { "label": string, "value": string }[] (at least 1)
+Takes no children."
+`;
