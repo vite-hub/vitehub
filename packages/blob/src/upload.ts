@@ -41,9 +41,15 @@ function isMultipartAction(value: string | undefined): value is MultipartAction 
 }
 
 // Browsers send the bare file name; drop any directory part so the client cannot pick a folder.
-// put() decodes pathnames once, so encode the name to store it as written.
+// Rename unsupported `%XX` names with a UUID to avoid overwriting their replacement name.
+// put() decodes pathnames once, so encode the name.
 function uploadedFileName(file: File): string {
-  return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
+  const name = file.name.split(/[\\/]/).pop() || "file"
+  const safeName = name.replace(/%(?=[\da-f]{2})/gi, "_")
+  if (safeName === name) return encodeURIComponent(name)
+  const extension = safeName.lastIndexOf(".")
+  const split = extension > 0 ? extension : safeName.length
+  return encodeURIComponent(`${safeName.slice(0, split)}-${globalThis.crypto.randomUUID()}${safeName.slice(split)}`)
 }
 
 function payloadTooLarge(bytes: number, limit: number): Error {

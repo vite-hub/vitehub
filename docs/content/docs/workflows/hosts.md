@@ -10,7 +10,7 @@ icon: i-lucide-cloud-cog
 
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. |
+| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
 | Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
 | OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker and runtime. | Choose Postgres or SQLite for deployment. Set `postgres.url` or `sqlite.path`, not both. |
 

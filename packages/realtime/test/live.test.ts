@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition } from "../src/types.ts"
+import type { RealtimeDocumentDefinition } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
@@ -44,7 +44,7 @@ async function pace(): Promise<void> {
   await vi.advanceTimersByTimeAsync(60)
 }
 
-function liveDefinition(adapter: RealtimeDefinition["document"], extra: Partial<RealtimeDefinition> = {}): RealtimeDefinition {
+function liveDefinition(adapter: RealtimeDocumentDefinition["document"], extra: Partial<RealtimeDocumentDefinition> = {}): RealtimeDocumentDefinition {
   return { document: adapter, editor: createStubEditor().editor, ...extra }
 }
 
@@ -620,7 +620,7 @@ describe("re-seeding", () => {
 })
 
 describe("identity and authorization", () => {
-  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: Partial<RealtimeDefinition> = {}) {
+  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: Partial<RealtimeDocumentDefinition> = {}) {
     return liveDefinition(memory.adapter, {
       authorize: ({ documentId, mode, user }) => {
         if (documentId === "secret") return user?.id === "ana"

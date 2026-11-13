@@ -23,6 +23,7 @@ export type {
   DatabaseOptions,
   EmailOptions,
   EnvOptions,
+  HealthOptions,
   I18nOptions,
   KVOptions,
   ObservabilityEvlogOptions,

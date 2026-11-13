@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import { createAuthConsole } from "../src/console-runtime.ts"
 import { createAuthForRequest, resetAuth } from "../src/internal/server.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "https://app.example.com"
 const github = { clientId: "client", clientSecret: "secret" }
@@ -86,9 +87,9 @@ describe("VITEHUB_ADMINS", () => {
   it.each([undefined, "compact", "jwt", "jwe"] as const)("gives the admin role to a listed GitHub account on its first sign-in (cache: %s)", async (strategy) => {
     vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
     stubGitHub({ id: 22072217, email: "owner@example.com" })
-    const auth = createAuthForRequest(defineAuth({
+    const auth = createAuthForRequest(defineFixedAuth({
       emailAndPassword: { enabled: true },
-      runtime: { database: memoryAdapter({ account: [], session: [], user: [], verification: [] }) },
+      database: memoryAdapter({ account: [], session: [], user: [], verification: [] }),
       session: { cookieCache: { enabled: strategy !== undefined, strategy } },
       socialProviders: { github },
       plugins: [admin()],
@@ -115,8 +116,8 @@ describe("VITEHUB_ADMINS", () => {
 
   it.each([undefined, "compact", "jwt", "jwe"] as const)("gives the role on the next sign-in when the entry is added later (cache: %s)", async (strategy) => {
     stubGitHub({ id: 22072217, email: "owner@example.com" })
-    const definition = defineAuth({
-      runtime: { database: memoryAdapter({ account: [], session: [], user: [], verification: [] }) },
+    const definition = defineFixedAuth({
+      database: memoryAdapter({ account: [], session: [], user: [], verification: [] }),
       session: { cookieCache: { enabled: strategy !== undefined, strategy } },
       socialProviders: { github },
       plugins: [admin()],
@@ -136,9 +137,9 @@ describe("VITEHUB_ADMINS", () => {
   it.each([["compact", false], ["jwt", false], ["jwe", false], ["compact", true]] as const)("updates the active session after linking a listed account (cache: %s, chunked: %s)", async (strategy, chunked) => {
     vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
     stubGitHub({ id: 22072217, email: "owner@example.com" })
-    const auth = createAuthForRequest(defineAuth({
+    const auth = createAuthForRequest(defineFixedAuth({
       emailAndPassword: { enabled: true },
-      runtime: { database: memoryAdapter({ account: [], session: [], user: [], verification: [] }) },
+      database: memoryAdapter({ account: [], session: [], user: [], verification: [] }),
       session: { cookieCache: { enabled: true, strategy } },
       socialProviders: { github },
       plugins: [admin()],
