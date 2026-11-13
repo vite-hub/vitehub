@@ -148,6 +148,28 @@ Definition, apply its migrations, and pass
 Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
 
+`database` is a Drizzle database, or a function that returns one. In a
+Workspace Definition, pass `() => useDatabase("history").db`. The Store calls
+the function on first use, because the build loads the Workspace Definition
+without the app's Databases. Do not pass the Database Definition: it holds
+options only, and `useDatabase()` gives the database with the migrations and
+relations of the build.
+
+```ts
+import { blob } from "@vite-hub/blob"
+import { useDatabase } from "@vite-hub/database"
+import { defineWorkspace } from "@vite-hub/workspace"
+import { createBlobDatabaseWorkspaceStore } from "@vite-hub/workspace/blob-database"
+
+export default defineWorkspace({
+  store: createBlobDatabaseWorkspaceStore({
+    blob: blob.store("workspace-history"),
+    database: () => useDatabase("history").db,
+    workspace: "drop-123",
+  }),
+})
+```
+
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
