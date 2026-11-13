@@ -167,8 +167,10 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   async function answer(current: WebsocketProvider, id: string, body: unknown) {
     let frame: Uint8Array
     try {
+      // Internal invariant: caught below and sent to the caller as the refusal reason.
       if (!requestHandler) throw new Error("This page does not answer requests.")
       frame = encodeRealtimeRequestFrame({ kind: "answer", id, ok: true, body: await requestHandler(body) })
+      // Internal invariant: caught below and sent to the caller as the refusal reason.
       if (frame.byteLength > maxAnswerBytes) throw new Error(`The answer has ${frame.byteLength} bytes, over the 1 MiB limit.`)
     }
     catch (error) {

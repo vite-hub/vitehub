@@ -129,7 +129,7 @@ describe("connectPage()", () => {
     await expect(fake.ask({ method: "query", input: { within: "Default region" } })).resolves.toEqual([{ ref: "c5", items: [] }])
     await expect(fake.ask({ method: "act", input: { steps: [] } })).resolves.toEqual({ ok: true })
     expect(bridge.query).toHaveBeenCalledWith({ within: "Default region" })
-    await expect(fake.ask({ method: "subscribe" })).rejects.toThrow("Unknown page call.")
+    await expect(fake.ask({ method: "subscribe" })).resolves.toEqual({ ok: false, error: "Unknown page call: use page_snapshot, page_query, or page_act." })
     connected.close()
     expect(fake.value.destroy).toHaveBeenCalled()
   })

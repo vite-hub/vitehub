@@ -95,7 +95,7 @@ export function connectPage(bridge: PageBridge, options: ConnectPageOptions): Co
 /** Runs one Agent call with the bridge. The input is the model's, so its shape is checked here. */
 async function answer(bridge: PageBridge, body: unknown): Promise<unknown> {
   if (!body || typeof body !== "object" || !("method" in body) || typeof body.method !== "string" || !methods.has(body.method)) {
-    throw new Error("Unknown page call.")
+    return { ok: false, error: "Unknown page call: use page_snapshot, page_query, or page_act." }
   }
   const input: unknown = "input" in body && body.input && typeof body.input === "object" ? body.input : {}
   if (body.method === "snapshot") return bridge.snapshot()
