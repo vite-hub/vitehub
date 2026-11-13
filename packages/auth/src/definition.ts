@@ -22,12 +22,18 @@ const accessRouteKeys = new Set(["authorize", "method", "route"])
 function validateAuthDatabase(value: unknown): void {
   // `authDatabase()` resolves the Database of each request, so a static Definition can hold it.
   if (typeof value === "undefined" || authDatabaseName(value) !== undefined) return
-  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback or `runtime`." })
+  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+}
+
+/** `runtime` was a second way to resolve options. Its shallow merge replaced whole objects such as `advanced`. */
+export function assertNoRuntimeOption(options: object): void {
+  if (!Object.hasOwn(options, "runtime")) return
+  throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
 }
 
 function validateAuthSecondaryStorage(value: unknown): void {
   if (typeof value === "undefined") return
-  throw authErrorDiagnostics.AUTH_C0024({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback or `runtime`. `true` and `{ store }` do not create storage." })
+  throw authErrorDiagnostics.AUTH_C0024({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback. `true` and `{ store }` do not create storage." })
 }
 
 function validateStringValue(value: unknown, label: string): void {
@@ -102,8 +108,8 @@ export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>
   options: AuthDefinitionResolver<TOptions>,
 ): AuthDefinition<AuthDefinitionResolver<TOptions>>
 
-// `runtime` in the constraint makes a wrong runtime object report its own error. Without it, TypeScript reports that
-// the object is not a resolver function.
+// `runtime` in the constraint makes a Definition that still sets it report `runtime` itself. Without it, TypeScript
+// reports that the object is not a resolver function.
 export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "runtime">>(
   options: AuthDefinitionOptions<TOptions>,
 ): AuthDefinition<AuthDefinitionOptions<TOptions>>
@@ -130,7 +136,6 @@ function defineAuthOptions(
     basePath?: unknown
     database?: unknown
     route?: unknown
-    runtime?: unknown
     secondaryStorage?: unknown
   }
   const runtimeOption = Object.keys(options).find(key => authRuntimeOptionNames.has(key))
@@ -142,13 +147,7 @@ function defineAuthOptions(
     throw authErrorDiagnostics.AUTH_C0038({ message: "`defineAuth()` route can only be `false` when provided." })
   }
 
-  if (
-    typeof viteHubOptions.runtime !== "undefined"
-    && typeof viteHubOptions.runtime !== "function"
-    && !isPlainObject(viteHubOptions.runtime)
-  ) {
-    throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` runtime must be an object or a function." })
-  }
+  assertNoRuntimeOption(options)
 
   if (typeof viteHubOptions.basePath !== "undefined") {
     if (typeof viteHubOptions.basePath !== "string") {
@@ -166,7 +165,7 @@ function defineAuthOptions(
   validateAuthDatabase(viteHubOptions.database)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
-  // A callback or `runtime` can add options later, so ViteHub checks the preset again for each resolution.
+  // A callback resolves its options later, so ViteHub checks the preset again for each resolution.
   applyAuthPreset(options)
 
   return { options }

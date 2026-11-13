@@ -24,7 +24,6 @@ import {
   type AuthResolvedDefinitionOptions,
   type AuthRuntimeContext,
   type AuthRuntimeEnv,
-  type AuthRuntimeOptions,
   type AuthSessionRefresh,
   type RegisteredAuth,
   type ViteHubAuth,
@@ -69,18 +68,12 @@ describe("types", () => {
       },
       appName: "ViteHub",
       database: authDatabase("auth"),
-      runtime: ({ env, request, requestOrigin }) => {
-        expectTypeOf(request?.url).toMatchTypeOf<string | undefined>()
-        return {
-          baseURL: requestOrigin,
-          secret: typeof env.value === "string" ? env.value : "runtime-secret",
-        }
-      },
     })
 
     expectTypeOf(definition).toMatchTypeOf<AuthDefinition>()
     expectTypeOf(definition.options.database).toEqualTypeOf<AuthAppDatabase>()
-    expectTypeOf(definition.options.runtime).toMatchTypeOf<AuthRuntimeOptions | ((context: AuthRuntimeContext) => AuthRuntimeOptions) | undefined>()
+    // @ts-expect-error `runtime` is removed. A callback returns all options.
+    defineAuth({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) })
     expectTypeOf<AuthRuntimeEnv>().toMatchTypeOf<Record<string, unknown>>()
   })
 
@@ -115,7 +108,7 @@ describe("types", () => {
     expectTypeOf(auth.handler).parameters.toEqualTypeOf<[Request]>()
     expectTypeOf(auth.handler).returns.toEqualTypeOf<Promise<Response>>()
 
-    const runtimeAuth = createAuthForRequest(defineAuth({ appName: "ViteHub" }), new Request("https://app.example.com/api/auth"), {
+    const runtimeAuth = createAuthForRequest(defineAuth(() => ({
       socialProviders: {
         github: {
           clientId: "client-id",
@@ -123,7 +116,7 @@ describe("types", () => {
         },
       },
       trustedOrigins: ["https://app.example.com"],
-    })
+    })), new Request("https://app.example.com/api/auth"))
     expectTypeOf(runtimeAuth.handler).parameters.toEqualTypeOf<[Request]>()
 
     const request = new Request("https://app.example.com/api/auth")

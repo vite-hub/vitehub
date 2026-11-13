@@ -4,15 +4,15 @@ import { join, resolve } from "node:path"
 
 import { expect, it } from "vitest"
 
-it("reports incomplete runtime secondary storage in object Auth Definitions", () => {
+it("reports the removed runtime option in the published types", () => {
   const cache = resolve(import.meta.dirname, "../node_modules/.cache")
   mkdirSync(cache, { recursive: true })
   const root = mkdtempSync(join(cache, "auth-definition-"))
   try {
     writeFileSync(join(root, "input.ts"), `import { defineAuth } from "@vite-hub/auth"
 defineAuth({
-  emailAndPassword: { enabled: true },
-  runtime: { secondaryStorage: { get: () => null, set: () => {}, delete: () => {} } },
+  advanced: { cookiePrefix: "acme" },
+  runtime: () => ({ advanced: { trustedProxyHeaders: true } }),
 })
 `)
     writeFileSync(join(root, "tsconfig.json"), JSON.stringify({
@@ -36,11 +36,8 @@ defineAuth({
     const output = result.stdout + result.stderr
     expect(result.error).toBeUndefined()
     expect(result.status, output).toBe(2)
-    expect(output).toContain("input.ts(4,14): error TS2769")
-    expect(output).toContain("type 'SecondaryStorage'")
-    expect(output).toContain("getAndDelete")
-    expect(output).toContain("increment")
-    expect(output).not.toContain("'emailAndPassword' does not exist")
+    expect(output).toContain("input.ts(4,3): error TS2769")
+    expect(output).toContain("Type '() => { advanced: { trustedProxyHeaders: boolean; }; }' is not assignable to type 'undefined'")
   }
   finally {
     rmSync(root, { force: true, recursive: true })
