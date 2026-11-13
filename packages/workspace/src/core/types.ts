@@ -102,9 +102,13 @@ export type WorkspaceWriteValidatorResult = boolean | void | WorkspaceWriteInput
 export type WorkspaceWriteValidator =
   (input: WorkspaceWriteInput) => WorkspaceWriteValidatorResult | Promise<WorkspaceWriteValidatorResult>
 
+/**
+ * Limits writes to the paths that match the rule pattern. Every matching rule applies, from the least to the most
+ * specific. A more specific rule replaces a field only when it sets that field, and the validators of every matching
+ * rule run. Rules do not limit reads.
+ */
 export interface WorkspaceRule {
   commit?: boolean | string
-  read?: boolean
   write?: WorkspaceWriteMode
   maxBytes?: number | `${number}kb` | `${number}mb`
   mediaType?: string | string[]

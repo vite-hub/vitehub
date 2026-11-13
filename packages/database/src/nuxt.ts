@@ -25,6 +25,7 @@ import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinit
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
+import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDatabase as hubDatabaseVite } from "./vite.ts"
@@ -337,6 +338,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, startDatabases.length ? runtime : undefined)
             if (migrateOnStart && startDatabases.length && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart, startDatabases)
           }
+          // The D1 bindings whose migrations the build copies into the server output.
+          const migratedBindings: string[] = []
           if (provider === "cloudflare" && runtime) {
             mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
             const { d1Databases, unresolved } = resolveCloudflareD1Bindings(runtime, { provisionState: readProvisionStateSync(provisionRoot) })
@@ -363,10 +366,13 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
                 const target = typeof inheritedBinding.migrations_dir === "string" ? inheritedBinding.migrations_dir : `${generatedNitroMigrationsDir}/${d1.bindingName}`
                 inheritedBinding.migrations_dir = target
                 migrationCopies.push({ source: resolve(root, inheritedSource), target })
+                migratedBindings.push(d1.bindingName)
               }
             }
             for (const binding of bindings) {
-              if (binding.migrations_dir) migrationCopies.push({ source: resolve(root, binding.migrations_dir), target: `${generatedNitroMigrationsDir}/${binding.binding}` })
+              if (!binding.migrations_dir) continue
+              migrationCopies.push({ source: resolve(root, binding.migrations_dir), target: `${generatedNitroMigrationsDir}/${binding.binding}` })
+              migratedBindings.push(binding.binding)
             }
             // Copy callbacks remove their entire target, so aliases and nested targets cannot be shared.
             const managedTargets = new Set(migrationCopies.map(copy => resolve(root, copy.target)))
@@ -386,6 +392,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             for (const copy of migrationCopies) installNitroCloudflareMigrations(config, copy.source, copy.target)
             installNitroCloudflareD1BindingCollapse(config)
           }
+          if (building && resolvedOptions.migrateOnDeploy) installNitroMigrateOnDeploy(config, { bindings: migratedBindings, config: runtime })
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
           if (runtime) installNitroBundleStartupRule(config, runtime)
         }
@@ -825,6 +832,13 @@ function installNitroCloudflareMigrations(config: Record<string, unknown>, sourc
       await copyD1MigrationFiles(sourceDir, outputDir)
     })
   })
+  config.modules = modules
+}
+
+/** Puts the D1 migrations before the Cloudflare deploy command. Nitro checks the host when it builds. */
+function installNitroMigrateOnDeploy(config: Record<string, unknown>, target: { bindings: string[], config: ResolvedDBViteConfig | undefined }) {
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: MigrateOnDeployNitro) => installMigrateOnDeploy(nitro, () => target))
   config.modules = modules
 }
 
