@@ -281,6 +281,11 @@ It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
 
+With `multiple: false` and `ensure.maxSize`, a request whose `Content-Length`
+is more than `maxSize` plus 64 KB for the form framing gets a 413 error before
+the body is read. With more than one file, the total has no limit, so the body
+is read before `ensure` runs. Limit the request body on your host too.
+
 `event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
 `Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
 the event.
@@ -355,13 +360,38 @@ The route answers four requests:
 
 | Action | Method | Request | Result |
 | --- | --- | --- | --- |
-| `create` | `POST` | JSON `{ contentType? }` | `{ action, pathname, uploadId }` |
+| `create` | `POST` | JSON `{ contentType?, size? }` | `{ action, pathname, uploadId }` |
 | `upload` | `PUT` | `?uploadId=…&partNumber=…`, part bytes | `{ action, part }` |
 | `complete` | `POST` | `?uploadId=…`, JSON `{ parts }` | `{ action, object }` |
 | `abort` | `DELETE` | `?uploadId=…` | `{ action }` |
 
 Pass `{ create: { contentType, prefix, addRandomSuffix } }` to set create
 options on the server. This `contentType` replaces the one the client sends.
+
+Pass `ensure` to limit the upload, with the same options as
+[`ensureBlob()`](#ensureblobblob-options). The client chooses the pathname and
+the content type, so set it when users who are not fully trusted can upload:
+
+```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The client chooses the pathname.
+  const [error, result] = await blob.handleMultipartUpload(event, {
+    ensure: { maxSize: '1GB', types: ['video'] },
+  })
+  if (error) throw error
+  return result
+})
+```
+
+- `create` checks `types` against the content type. It also checks `maxSize`
+  against the `size` that the client declares.
+- `upload` rejects a part that is larger than `maxSize`. A `Content-Length`
+  above `maxSize` gets a 413 error before the part is read.
+- `complete` deletes the joined object and throws a 400 error when it is larger
+  than `maxSize` or its stored content type fails `types`.
 
 In Vue, `useMultipartUpload()` sends the parts and tracks progress:
 
