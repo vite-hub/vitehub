@@ -130,6 +130,10 @@ The operation needs a database adapter or plugin API. Add it to the primary Auth
 
 Better Auth or a computed column reader failed. Read the error cause in server code, and never send it to clients.
 
+## AUTH_GITHUB_ORG_REQUIRED
+
+`checkGitHubOrgMember()` got an empty organization login. Pass the login, for example `checkGitHubOrgMember(token, 'acme')`. `isGitHubOrgMember()` returns `false` instead.
+
 ## AUTH_GITHUB_TOKEN_INVALID
 
 `checkGitHubOrgMember()` got no token, or GitHub answered `401`: the token expired or was revoked. Ask the user to sign in with GitHub again.

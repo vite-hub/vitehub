@@ -20,6 +20,13 @@ export type GitHubOrgMemberErrorCode =
 const githubErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
+    // Config error. `checkGitHubOrgMember()` throws it, because the code must change.
+    AUTH_GITHUB_ORG_REQUIRED: {
+      why: "`checkGitHubOrgMember()` got an empty organization login.",
+      fix: "Pass the login of the organization, for example `checkGitHubOrgMember(token, \"acme\")`.",
+    },
+
+    // Runtime errors. `checkGitHubOrgMember()` returns them as `[error, undefined]`.
     AUTH_GITHUB_NOT_ORG_MEMBER: {
       why: ({ org }: { org: string }) => `The GitHub user is not an active member of \`${org}\`, or the invitation is still pending.`,
       fix: "Deny access. Invite the user to the organization, or ask them to accept the pending invitation.",
@@ -102,7 +109,7 @@ async function fetchActiveMembership(accessToken: string, org: string, timeoutMs
  * Returns `[undefined, undefined]` for an active membership, else the error that says why it could not confirm one.
  */
 export async function checkGitHubOrgMember(accessToken: string | null | undefined, org: string, options: GitHubOrgMemberOptions = {}): Promise<Result<void, GitHubOrgMemberErrorCode>> {
-  if (!org) throw new TypeError("checkGitHubOrgMember() needs the organization login, for example \"acme\".")
+  if (!org) throw githubErrors.AUTH_GITHUB_ORG_REQUIRED()
   if (!accessToken) return [githubErrors.AUTH_GITHUB_TOKEN_INVALID(), undefined]
   const cacheMs = options.cacheMs ?? 0
   if (cacheMs <= 0) return await fetchActiveMembership(accessToken, org, options.timeoutMs ?? 5000)

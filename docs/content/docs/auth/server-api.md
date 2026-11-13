@@ -188,7 +188,7 @@ export const isTeamMember = (token: string | null | undefined) => isGitHubOrgMem
 
 The cache is in memory, so each Worker isolate or server process has its own.
 
-`checkGitHubOrgMember(accessToken, org, options?)` runs the same check and returns `[error, undefined]`, so you can tell the user why they cannot get in. It takes the same options. An active membership returns `[undefined, undefined]`, and an empty `org` throws a `TypeError`.
+`checkGitHubOrgMember(accessToken, org, options?)` runs the same check and returns `[error, undefined]`, so you can tell the user why they cannot get in. It takes the same options. An active membership returns `[undefined, undefined]`, and an empty `org` throws `AUTH_GITHUB_ORG_REQUIRED`.
 
 | `error.code` | When | What to do |
 | --- | --- | --- |

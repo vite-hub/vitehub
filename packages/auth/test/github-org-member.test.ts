@@ -138,6 +138,10 @@ describe("checkGitHubOrgMember()", () => {
     expect(await code(() => new Response("<html>", { status: 200 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
   })
 
+  it("throws for an empty organization", async () => {
+    await expect(checkGitHubOrgMember("token", "")).rejects.toMatchObject({ code: "AUTH_GITHUB_ORG_REQUIRED" })
+  })
+
   it("says the user is not a member for a pending invitation or a 404 with the org scope", async () => {
     expect(await code(() => Response.json({ state: "pending" }))).toBe("AUTH_GITHUB_NOT_ORG_MEMBER")
     expect(await code(() => Response.json({ message: "Not Found" }, { headers: { "x-oauth-scopes": "read:org, read:user" }, status: 404 }))).toBe("AUTH_GITHUB_NOT_ORG_MEMBER")
