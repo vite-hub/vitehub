@@ -1,0 +1,262 @@
+{
+  "component": "toast",
+  "engine": "reka",
+  "steps": [
+    {
+      "step": "load",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list"
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Tab to Show toast",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list"
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Show",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "F8 focuses the region",
+      "focus": "list",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Tab to the toast",
+      "focus": "listitem",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Tab to Undo",
+      "focus": "button \"Undo\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Tab to Dismiss",
+      "focus": "button \"Dismiss\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Enter dismisses",
+      "focus": "list",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list"
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Show again",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Click Dismiss",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list"
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Show for Escape",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Escape in the toast closes",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list"
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Show for swipe",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list:",
+        "    - listitem:",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\""
+      ],
+      "live": [
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": null,
+          "text": "Notifications File saved Undo: File saved"
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Swipe right closes",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications (F8)\":",
+        "  - list"
+      ],
+      "live": [],
+      "relations": []
+    }
+  ]
+}
