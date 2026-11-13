@@ -792,6 +792,35 @@ describe("CommentPanel rows", () => {
   });
 });
 
+describe("sizes", () => {
+  const sizes = (wrapper: VueWrapper) => wrapper.findAll("[data-size]")
+    .filter(element => element.attributes("data-slot")?.startsWith("comment-"))
+    .map(element => `${element.attributes("data-slot")}: ${element.attributes("data-size")}`);
+
+  it("is md by default", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { thread: thread(1), user: ana } }));
+    expect(sizes(wrapper)).toEqual(["comment-thread: md", "comment-reply: md", "comment-composer: md"]);
+  });
+
+  it("gives a small thread's size to its messages, its reply box, and its edit box", async () => {
+    const own = thread(1, { messages: [message("m1", { author: ana }), message("m2", { author: ben, threadId: "thread-1" })] });
+    const wrapper = keep(mount(CommentThread, { global, props: { onEdit: () => {}, size: "sm", thread: own, user: ana } }));
+    expect(sizes(wrapper)).toEqual(["comment-thread: sm", "comment-reply: sm", "comment-reply: sm", "comment-composer: sm"]);
+    await wrapper.get("button[aria-label=Edit]").trigger("click");
+    expect(wrapper.get("[data-slot=comment-reply] [data-slot=comment-composer]").attributes("data-size")).toBe("sm");
+  });
+
+  it("gives the size to the hover card", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { preview: true, size: "sm", thread: thread(1) } }));
+    expect(sizes(wrapper)).toEqual(["comment-thread: sm", "comment-reply: sm"]);
+  });
+
+  it("marks a composer with its size", () => {
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, layout: "row", size: "sm" } }));
+    expect(wrapper.get("[data-slot=comment-composer]").attributes()).toMatchObject({ "data-layout": "row", "data-size": "sm" });
+  });
+});
+
 describe("icons", () => {
   const UIcon = defineComponent({ setup: (_props, { attrs }) => () => h("span", { "data-icon": attrs.name }) });
   const icons = (wrapper: VueWrapper) => [

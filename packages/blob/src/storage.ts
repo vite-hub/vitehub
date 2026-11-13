@@ -13,7 +13,7 @@ export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
@@ -268,6 +268,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     normalizePathname: pathname => normalizePathname(pathname, { prefix: true }),
     // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
     storage: {
+      copy: (from, to, copyOptions) => storage.copy(from, to, copyOptions),
       delete: pathnames => storage.delete(pathnames),
       list: listOptions => storage.list(listOptions),
       put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
@@ -275,8 +276,34 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     store,
     ...(options.url ? { url: options.url } : {}),
   })
+  // A driver without a provider copy: read the object, then write it with its content type and custom metadata.
+  async function copyByReading(from: string, to: string) {
+    const object = await driver.head(from)
+    const body = object && await driver.get(from)
+    if (!object || !body) return null
+    const customMetadata = Object.keys(object.customMetadata).length ? { customMetadata: object.customMetadata } : {}
+    return driver.put(to, body, { ...(object.contentType ? { contentType: object.contentType } : {}), ...customMetadata })
+  }
   const storage: BlobStorage = {
     media,
+    async copy(from, to, options = {}) {
+      const source = normalizePathname(from)
+      // The destination follows the rules of put().
+      const target = normalizeBlobPath(normalizePathname(to), {})
+      assertWritablePath(target)
+      const [error, copied] = await blobResult("copy", store, async (): Promise<BlobObject | "conflict" | null> => {
+        const canonical = (pathname: string) => driver.canonicalPathname?.(pathname) ?? pathname
+        if (canonical(source) === canonical(target)) return driver.head(source)
+        if (!options.overwrite && await driver.head(target)) return "conflict"
+        return driver.copy ? driver.copy(source, target) : copyByReading(source, target)
+      })
+      if (error) return [error, undefined]
+      if (copied === "conflict") {
+        return [blobError("BLOB_CONFLICT", "copy", store, { detail: `Blob ${target} already exists in the "${store}" store. Pass { overwrite: true } to replace it.` }), undefined]
+      }
+      if (!copied) return [blobError("BLOB_NOT_FOUND", "copy", store, { detail: `Blob ${source} was not found in the "${store}" store.` }), undefined]
+      return [undefined, copied]
+    },
     async createMultipartUpload(pathname, options = {}) {
       if (!driver.createMultipartUpload) throw unsupportedMultipart(driver)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
