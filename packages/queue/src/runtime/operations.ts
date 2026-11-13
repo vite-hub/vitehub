@@ -1,5 +1,6 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
 import { getQueueRuntimeConfig, listQueueDefinitionNames } from "../internal/runtime/state.ts"
 import { dynamicQueue } from "./client.ts"
@@ -82,9 +83,7 @@ function failure(error: unknown): unknown {
 
 export async function listQueues(): Promise<QueueListResult> {
   const config = getQueueRuntimeConfig()
-  if (config === false) {
-    throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
-  }
+  if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())
   const names = listQueueDefinitionNames()
   if (config?.provider === "local") {
     const { getLocalQueueStatus } = await import("../internal/runtime/local-client.ts")
@@ -134,9 +133,7 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
 /** The engine of the stored jobs. Cloudflare and Vercel do not let a producer read their queue, so only local jobs list. */
 async function localJobs(): Promise<LocalQueueEngine> {
   const config = getQueueRuntimeConfig()
-  if (config === false) {
-    throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
-  }
+  if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())
   const engine = config ? (await import("../internal/runtime/local-client.ts")).useLocalQueueEngine(config) : undefined
   if (!engine) {
     throw new QueueOperationError(`The ${config?.provider ?? "configured"} queue provider does not let the app read its jobs. Only the local provider stores jobs that ViteHub can list.`, 409, "QUEUE_JOBS_UNAVAILABLE", "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local provider. Read hosted jobs in the Cloudflare or Vercel dashboard.")

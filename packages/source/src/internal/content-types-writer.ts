@@ -50,7 +50,9 @@ async function startWriter(host: ContentTypesWriterHost, plugin: string): Promis
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   server.unref()
-  host.hooks.hook("close", () => new Promise<void>((resolve, reject) => {
+  // Nuxt calls the Nitro close hook itself, so the hook runs again when the CLI has already closed Nitro.
+  let closing: Promise<void> | undefined
+  host.hooks.hook("close", () => closing ??= new Promise<void>((resolve, reject) => {
     server.close(error => error ? reject(error) : resolve())
     server.closeAllConnections()
   }))
