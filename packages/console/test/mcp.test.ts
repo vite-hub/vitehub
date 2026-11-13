@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto"
-import { readFileSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { createClient } from "@libsql/client"
@@ -8,6 +7,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { organization } from "better-auth/plugins"
 import { eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
+import { migrate as migrateDatabase } from "drizzle-orm/libsql/migrator"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 import { mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "vite-hub/auth/mcp"
@@ -24,7 +24,7 @@ import type { H3Event } from "h3"
 
 // The Console's tools read the Console Database with `useDatabase()`. The test gives them an in-memory one.
 const state = vi.hoisted(() => ({ db: undefined as unknown }))
-vi.mock("vite-hub/database/drizzle", () => ({ useDatabase: () => ({ db: state.db }) }))
+vi.mock("vite-hub/database", () => ({ useDatabase: () => ({ db: state.db }) }))
 
 const origin = "https://console.example.com"
 const resource = `${origin}/mcp/account`
@@ -53,10 +53,9 @@ let linkVariable = ""
 async function migrate() {
   const client = createClient({ url: ":memory:" })
   const folder = resolve(import.meta.dirname, "../server/databases/default/migrations")
-  for (const file of readdirSync(folder).filter(name => name.endsWith(".sql")).sort()) {
-    for (const statement of readFileSync(resolve(folder, file), "utf8").split("--> statement-breakpoint")) await client.execute(statement)
-  }
-  return drizzle(client, { schema })
+  const db = drizzle({ client, schema })
+  await migrateDatabase(db, { migrationsFolder: folder })
+  return db
 }
 
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) => auth.handler(new Request(`${origin}/api/auth${path}`, { body: JSON.stringify(body), headers: { "content-type": "application/json", origin, ...headers }, method: "POST" }))
