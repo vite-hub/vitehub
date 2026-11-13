@@ -54,7 +54,9 @@ icon: i-lucide-plug-zap
 ::
 
 ::agent-only
-Use the MCP server when the app must give its own tools to Agents. Install `@vite-hub/mcp`, set `mcp: true` in the ViteHub options, and add one `defineMcpTool()` default export for each file in `server/mcp/tools/`. Import it from `vite-hub/mcp`.
+Use the MCP server when the app must give its own tools to Agents. Install `@vite-hub/mcp`, set `auth` and `mcp: true` in the ViteHub options, add `mcpOAuth()` from `vite-hub/auth/mcp` to `server/auth.ts`, and add one `defineMcpTool()` default export for each file in `server/mcp/tools/`. Import it from `vite-hub/mcp`.
+
+`mcp: true` without `auth` fails the build with `VITE_HUB_R0141`. Set `mcp: { auth: false }` only when anyone may call every tool.
 
 This is not the ViteHub MCP of the Console at `https://console.vitehub.dev/mcp`. Do not add an MCP SDK. Throw an error with a 4xx `status` to tell the Agent what to fix.
 

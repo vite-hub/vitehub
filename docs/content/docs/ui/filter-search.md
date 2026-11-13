@@ -104,7 +104,7 @@ import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, 
 
 - The input gets its accessible name from `label`. While `thinking`, it has `aria-busy="true"`. After a failed request, it has `aria-invalid="true"`, and `aria-describedby` points to the error.
 
-- `ChoicesInputStatus` is a polite live region (`role="status"`) from the first render. It says "Thinking", then "Ready" or the error. `FilterSearch` hides it visually with `vh-visually-hidden`, because the icon and error text already show the state.
+- `ChoicesInputStatus` is a polite live region (`role="status"`) from the first render. It says "Thinking", then "Ready" or the error. `FilterSearch` hides it visually inside a `<span data-slot="visually-hidden">`, because the icon and error text already show the state.
 
 - Editing cancels a running request, so a stale result cannot apply. With nothing to clear, Escape goes to the page, so it can still close a dialog. Enter does nothing during input method composition or with Shift, Ctrl, Alt, or Meta held.
 
