@@ -82,14 +82,14 @@ export default defineContent({
 ```
 
 ```ts fragment
-await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, cache }
+await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, checkedAt, webhook, diagnostic: null, cache, views }
 await content.sources.advance("docs") // move to the latest commit of main when every document parses
 await content.sources.pin(sha, "docs") // serve this commit until unpin(), for example to roll back
 await content.sources.unpin("docs")
 ```
 
 - The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
-- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. Call `advance()` after a push, for example from a GitHub push webhook route.
+- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. The GitHub push webhook below calls `advance()` for you.
 - Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
 - A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
 - Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
@@ -97,6 +97,31 @@ await content.sources.unpin("docs")
 - ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
 - Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
 - When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
+- When GitHub answers 403 or 429 to the branch lookup, as it does when the rate limit is hit, the head stays where it is. Content logs `CONTENT_R0035` once, and `head()` on that server instance returns it in `diagnostic` until a lookup succeeds.
+- `diagnostic` is `{ code, message, fix }` when the head does not follow the branch: `CONTENT_R0020`, `CONTENT_R0021`, `CONTENT_R0035`, or `CONTENT_R0019`. `vitehub content head` prints it.
+- Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. Completed checks store `checkedAt` under `content:checked:<source>`. An unchanged branch needs no head write unless a stored rejection becomes history; a changed branch needs one. A failed check is tried again after the lease.
+
+### GitHub push webhook
+
+When `server/content.ts` imports `github` from `vite-hub/source`, ViteHub adds the route `POST /_vitehub/content/github`. A signed `push` to the branch of a `github()` Source moves its head within seconds, without a deploy.
+
+1. Generate a secret, such as `openssl rand -hex 32`, and set it as `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env. `FORGES_GITHUB_WEBHOOK_SECRET` also works.
+2. In the repository on GitHub, open Settings, Webhooks, Add webhook. Set the payload URL to `https://<your site>/_vitehub/content/github`, the content type to `application/json`, and the secret to the same value. Select "Just the push event".
+
+The route checks `X-Hub-Signature-256` against the raw body in constant time, with the same verifier as Channels.
+
+| Request | Response |
+| --- | --- |
+| No `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env | 404. Content logs `CONTENT_R0026` once. The hourly check still moves the head. |
+| Missing or wrong signature | 401 with `CONTENT_R0024`. Nothing moves. |
+| `ping` | 200 `{ ok: true }` |
+| `push` to the branch of a Source | `advance()` for each matching Source. When the host gives the request `waitUntil`, such as Cloudflare Workers, 202 `{ sources }` and the work runs after the response. Otherwise 200 `{ sources, deliveries }`. |
+| `push` to another branch, a deleted branch, or another event | 200 `{ ignored }` |
+| `push` to a repository that no Source reads | 200, and Content logs `CONTENT_R0025`. |
+
+A Source without `ref` follows the default branch in the payload. `content.sources.head()` shows the last delivery in `webhook`: `{ id, at, sha, result }`, where `id` is the `X-GitHub-Delivery` id and `result` is `moved`, `kept`, `rejected`, `pinned`, or `failed` with `error`. `vitehub kv get content:webhook:docs` shows the same record. A delivery with a bad signature writes nothing, so only the log shows it.
+
+ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route.
 
 ### Commit cache
 
@@ -334,7 +359,13 @@ vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry
 vitehub content scheduled [collection] [id] [--status pending|overdue|failed]
 vitehub content unschedule <schedule>
 vitehub content sitemap [--site <url>] [--xml]
+vitehub content head [source]
+vitehub content advance [source]
+vitehub content pin <sha> [source]
+vitehub content unpin [source]
 ```
+
+`head`, `advance`, `pin`, and `unpin` call `content.sources` of the app. Without a name, `head` shows every `github()` Source, and the others move the only one. With more than one, they ask for the name. Each head shows the commit, the pin, the last check, the rejected commit, the last webhook delivery, and `diagnostic` with its fix: `CONTENT_R0020` (no token), `CONTENT_R0021` (no KV store), `CONTENT_R0019` (the newest commit does not parse, and the head did not move after it), or `CONTENT_R0035` (GitHub answered 403 or 429 to the branch lookup). `advance` and `unpin` exit with status 1 when the head is held back. They need the `content` section of the Console access; `head` needs only `content:read`.
 
 Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation through the app's `POST /_vitehub/rpc` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, and signs each call with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. The operations call `content.can()` with the user of the call: the person that the Console signed, or no user for the CLI.
 
