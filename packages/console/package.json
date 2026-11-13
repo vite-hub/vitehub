@@ -16,7 +16,6 @@
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
     "vite-hub": "workspace:*"
   },

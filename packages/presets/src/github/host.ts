@@ -82,6 +82,8 @@ export interface GitHubHostForgeOptions extends GitHubHostCheckoutOptions {
 export interface GitHubHostAccessOptions extends GitHubHostCheckoutOptions {
   fallback?: boolean
   refresh?: boolean
+  /** Mint a new App installation token when the cached one expires within this many milliseconds. */
+  minLifetime?: number
   repository?: string
 }
 
@@ -306,7 +308,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         credentialKey = `app:${numericAppId}:${numericInstallationId}`
         try {
           token = (await githubAppCredentials({ appId: numericAppId, privateKey, userAgent: options.userAgent })
-            .installationToken(numericInstallationId, { refresh: input.refresh, signal: input.signal })).token
+            .installationToken(numericInstallationId, { refresh: input.refresh, minLifetime: input.minLifetime, signal: input.signal })).token
         }
         catch (error) {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
@@ -549,7 +551,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ...channelOptions,
         app: {
           token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login, appId: host.appId?.() } } : {}),
+          ...(login ? { identity: { login, appId: host.appId?.(), ...(identity.email ? { email: identity.email } : {}) } } : {}),
         },
       })
     },

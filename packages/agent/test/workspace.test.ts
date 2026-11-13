@@ -142,6 +142,71 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
 }
 
 describe("defineAgent workspace option", () => {
+  it("records the initial retained Workspace revision in native Invocation telemetry", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const facade = readonlyWorkspaceFacade()
+    const head = vi.spyOn(facade.history, "head").mockResolvedValue({
+      id: "run-revision", ref: "run-1", parentId: null, createdAt: "2026-11-07T09:00:00.000Z", files: 1, bytes: 4,
+    })
+    useWorkspace.mockReturnValueOnce(facade)
+    const agent = defineAgent({
+      name: "revision-test",
+      workspace: { name: "docs" },
+      capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: telemetry } })],
+      driver: { run: () => {
+        head.mockResolvedValue(null)
+        return "ok"
+      } },
+    })
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })
+    await Promise.all(tasks)
+    const configuration = JSON.stringify(telemetry.mock.calls)
+    expect(configuration).toContain('"revision":"run-revision"')
+    expect(configuration).toContain('"ref":"run-1"')
+    expect(head).toHaveBeenCalledOnce()
+  })
+
+  it("keeps native Invocation telemetry compatible with Stores without retained history", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
+    const telemetry = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const driver = vi.fn(() => "ok")
+    const agent = defineAgent({
+      name: "no-history-test",
+      workspace: { name: "docs" },
+      capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: telemetry } })],
+      driver: { run: driver },
+    })
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })
+    await Promise.all(tasks)
+    expect(driver).toHaveBeenCalledOnce()
+    expect(JSON.stringify(telemetry.mock.calls)).toContain('"workspace":{"mode":"read","name":"docs"}')
+  })
+
+  it("still runs the Driver when optional retained revision observation fails", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
+    const facade = readonlyWorkspaceFacade()
+    vi.spyOn(facade.history, "head").mockRejectedValue(new Error("history provider unavailable"))
+    useWorkspace.mockReturnValueOnce(facade)
+    const driver = vi.fn(() => "ok")
+    const agent = defineAgent({
+      name: "history-outage-test",
+      workspace: { name: "docs" },
+      capabilities: [defineCapability({ id: "test-telemetry", telemetry: { exporter: vi.fn() } })],
+      driver: { run: driver },
+    })
+    const tasks: Promise<unknown>[] = []
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil(task) { tasks.push(Promise.resolve(task)) } }, { prompt: "test" })
+    await Promise.all(tasks)
+    expect(driver).toHaveBeenCalledOnce()
+  })
+
   afterEach(async () => {
     await Promise.all(tempRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })

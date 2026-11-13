@@ -27,7 +27,11 @@ const routesLoadListeners = new Set<() => void>()
 
 function loadAgentRoutes(): Promise<AgentRoutesModule> {
   if (!routes) {
-    routes = import("./routes.ts")
+    // A failed import, such as during a development rebuild, lets the next request try again.
+    routes = import("./routes.ts").catch((error: unknown) => {
+      routes = undefined
+      throw error
+    })
     for (const listener of routesLoadListeners) queueMicrotask(listener)
     routesLoadListeners.clear()
   }
@@ -45,7 +49,10 @@ export function onAgentRoutesLoad(listener: () => void): void {
 
 function lazy<T>(create: (module: AgentRoutesModule) => T): () => Promise<T> {
   let value: Promise<T> | undefined
-  return () => value ??= loadAgentRoutes().then(create)
+  return () => value ??= loadAgentRoutes().then(create).catch((error: unknown) => {
+    value = undefined
+    throw error
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
