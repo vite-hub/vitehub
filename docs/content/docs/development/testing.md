@@ -57,7 +57,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
+  plugins: [vitehub({ host: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
   test: { environment: 'node' },
 })
 ```

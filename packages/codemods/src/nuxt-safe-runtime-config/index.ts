@@ -231,7 +231,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (schemaFile && label !== undefined) return { file: schemaFile, line: lines.get(label), message }
     return { file: config.fileName, line: edited.lineOf(["vitehub", "env"]), message }
   })
-  if (edited.presetNote) configFollowUps.push({ file: config.fileName, line: edited.lineOf(["vitehub", "preset"]), message: edited.presetNote })
+  if (edited.hostNote) configFollowUps.push({ file: config.fileName, line: edited.lineOf(["vitehub", "host"]), message: edited.hostNote })
 
   const secretFollowUps: FollowUp[] = []
   for (const field of fields.filter(entry => entry.secret)) {

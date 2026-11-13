@@ -1442,7 +1442,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync(vp, ["build"], {
       cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
@@ -1466,7 +1466,7 @@ describe("Vite workflow provider outputs", () => {
     await rm(generatedWorkflowDir, { recursive: true })
     await execFileAsync(vp, ["build"], {
       cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
     expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))

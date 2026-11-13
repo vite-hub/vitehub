@@ -27,6 +27,28 @@ export interface GitHubArchiveFile {
   path: string
 }
 
+/** One commit that changed a file, as `GitHubSource.history()` returns it. */
+export interface GitHubFileCommit {
+  sha: string
+  /** The author date, as an ISO date. */
+  date: string
+  /** The author's GitHub login, else the Git author name, else null. */
+  author: string | null
+  /** The first line of the commit message. */
+  message: string
+  /** The commit page on GitHub. */
+  url: string
+}
+
+export interface GitHubHistoryOptions {
+  /** The full commit SHA to read back from. */
+  sha: string
+  /** The page, from 1. */
+  page: number
+  /** Commits per page, from 1 to 100. */
+  perPage: number
+}
+
 /** A ref of the repository: a full commit SHA, a branch name, or a pull request number. */
 export type GitHubRef = { sha: string } | { branch: string } | { pull: number }
 
@@ -57,6 +79,11 @@ export interface GitHubRefTarget {
 export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>, "getItems" | "getMeta" | "resolveRevision">> & {
   /** Whether reads send a token: `auth`, or the Server Env token when `auth` is omitted. */
   authenticated(): Promise<boolean>
+  /**
+   * The commits that changed one file, newest first, from `sha` back. It reads `GET /repos/{owner}/{repo}/commits`
+   * with `path`, so it does not follow renames. `more` is true when GitHub has another page.
+   */
+  history(key: string, options: GitHubHistoryOptions): Promise<{ commits: GitHubFileCommit[], more: boolean }>
   /**
    * The commit that a ref of the repository points to now. A branch must match its full name, and a SHA must be a full
    * commit SHA. Undefined when the repository has no such commit, branch, or pull request.

@@ -108,26 +108,15 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
+  "@vite-hub/docs/primitive-rail",
+  // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
   "@vite-hub/ui/playground",
-  "@vite-hub/ui/playground-container",
-  "@vite-hub/ui/playground-render",
-  "@vite-hub/ui/primitive-rail",
-  // The design system: surfaces import the theme and its shared parts from @vite-hub/ui directly.
   "@vite-hub/ui/theme",
   "@vite-hub/ui/theme.css",
-  "@vite-hub/ui/copy-button",
-  "@vite-hub/ui/status",
-  "@vite-hub/ui/browser-support-notice",
-  "@vite-hub/ui/connect-panel",
   "@vite-hub/ui/workspace",
-  "@vite-hub/ui/workspace-boot-status",
-  "@vite-hub/ui/workspace-editor",
-  "@vite-hub/ui/workspace-file-tree",
-  "@vite-hub/ui/workspace-preview",
-  "@vite-hub/ui/workspace-shell",
-  "@vite-hub/ui/workspace-terminal",
   "@vite-hub/web-container/env",
   "@vite-hub/web-container/snapshot",
+  "@vite-hub/web-container/vue",
   "@vite-hub/workspace/source-metadata",
 ]);
 
@@ -226,7 +215,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
 describe("framework package contract", () => {
   it("keeps the root export intentionally small", () => {
-    expect(Object.keys(framework)).toEqual(["vitehub"]);
+    expect(Object.keys(framework)).toEqual(["detectHost", "vitehub"]);
   });
 
   it("forwards feature APIs from their owner packages", () => {
@@ -753,7 +742,7 @@ describe("framework package contract", () => {
           agent: true,
           console: { auth: false, authorize: hostManagedAuthorize },
           kv: true,
-          preset: "node",
+          host: "node",
           queue: true,
           schedule: true,
           workflow: true,

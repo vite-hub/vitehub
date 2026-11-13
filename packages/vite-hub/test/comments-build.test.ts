@@ -39,7 +39,7 @@ describe("Comments in a built Nitro 3 app", () => {
     // Signed calls on Node check the origin that `publicUrl` names, so the server starts on a known port.
     const port = await freePort()
     const publicUrl = `http://127.0.0.1:${port}`
-    const app = () => vitehub({ auth: true, console: { authorize: "./server/console-authorize.ts" }, preset: "node", publicUrl })
+    const app = () => vitehub({ auth: true, console: { authorize: "./server/console-authorize.ts" }, host: "node", publicUrl })
     const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])
@@ -124,13 +124,13 @@ describe("Comments in a built Nitro 3 app", () => {
       "package.json": JSON.stringify({ name: "comments-no-database", private: true, type: "module" }),
       "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments()\n",
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ database: false, preset: "node" })), "build")).rejects.toMatchObject({
+    await expect(resolveConfig(serverBuild(root, vitehub({ database: false, host: "node" })), "build")).rejects.toMatchObject({
       code: "COMMENTS_B0001",
       fix: expect.stringContaining("database: false"),
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ preset: "node" })), "build")).resolves.toBeDefined()
+    await expect(resolveConfig(serverBuild(root, vitehub({ host: "node" })), "build")).resolves.toBeDefined()
 
     const plain = await createProject({ "package.json": JSON.stringify({ name: "no-comments", private: true, type: "module" }) })
-    await expect(resolveConfig(serverBuild(plain, vitehub({ database: false, preset: "node" })), "build")).resolves.toBeDefined()
+    await expect(resolveConfig(serverBuild(plain, vitehub({ database: false, host: "node" })), "build")).resolves.toBeDefined()
   }, 60_000)
 })

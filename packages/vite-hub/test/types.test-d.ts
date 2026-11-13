@@ -74,36 +74,36 @@ describe("vite-hub public types", () => {
   it("type checks", () => {
     expectTypeOf(vitehub).toBeFunction()
     vitehub()
-    vitehub({ preset: "node", rateLimit: true })
-    vitehub({ email: { driver: "resend" }, preset: "node" })
-    vitehub({ email: true, preset: "cloudflare" })
-    vitehub({ auth: onCloudflare, email: onCloudflare, preset: onCloudflare ? "cloudflare" : "node" })
-    vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
-    vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
-    vitehub({ auth: true, console: true, preset: "node" })
-    vitehub({ console: {}, preset: "node" })
-    vitehub({ console: false, preset: "node" })
-    vitehub({ console: { auth: false }, preset: "node" })
-    vitehub({ auth: true, console: { authorize: "server/console-authorize.ts", impersonation: true }, preset: "node" })
-    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts" }, preset: "node" })
-    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: true }, preset: "node" })
-    vitehub({ console: { authorize: "server/console-authorize.ts", invoke: false }, preset: "node" })
+    vitehub({ host: "node", rateLimit: true })
+    vitehub({ email: { driver: "resend" }, host: "node" })
+    vitehub({ email: true, host: "cloudflare" })
+    vitehub({ auth: onCloudflare, email: onCloudflare, host: onCloudflare ? "cloudflare" : "node" })
+    vitehub({ name: "my-app", host: "cloudflare", blob: true, rateLimit: true })
+    vitehub({ agent: true, database: true, host: "node", workflow: true, workspace: true })
+    vitehub({ auth: true, console: true, host: "node" })
+    vitehub({ console: {}, host: "node" })
+    vitehub({ console: false, host: "node" })
+    vitehub({ console: { auth: false }, host: "node" })
+    vitehub({ auth: true, console: { authorize: "server/console-authorize.ts", impersonation: true }, host: "node" })
+    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts" }, host: "node" })
+    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: true }, host: "node" })
+    vitehub({ console: { authorize: "server/console-authorize.ts", invoke: false }, host: "node" })
     // @ts-expect-error console.authorize is a server file path, not an inline function.
-    vitehub({ console: { auth: false, authorize: () => true }, preset: "node" })
+    vitehub({ console: { auth: false, authorize: () => true }, host: "node" })
     // @ts-expect-error Apps do not sign people in to the Console: `auth: "app"` was removed.
-    vitehub({ auth: true, console: { auth: "app" }, preset: "node" })
+    vitehub({ auth: true, console: { auth: "app" }, host: "node" })
     // @ts-expect-error Signed calls are the default: `auth: "token"` was removed.
-    vitehub({ console: { auth: "token" }, preset: "node" })
+    vitehub({ console: { auth: "token" }, host: "node" })
     // @ts-expect-error Console Auth (GitHub, a server file, Cloudflare Access) was removed.
-    vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+    vitehub({ console: { auth: { provider: "cloudflare-access" } }, host: "cloudflare" })
     // @ts-expect-error Apps take no Console calls from browsers.
-    vitehub({ console: { origins: ["https://console.vitehub.dev"] }, preset: "node" })
+    vitehub({ console: { origins: ["https://console.vitehub.dev"] }, host: "node" })
     // @ts-expect-error Apps serve no Console MCP.
-    vitehub({ console: { mcp: { resource: "https://app.example.com/_vitehub/mcp" } }, preset: "node" })
+    vitehub({ console: { mcp: { resource: "https://app.example.com/_vitehub/mcp" } }, host: "node" })
     // @ts-expect-error The old access and exposure keys are removed.
-    vitehub({ console: { access: "auth" }, preset: "node" })
+    vitehub({ console: { access: "auth" }, host: "node" })
     // @ts-expect-error Unknown Console Auth modes must not silently expose inspection routes.
-    vitehub({ console: { auth: "public" }, preset: "node" })
+    vitehub({ console: { auth: "public" }, host: "node" })
     expectTypeOf<ConsoleAgentInvocationInput["prompt"]>().toBeString()
     const consoleInput: ConsoleAgentInvocationInput = { prompt: "Follow up", messages: [createMessage({ role: "user", text: "Earlier question" })] }
     expectTypeOf<NonNullable<typeof consoleInput.messages>[number]["role"]>().toEqualTypeOf<"user" | "assistant">()

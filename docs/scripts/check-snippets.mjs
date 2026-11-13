@@ -407,7 +407,7 @@ export function defaultEnvDeclarations() {
 async function envTypes(pageRoot, env, plugins) {
   if (!plugins.length) {
     const { vitehub } = await import(pathToFileURL(join(packagesRoot, "vite-hub/dist/index.js")).href)
-    plugins.push((await vitePlugins(vitehub({ preset: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
+    plugins.push((await vitePlugins(vitehub({ host: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
   }
   const root = mkdtempSync(join(tmpdir(), "vitehub-snippet-env-"))
   let code

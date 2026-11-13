@@ -1,19 +1,19 @@
 ---
 title: Node and self-hosted
-description: Build a Node.js server with the node preset and choose storage that survives restarts.
+description: Build a Node.js server with the node host and choose storage that survives restarts.
 navigation.order: 47
 navigation.group: Deployment hosts
 icon: i-lucide-server-cog
 ---
 
-The `node` preset runs your app as a Node.js server on your own machine, a
+The `node` host runs your app as a Node.js server on your own machine, a
 container, or a virtual machine. Nitro builds one server entry at
 `.output/server/index.mjs`. Server code uses the same Runtime Helpers as on
-hosted presets.
+the hosted platforms.
 
-## Configure the preset
+## Configure the host
 
-Select the `node` preset and turn on the features you use. This example stores
+Select the `node` host and turn on the features you use. This example stores
 KV values in local files.
 
 ::tabs{sync="framework"}
@@ -22,7 +22,7 @@ KV values in local files.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     kv: {
       driver: 'fs-lite',
       base: '.vitehub/data/kv',
@@ -41,7 +41,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: {
         driver: 'fs-lite',
         base: '.vitehub/data/kv',
@@ -61,7 +61,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: {
         driver: 'fs-lite',
         base: '.vitehub/data/kv',
@@ -100,7 +100,7 @@ build packages only the build machine's native binaries.
 
 ## Run the server with systemd
 
-A production build on the `node` preset also writes a systemd unit to
+A production build on the `node` host also writes a systemd unit to
 `.output/<name>.service`. The name is the deployment name: `vitehub({ name })`,
 else the `package.json` name.
 
@@ -157,7 +157,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: { shutdown: { drainMs: 45_000 } },
       systemd: {
         user: 'app',
@@ -185,7 +185,7 @@ MemoryMax=2G
 Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
 `.env`, because the build cannot read that file.
 
-## Defaults on the node preset
+## Defaults on the node host
 
 "Several instances" means two or more Node processes behind one load balancer,
 on one host or on many. Today most Node defaults keep state in one process or on
@@ -212,7 +212,7 @@ one instance.
 Set `dataDir` in `vitehub()`, for example `dataDir: '/var/lib/app'`, to keep
 local state in one persistent directory. It holds KV `fs-lite` data, Blob `fs`
 data, the Agent State database, the Agent Invocation journal, and Workspace files.
-`dataDir` works only with the `node` preset.
+`dataDir` works only with the `node` host.
 
 ## Mount a server handler
 
@@ -298,7 +298,7 @@ Local files and memory belong to one process on one host. Replicas do not
 share them. Use a persistent volume for `dataDir`, or remote stores when you
 run more than one process. Set `VITEHUB_INSTANCES` so the server checks this
 at boot.
-The [table above](#defaults-on-the-node-preset) shows which features have a
+The [table above](#defaults-on-the-node-host) shows which features have a
 remote store today.
 
 The Schedule Process Runtime runs each occurrence on one server when the app has

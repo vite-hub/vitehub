@@ -16,7 +16,7 @@ icon: i-lucide-key-round
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       env: {
         // Safe to show in the browser
         public: {
@@ -46,7 +46,7 @@ icon: i-lucide-key-round
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         // Safe to show in the browser
         public: {
@@ -75,7 +75,7 @@ icon: i-lucide-key-round
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         // Safe to show in the browser
         public: {

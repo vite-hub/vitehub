@@ -59,7 +59,7 @@ beforeAll(async () => {
   const builder = await createBuilder({
     logLevel: "silent",
     nitro: { prerender: { routes: ["/api/ping"], failOnError: true } },
-    plugins: [nitro() as never, vitehub({ preset: "node", kv: true })],
+    plugins: [nitro() as never, vitehub({ host: "node", kv: true })],
     root,
   });
   const previousInstances = process.env.VITEHUB_INSTANCES;
@@ -138,7 +138,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
     const builder = await createBuilder({
       logLevel: "silent",
       plugins: [nitro() as never, vitehub({
-        preset: "node",
+        host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
         kv: false,
         workspace: { assets: false, store: { provider: "github", repository: "acme/workspaces" } },

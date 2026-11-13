@@ -96,6 +96,26 @@ const movedLearningPages = new Map(Object.entries({
 /** Diagnostic code pages that moved with their package to its own section. Published packages link to the old pages. */
 const movedDiagnostics = {
   gateways: { from: "agents", codes: Array.from({ length: 12 }, (_, index) => `gateways_r${String(index + 1).padStart(4, "0")}`) },
+  forge: {
+    from: "agents",
+    codes: [
+      "forge_app_not_installed",
+      "forge_request_failed",
+      "forge_missing_env",
+      "forge_invalid_env",
+      "forge_missing_installation",
+      "forge_not_app",
+      "forge_r0001",
+      "forge_r0002",
+      "forge_r0003",
+      "forge_r0004",
+      "forge_r0005",
+      "forge_r0006",
+      "forge_r0007",
+      "forge_r0009",
+    ],
+  },
+  mcp: { from: "development", codes: ["mcp_b0001", "mcp_b0002"] },
 } satisfies Record<string, { from: string, codes: string[] }>;
 
 export const docsPageRedirects = {
@@ -111,6 +131,7 @@ export const docsPageRedirects = {
   "/docs/agents/actors": "/docs/agents/trusted-invokers",
   "/docs/agents/ai-gateways": "/docs/gateways",
   "/docs/agents/evlog": "/docs/agents/observability",
+  "/docs/guides/forge": "/docs/forge/server-api",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
   "/docs/capabilities": "/docs/agents/capabilities",
@@ -121,6 +142,7 @@ export const docsPageRedirects = {
   "/docs/concepts/channels-api": "/docs/agents/channels",
   "/docs/concepts/server-primitives-for-any-host": "/docs/getting-started/server-primitives",
   "/docs/console/usage": "/docs/development/console",
+  "/docs/development/app-mcp": "/docs/mcp",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
@@ -143,7 +165,7 @@ export const docsPageRedirects = {
 } satisfies Record<string, string>;
 
 /**
- * Fragments that moved with the Blob page split, with the CMS move to its own section, and with the AI Gateways move.
+ * Fragments that moved with the Blob page split, with the CMS move to its own section, and with the moves of packages to their own sections.
  * The old page redirect keeps the hash, so `/docs/content/cms-preset#github-store` lands on `/docs/cms#github-store`.
  */
 export const docsLegacyFragmentRedirects = {
@@ -198,6 +220,26 @@ export const docsLegacyFragmentRedirects = {
     "typesafe-through-cloudflare-ai-gateway": "/docs/gateways/configure#typesafe-through-cloudflare-ai-gateway",
     "custom-gateways": "/docs/gateways/server-api#custom-gateways",
     errors: "/docs/gateways/limits-and-errors#errors",
+  },
+  "/docs/forge/server-api": {
+    install: "/docs/forge/get-started#install-forge",
+    "set-the-env": "/docs/forge/configure#set-the-env",
+    errors: "/docs/forge/limits-and-errors#errors",
+    "runtime-errors": "/docs/forge/limits-and-errors#runtime-errors",
+    "configuration-errors": "/docs/forge/limits-and-errors#configuration-errors",
+    forge_app_not_installed: "/docs/forge/limits-and-errors",
+    forge_request_failed: "/docs/forge/limits-and-errors",
+    forge_missing_env: "/docs/forge/limits-and-errors",
+    forge_invalid_env: "/docs/forge/limits-and-errors",
+    forge_missing_installation: "/docs/forge/limits-and-errors",
+    forge_not_app: "/docs/forge/limits-and-errors",
+  },
+  "/docs/mcp": {
+    "turn-it-on": "/docs/mcp/get-started#turn-it-on",
+    "write-a-tool": "/docs/mcp/get-started#write-a-tool",
+    "sign-in-with-mcp-oauth": "/docs/mcp/configure#sign-in-with-mcp-oauth",
+    "connect-an-agent": "/docs/mcp/get-started#connect-an-agent",
+    "inspect-the-tools": "/docs/mcp/get-started#inspect-the-tools",
   },
   "/docs/cms": {
     "set-up": "/docs/cms/get-started#install-and-turn-on-vitehub",

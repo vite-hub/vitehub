@@ -569,7 +569,7 @@ describe("generated Agent deployment catalog", () => {
 
   it("executes the same catalog through the Netlify Adapter", async () => {
     await runtime!.close()
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     runtime = await createDeploymentRuntimeFixture("netlify")
 
     await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({

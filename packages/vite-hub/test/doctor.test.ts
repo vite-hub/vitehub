@@ -689,7 +689,7 @@ describe("ViteHub Doctor Extension", () => {
   })
 
   it("is exposed by the Vite plugin as a lazy Doctor Extension", async () => {
-    const api = doctorPluginApi(vitehub({ preset: "node" }))
+    const api = doctorPluginApi(vitehub({ host: "node" }))
     expect(api?.extensions).toHaveLength(1)
     const [load] = api?.extensions ?? []
     if (typeof load !== "function") throw new TypeError("Expected a lazy Doctor Extension loader.")

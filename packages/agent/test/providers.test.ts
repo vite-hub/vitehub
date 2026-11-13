@@ -1014,7 +1014,7 @@ describe("agent Vite plugin", () => {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         command: "build",
         plugins: [],
-        preset: "cloudflare",
+        vitehub: { host: "cloudflare" },
         root,
       } as never)
       const cloudflareRegistry = await cloudflareTransform("export default {}\n", "/virtual/.vitehub/workflow/registry-runtime.mjs")
@@ -1053,7 +1053,7 @@ describe("agent Vite plugin", () => {
       const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const transform = (plugin.transform as { handler: (code: string, id: string) => Promise<string | undefined> }).handler
-      await configResolved({ command: "build", plugins: [], preset: "cloudflare", root })
+      await configResolved({ command: "build", plugins: [], vitehub: { host: "cloudflare" }, root })
       const registry = await transform(written, "/virtual/.vitehub/workflow/registry-runtime.mjs")
       if (!registry) throw new Error("Expected a Cloudflare workflow registry")
 
@@ -1203,7 +1203,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("publishes the conventional Netlify chat path", async () => {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-chat-route-"))
     try {
@@ -1239,7 +1239,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     vi.stubEnv("VITEHUB_DISCORD_GATEWAY_SECRET", "gateway-secret")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-gateway-secret-"))
@@ -1276,7 +1276,7 @@ describe("agent Vite plugin", () => {
 }, 60_000)
 
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
     const agentRoot = join(root, "server", "agents", "support")
@@ -1352,7 +1352,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const container = await mkdtemp(join(tmpdir(), "vitehub-agent-parent-instructions-"))
     const root = join(container, "apps", "web")
@@ -1401,7 +1401,7 @@ describe("agent Vite plugin", () => {
   })
 
   it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
-    vi.stubEnv("VITEHUB_HOSTING", undefined)
+    vi.stubEnv("VITEHUB_HOST", undefined)
     vi.stubEnv("NETLIFY_DEV", "true")
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
@@ -1488,7 +1488,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("cleans stale Netlify agent output when generated routes are disabled", async () => {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-cleanup-"))
     try {
@@ -1576,14 +1576,11 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent()
     const result = await resolveAgentViteConfig(plugin, {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-      nitro: { externals: { inline: ["existing"] }, noExternals: [/existing/] },
+      nitro: { noExternals: [/existing/] },
     })
 
     expect(result).toMatchObject({
       nitro: {
-        externals: {
-          inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
-        },
         noExternals: [/existing/, "@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"],
         rollupConfig: {
           external: optionalAgentRuntimeExternals,
@@ -1881,14 +1878,13 @@ describe("agent Vite plugin", () => {
   })
 
   it.each([
-    { version: 2, file: "routes/_vitehub/agent/invocations/dev.ts", command: "serve", conflict: true },
     { version: 3, file: "routes/_vitehub/agent/invocations/dev.ts", command: "serve", conflict: true },
     { version: 3, file: "routes/_vitehub/agent/[agent]/[action].ts", command: "serve", conflict: true },
     { version: 3, file: "routes/_vitehub/agent/[...path].ts", command: "serve", conflict: true },
     { version: 3, file: "middleware/log.ts", command: "serve", conflict: false },
     { version: 3, file: "routes/health.ts", command: "serve", conflict: false },
     { version: 3, file: "routes/_vitehub/agent/invocations/dev.ts", command: "build", conflict: false },
-  ] as const)("guards the development invocation route after Nitro $version scans $file during $command", { timeout: 30_000 }, async ({ version, file, command, conflict }) => {
+  ] as const)("guards the development invocation route after Nitro scans $file during $command", { timeout: 30_000 }, async ({ file, command, conflict }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-route-scan-"))
     const serverDir = join(root, "server")
@@ -1911,31 +1907,22 @@ describe("agent Vite plugin", () => {
       const generated = (config as { nitro: { modules: unknown[], handlers: unknown[] } }).nitro
       const options = {
         rootDir: root,
-        ...(version === 2 ? { srcDir: serverDir } : { serverDir }),
+        serverDir,
         scanDirs: [serverDir],
         dev: command === "serve",
         compatibilityDate: "2026-01-01" as const,
         imports: false as const,
         logLevel: 0,
-        // SAFETY: The hook emits Nitro modules and handlers accepted by both supported builders.
-        modules: generated.modules as NonNullable<Parameters<typeof import("nitropack").createNitro>[0]>["modules"] & NonNullable<Parameters<typeof import("nitro/builder").createNitro>[0]>["modules"],
+        // SAFETY: The hook emits Nitro modules and handlers that the Nitro builder accepts.
+        modules: generated.modules as NonNullable<Parameters<typeof import("nitro/builder").createNitro>[0]>["modules"],
         handlers: generated.handlers as Array<{ handler: string, route: string }>,
       }
-      const scan = version === 2
-        ? await (async () => {
-            const { createNitro } = await import("nitropack")
-            const nitro = await createNitro(options)
-            return { scannedHandlers: nitro.scannedHandlers, close: () => nitro.close(), check: () => nitro.hooks.callHook("build:before", nitro) }
-          })()
-        : await (async () => {
-            const { createNitro } = await import("nitro/builder")
-            const nitro = await createNitro(options)
-            return { scannedHandlers: nitro.scannedHandlers, close: () => nitro.close(), check: () => nitro.hooks.callHook("build:before", nitro) }
-          })()
-      close = scan.close
+      const { createNitro } = await import("nitro/builder")
+      const nitro = await createNitro(options)
+      close = () => nitro.close()
       expect(existingModule.setup).toHaveBeenCalledOnce()
-      expect(scan.scannedHandlers).toContainEqual(expect.objectContaining({ handler: filename }))
-      const check = Promise.resolve().then(scan.check)
+      expect(nitro.scannedHandlers).toContainEqual(expect.objectContaining({ handler: filename }))
+      const check = Promise.resolve().then(() => nitro.hooks.callHook("build:before", nitro))
       if (conflict) await expect(check).rejects.toThrow("development invocation route conflicts")
       else await expect(check).resolves.toBeUndefined()
     } finally {
@@ -2189,7 +2176,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [schedulePlugin],
-            preset: "netlify",
+            vitehub: { host: "netlify" },
             resolve: { alias: agentProviderOutputAliases() },
             root,
           } as never,
@@ -2267,7 +2254,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
-            preset: "netlify",
+            vitehub: { host: "netlify" },
             resolve: {
               alias: agentProviderOutputAliases([
                 // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
@@ -2359,7 +2346,7 @@ describe("agent Vite plugin", () => {
           },
         },
       },
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       root: hostedAgentRoot,
     }
     const result = await resolveAgentViteConfig(plugin, config)
@@ -2421,7 +2408,7 @@ describe("agent Vite plugin", () => {
         noExternals: ["existing"],
         plugins: ["/app/plugin.ts"],
       },
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       root: hostedAgentRoot,
     }
 
@@ -2447,7 +2434,7 @@ describe("agent Vite plugin", () => {
           ...(pkceAlias === undefined ? {} : { "pkce-challenge": pkceAlias }),
         },
       },
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       root: hostedAgentRoot,
     }
 
@@ -2470,7 +2457,7 @@ describe("agent Vite plugin", () => {
   ])("preserves configured Vite aliases %j with the Worker fallback", async (alias) => {
     const { hubAgent } = await import("../src/vite.ts")
     const result = await resolveAgentViteConfig(hubAgent(), {
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       resolve: { alias },
       root: hostedAgentRoot,
     })
@@ -2494,7 +2481,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const result = await resolveAgentViteConfig(plugin, {
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       root: hostedAgentRoot,
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2525,7 +2512,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const result = await resolveAgentViteConfig(plugin, {
-      preset: "vercel",
+      vitehub: { host: "vercel" },
       root: hostedAgentRoot,
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2555,7 +2542,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ runtime: "vercel" })
     const result = await resolveAgentViteConfig(plugin, {
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       root: hostedAgentRoot,
     })
 
@@ -2568,7 +2555,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     const result = await resolveAgentViteConfig(plugin, {
-      preset: "cloudflare",
+      vitehub: { host: "cloudflare" },
       root: hostedAgentRoot,
     })
 
@@ -2710,7 +2697,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("preserves portable and Node webhook abort lifecycles", async () => {
+  it("passes the host abort signal to webhook requests", async () => {
     const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
     const portableController = new AbortController()
     const portable = createAgentWebhookRequest({
@@ -2722,53 +2709,6 @@ describe("agent Vite plugin", () => {
     portableController.abort(new Error("host stopped"))
     expect(portable.signal.aborted).toBe(true)
     expect(portable.signal.reason).toEqual(new Error("host stopped"))
-
-    let abortRequest!: () => void
-    let closeResponse!: () => void
-    const nodeResponse = { writableEnded: true }
-    const node = createAgentWebhookRequest({
-      method: "POST",
-      node: {
-        req: {
-          aborted: false,
-          once: vi.fn((_event, listener) => {
-            abortRequest = listener
-          }),
-        },
-        res: {
-          ...nodeResponse,
-          once: vi.fn((_event, listener) => {
-            closeResponse = listener
-          }),
-        },
-      },
-      signal: new AbortController().signal,
-      url: "https://example.com/webhook",
-    })
-    closeResponse()
-    expect(node.signal.aborted).toBe(false)
-    abortRequest()
-    expect(node.signal.aborted).toBe(true)
-    expect(node.signal.reason).toMatchObject({ name: "AbortError" })
-
-    let closeIncompleteResponse!: () => void
-    const incomplete = createAgentWebhookRequest({
-      method: "POST",
-      node: {
-        req: { aborted: false, once: vi.fn() },
-        res: {
-          writableEnded: false,
-          once: vi.fn((_event, listener) => {
-            closeIncompleteResponse = listener
-          }),
-        },
-      },
-      signal: new AbortController().signal,
-      url: "https://example.com/webhook",
-    })
-    closeIncompleteResponse()
-    expect(incomplete.signal.aborted).toBe(true)
-    expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
   it("writes generated Nitro handlers that compile with checked indexed access", async () => {
@@ -2837,7 +2777,7 @@ export default defineAgent({
         )
         if (typeof plugin.configResolved === "function") {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          await plugin.configResolved.call({} as never, { command, preset: "cloudflare", root } as never)
+          await plugin.configResolved.call({} as never, { command, vitehub: { host: "cloudflare" }, root } as never)
         }
 
         const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
@@ -2870,7 +2810,7 @@ export default defineAgent({
       const plugin = hubAgent()
       if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
+        await plugin.configResolved.call({} as never, { command: "build", vitehub: { host: "cloudflare" }, root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
@@ -2887,20 +2827,20 @@ export default defineAgent({
   })
 
   it("writes local SQLite state in Vite development with a Cloudflare production preset", async () => {
-    vi.stubEnv("VITEHUB_HOSTING", undefined)
+    vi.stubEnv("VITEHUB_HOST", undefined)
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-local-state-routes-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
-      const result = await resolveAgentViteConfig(plugin, { preset: "cloudflare", root }, {
+      const result = await resolveAgentViteConfig(plugin, { vitehub: { host: "cloudflare" }, root }, {
         command: "serve",
         mode: "development",
       })
       if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await plugin.configResolved.call({} as never, { command: "serve", preset: "cloudflare", root } as never)
+        await plugin.configResolved.call({} as never, { command: "serve", vitehub: { host: "cloudflare" }, root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
@@ -2927,7 +2867,7 @@ export default defineAgent({
       const plugin = hubAgent()
       if (typeof plugin.configResolved === "function") {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await plugin.configResolved.call({} as never, { command: "build", preset: "vercel", root } as never)
+        await plugin.configResolved.call({} as never, { command: "build", vitehub: { host: "vercel" }, root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
@@ -2959,7 +2899,7 @@ export default defineAgent({
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             command: "build",
-            preset: "netlify",
+            vitehub: { host: "netlify" },
             root,
           } as never,
         ),
@@ -3123,7 +3063,7 @@ export default defineAgent({
       })
       if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      await plugin.configResolved.call({} as never, { command: "build", preset: "vercel", root } as never)
+      await plugin.configResolved.call({} as never, { command: "build", vitehub: { host: "vercel" }, root } as never)
 
       const queuePlugin = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
       expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes, waitUntilFromContext } from "./chat-webhook-route"')

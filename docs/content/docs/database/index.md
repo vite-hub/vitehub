@@ -33,7 +33,7 @@ icon: i-lucide-database
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // On Node, tables are saved in local SQLite
       database: true,
     },
@@ -49,7 +49,7 @@ icon: i-lucide-database
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // On Node, tables are saved in local SQLite
         database: true,
       }),
@@ -66,7 +66,7 @@ icon: i-lucide-database
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // On Node, tables are saved in local SQLite
         database: true,
       }),

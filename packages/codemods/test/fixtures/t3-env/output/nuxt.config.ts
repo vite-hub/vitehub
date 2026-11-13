@@ -5,7 +5,7 @@ export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   modules: ["@nuxt/ui", "vite-hub/nuxt"],
   vitehub: {
-    preset: "node",
+    host: "node",
     env: {
       public: {
         appUrl: env({ mode: "build", source: env.source("NUXT_PUBLIC_APP_URL") }),

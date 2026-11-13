@@ -110,7 +110,7 @@ describe("vitehub({ systemd })", () => {
   }
 
   it("writes a unit named after the package on the node preset", async () => {
-    const { outputDir, root, services } = await build({ preset: "node", agent: { shutdown: { drainMs: 20_000 } } })
+    const { outputDir, root, services } = await build({ host: "node", agent: { shutdown: { drainMs: 20_000 } } })
     expect(services).toEqual(["acme-agent-server.service"])
     const text = await readFile(join(outputDir, services[0]!), "utf8")
     expect(text).toContain(`WorkingDirectory=${root}\n`)
@@ -119,17 +119,17 @@ describe("vitehub({ systemd })", () => {
   })
 
   it("uses systemd.name", async () => {
-    const { services } = await build({ preset: "node", systemd: { name: "agents" } })
+    const { services } = await build({ host: "node", systemd: { name: "agents" } })
     expect(services).toEqual(["agents.service"])
   })
 
   it("writes no unit with systemd: false, in development, or on other presets", async () => {
-    expect((await build({ preset: "node", systemd: false })).services).toEqual([])
-    expect((await build({ preset: "node" }, "serve")).services).toEqual([])
-    expect((await build({ preset: "vercel" })).services).toEqual([])
+    expect((await build({ host: "node", systemd: false })).services).toEqual([])
+    expect((await build({ host: "node" }, "serve")).services).toEqual([])
+    expect((await build({ host: "vercel" })).services).toEqual([])
   })
 
   it("rejects an invalid unit name when it resolves the config", async () => {
-    await expect(build({ preset: "node", systemd: { name: "my app" } })).rejects.toThrow("systemd.name")
+    await expect(build({ host: "node", systemd: { name: "my app" } })).rejects.toThrow("systemd.name")
   })
 })

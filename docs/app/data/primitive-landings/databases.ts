@@ -32,7 +32,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "node", database: true }),
+    vitehub({ host: "node", database: true }),
     nitro(),
   ],
 })`,
@@ -103,7 +103,7 @@ export const DatabasesLanding = {
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node", database: true }]],
+  modules: [[viteHubNuxt, { host: "node", database: true }]],
 })`,
         },
         { path: "server/databases/default.ts", language: "typescript", content: definition },

@@ -54,7 +54,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 
 `vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
-Each component family also has its own entry, such as `@vite-hub/ui/chat`. It exports the same components as `@vite-hub/ui` and keeps the dev import graph small.
+For explicit imports, import every component from `@vite-hub/ui`. A production build keeps only the components that the app uses. Only `MarkdownEditor` (`@vite-hub/ui/markdown-editor`) and the workspace parts (`@vite-hub/ui/workspace`) have their own entries, because their dependencies are large. The theme (`@vite-hub/ui/theme`) and the share links (`@vite-hub/ui/playground`) have their own too, because they load without the components.
 
 ## Install in Vue with Vite
 

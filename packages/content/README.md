@@ -127,12 +127,13 @@ ViteHub adds the route only for an `import { github }` in `server/content.ts`. W
 
 The files of a commit never change. Content downloads each commit once per cache key, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so nothing purges a cache, on any host.
 
-- A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- A read tries memory first, then the build snapshot, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- When the build has a GitHub token, such as `VITEHUB_GITHUB_TOKEN`, it resolves the branch of each `github()` Source, parses that commit, and ships it with the server, gzipped. While the head is that commit, a cold server reads it from the bundle and downloads nothing, even with an empty KV. The server inflates it on the first read that needs it, not at start, and only when the head is the build commit. When the head moved, the commit cache works as before. Without a token at build, the build ships no commit. A build commit that does not parse ships nothing, and the build warns.
 - `parserHash` hashes the Comark options, plugin source text, the Source fingerprint, its effective `prefix` and `schema`, and the build. Each build uses new keys.
 - The built-in parser reuses parsed documents from KV. With custom `markdown.plugins` or Content `plugins`, each new runtime parses the cached files again without a download. Function source text cannot identify captured plugin options or implementations. Within one runtime, memory holds the parsed result.
 - Content writes an artifact only after every document parses. A rollback with `pin()` to a valid commit reads it from the cache. A rejected load or failed download stays out of memory, so `advance()` can retry it.
 - Each server instance holds the last 4 commits in memory.
-- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
+- `head().cache` shows the key of the served commit, the reads from memory, from the build snapshot (`build`), and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
 ### Read a branch, a pull request, or a commit
 
@@ -152,7 +153,7 @@ await content.sources.at("9c1e4f…", "docs") // kind: "commit", a full 40-chara
 - The view reads the commit through the commit cache, so it validates like a head. When a document does not parse, `at()` fails with `CONTENT_R0030`. Refs at the same commit share one view and one download.
 - Each server instance holds 8 views open, and closes the least recently used one. A closed view opens again on its next read, from the commit cache. `head().views` lists the open commits.
 - A view works without a token or KV for a public repository. GitHub then allows 60 lookups per hour.
-- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
+- `at()` does not check access, and serves no route by itself: `previews: true` adds the routes, with `allow()` first. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
 
 ### Who may read a ref
 
@@ -185,6 +186,55 @@ const view = await content.sources.at(access.target) // the commit that allow() 
 - Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
 - Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
 
+### Preview URLs
+
+Set `previews: true` and Content serves each ref that `allow()` lets through at a URL. Nitro, Nuxt (through `vite-hub/nuxt`), and Vite apps get the URLs from this one option. ViteHub generates a Nitro plugin for it, so you write no route.
+
+```ts
+// server/content.ts
+import { defineContent } from "@vite-hub/content"
+import { github } from "@vite-hub/source"
+
+export default defineContent({
+  sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+  previews: true,
+})
+```
+
+| URL | Reads |
+| --- | --- |
+| `/tree/<branch>/-/<path>` | The latest commit of a branch. The branch can contain `/`, such as `/tree/feat/x/-/docs/kv`. The part `-` ends the branch name. `/tree/<branch>` alone is the root page. |
+| `/blob/<sha>/<path>` | One commit, by its full 40-character SHA. |
+| `/pr/<number>/<path>` | The head commit of a pull request. |
+
+- The page runs with its production path, such as `/docs/kv`, through the route rules, middleware, and routes of the app. Every read of the `github()` Source in that request, `content.get()`, `list()`, `navigation()`, `search()`, `manifest()`, `stat()`, `query()`, `from()`, `getSource()`, `media`, `instances`, custom plugin methods, and `/api/content` included, returns the commit of the ref. The request keeps the host fields that Nitro and srvx put on it, such as `runtime`, `context`, `ip`, and `waitUntil`. Collections and other Sources read as usual.
+- `content.get()` and `/api/content` put the internal links of the Comark tree under the prefix: `/docs/next` becomes `/pr/12/docs/next`. Links to other sites, `//host` links, and `#anchors` stay as they are. Links that the app writes itself do not change. Put `content.sources.current()?.prefix` before them.
+- `content.sources.current()` returns `{ source, ref, kind, sha, pull, route, prefix, path, url }` in a preview request and null in other requests. `url` is the production URL of the page, from `seo.site` or the request origin. Use it for a preview bar, such as "Viewing PR #12", with a link to production.
+- A ref that `allow()` denies, an invalid ref, and a ref that GitHub does not have all reach the app with the URL as it came, so the app answers with its own 404, as for any unknown path. A response does not tell a private ref from a missing one. Content logs `CONTENT_R0031` once per ref.
+- A preview response has `X-Robots-Tag: noindex`, a `Link: <production URL>; rel="canonical"` header, and a `Cache-Control` for the ref: `private, no-store` with the preview cookie or a `?vitehub-content-token` link, `public, max-age=31536000, immutable` for a `/blob` commit in the published history, and `public, max-age=60` for the other refs. These are upper bounds: application `max-age` and `s-maxage` values can shorten them, and application revalidation directives stay in place. An application response with its own cache policy does not become immutable only because the Source commit is published. A response that the app marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. A same-site redirect stays under the prefix. A ref that a signed link opened keeps `?vitehub-content-token` on its internal links and redirects, so the reader can follow them without the preview cookie. Nitro's cache is bypassed in a preview request, so a cached route never mixes refs.
+- With more than one `github()` Source, name the one to preview: `previews: { source: "docs" }`. Without a `github()` Source, or with a name that is not one, a preview URL fails with `CONTENT_R0045`.
+- An encoded `/`, a dot part such as `%2e%2e`, and a ref that `at()` does not accept never reach the app as a preview, so the page path cannot leave the prefix. A SHA opens only as `/blob/<sha>`, and a pull request only as `/pr/<number>`, so each commit view has one URL shape.
+- The server renders the page at its production path, and the browser keeps the preview URL. In Nuxt, the client router does not know the prefix yet, so a page that reads its route on the client, such as a `useAsyncData()` key from `useRoute().path`, sees the preview URL after hydration.
+- The prefixes sit at the root of the host. `parseContentPreviewPath(pathname)` reads a URL the same way. In another server, add `defineContentPreviewRoutesPlugin(content)` from `vite-hub/content/preview` first in the Nitro 3 plugin list, before async plugins, or call `content.sources.route(request, next)` yourself.
+
+## Page history
+
+`content.history(path)` lists the published changes of the page at an app path, newest first. Collection documents and `github()` Source pages return one shape, so "last updated", RSS, and a history panel read one API.
+
+```ts fragment
+const history = await content.history("/docs/guide", { limit: 20 })
+// { entries: [{ id, at, author, message, url }], cursor } or null when no page has that path
+const lastUpdated = history?.entries[0]?.at
+const next = await content.history("/docs/guide", { limit: 20, cursor: history?.cursor })
+```
+
+- The result is public history only, so a public page can show it. A collection document lists its `published` revisions and never its drafts, also with a cursor: a GitHub Workspace refuses a cursor whose commit is not on the published branch. A singleton with a `url` has history too. A locale page without a translation lists the history of the source locale version that it shows. `author` is the `author` of the revision metadata, as a string or `{ name }`. `url` is the commit page when the Workspace stores history on GitHub, else null.
+- A `github()` Source page lists the commits that changed its file, up to the commit that readers get: the head of `content.sources`, or the latest commit of the branch when the Source is not live. A push that the head has not reached stays out. `author` is the GitHub login, else the Git author name. `message` is the first line of the commit message.
+- GitHub commits for a file do not follow renames, so the history of a moved page starts at the move.
+- Content reads GitHub 100 commits at a time and caches each page per head commit and file, in memory and in the `default` KV store under `content:history:<source>:<origin>:<sha>:<key>:<page>`, where `<origin>` is a hash of the Source options, so another `root` gets other keys. History at a commit never changes, so the cache never expires. A second call, also from another server instance, sends no commits request. A Source that is not live resolves its branch on each call, which costs one request. When KV fails, Content reads GitHub.
+- Without a GitHub token, a `github()` Source page returns `{ entries: [] }` and Content logs `CONTENT_R0040` once per Source. Other Sources, such as `glob()`, return no entries.
+- `limit` is 1 to 100, default 20. Pass the `cursor` of the previous call to read older entries.
+
 ## Types
 
 In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
@@ -197,7 +247,7 @@ Render a page with ViteHub UI. Its `Markdown` primitive accepts both a parsed Co
 
 ```vue
 <script setup lang="ts">
-import { Markdown } from "@vite-hub/ui/markdown"
+import { Markdown } from "@vite-hub/ui"
 
 const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </script>
@@ -207,7 +257,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-With the framework distribution, import from `vite-hub/ui/markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
+With the framework distribution, import from `vite-hub/ui`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
 
 Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not install `@comark/html`.
 
