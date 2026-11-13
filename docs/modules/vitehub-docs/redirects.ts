@@ -93,6 +93,11 @@ const movedLearningPages = new Map(Object.entries({
   "/docs/getting-started/concepts/vite-integrations-and-provider-output": "/docs/development/integrations-and-output",
 }));
 
+/** Diagnostic code pages that moved with their package to its own section. Published packages link to the old pages. */
+const movedDiagnostics = {
+  gateways: { from: "agents", codes: Array.from({ length: 12 }, (_, index) => `gateways_r${String(index + 1).padStart(4, "0")}`) },
+} satisfies Record<string, { from: string, codes: string[] }>;
+
 export const docsPageRedirects = {
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/build-ai-chatbot": "/docs/agents/build-a-chat-app",
@@ -104,6 +109,7 @@ export const docsPageRedirects = {
   "/docs/agents/capabilities/llm-route": "/docs/agents/capabilities/official",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
   "/docs/agents/actors": "/docs/agents/trusted-invokers",
+  "/docs/agents/ai-gateways": "/docs/gateways",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
@@ -133,10 +139,11 @@ export const docsPageRedirects = {
   ...Object.fromEntries(Object.entries(agentCapabilities).map(([id, page]) => [`/docs/capabilities/${id}`, `/docs/agents/capabilities/${page}`])),
   ...Object.fromEntries(Object.entries(startGroups).flatMap(([dir, pages]) => pages.map(page => [`/docs/${dir}/${page}`, movedLearningPages.get(`/docs/getting-started/${dir}/${page}`) || `/docs/getting-started/${dir}/${page}`]))),
   ...Object.fromEntries(movedLearningPages),
+  ...Object.fromEntries(Object.entries(movedDiagnostics).flatMap(([section, { from, codes }]) => codes.map(code => [`/docs/${from}/diagnostics/${code}`, `/docs/${section}/diagnostics/${code}`]))),
 } satisfies Record<string, string>;
 
 /**
- * Fragments that moved with the Blob page split and with the CMS move to its own section.
+ * Fragments that moved with the Blob page split, with the CMS move to its own section, and with the AI Gateways move.
  * The old page redirect keeps the hash, so `/docs/content/cms-preset#github-store` lands on `/docs/cms#github-store`.
  */
 export const docsLegacyFragmentRedirects = {
@@ -178,6 +185,19 @@ export const docsLegacyFragmentRedirects = {
     "minio-object-storage": "/docs/blob/hosts",
     "connect-blob-to-agents": "/docs/blob/agent-capability",
     "next-steps": "/docs/blob",
+  },
+  "/docs/gateways": {
+    install: "/docs/gateways/get-started#install-the-packages",
+    "use-a-model-with-the-ai-sdk": "/docs/gateways/server-api#use-a-model-with-the-ai-sdk",
+    "ask-your-first-question": "/docs/gateways/get-started#ask-your-first-question",
+    "ask-with-any-model": "/docs/gateways/server-api#ask-with-any-model",
+    presets: "/docs/gateways/configure#presets",
+    credentials: "/docs/gateways/configure#credentials",
+    "use-with-agents": "/docs/gateways/agents#route-provider-drivers",
+    "cloudflare-ai-gateway": "/docs/gateways/configure#cloudflare-ai-gateway",
+    "typesafe-through-cloudflare-ai-gateway": "/docs/gateways/configure#typesafe-through-cloudflare-ai-gateway",
+    "custom-gateways": "/docs/gateways/server-api#custom-gateways",
+    errors: "/docs/gateways/limits-and-errors#errors",
   },
   "/docs/cms": {
     "set-up": "/docs/cms/get-started#install-and-turn-on-vitehub",

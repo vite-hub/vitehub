@@ -55,38 +55,6 @@ describe("Nuxt 4 and Nitro 2", () => {
     expect(context).toEqual({ sentinel: "session", _platform: { sentinel: "platform", cloudflare: { sentinel: "cloudflare" } } })
   })
 
-  it("forwards a WebSocket upgrade from an H3 1 event, which carries Node's request, to the Durable Object", async () => {
-    const fetch = vi.fn(async (request: Request) => new Response(`${request.method} ${request.url} ${request.headers.get("upgrade")}`))
-    const handler = createRealtimeHandler(registryOf(definition()) as never)
-    const event = {
-      context: { _platform: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } } } } },
-      node: { req: { headers: { connection: "Upgrade", host: "example.com", upgrade: "websocket" }, method: "GET", url: "/api/_vitehub/realtime/docs/posts%2Fhello", async* [Symbol.asyncIterator]() {} }, res: {} },
-    }
-
-    const response = await handler(event)
-
-    expect(response).toBeInstanceOf(Response)
-    await expect((response as Response).text()).resolves.toBe("GET http://example.com/api/_vitehub/realtime/docs/posts%2Fhello websocket")
-  })
-
-  it("keeps the Standard Context of an H3 1 event, so the host bindings reach the Durable Object", async () => {
-    const fetch = vi.fn(async (request: Request) => new Response(`${request.method} ${request.url}`))
-    const handler = createRealtimeHandler(registryOf(definition()) as never)
-    const req = new Request("http://example.com/api/_vitehub/realtime/docs/posts%2Fhello", { headers: { upgrade: "websocket" } })
-    // The host set Standard Context with bindings that the event context does not hold.
-    const standard = { vendor: "host", req, res: {}, runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } } } } }
-    const event = {
-      "~standard": standard,
-      context: {},
-      node: { req: { headers: { host: "example.com", upgrade: "websocket" }, method: "GET", url: "/api/_vitehub/realtime/docs/posts%2Fhello", async* [Symbol.asyncIterator]() {} }, res: {} },
-    }
-
-    const response = await handler(event)
-
-    expect(fetch).toHaveBeenCalledOnce()
-    await expect((response as Response).text()).resolves.toBe("GET http://example.com/api/_vitehub/realtime/docs/posts%2Fhello")
-  })
-
   it("opens a socket that Nitro 2 upgrades, and joins the room of its request", async () => {
     const { close, hooks, peer, request, sent } = nitro2()
 

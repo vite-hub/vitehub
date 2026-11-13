@@ -440,6 +440,10 @@
   --vh-primitive-icon-motion: translate(-1px, -1px);
 }
 
+.vh-primitive-icon[data-icon="codemods"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
+}
+
 .vh-primitive-icon[data-icon="comments"] {
   --vh-primitive-icon-motion: translateX(1.5px);
 }

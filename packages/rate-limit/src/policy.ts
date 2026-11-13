@@ -35,7 +35,6 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0033({ message: "[vitehub] Rate Limit policy must be an object." })
   }
   const limit = Object.hasOwn(policy, "limit") ? policy.limit : undefined
-  // Not named `window`: Nitro 2 server bundles replace the type check of that name with "undefined".
   const duration = Object.hasOwn(policy, "window") ? policy.window : undefined
   const enforcement = Object.hasOwn(policy, "enforcement") ? policy.enforcement : undefined
   const failure = Object.hasOwn(policy, "failure") ? policy.failure : undefined
