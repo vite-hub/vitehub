@@ -317,6 +317,38 @@ describe("WorkspacePreview", () => {
     next.unmount();
   });
 
+  it.each([false, true])("keeps navigation on the outer app when the child announces first: %s", async (childFirst) => {
+    const wrapper = mount(WorkspacePreview, { props: { url: "https://abc.webcontainer.io" }, attachTo: document.body });
+    const frame = wrapper.get("iframe").element as HTMLIFrameElement;
+    const shell = { parent: window };
+    const appWindow = { parent: shell } as unknown as Window;
+    const childWindow = { parent: appWindow } as unknown as Window;
+    Object.defineProperty(frame, "contentWindow", { value: shell });
+    const app = new MessageChannel();
+    const child = new MessageChannel();
+    const appCommands: unknown[] = [];
+    const childCommands: unknown[] = [];
+    app.port1.onmessage = ({ data }) => appCommands.push(data);
+    child.port1.onmessage = ({ data }) => childCommands.push(data);
+    const announce = (source: Window, channel: MessageChannel, path: string) => {
+      window.dispatchEvent(new MessageEvent("message", { data: { type: "vitehub:preview" }, source, ports: [channel.port2] }));
+      channel.port1.postMessage({ type: "location", path, back: true, forward: true });
+    };
+    if (childFirst) announce(childWindow, child, "/embedded");
+    announce(appWindow, app, "/app");
+    await vi.waitFor(() => expect(wrapper.get("a[aria-label='Open preview in a new tab']").attributes("href")).toBe("https://abc.webcontainer.io/app"));
+    if (!childFirst) announce(childWindow, child, "/embedded");
+    await wrapper.get("[aria-label='Reload preview']").trigger("click");
+    await wrapper.get("[aria-label='Go back']").trigger("click");
+    await wrapper.get("[aria-label='Go forward']").trigger("click");
+    await vi.waitFor(() => expect(appCommands).toEqual(["reload", "back", "forward"]));
+    expect(childCommands).toEqual([]);
+    expect(wrapper.get("a[aria-label='Open preview in a new tab']").attributes("href")).toBe("https://abc.webcontainer.io/app");
+    wrapper.unmount();
+    app.port1.close();
+    child.port1.close();
+  });
+
   it("ships a preview script that parses", () => {
     expect(() => new Function(workspacePreviewScript)).not.toThrow();
   });

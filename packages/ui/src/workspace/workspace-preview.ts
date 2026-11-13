@@ -135,6 +135,7 @@ export const WorkspacePreview = defineComponent({
     // The page that the frame shows, while the preview script reports it. A new frame starts without it.
     const live = shallowRef<PreviewLocation>();
     const port = shallowRef<MessagePort>();
+    let appWindow: Window | undefined;
     const frame = ref<HTMLIFrameElement>();
     const current = computed(() => live.value?.path ?? props.path);
     const draft = ref(current.value);
@@ -143,6 +144,7 @@ export const WorkspacePreview = defineComponent({
       live.value = undefined;
       port.value?.close();
       port.value = undefined;
+      appWindow = undefined;
     });
 
     function onMessage(event: MessageEvent) {
@@ -150,11 +152,19 @@ export const WorkspacePreview = defineComponent({
       if (!data || typeof data !== "object" || Reflect.get(data, "type") !== "vitehub:preview") return;
       const next = event.ports[0];
       if (!next || !isInside(event.source, frame.value?.contentWindow)) return;
+      // The injected script also runs in app-owned iframes. Keep the outermost app connection,
+      // regardless of which document announces first; WebContainer wrappers do not announce.
+      if (appWindow && event.source !== appWindow && !isInside(appWindow, event.source as Window)) {
+        next.close();
+        return;
+      }
+      appWindow = event.source as Window;
       port.value?.close();
+      live.value = undefined;
       port.value = next;
       next.onmessage = (message) => {
         const location = readLocation(message.data);
-        if (location) live.value = location;
+        if (port.value === next && location) live.value = location;
       };
     }
     onMounted(() => window.addEventListener("message", onMessage));
