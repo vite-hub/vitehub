@@ -187,8 +187,9 @@ function hasPageConditions(request: Request): boolean {
   return pageConditions.some(name => request.headers.has(name))
 }
 
-function withoutPageConditions(request: Request): Request {
-  if (request.method !== "GET" && request.method !== "HEAD") return request
+/** Whether a request is a page navigation with validators, which must reach the app without them. */
+function revalidatesPage(request: Request): boolean {
+  if (request.method !== "GET" && request.method !== "HEAD") return false
   // Browser navigations explicitly accept HTML. Resource requests with other or wildcard Accept values must
   // retain their validators: their paths alone cannot tell us whether the response will be transformed.
   const acceptsHtml = request.headers.get("accept")?.split(",").some((range) => {
@@ -197,11 +198,38 @@ function withoutPageConditions(request: Request): Request {
     const quality = parameters.find(part => /^q\s*=/i.test(part))?.split("=")[1]?.trim()
     return quality === undefined || (Number(quality) > 0 && Number(quality) <= 1)
   })
-  if (!acceptsHtml) return request
-  if (!pageConditions.some(name => request.headers.has(name))) return request
-  const headers = new Headers(request.headers)
-  for (const name of pageConditions) headers.delete(name)
-  return new Request(request, { headers })
+  return acceptsHtml === true && hasPageConditions(request)
+}
+
+/** The headers of the Node.js request that srvx keeps under `runtime.node.req`, when there is one. */
+function nodeRequestHeaders(request: Request): Record<string, unknown> | undefined {
+  const runtime: unknown = Reflect.get(request, "runtime")
+  if (typeof runtime !== "object" || runtime === null) return undefined
+  const node: unknown = Reflect.get(runtime, "node")
+  if (typeof node !== "object" || node === null) return undefined
+  const req: unknown = Reflect.get(node, "req")
+  if (typeof req !== "object" || req === null) return undefined
+  const headers: unknown = Reflect.get(req, "headers")
+  // SAFETY: IncomingMessage headers are a plain object of header names.
+  return typeof headers === "object" && headers !== null ? headers as Record<string, unknown> : undefined
+}
+
+function withoutPageConditions(request: Request): Request {
+  try {
+    // In place: on Node.js, srvx passes its own request class, which `new Request()` cannot copy, and which carries
+    // fields that a copy would lose, such as `ip` and `waitUntil`.
+    for (const name of pageConditions) request.headers.delete(name)
+    // srvx keeps a separate header store on the Node request, and Nitro's Node-format routes read that one.
+    const nodeHeaders = nodeRequestHeaders(request)
+    if (nodeHeaders) for (const name of pageConditions) delete nodeHeaders[name]
+    return request
+  }
+  catch {
+    // The headers of an incoming request on Cloudflare Workers cannot change, and that request is a native one.
+    const headers = new Headers(request.headers)
+    for (const name of pageConditions) headers.delete(name)
+    return new Request(request, { headers })
+  }
 }
 
 function htmlCharset(type: string): string | undefined {
@@ -295,7 +323,7 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
       // answers with an HTML page, so JSON and other responses skip parsing the request URL.
       const conditional = request instanceof Request && hasPageConditions(request)
       const early = conditional ? pageAddition(nitroApp, request, base) : undefined
-      if (early) request = withoutPageConditions(request)
+      if (early && revalidatesPage(request)) request = withoutPageConditions(request)
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
@@ -315,8 +343,8 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     if (!request || !pageAddition(nitroApp, request, base)) return
     const method = event.web?.request?.method ?? event.node?.req?.method?.toUpperCase() ?? "GET"
     if (method !== "GET" && method !== "HEAD") return
+    if (!revalidatesPage(request)) return
     const unconditional = withoutPageConditions(request)
-    if (unconditional === request) return
     if (event.web?.request) event.web.request = unconditional
     const headers = event.node?.req?.headers
     if (headers) for (const name of pageConditions) delete headers[name]

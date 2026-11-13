@@ -15,7 +15,7 @@ import { z } from "zod"
 // "content" }`: a save then commits to the `vitehub/content` branch, and a publish commits to `main`.
 const semver = z.string().regex(/^\d+\.\d+\.\d+$/, "Use a version such as 1.4.0.")
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { access: "roles", database: "content" }],
   collections: {
     docs: docsCollection(),

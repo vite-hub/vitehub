@@ -1,7 +1,7 @@
 import { createDocsParser } from "@vite-hub/docs/server"
 
 import { mediaUrl } from "../../site"
-import { content } from "../content"
+import content from "../content"
 
 import type { DocsDocument } from "@vite-hub/docs"
 

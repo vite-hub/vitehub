@@ -10,7 +10,12 @@ async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name ex
   const inputParts = Array.isArray(input) ? input : [input]
   const resolved = await Promise.all(inputParts.map(part => typeof part === "function" ? part(context) : part))
   const parts = resolved.flatMap(part => Array.isArray(part) ? part : [part]).filter((part): part is string => typeof part === "string")
-  return preserveWhitespace ? parts.join("\n\n") : parts.map(part => part.trim()).filter(Boolean).join("\n\n")
+  return preserveWhitespace ? parts.join("\n\n") : joinInstructionParts(parts)
+}
+
+/** Join instruction parts into one document, as the Driver receives them. */
+export function joinInstructionParts(parts: readonly string[]): string {
+  return parts.map(part => part.trim()).filter(Boolean).join("\n\n")
 }
 
 /** Resolve one document before provider-specific instruction composition. */
@@ -18,6 +23,10 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
 ): Promise<string> {
+  if (input && typeof input === "object" && !Array.isArray(input) && "extend" in input) {
+    // Without a parent layer, an extension receives an empty document.
+    return await resolveContent(input.extend(""), context)
+  }
   if (input && typeof input === "object" && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) {
       // SAFETY: mode discriminant identifies replacement instructions.
@@ -37,6 +46,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
 export function agentInstructionSources<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
 ) {
+  if (input && typeof input === "object" && !Array.isArray(input) && "extend" in input) return [input.extend]
   if (input && typeof input === "object" && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) {
       // SAFETY: the mode discriminant identifies the replacement instruction form.

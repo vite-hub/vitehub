@@ -10,5 +10,5 @@ it("exports the Sandbox Task owner options", () => {
 })
 
 it("lists every feature key of ViteHubOptions", () => {
-  expectTypeOf<FeatureId>().toEqualTypeOf<Exclude<keyof ViteHubOptions, "bundle" | "cloudflare" | "dataDir" | "name" | "preset" | "publicUrl">>()
+  expectTypeOf<FeatureId>().toEqualTypeOf<Exclude<keyof ViteHubOptions, "bundle" | "cloudflare" | "dataDir" | "name" | "node" | "preset" | "publicUrl" | "systemd">>()
 })

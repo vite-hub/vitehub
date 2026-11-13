@@ -98,6 +98,7 @@
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
+    "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
