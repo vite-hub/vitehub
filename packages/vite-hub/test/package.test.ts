@@ -288,7 +288,7 @@ describe("framework package contract", () => {
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
     // Generated code imports these forwarders by path, so an app reaches the owner without installing it.
-    const generatedForwarders = ["src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts", "src/internal/agent-invocations-libsql.ts"];
+    const generatedForwarders = ["src/_internal/auth/internal/server.ts", "src/_internal/auth/runtime/server.ts", "src/_internal/runtime/internal/h3.ts", "src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts", "src/internal/agent-invocations-libsql.ts"];
     expect(sourceForwarders).toEqual([...exportedForwarders, ...generatedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries

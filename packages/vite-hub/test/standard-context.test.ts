@@ -9,7 +9,7 @@ type RequestHook = (event: H3Event) => void
 /** Evaluate the generated plugin with an installer and return the plugin. */
 function generatedPlugin(installer: (event: H3Event) => void = installStandardContext): (app: unknown) => void {
   const source = renderStandardContextNitroPlugin()
-    .replace(`import { installStandardContext } from "vite-hub/_internal/runtime/internal/h3"`, "")
+    .replace(/^import \{ installStandardContext \} from .*$/m, "")
     .replace("export default function", "return function")
   // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
   return new Function("installStandardContext", source)(installer) as (app: unknown) => void

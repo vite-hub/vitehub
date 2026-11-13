@@ -817,21 +817,6 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
-    },
-    "./_internal/auth/internal/server": {
-      "types": "./dist/_internal/auth/internal/server.d.ts",
-      "import": "./dist/_internal/auth/internal/server.js",
-      "default": "./dist/_internal/auth/internal/server.js"
-    },
-    "./_internal/auth/runtime/server": {
-      "types": "./dist/_internal/auth/runtime/server.d.ts",
-      "import": "./dist/_internal/auth/runtime/server.js",
-      "default": "./dist/_internal/auth/runtime/server.js"
-    },
-    "./_internal/runtime/internal/h3": {
-      "types": "./dist/_internal/runtime/internal/h3.d.ts",
-      "import": "./dist/_internal/runtime/internal/h3.js",
-      "default": "./dist/_internal/runtime/internal/h3.js"
     }
   },
   "scripts": {

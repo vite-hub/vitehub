@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { generatedNitroPlugin } from "./generated-nitro-plugin.ts"
 
 import type { Plugin } from "vite"
@@ -8,7 +9,7 @@ import type { Plugin } from "vite"
  */
 export function renderStandardContextNitroPlugin(): string {
   return [
-    `import { installStandardContext } from "vite-hub/_internal/runtime/internal/h3"`,
+    `import { installStandardContext } from ${JSON.stringify(ownModule(import.meta.url, "_internal/runtime/internal/h3"))}`,
     "",
     "export default function viteHubStandardContextPlugin(nitroApp) {",
     `  // HookableCore stores request callbacks in`,
@@ -23,7 +24,7 @@ export function renderStandardContextNitroPlugin(): string {
 
 /** Add `~standard` to the app's H3Event type. */
 const standardContextTypes = [
-  `import type {} from "vite-hub/_internal/runtime/internal/h3"`,
+  `import type {} from ${JSON.stringify(ownModule(import.meta.url, "_internal/runtime/internal/h3"))}`,
   "",
   "export {}",
   "",

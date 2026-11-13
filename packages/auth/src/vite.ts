@@ -1,6 +1,7 @@
 import { dirname, relative, resolve } from "node:path"
 
 import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -147,7 +148,7 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
 
 /** Private Auth entries of the distribution. */
 function privateAuthImport(importBase: string, entry: string): string {
-  return importBase === "vite-hub/auth" ? `vite-hub/_internal/auth/${entry}` : `${importBase}/${entry}`
+  return importBase === "vite-hub/auth" ? ownModule(import.meta.url, entry) : `${importBase}/${entry}`
 }
 
 /** The rules of `shared/abilities.ts` for the server and the app, or no rules. */
