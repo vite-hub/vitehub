@@ -239,10 +239,16 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
 | `bindings` | `Record<string, WorkspaceInstructionBinding>` | Values that Agent instructions can read: `string`, `number`, `boolean`, `null`, or a file as `{ path: string }`. |
 | `sources` | `Record<string, WorkspaceSourceInput>` | Source Bindings (where each Source appears). |
-| `rules` | `WorkspaceRules` | Read, write, media type, max size, commit, and validation rules by path pattern. |
+| `rules` | `WorkspaceRules` | Write, media type, max size, commit, and validation rules by path pattern. Rules do not limit reads. |
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Packaged rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
+
+Every rule whose pattern matches a path applies, from the least to the most specific. A more specific rule changes only the fields that it sets. With `{ '**': { write: false }, 'docs/**': { maxBytes: '1mb' } }`, writes in `docs/` stay denied. Set `write: true` in the `docs/**` rule to allow them. The validators of all matching rules run. Plugin rules and your rules on the same pattern combine in the same way.
+
+`mediaType` checks the media type that the write passes. When the write passes none, it checks the type of the file extension, or `application/octet-stream` when the extension has no type.
+
+Rules limit writes only. A rule with `read` fails with `WORKSPACE_R0075`. To keep a file from readers, do not put it in the Workspace.
 
 Instructions read value bindings with `{{ data.workspace.<name> }}` and file bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys in `bindings` are available. Other Workspace files stay hidden from instructions. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 

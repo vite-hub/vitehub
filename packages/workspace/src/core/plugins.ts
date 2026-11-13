@@ -1,4 +1,5 @@
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
+import { assertWorkspaceRules } from "./rule-keys.ts"
 
 import type { WorkspaceDefinition, WorkspacePlugin } from "./types.ts"
 
@@ -31,6 +32,8 @@ export function registerWorkspacePlugin(workspace: string, plugin: WorkspacePlug
   if (!plugin || typeof plugin.id !== "string" || !plugin.id) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0024({ message: "[vitehub] Workspace plugins require an id." })
   }
+  // A Workspace that already exists keeps serving reads, so check rules now instead of when the next write loads them.
+  assertWorkspaceRules(plugin.rules)
   const state = contributedPluginState()
   let plugins = state.plugins.get(workspace)
   if (!plugins) state.plugins.set(workspace, plugins = new Map())

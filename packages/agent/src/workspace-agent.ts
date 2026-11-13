@@ -3,7 +3,7 @@ import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { assertWorkspaceRules, listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -445,6 +445,10 @@ function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   if (unsupported.length) {
     throw agentDiagnostics.AGENT_R0882({ message: `[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
+  // SAFETY: The key check above allows only Workspace Definition fields, and `rules` and `plugins` keep their declared types.
+  const { plugins, rules } = definition as Pick<WorkspaceDefinition, "plugins" | "rules">
+  assertWorkspaceRules(rules)
+  for (const plugin of plugins ?? []) assertWorkspaceRules(plugin?.rules)
 }
 
 function withCapabilityWorkspaceSources(
