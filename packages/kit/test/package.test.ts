@@ -12,7 +12,7 @@ describe("@vite-hub/kit package contract", () => {
   it("installs ui-sdk and nothing else", () => {
     // The package exists so that headless parts do not install the dependencies of @vite-hub/ui (CodeMirror, xterm, Shiki).
     expect(manifest.dependencies).toEqual({ "@ui-sdk/core": "0.1.0-beta.2", "@ui-sdk/vue": "0.1.0-beta.2" });
-    expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@nuxt/kit", "vue"]);
+    expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@nuxt/kit", "@nuxt/schema", "nuxt", "vue"]);
   });
 
   it("has one entry for each entry of @ui-sdk/vue", () => {

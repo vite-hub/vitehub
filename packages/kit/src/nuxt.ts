@@ -1,4 +1,5 @@
 import { defineNuxtModule, installModule } from "@nuxt/kit";
+import type { ModuleSetupReturn } from "@nuxt/schema";
 import uiSdk from "@ui-sdk/vue/nuxt";
 
 export interface KitNuxtOptions {
@@ -6,9 +7,28 @@ export interface KitNuxtOptions {
   prefix?: string;
 }
 
-export interface KitNuxtModule {
-  (inlineOptions: KitNuxtOptions, nuxt: never): unknown;
-  getMeta?: () => Promise<Record<string, unknown>>;
+// Nuxt stable and nightly carry different instance types. A method signature keeps
+// the callable compatible with either while the implementation uses @nuxt/kit's types.
+export type KitNuxtModule = {
+  setup(inlineOptions: KitNuxtOptions, nuxt: object): ModuleSetupReturn;
+}["setup"] & { getMeta?: () => Promise<Record<string, unknown>> };
+
+declare module "@nuxt/schema" {
+  interface NuxtConfig {
+    viteHubKit?: KitNuxtOptions;
+  }
+  interface NuxtOptions {
+    viteHubKit?: KitNuxtOptions;
+  }
+}
+
+declare module "nuxt/schema" {
+  interface NuxtConfig {
+    viteHubKit?: KitNuxtOptions;
+  }
+  interface NuxtOptions {
+    viteHubKit?: KitNuxtOptions;
+  }
 }
 
 const uiSdkEntry = "@ui-sdk/vue/";

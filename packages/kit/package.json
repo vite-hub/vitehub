@@ -387,6 +387,7 @@
   },
   "devDependencies": {
     "@nuxt/kit": "4.6.2",
+    "@nuxt/schema": "4.6.4",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "nuxt": "catalog:nuxt",
@@ -398,10 +399,18 @@
   },
   "peerDependencies": {
     "@nuxt/kit": "^4.0.0 || ^5.0.0-0",
+    "@nuxt/schema": "^4.0.0 || ^5.0.0-0",
+    "nuxt": "^4.0.0 || ^5.0.0-0",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
     "@nuxt/kit": {
+      "optional": true
+    },
+    "@nuxt/schema": {
+      "optional": true
+    },
+    "nuxt": {
       "optional": true
     }
   },
