@@ -519,7 +519,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       cli: async () => {
         const db = resolvedOptions()
         if (db === false) return
-        const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
+        const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig, () => viteStringAliases(resolved?.resolve?.alias))
         const provision = [createDatabaseProvisionStep(databaseRoot, db, () => ({ contributions, serverDirs: databaseServerDirs() }))]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },

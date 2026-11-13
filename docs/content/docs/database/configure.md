@@ -68,6 +68,7 @@ export default defineConfig({
 | `database.cli.export` | `false` | enabled | Turns off `database export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
+| `database.cli.seed` | `false` | enabled | Turns off `database seed`. |
 | `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
 | `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `d1` selects Cloudflare D1 output for all databases. |
@@ -91,7 +92,7 @@ A Database Definition is the file where you write your tables, next to the serve
 | `src/database.ts` | Default Database, addressed as `default`. |
 | `src/<name>.database.ts` | Named Database, addressed as `<name>`. The Definition must set `name: '<name>'`. |
 
-Use `server/databases/<name>/index.ts` when the Database has other files, such as schema modules. A folder with an `index.ts` is one Database, so ViteHub does not read its other files as Definitions. Every other file in `server/databases/` is a Definition. The migrations of the Database `<name>` are in `server/databases/<name>/migrations/`.
+Use `server/databases/<name>/index.ts` when the Database has other files, such as schema modules. A folder with an `index.ts` is one Database, so ViteHub does not read its other files as Definitions. Every other file in `server/databases/` is a Definition, except `migrations/` folders and the [seed file](#seed-data) `server/databases/<name>/seed.ts`. The migrations of the Database `<name>` are in `server/databases/<name>/migrations/`.
 
 `src/database.ts` cannot be used beside Named Databases, and two Default Databases fail discovery. Before this release, Databases used `server/databases/config.ts` and `server/databases/<name>/config.ts`. Those files now fail with `DATABASE_LEGACY_CONFIG_FILE`, and the [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) moves them.
 
@@ -326,6 +327,45 @@ Definitions that share a SQLite file share one transaction. Their migrations run
 
 > [!WARNING]
 > SQLite has no lock across processes here. Run one server process per database file. Two processes that start together can both find a migration pending, and the second fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
+
+## Seed data
+
+A seed file fills a database with starting rows, such as demo notes. Put it beside the migrations folder of the database: `server/databases/<name>/seed.ts`, so `server/databases/default/seed.ts` for the default database. With `src/database.ts`, it is `src/seed.ts`. Its default export gets `db`, the Drizzle database, and `schema`, the tables of the Definition:
+
+```ts [server/databases/default/seed.ts]
+import type { DatabaseSeed } from 'vite-hub/database'
+
+export default (async ({ db, schema }) => {
+  await db.insert(schema.notes).values([
+    { title: 'Welcome', body: 'This note comes from the seed.' },
+    { title: 'Second note', body: 'Edit server/databases/default/seed.ts to change it.' },
+  ])
+}) satisfies DatabaseSeed
+```
+
+For a named database, write `DatabaseSeed<'analytics'>`. Then apply the migrations and run the seed:
+
+```bash [commands/seed]
+pnpm vitehub database migrate
+pnpm vitehub database seed                       # each database that has a seed file
+pnpm vitehub database seed --database analytics
+pnpm vitehub database seed --remote --stage staging
+```
+
+Without `--remote`, the command writes only the local database that `vitehub database migrate` uses: the SQLite file, or the PGlite folder of a Postgres Database. A remote database needs `--remote`, so a seed never reaches production by accident. With `--remote`, it connects like `vitehub database export --remote`: Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres. `--stage <name>` loads the Vite env files of that mode.
+
+The command refuses a database with pending migrations, with `DATABASE_SEED_PENDING_MIGRATIONS`, so the seed always sees the current tables. A missing seed file gives `DATABASE_SEED_NOT_FOUND` with the path that ViteHub looks for. A seed that throws gives `DATABASE_SEED_FAILED` and keeps the rows that it wrote before the error. Write the rows in one `db.transaction()` to keep all or none.
+
+The command runs the seed every time. To run it again on the same data, make it idempotent, for example with `.onConflictDoNothing()`. For many rows of fake data, install [`drizzle-seed`](https://orm.drizzle.team/docs/seed-overview) and call it in the seed file:
+
+```ts [server/databases/default/seed.ts] fragment
+import type { DatabaseSeed } from 'vite-hub/database'
+import { seed } from 'drizzle-seed'
+
+export default (async ({ db, schema }) => {
+  await seed(db, schema, { count: 100 })
+}) satisfies DatabaseSeed
+```
 
 ## Export a database
 

@@ -60,6 +60,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
+| `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub database seed`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
@@ -181,6 +182,20 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 ### DATABASE_EXPORT_FAILED
 
 `vitehub database export` cannot write the dump. `error.why` has the reason, such as a missing SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. It writes no file on failure. See [Export a database](/docs/database/configure#export-a-database).
+
+## Seed errors
+
+### DATABASE_SEED_NOT_FOUND
+
+`vitehub database seed` found no seed file. `error.why` names the path that ViteHub looks for: `seed.ts` beside the migrations folder, such as `server/databases/default/seed.ts`. Without `--database`, the command fails only when no database has a seed file. See [Seed data](/docs/database/configure#seed-data).
+
+### DATABASE_SEED_PENDING_MIGRATIONS
+
+The database has migrations that it has not applied, so the seed could write to old tables. `error.why` lists them. Run `vitehub database migrate` with the same `--remote` and `--stage` flags, then run the seed again. The command writes nothing.
+
+### DATABASE_SEED_FAILED
+
+`vitehub database seed` cannot run the seed. `error.why` has the reason, such as a remote database without `--remote`, `--remote` for a local database, a seed file that cannot load or has no default export function, or an error that the seed throws, in `error.cause`. The database keeps the rows that the seed wrote before the error. Write them in one `db.transaction()` to keep all or none.
 
 ## Definition errors
 

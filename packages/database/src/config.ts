@@ -52,6 +52,8 @@ const legacyConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const indexFilePattern = /^index\.(?:c|m)?[jt]s$/i
 const databaseSourcePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
+/** The seed file of `vitehub database seed`, in the folder of a Database. */
+const seedFilePattern = /^seed\.m?[jt]s$/i
 const indexFileNames = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
@@ -662,6 +664,7 @@ export function serverDatabaseName(directory: string, file: string): string | un
     return depth === parts.length - 1 && indexFilePattern.test(fileName) ? parts.slice(0, depth).join("/") : undefined
   }
   if (parts.includes("migrations")) return
+  if (parts.length > 1 && seedFilePattern.test(fileName)) return
   if (legacyConfigFilePattern.test(fileName)) {
     const folder = parts.slice(0, -1).join("/")
     throw databaseErrorDiagnostics.DATABASE_LEGACY_CONFIG_FILE({ file, name: folder || "default" })
