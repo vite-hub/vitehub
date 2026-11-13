@@ -43,7 +43,7 @@ import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks, type GitHubRequiredCheckPolicy } from "../github/index.ts";
 import { directMergeReadiness, feedbackFingerprints, hasHumanComment, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
-import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
+import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, severeReviewSettled, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, checksTestedBase, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
@@ -118,6 +118,9 @@ export interface BabysitterRuntimeOptions {
   /** One kept workspace per open PR. Without it, each pass clones and installs into temporary directories. */
   workspaces?: PullRequestWorkspaces;
 }
+
+/** Inbox meta key of the review threads a worker declined while their reviewer labeled them P0 or P1. */
+const heldThreadsKey = (repository: string, number: number) => `held-review-threads:${repository}#${number}`;
 
 /** How long an external blocker waits before another pass. */
 const externalRetryMs = 2 * 60 * 60_000;
@@ -844,8 +847,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : undefined;
     const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : undefined;
     const assessedFeedback = new Set(isRuntimeRecord(assessment) && Array.isArray(assessment.feedback) ? assessment.feedback.filter(item => hasRuntimeType(item, "string")) : []);
+    const heldThreads = await heldOpenThreads(snapshot);
     const readiness = (checked: Snapshot, state: typeof evaluation.state, inheritedCheckIds: readonly number[]) => directMergeReadiness(checked, state, {
-      ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy), inheritedCheckIds: new Set(inheritedCheckIds) });
+      ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy),
+      severeReviewSettled: severeReviewSettled(snapshot, waitPolicy), heldThreads, inheritedCheckIds: new Set(inheritedCheckIds) });
     // Green PRs merge here without reaching the reviewed-head path that also marks drafts ready.
     if (!pending && snapshot.pr?.draft === true && evaluation.state !== "failed" && snapshot.pr.mergeable !== false
       && snapshot.pr.mergeable_state !== "dirty" && await markDraftReady(snapshot, owner, signal)) {
@@ -1336,6 +1341,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
   }
 
+  /** The unresolved review threads a worker declined while their reviewer labeled them P0 or P1. */
+  async function heldOpenThreads(snapshot: Snapshot): Promise<Set<string>> {
+    const saved = await pullRequestInbox.meta(heldThreadsKey(snapshot.repository, snapshot.number));
+    const held = new Set(Array.isArray(saved) ? saved.filter(item => hasRuntimeType(item, "string")) : []);
+    return new Set(snapshot.threads.filter(thread => thread.isResolved !== true).map(thread => String(thread.node_id ?? thread.id)).filter(id => held.has(id)));
+  }
+
   /** Wakes a parked PR only when its new events need a model pass or a direct merge. */
   async function evaluateWaits() {
     // Idle waits too: a parked stack child has no event, wake or retryAt that would list it.
@@ -1343,7 +1355,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const parentMerged = await stackParentMerged(snapshot);
       if (!parentMerged && snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
       const checks = await requiredCheckState(snapshot);
-      let reasons = wakeReasons(snapshot, checks, waitPolicy);
+      let reasons = wakeReasons(snapshot, checks, { ...waitPolicy, heldThreads: await heldOpenThreads(snapshot) });
       if (parentMerged) reasons.push("stack-parent-merged");
       if (snapshot.wait?.reason === "non-default-base" && snapshot.pr && !nonDefaultBase(snapshot.pr)) reasons.push("base-retargeted");
       if (reasons.includes("ready-to-merge") && !(await directMergeWakeAllowed(snapshot, checks))) {
@@ -1829,6 +1841,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // the model again. New feedback, conflicts, or a new failure alter
             // the evidence key and invalidate this checkpoint.
             const assessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
+            const held = await heldOpenThreads(inboxClaim.snapshot);
             // A reviewed head whose required checks fail cannot merge. Under `dailyPushBudget`, it waits
             // only while the budget refuses its repair push, and then gets the pass that pushes it.
             let reviewedRetryAt: number | undefined = Date.now() + 120_000;
@@ -1842,7 +1855,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               && assessment.version === 2
               && assessment.head === inboxClaim.snapshot.pr?.head?.sha
               && matchesMergeReviewEvidence(assessment.evidenceKey, inboxClaim.snapshot, waitPolicy)
-              && inboxClaim.snapshot.threads.every(thread => thread.isResolved === true)
+              // A declined P0 or P1 thread waits for a person, not for another pass.
+              && inboxClaim.snapshot.threads.every(thread => thread.isResolved === true || held.has(String(thread.node_id ?? thread.id)))
               && inboxClaim.snapshot.pr?.mergeable !== false
               && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
               if (stackParent !== undefined) {
@@ -1877,9 +1891,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 return;
               }
               const retested = await retestMissingRequiredChecks(inboxClaim.snapshot, owner, passSignal);
+              // Only a person, new feedback or a new head ends a hold, and each of those wakes the PR.
+              const heldText = held.size ? `Waiting for a person to resolve ${held.size === 1 ? "a review thread" : `${held.size} review threads`} the worker declined although the reviewer labeled ${held.size === 1 ? "it" : "them"} P0 or P1.` : undefined;
               await pullRequestInbox.finish(inboxClaim, {
-                text: retested ? "A required check never reported on this head; started a fresh CI run." : inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
-                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: pushWindowRetry ? reviewedRetryAt : await mergeRetryAt(inboxClaim.snapshot) },
+                text: retested ? "A required check never reported on this head; started a fresh CI run." : heldText ?? (inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates."),
+                wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: pushWindowRetry ? reviewedRetryAt : held.size && !retested ? undefined : await mergeRetryAt(inboxClaim.snapshot) },
               });
               schedulerEvent("babysitter.wait.kept", {
                 ...owner,
@@ -2301,11 +2317,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
                 const reopens = current.threadReopens?.[id] ?? 0;
-                await resolveThread(id, answer);
+                const resolution = await resolveThread(id, answer);
+                if (resolution.held) {
+                  const held = await pullRequestInbox.meta(heldThreadsKey(repository, number));
+                  await pullRequestInbox.setMeta(heldThreadsKey(repository, number), [...new Set([...Array.isArray(held) ? held.filter(item => hasRuntimeType(item, "string")) : [], id])].slice(-100));
+                  return resolution;
+                }
                 await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
                 // Record only a successful, PR-owned resolution. New comments
                 // remain in the evidence hash; any external reopen revokes it.
                 ownedResolutions.set(id, reopens);
+                return resolution;
               });
               const baseSettings = agentSettings(baseAgent);
               const driver = baseSettings?.driver;

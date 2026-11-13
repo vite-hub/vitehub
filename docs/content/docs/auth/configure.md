@@ -28,7 +28,7 @@ export default defineAuth({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed to `betterAuth()` without the ViteHub fields. |
-| `database` | `authDatabase(name?)` | In-memory store | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. Return another Better Auth adapter from the Definition callback. See [Storage adapters](#storage-adapters). |
+| `database` | `authDatabase(name?)` or `"memory"` | Memory on a development server. A build fails with `AUTH_C0063`. | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. Return another Better Auth adapter from the Definition callback. See [Storage adapters](#storage-adapters). |
 | `secondaryStorage` | None in the static options | Disabled | Return a Better Auth `secondaryStorage` adapter from the Definition callback. |
 | `preset` | `stateless()` | None | Sets a preset's Better Auth options and checks the other options against it. See [Sessions without a database](#sessions-without-a-database). |
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
@@ -156,7 +156,7 @@ Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin
 
 ### Behind a proxy that ends TLS
 
-Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
+Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. When the proxy sends the client's `Host` header, set [`vitehub({ trustProxy: true })`](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy): the request URL of every route, Auth included, becomes `https://`. Otherwise, set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -473,7 +473,9 @@ export default defineSchedule({
 
 `database` and `secondaryStorage` take Better Auth adapters only.
 
-- In a static Definition, `database` takes only [`authDatabase()`](#keep-users-in-the-app-database). `authDatabase('auth')` uses the Named Database `auth`.
+- In a static Definition, `database` takes only [`authDatabase()`](#keep-users-in-the-app-database) or `"memory"`. `authDatabase('auth')` uses the Named Database `auth`.
+- `"memory"` keeps users and sessions in the memory of one server process. A restart removes them, and a second instance does not see them.
+- Without `database` or `preset`, Auth uses memory only on a development server. A production build fails with `AUTH_C0063`. When the Auth Vite plugin did not build the server code, Auth reads `NODE_ENV`: only `development` and `test` count as a development server, and the first Auth request of any other server fails with `AUTH_C0063`.
 - Return another Better Auth `database` adapter, or a `secondaryStorage` adapter, from the Definition callback.
 
 ```ts [server/auth.ts]
