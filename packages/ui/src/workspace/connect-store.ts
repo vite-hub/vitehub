@@ -16,7 +16,7 @@ export interface ConnectStore {
   set: (provider: ConnectProviderName, token: string) => void;
   remove: (provider: ConnectProviderName) => void;
   clear: () => void;
-  /** The `env` of a workspace run, such as `useWorkspace({ env: store.env(connect) })`. */
+  /** The `env` of a workspace run, such as `useWebContainer({ env: store.env(connect) })`. */
   env: (connect: Connect) => ComputedRef<Record<string, string>>;
 }
 

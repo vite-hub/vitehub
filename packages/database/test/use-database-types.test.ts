@@ -11,7 +11,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-describe.each(["src/drizzle.ts", "dist/drizzle.d.ts", "src/drizzle-subpath.d.ts"])("useDatabase types from %s", (entry) => {
+describe.each(["src/index.ts", "dist/index.d.ts", "src/runtime/registry.ts"])("useDatabase types from %s", (entry) => {
   it.each([
     { names: ["default", "analytics"], selected: "default" },
     { names: ["analytics"], selected: "analytics" },
@@ -24,8 +24,8 @@ describe.each(["src/drizzle.ts", "dist/drizzle.d.ts", "src/drizzle-subpath.d.ts"
     tempDirs.push(root)
     const file = join(root, "lookup.ts")
     await writeFile(file, [
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
-      "declare module '@vite-hub/database/drizzle' {",
+      "import { useDatabase } from '@vite-hub/database'",
+      "declare module '@vite-hub/database' {",
       "  interface DatabaseRegistry {",
       ...names.map(name => `    ${name}: { schema: { marker: '${name}' } }`),
       "  }",
@@ -50,7 +50,10 @@ describe.each(["src/drizzle.ts", "dist/drizzle.d.ts", "src/drizzle-subpath.d.ts"
         module: ModuleKind.ESNext,
         moduleResolution: ModuleResolutionKind.Bundler,
         noEmit: true,
-        paths: { "@vite-hub/database/drizzle": [join(packageRoot, entry)] },
+        paths: {
+          "@vite-hub/database": [join(packageRoot, entry)],
+          "@vite-hub/database/runtime/registry": [join(packageRoot, entry.startsWith("dist/") ? "dist/runtime/registry.d.ts" : "src/runtime/registry.ts")],
+        },
         skipLibCheck: true,
         strict: true,
         target: ScriptTarget.ES2022,

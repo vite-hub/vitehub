@@ -15,7 +15,7 @@ import { setupStatus, uninstallArgs } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId, FeatureStarter } from "@vite-hub/internal/features"
 import type { SetupChange } from "./add.ts"
 import type { SetupProject } from "./project.ts"
@@ -221,8 +221,8 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent), enabled(after.status, dependent).enabled === "unknown").includes(id))
     if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
   }
-  const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset, active = wasEnabled) => {
-    return [...featurePackages(id, value, preset, active), ...features[id].devPackages]
+  const packagesOf = (id: FeatureId, value: JsonValue | undefined, host: ViteHubHost, active = wasEnabled) => {
+    return [...featurePackages(id, value, host, active), ...features[id].devPackages]
   }
   const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host, remaining)))
 

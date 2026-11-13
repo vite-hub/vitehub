@@ -103,6 +103,20 @@ describe("contentSource", () => {
     expect((await custom.get("/"))?.nodes).toEqual(expect.arrayContaining([["p", {}, "Custom callout"]]))
   })
 
+  it("parses with the caller's plugins alone when the preset is off", async () => {
+    const markdown = "A [link](https://example.com).\n"
+    const source = { keys: () => ["index.md"], getItem: () => markdown, getItemRaw: () => markdown }
+    const preset = defineContent({ source })
+    const own = defineContent({ source, markdown: { preset: false, plugins: [] } })
+    try {
+      expect(JSON.stringify((await preset.get("/"))?.nodes)).toContain("chip")
+      expect((await own.get("/"))?.nodes).toEqual([["p", {}, "A ", ["a", { href: "https://example.com" }, "link"], "."]])
+    } finally {
+      await preset.dispose()
+      await own.dispose()
+    }
+  })
+
   it("leaves HTML-only quiz processing opt-in for a custom renderer", async () => {
     const markdown = "::question\nChoose one.\n\n- [x] Yes\n- [ ] No\n::\n"
     const source = { keys: () => ["index.md"], getItem: () => markdown, getItemRaw: () => markdown }

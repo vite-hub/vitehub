@@ -2,16 +2,19 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { ref } from "vue"
+import { createSSRApp, defineComponent, h, ref, watch } from "vue"
+import { renderToString } from "vue/server-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import hubAuthNuxt from "../src/nuxt.ts"
+import { Can, useUserSession } from "../src/vue.ts"
 
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
 import type { createAuthClient } from "../src/vue.ts"
 
 type Route = { path: string, fullPath: string, redirectedFrom?: object, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
+type App = { runWithContext: <T>(run: () => T) => T, isHydrating?: boolean, payload: { prerenderedAt?: number, isCached?: boolean }, $vitehubAuthClient?: unknown }
 type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { login: string, guest: string } } }
 
 const mocks = vi.hoisted(() => ({
@@ -19,13 +22,13 @@ const mocks = vi.hoisted(() => ({
   state: { value: undefined as unknown },
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
+  app: {} as App,
   requestFetch: vi.fn(),
   createError: vi.fn(() => new Error("nuxt")),
   getSession: vi.fn(),
   useSession: vi.fn(),
   createAuthClient: vi.fn(),
   sessionPaths: [] as unknown[],
-  nuxtApp: { runWithContext: <T>(run: () => T) => run() } as { runWithContext<T>(run: () => T): T, $vitehubAuthClient?: unknown },
   navigateTo: vi.fn((target: unknown) => target),
   middleware: undefined as Middleware | undefined,
 }))
@@ -35,12 +38,14 @@ vi.mock("#app", () => ({
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = middleware },
   navigateTo: mocks.navigateTo,
-  tryUseNuxtApp: () => mocks.nuxtApp,
+  tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
   useRequestFetch: () => mocks.requestFetch,
   useRuntimeConfig: () => mocks.config,
   useState: () => mocks.state,
 }))
+
+vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
 vi.mock("better-auth/vue", () => ({
   createAuthClient: (options: unknown) => {
@@ -58,11 +63,8 @@ vi.mock("better-auth/vue", () => ({
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
 const { useAbility } = await import("../src/vue.ts")
-
-type App = { isHydrating?: boolean, payload: { prerenderedAt?: number, isCached?: boolean } }
-
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
-  default: { setup: (app: App) => Promise<{ provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined> }
+  default: { setup: (app: { isHydrating?: boolean, payload: App["payload"] }) => { provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined }
 }
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
@@ -70,11 +72,11 @@ const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
-  mocks.state.value = undefined
+  mocks.state = { value: undefined }
   mocks.event = { req: { headers: new Headers({ cookie: "vitehub_session=1" }) }, res: { headers: new Headers() } }
   mocks.payload = {}
+  mocks.app = { runWithContext: run => run(), payload: mocks.payload }
   mocks.middleware = undefined
-  mocks.nuxtApp = { runWithContext: run => run() }
   mocks.getSession.mockResolvedValue({ data: session })
   mocks.useSession.mockReturnValue(ref({ data: null, isPending: true }))
 })
@@ -103,9 +105,18 @@ const guestPage: Route = { path: "/login", fullPath: "/login", meta: { auth: "gu
 async function setupBrowser(cookie = "", payload: App["payload"] = {}, isHydrating = false): Promise<App> {
   vi.stubGlobal("window", {})
   vi.stubGlobal("document", { cookie })
-  const app: App = { isHydrating, payload }
+  const app: App = { runWithContext: run => run(), isHydrating, payload }
   await plugin.setup(app)
   return app
+}
+
+/** Renders a page on the server with `count` components that call `useUserSession()`. */
+function renderPage(count: number): Promise<string> {
+  const User = defineComponent(() => {
+    const { user } = useUserSession()
+    return () => h("span", user.value?.id ?? "guest")
+  })
+  return renderToString(createSSRApp(() => h("main", Array.from({ length: count }, () => h(User)))))
 }
 
 describe("Nuxt session and page guard", () => {
@@ -136,8 +147,8 @@ describe("Nuxt session and page guard", () => {
 
     await plugin.setup({ payload: mocks.payload })
 
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
     expect(mocks.requestFetch).toHaveBeenCalledWith(`${mountedPath}/get-session`, expect.anything())
-    expect(mocks.middleware?.(userPage)).toBeUndefined()
     expect(mocks.navigateTo).not.toHaveBeenCalled()
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
@@ -160,7 +171,7 @@ describe("Nuxt session and page guard", () => {
     mocks.state.value = null
     const result = await plugin.setup({ payload: mocks.payload })
     // Nuxt adds what the plugin provides to the app as `$vitehubAuthClient`.
-    mocks.nuxtApp.$vitehubAuthClient = result!.provide.vitehubAuthClient
+    mocks.app.$vitehubAuthClient = result!.provide.vitehubAuthClient
     const ability = useAbility()
     // Vitest can answer two concurrent first imports of a mocked module with the real one, so let `useAbility()` load it first.
     await vi.waitFor(() => expect(mocks.useSession).toHaveBeenCalled())
@@ -178,6 +189,82 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
+  })
+
+  it("does not read the session for an SSR page without a page guard or a session composable", async () => {
+    await plugin.setup(mocks.app)
+
+    expect(await mocks.middleware?.({ path: "/", fullPath: "/", meta: {} })).toBeUndefined()
+    expect(await renderPage(0)).toBe("<main></main>")
+    expect(mocks.requestFetch).not.toHaveBeenCalled()
+    expect(mocks.state.value).toBeUndefined()
+  })
+
+  it("reads the session once for an SSR page with a page guard and session composables", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(await renderPage(2)).toBe("<main><span>u</span><span>u</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
+    expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
+  })
+
+  it("reads the session once for SSR components without a page guard, and renders the user", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+
+    expect(await renderPage(2)).toBe("<main><span>u</span><span>u</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
+    // The payload seeds the browser's composables, without the session token.
+    expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
+  })
+
+  it("reads the session once for SSR <Can> components, and renders what the rule allows", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+    const can = (authorId: string) => h(Can as never, { do: "posts.edit", with: { authorId, published: false } }, {
+      default: () => h("button", "Edit"),
+      denied: ({ code }: { code: string }) => h("span", code),
+    })
+
+    const html = await renderToString(createSSRApp(() => h("main", [can("u"), can("other")])))
+
+    expect(html.replace(/<!--[[\]]-->/g, "")).toBe("<main><button>Edit</button><span>not-author</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("settles the session for an SSR component whose async setup waits until the session is ready", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    await plugin.setup(mocks.app)
+    const User = defineComponent(async () => {
+      const { ready, user, loggedIn } = useUserSession()
+      // Vue runs `onServerPrefetch` only after async setup ends, so the read must settle the session without it.
+      if (!ready.value) await new Promise<void>(resolve => watch(ready, value => value && resolve(), { flush: "sync" }))
+      const id = user.value?.id
+      return () => h("span", `${id}:${loggedIn.value}`)
+    })
+    const html = renderToString(createSSRApp(() => h("main", [h(User)])))
+    const timeout = new Promise<string>(resolve => setTimeout(() => resolve("timeout"), 1000))
+
+    expect(await Promise.race([html, timeout])).toBe("<main><span>u:true</span></main>")
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the session read of each SSR request apart", async () => {
+    mocks.requestFetch.mockResolvedValue(session)
+    const first = { app: { ...mocks.app }, state: { value: undefined as unknown } }
+    const second = { app: { ...mocks.app }, state: { value: undefined as unknown } }
+    await plugin.setup(first.app)
+    await plugin.setup(second.app)
+
+    for (const request of [first, second]) {
+      mocks.app = request.app
+      mocks.state = request.state
+      expect(await renderPage(1)).toBe("<main><span>u</span></main>")
+    }
+    expect(mocks.requestFetch).toHaveBeenCalledTimes(2)
+    expect(first.state.value).toEqual(second.state.value)
   })
 
   it("reads the session from the configured client endpoint without session watchers", async () => {

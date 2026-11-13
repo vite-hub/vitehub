@@ -7,6 +7,7 @@ import { number, object, optional, parse, record, safeParse, string } from "vali
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
+import { signFsRequest } from "../internal/fs-sign.ts"
 
 interface FsMultipartState {
   contentType?: string
@@ -511,6 +512,8 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     name: "fs",
     canonicalPathname: pathname => relative(root, resolveBlobPath(root, pathname)).split(sep).join("/"),
     options,
+    // A file has no URL of its own. ViteHub signs a link to its signed route, which checks it and serves the file.
+    sign: (pathname, signOptions, { store }) => signFsRequest(store, pathname, signOptions, options.urlBaseUrl),
     async createMultipartUpload(pathname: string, multipartOptions: BlobMultipartOptions) {
       resolveBlobPath(root, pathname)
       const uploadId = randomUUID()

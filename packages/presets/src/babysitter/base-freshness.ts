@@ -1,5 +1,6 @@
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 
 /** GitHub REST reads, as GitHub returns them. */
 export interface BaseFreshnessReader {
@@ -22,7 +23,7 @@ const pushMarginMs = 2 * 60_000;
 export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Snapshot, head: string, baseRef: string, conclusions: ReadonlySet<string>, signal: AbortSignal): Promise<string | undefined> {
   const { repository } = snapshot;
   const runIds = [...new Set(Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
     const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
     return id ? [id] : [];
   }))];
@@ -59,14 +60,14 @@ export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Sn
  * every changed file, so the PR is updated and tested against the current base. A head that
  * contains the base tip never overlaps.
  */
-export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Snapshot, live: { head: { sha: string }; base: { ref: string } }, signal: AbortSignal): Promise<string[]> {
+export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Snapshot, live: { head: { sha: string }; base: { ref: string } }, signal: AbortSignal, testedConclusions: ReadonlySet<string> = new Set(["success"])): Promise<string[]> {
   const { repository, number } = snapshot;
   // A head that already contains the base tip was tested on it, and GitHub refuses to update it.
   const fromBase = await reader.page(`repos/${repository}/compare/${encodeURIComponent(live.base.ref)}...${live.head.sha}?per_page=1`, signal);
   if (isRuntimeRecord(fromBase) && fromBase.behind_by === 0) return [];
   const [files, testedBase] = await Promise.all([
     reader.rest(`repos/${repository}/pulls/${number}/files?per_page=100`, signal),
-    checksTestedBase(reader, snapshot, live.head.sha, live.base.ref, new Set(["success"]), signal),
+    checksTestedBase(reader, snapshot, live.head.sha, live.base.ref, testedConclusions, signal),
   ]);
   const changed = new Set(files.flatMap(file => isRuntimeRecord(file) ? [file.filename, file.previous_filename] : []).filter(file => hasRuntimeType(file, "string")));
   // Without an exact Actions run base, checks do not prove that the current
@@ -84,9 +85,11 @@ export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Sn
 }
 
 /**
- * Commits the base gained after failed checks ran, when the base tip itself has no failing check.
+ * Commits the base gained after failed checks ran, when the base tip does not fail the same checks.
  * A broken base fails every PR that tests against it; after the base is fixed, an update makes most
- * of them pass without a model pass. Undefined when the failures ran on the current base.
+ * of them pass without a model pass. Checks compare by name: a base whose release proposal and docs
+ * deploy fail on most pushes blocked every retest while it had to be fully green. Undefined when the
+ * failures ran on the current base.
  */
 export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapshot: Snapshot, failed: ReadonlySet<string>, signal: AbortSignal): Promise<number | undefined> {
   const pr = snapshot.pr;
@@ -97,19 +100,23 @@ export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapsho
   if (!testedBase) return undefined;
   const compare = await reader.page(`repos/${snapshot.repository}/compare/${testedBase}...${encodeURIComponent(baseRef)}?per_page=${compareFileLimit}`, signal);
   if (!isRuntimeRecord(compare) || !hasRuntimeType(compare.ahead_by, "number") || !compare.ahead_by) return undefined;
-  // While the base itself fails, the update inherits the same failures.
+  // While the base fails the same checks, the update inherits them and only spends the retest.
+  const failedSet = new Set([...failed].map(value => value.toLowerCase()));
+  const failing = new Set([
+    ...Object.values(snapshot.checks).filter(check => !check.deleted && check.head_sha === head && failedSet.has(String(check.conclusion).toLowerCase())).map(check => String(check.name)),
+    ...Object.values(snapshot.statuses).filter(status => !status.deleted && status.sha === head && failedSet.has(String(status.state).toLowerCase())).map(status => String(status.context)),
+  ]);
   const [baseChecks, baseStatuses] = await Promise.all([
     reader.rest(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`, signal, "check_runs"),
     reader.rest(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`, signal),
   ]);
-  const failedSet = new Set([...failed].map(value => value.toLowerCase()));
   // Statuses list the newest first; only the latest state of each context counts.
   const latestStatuses = new Map<string, string>();
   for (const value of baseStatuses) {
     if (isRuntimeRecord(value) && hasRuntimeType(value.context, "string") && hasRuntimeType(value.state, "string") && !latestStatuses.has(value.context)) latestStatuses.set(value.context, value.state);
   }
-  return baseChecks.some(check => isRuntimeRecord(check) && hasRuntimeType(check.conclusion, "string") && failedSet.has(check.conclusion.toLowerCase()))
-    || [...latestStatuses.values()].some(value => failedSet.has(value.toLowerCase()))
+  return baseChecks.some(check => isRuntimeRecord(check) && !isBabysitterCheckRun(check) && failing.has(String(check.name)) && hasRuntimeType(check.conclusion, "string") && failedSet.has(check.conclusion.toLowerCase()))
+    || [...latestStatuses].some(([context, value]) => failing.has(context) && failedSet.has(value.toLowerCase()))
     ? undefined
     : compare.ahead_by;
 }

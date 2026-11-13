@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 
 import { abortable } from "@vite-hub/internal/abort"
-import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { resolveHostCredentials, runHostCli } from "@vite-hub/internal/host-credentials"
 import {
   createCloudflareApiClient,
@@ -132,10 +132,10 @@ async function projectName(project: SetupProject, option: string | undefined): P
 
 function linkHost(project: SetupProject, option: string | undefined, env: NodeJS.ProcessEnv): SetupLinkHost {
   if (option !== undefined) {
-    const preset = deploymentPresetFromNitro(option)
-    if (!preset) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown host ${JSON.stringify(option)}. Use cloudflare, vercel, netlify, or deno.` })
-    if (!isLinkHost(preset)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host: preset }), setupExitCodes.conflict)
-    return preset
+    const host = hostFromNitroPreset(option)
+    if (!host) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown host ${JSON.stringify(option)}. Use cloudflare, vercel, netlify, or deno.` })
+    if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host: host }), setupExitCodes.conflict)
+    return host
   }
   const host = setupStatus(project, env).host.name
   if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict, { missing: [{ field: "host", choices: linkHosts.map(id => ({ id })) }], rerun: "vitehub link --host <host>" })

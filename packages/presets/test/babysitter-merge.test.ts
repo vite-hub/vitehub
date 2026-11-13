@@ -61,6 +61,29 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "failed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
   });
 
+  it("does not wait for a running review once automated review is settled", () => {
+    const s = snapshot();
+    s.checks.review = { id: 6, name: "pullfrog", head_sha: head, status: "queued", app: { id: 9 } };
+    s.statuses.approval = { context: "pullfrog-approval", sha: head, state: "pending" };
+    const policy = { pendingReviewChecks: new Set(["pullfrog", "pullfrog-approval"]) };
+    expect(directMergeReadiness(s, "passed", policy)).toEqual({ ready: false, reason: "a current-head review is still running" });
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true })).toEqual({ ready: true, head });
+  });
+
+  it("merges past assessed bot-only threads with ignoreAssessedBotThreads, but not past a person's thread", () => {
+    const s = snapshot();
+    const finding = { id: 7, body: "P2: handle aliases.", commit_id: head, user: { login: "chatgpt-codex-connector[bot]", type: "Bot" } };
+    s.reviewComments["7"] = finding;
+    s.threads = [{ id: "T1", isResolved: false, isOutdated: true, comments: [{ id: 7, body: finding.body, author: { login: "chatgpt-codex-connector", __typename: "Bot" } }] }];
+    const assessedFeedback = new Set(feedbackFingerprints(s));
+    expect(directMergeReadiness(s, "passed", { assessedFeedback })).toEqual({ ready: false, reason: "unresolved review threads" });
+    expect(directMergeReadiness(s, "passed", { assessedFeedback, ignoreAssessedBotThreads: true })).toEqual({ ready: true, head });
+    // A new bot comment still needs a pass first.
+    expect(directMergeReadiness(s, "passed", { ignoreAssessedBotThreads: true }).ready).toBe(false);
+    s.threads.push({ id: "T2", isResolved: false, comments: [{ id: 8, body: "Why?", author: { login: "maintainer", __typename: "User" } }] });
+    expect(directMergeReadiness(s, "passed", { assessedFeedback, ignoreAssessedBotThreads: true })).toEqual({ ready: false, reason: "unresolved review threads" });
+  });
+
   it("requires explicit assessment for findings in a review body without inline threads", () => {
     const s = snapshot();
     s.reviews.review = { id: 3, state: "COMMENTED", commit_id: head, body: "The fallback drops customer records." };
@@ -128,6 +151,13 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", feedbackPolicy)).toEqual({ ready: true, head });
     expect(feedbackFingerprints(s, feedbackPolicy)).toEqual([]);
     expect(directMergeReadiness(s, "passed").ready).toBe(false);
+  });
+
+  it("ignores configured and worker authors in either bot spelling", () => {
+    const s = snapshot();
+    s.comments.preview = { id: 3, body: "Preview ready", author: { login: "preview", __typename: "Bot" } };
+    s.reviewComments.own = { id: 5, body: "Fixed in abc123.", author: { login: "Repair", __typename: "Bot" } };
+    expect(directMergeReadiness(s, "passed", feedbackPolicy)).toEqual({ ready: true, head });
   });
 
   it.each(["maintainer", "preview[bot]", "repair[bot]"])("always counts requested changes from %s, even without a body", (login) => {

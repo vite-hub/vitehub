@@ -63,7 +63,8 @@ vi.mock("y-websocket", () => ({
     wsconnected = false
     params: Record<string, string> = {}
 
-    constructor(public server: string, public room: string, public doc: Y.Doc) {
+    constructor(public server: string, public room: string, public doc: Y.Doc, options: { params?: Record<string, string> } = {}) {
+      this.params = { ...options.params }
       providers.push(this)
     }
   },
@@ -376,6 +377,26 @@ describe("useRealtimeTiptap", () => {
     expect(session.calls).toBe(0)
     expect(realtime.extensions.value.map(extension => extension.name)).toEqual(["doc", "paragraph", "text", "callout", "collaboration", "collaborationCaret"])
     expect(providers[1]!.awareness.setLocalStateField).toHaveBeenCalledWith("user", expect.objectContaining({ id: "console:ana", name: "Ana" }))
+    scope.stop()
+  })
+
+  it("sends the editor version with the connection and reports a server on another version", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const extensions = () => [TiptapNode.create({ name: "doc", topNode: true, content: "text*" }), TiptapNode.create({ name: "text" })]
+    const scope = effectScope()
+    const [versioned, unversioned] = scope.run(() => [
+      useRealtimeTiptap("docs", ref("page.md"), { editor: { extensions, version: "2" } }),
+      useRealtimeTiptap("docs", ref("other.md")),
+    ])!
+    const provider = providers.find(item => item.room === "page.md")!
+
+    expect(provider.params).toEqual({ clientId: String(provider.doc.clientID), editor: "2" })
+    const otherProvider = providers.find(item => item.room === "other.md")!
+    expect(otherProvider.params).toEqual({ clientId: String(otherProvider.doc.clientID) })
+    control(provider, { type: "session", access: "read", epoch: "seed-1", reason: "version" })
+    expect(versioned.readOnly.value).toBe(true)
+    expect(versioned.readOnlyReason.value).toBe("version")
+    expect(unversioned.readOnly.value).toBe(false)
     scope.stop()
   })
 

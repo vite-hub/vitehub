@@ -54,6 +54,6 @@ export function withHostPathnameLimits<TOptions>(driver: BlobDriverAdapter<TOpti
     ...(createMultipartUpload ? { createMultipartUpload: (pathname, options) => createMultipartUpload.call(driver, assertR2Key(pathname), options) } : {}),
     ...(getStream ? { getStream: (pathname, options) => getStream.call(driver, assertR2Key(pathname), options) } : {}),
     ...(resumeMultipartUpload ? { resumeMultipartUpload: (pathname, uploadId) => resumeMultipartUpload.call(driver, assertR2Key(pathname), uploadId) } : {}),
-    ...(sign ? { sign: (pathname, options) => sign.call(driver, assertR2Key(pathname), options) } : {}),
+    ...(sign ? { sign: (pathname, options, context) => sign.call(driver, assertR2Key(pathname), options, context) } : {}),
   }
 }

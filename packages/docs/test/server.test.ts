@@ -16,6 +16,8 @@ const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase"> = {
 
 // The handlers use the real `nitro/h3`. Storage and runtime config need a Nitro build, so they are fakes.
 vi.mock("nitro/kv", () => ({ useKV }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: docsConfig } }) }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 // The app's `parser` module: a Comark plugin that adds a paragraph, so the test sees which parser ran.
@@ -26,7 +28,7 @@ vi.mock("#docs/parser", () => ({
 }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
 })
 
 const { default: raw } = await import("../src/runtime/server/raw.ts")

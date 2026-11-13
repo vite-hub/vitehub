@@ -13,7 +13,7 @@ const cleanupPrefix = consoleAttachmentCleanupPrefix
 const path = () => `${consoleAttachmentPrefix}${crypto.randomUUID()}`
 const marker = (path: string) => path.replace(consoleAttachmentPrefix, cleanupPrefix)
 
-function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"> {
+function connect(base: string): Pick<BlobStorage, "put" | "delete" | "list" | "get"> {
   const filename = (path: string) => join(base, Buffer.from(path).toString("base64url"))
   const metadata = (pathname: string): BlobObject => ({ pathname, contentType: "text/plain", httpEtag: undefined, uploadedAt: new Date(), httpMetadata: {}, customMetadata: {} })
   return {
@@ -32,7 +32,7 @@ function connect(base: string): Pick<BlobStorage, "put" | "del" | "list" | "get"
         throw error
       }
     },
-    async del(paths) {
+    async delete(paths) {
       for (const path of typeof paths === "string" ? [paths] : paths) await rm(filename(path), { force: true })
       return [undefined, undefined]
     },
@@ -54,7 +54,7 @@ it("retries a failed rollback after storage restart and preserves owned objects"
   const abandoned = path(); const owned = path()
   await storage.put(abandoned, "image"); await storage.put(owned, "image")
   const failure = new Error("Storage unavailable")
-  expect(await rollbackConsoleAttachments({ ...storage, async del() { throw failure } }, [abandoned])).toEqual([failure])
+  expect(await rollbackConsoleAttachments({ ...storage, async delete() { throw failure } }, [abandoned])).toEqual([failure])
   const restarted = connect(base)
   await retryConsoleAttachmentCleanup(restarted)
   expect((await restarted.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([owned])
@@ -65,7 +65,7 @@ it("keeps the cleanup record through another failed retry", async () => {
   const abandoned = path()
   await storage.put(abandoned, "image")
   const failure = new Error("Deletion unavailable")
-  const unavailable = { ...storage, async del() { throw failure } }
+  const unavailable = { ...storage, async delete() { throw failure } }
   await rollbackConsoleAttachments(unavailable, [abandoned])
   await expect(retryConsoleAttachmentCleanup(unavailable)).rejects.toBe(failure)
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs.map(blob => blob.pathname)).toEqual([marker(abandoned)])
@@ -131,7 +131,7 @@ it("recovers the entire batch when rollback stops during its first deletion", as
   // Leave the original request suspended, as if its host stopped before deletion returned.
   void rollbackConsoleAttachments({
     ...storage,
-    async del() {
+    async delete() {
       reachedDeletion()
       return new Promise<never>(() => {})
     },
@@ -175,9 +175,9 @@ it("retains the whole batch if a later deletion fails", async () => {
   const failure = new Error("Second deletion failed")
   expect(await rollbackConsoleAttachments({
     ...storage,
-    async del(object) {
+    async delete(object) {
       if (object === abandoned[1]) throw failure
-      return storage.del(object)
+      return storage.delete(object)
     },
   }, abandoned)).toEqual([failure])
   await retryConsoleAttachmentCleanup(connect(base))
@@ -188,7 +188,7 @@ it("rejects reuse when reading a batch body fails and recovers on retry", async 
   const { base, storage } = await fixture()
   const abandoned = [path(), path()]
   for (const object of abandoned) await storage.put(object, "image")
-  await rollbackConsoleAttachments({ ...storage, async del() { throw new Error("Deletion unavailable") } }, abandoned)
+  await rollbackConsoleAttachments({ ...storage, async delete() { throw new Error("Deletion unavailable") } }, abandoned)
   const failure = new Error("Body stream interrupted")
   const unreadable = {
     ...storage,

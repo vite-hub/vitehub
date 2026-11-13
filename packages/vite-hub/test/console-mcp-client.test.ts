@@ -31,7 +31,7 @@ import type { ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, 
 /** The app's default KV store, for `VITEHUB_CONSOLE_MCP_KEY`. Each value is a copy, as a real store keeps. */
 const kvValues = vi.hoisted(() => new Map<string, unknown>())
 const kv = vi.hoisted(() => ({
-  del: async (key: string) => [undefined, kvValues.delete(key)] as const,
+  delete: async (key: string) => [undefined, kvValues.delete(key)] as const,
   get: async (key: string) => [undefined, kvValues.has(key) ? structuredClone(kvValues.get(key)) : null] as const,
   keys: async (base = "") => [undefined, [...kvValues.keys()].filter(key => key.startsWith(base))] as const,
   set: async (key: string, value: unknown) => {
@@ -273,8 +273,8 @@ async function connectAs(person: string, options: { prompt?: "login", user?: str
   return completed.value
 }
 
-function install(kv = false, preset: "node" | "cloudflare" = "node"): void {
-  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, preset }))
+function install(kv = false, host: "node" | "cloudflare" = "node"): void {
+  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, host }))
   installConsoleOperations([{ operations: consoleMcpClientOperations, plugin: "vite-hub" }])
 }
 

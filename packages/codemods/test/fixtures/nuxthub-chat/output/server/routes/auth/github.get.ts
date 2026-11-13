@@ -1,4 +1,4 @@
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { sendRedirect } from 'nuxt/server'
 import { and, eq } from 'drizzle-orm'
 
