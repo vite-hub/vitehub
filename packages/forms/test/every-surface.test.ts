@@ -187,7 +187,7 @@ describe.each(schemas)("one %s schema", (_label, schema) => {
 })
 
 describe("the payload of each surface", () => {
-  const form = defineForm({ schema: ValibotFeedback })
+  const form = defineForm<StandardSchemaV1>({ schema: ValibotFeedback })
   it.each(Object.entries(surfaces))("%s", async (_surface, surface) => {
     expect((await surface(form, valid)).payload).toMatchSnapshot()
   })

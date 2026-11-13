@@ -3,8 +3,7 @@ import { checkForm, collectFields, decodeFieldValue, formFields, isLongText, uns
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { FormSubmitError } from "./client.ts"
-import type { FormField } from "./fields.ts"
-import type { FormDefinition } from "./types.ts"
+import type { FormField, FormSource } from "./fields.ts"
 
 /** One property of an MCP elicitation form: the primitive schemas of MCP `2025-11-25`. */
 export type ElicitationProperty
@@ -61,7 +60,7 @@ function elicitationProperty(field: FormField): ElicitationProperty {
  * const [error, result] = await readElicitation(contact, answer)
  * ```
  */
-export function toElicitation(source: FormDefinition | StandardSchemaV1, options: { message: string }): FormElicitation {
+export function toElicitation(source: FormSource, options: { message: string }): FormElicitation {
   const { fields, problems } = collectFields(source)
   const [problem] = problems
   if (problem) throw unsupportedField(problem, "An MCP elicitation", elicitationTakes)
@@ -82,7 +81,7 @@ export function toElicitation(source: FormDefinition | StandardSchemaV1, options
  * `[undefined, { action: "decline" }]` or `"cancel"` when the person did not answer, or `[error]` with the issue of
  * each field, the same issues as the form route.
  */
-export async function readElicitation<TSchema extends StandardSchemaV1>(source: FormDefinition<TSchema> | TSchema, result: ElicitationResult): Promise<[FormSubmitError, undefined] | [undefined, { action: "accept", data: StandardSchemaV1.InferOutput<TSchema> } | { action: "decline" | "cancel" }]> {
+export async function readElicitation<TSchema extends StandardSchemaV1>(source: FormSource<TSchema>, result: ElicitationResult): Promise<[FormSubmitError, undefined] | [undefined, { action: "accept", data: StandardSchemaV1.InferOutput<TSchema> } | { action: "decline" | "cancel" }]> {
   if (result.action !== "accept") return [undefined, { action: result.action }]
   const [error, data] = await checkForm(source, result.content ?? {})
   return error ? [error, undefined] : [undefined, { action: "accept", data }]
@@ -140,7 +139,7 @@ function chatInput(field: FormField): FormChatModalChild {
  * with `event.openModal()` of the Chat SDK, which draws a Slack modal or a Teams dialog. Throws `FORMS_C0002` for a
  * field that a modal cannot draw.
  */
-export function toChatModal(source: FormDefinition | StandardSchemaV1, options: ChatModalOptions): FormChatModal {
+export function toChatModal(source: FormSource, options: ChatModalOptions): FormChatModal {
   return {
     type: "modal",
     callbackId: options.callbackId,
@@ -165,7 +164,7 @@ export function toChatModal(source: FormDefinition | StandardSchemaV1, options: 
  * })
  * ```
  */
-export async function readChatModal<TSchema extends StandardSchemaV1>(source: FormDefinition<TSchema> | TSchema, values: Record<string, string | undefined>): Promise<[FormSubmitError, undefined] | [undefined, StandardSchemaV1.InferOutput<TSchema>]> {
+export async function readChatModal<TSchema extends StandardSchemaV1>(source: FormSource<TSchema>, values: Record<string, string | undefined>): Promise<[FormSubmitError, undefined] | [undefined, StandardSchemaV1.InferOutput<TSchema>]> {
   const data: Record<string, unknown> = {}
   for (const field of formFields(source)) {
     const raw = values[field.name]

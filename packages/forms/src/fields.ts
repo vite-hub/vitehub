@@ -1,15 +1,13 @@
 import { FormSubmitError } from "./client.ts"
-import { isFormDefinition } from "./define.ts"
 import { formsDiagnostics } from "./errors.ts"
 import { unwrap } from "./schema.ts"
 
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { FormIssue } from "./client.ts"
 import type { SchemaNode } from "./schema.ts"
-import type { FormDefinition } from "./types.ts"
 
 /** A form from `defineForm()`, or a plain Standard Schema, such as the input of an Agent tool. */
-export type FormSource = FormDefinition | StandardSchemaV1
+export type FormSource<TSchema extends StandardSchemaV1 = StandardSchemaV1> = TSchema | { readonly "~form": true, readonly options: { readonly schema: TSchema } }
 
 /** One field of a flat form: what every surface can draw, from a web form to a Slack modal. */
 export interface FormField {
@@ -37,8 +35,8 @@ interface FieldProblem {
 const formats = new Set(["email", "uri", "date", "date-time"])
 const longTextKeys = /^(message|details|description|text|body|comment|feedback|workflow|notes?)$/i
 
-export function schemaOf(source: FormSource): StandardSchemaV1 {
-  return isFormDefinition(source) ? source.options.schema : source
+export function schemaOf<TSchema extends StandardSchemaV1>(source: FormSource<TSchema>): TSchema {
+  return "~form" in source ? source.options.schema : source
 }
 
 function humanize(key: string): string {
@@ -259,7 +257,7 @@ function jsonData<T>(value: T): { value: T } | undefined {
  * Validates values with the schema of a form, the same check that the form route runs. Returns `[undefined, data]`
  * with the JSON output, or `[error]` where `error.issues` holds the problem of each field, as a 400 of the route.
  */
-export async function checkForm<TSchema extends StandardSchemaV1>(source: FormDefinition<TSchema> | TSchema, values: unknown): Promise<[FormSubmitError, undefined] | [undefined, StandardSchemaV1.InferOutput<TSchema>]> {
+export async function checkForm<TSchema extends StandardSchemaV1>(source: FormSource<TSchema>, values: unknown): Promise<[FormSubmitError, undefined] | [undefined, StandardSchemaV1.InferOutput<TSchema>]> {
   const schema = schemaOf(source)
   const result = await schema["~standard"].validate(values)
   if (result.issues) {
