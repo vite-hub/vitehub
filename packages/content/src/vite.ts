@@ -245,6 +245,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
               fields: [
                 { label: "Route", value: features.route ? "/api/content/**" : "Disabled" },
                 ...(features.github ? [{ label: "GitHub webhook", value: "POST /_vitehub/content/github" }] : []),
+                ...(features.previews ? [{ label: "Previews", value: "/tree/<branch>/-/<path>, /blob/<sha>/<path>, /pr/<number>/<path>" }] : []),
                 { label: "Collections", value: "vitehub content collections" },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),

@@ -3,6 +3,10 @@ import { defineErrors } from "@vite-hub/runtime"
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/agents/diagnostics",
   codes: {
+    PRESETS_BABYSITTER_REPOSITORIES_INVALID: {
+      why: 'Babysitter filter.repository.allow lists no "owner/name" repository.',
+      fix: 'List repositories as "owner/name", or remove filter.repository.allow so the Babysitter serves every repository that its GitHub App can access.',
+    },
     PRESETS_MERGE_DRAFT_AUTHORS_INVALID: {
       why: "Babysitter merge.markDraftsReady must be an array of GitHub logins.",
       fix: "Set merge.markDraftsReady to non-empty GitHub logins, such as [\"octocat\", \"renovate[bot]\"], or remove it.",
@@ -50,6 +54,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_REVIEW_COMMENT_MISSING: {
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",
+    },
+    PRESETS_BABYSITTER_STATUS_INVALID: {
+      why: "Babysitter status must be an object whose comment and checkRun fields are booleans.",
+      fix: "Pass status: { comment?: boolean, checkRun?: boolean }, or leave status out to post both the activity comment and the babysitter check run.",
     },
     PRESETS_CHECK_LOG_SELECTION_INVALID: {
       why: ({ reason }: { reason: string }) => `readCheckLogs got an invalid line selection: ${reason}`,

@@ -43,6 +43,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
 import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
+import { babysitterRepositories, type BabysitterRepositories } from "../src/babysitter/repositories.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
@@ -68,7 +69,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; repositories?: BabysitterRepositories } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -345,7 +346,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(discovered ? { agentName: preset.agentName ?? "babysitter" } : {}),
     github,
     inboxPath: preset.inboxPath ?? join(root, "inbox.sqlite"),
-    repositories: ["acme/app"],
+    repositories: preset.repositories ?? ["acme/app"],
     concurrency: 1,
     activityAuthors: preset.activityBarrier ? ["repair-bot"] : ["vitehub-agent"],
     admission: preset.admission,
@@ -509,6 +510,17 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
 }
 
 describe("Babysitter preset runtime", () => {
+  it("discovers open pull requests in every installed repository without an allow list", async () => {
+    const read = vi.fn(async () => [{ repository: "acme/app", installationId: 1, archived: false }, { repository: "acme/archive", installationId: 1, archived: true }]);
+    const f = await fixture(false, false, { repositories: babysitterRepositories({}, read) });
+    try {
+      await f.reconcile();
+      expect(read).toHaveBeenCalledOnce();
+      expect(f.runtime.repositories.known()).toEqual(["acme/app"]);
+      expect(await f.runtime.inbox.get("acme/app", 12)).toBeDefined();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("retries a direct-source worker blocker only when its source revision changes", async () => {
     vi.stubGlobal("__VITEHUB_PRESETS_BUILD_REVISION__", undefined);
     const revision = vi.spyOn(buildRevisions, "presetsBuildRevision").mockReturnValue("source-first");

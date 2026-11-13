@@ -50,7 +50,7 @@ The host needs Git, Corepack to install dependencies, and the authenticated CLI 
 
 ## Add the Agent
 
-Extend the preset in `server/agents`. The repository filter is required, because the Babysitter looks for open pull requests only there.
+Extend the preset in `server/agents`. `filter.repository.allow` limits it to the listed repositories. Without it, the Babysitter serves every repository its GitHub App can access ([Choose repositories](#choose-repositories)).
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -79,7 +79,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
+| `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady }`. `ready` is a callback or `'approved-if-outside'` ([Gate outside contributors](#gate-outside-contributors)). |
@@ -102,6 +102,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `modelConcurrency` | `concurrency` | Model passes at the same time. Match what your provider accounts can serve. |
 | `providerCooldownMs` | `300000` | First cooldown after a pass uses all its provider rate-limit retries ([Provider rate limits](#provider-rate-limits)). |
 | `admission` | `{}` | Token budgets, a free-space check, and custom checks that stop model passes ([Limit model passes](#limit-model-passes)). |
+| `status` | `{ comment: true, checkRun: true }` | Where the PR shows the Babysitter's state: the activity comment and a `babysitter` check run on the head ([Status on the pull request](#status-on-the-pull-request)). |
 | `capacity` | Process defaults | Host admission settings: `memory`, `cpu`, and `fallbackConcurrency`. |
 | `placement` | None | Runs each pass on this host or in a Sandbox on another host ([Bound local verification](#bound-local-verification)). |
 
@@ -158,6 +159,24 @@ Create the configured labels in your repositories. With the example above, add `
 - Removing a required label or adding a denied label also cancels the host's active claim on the pull request.
 
 Use `lifecycle.labels` or `filter.labels`, not both: both is a configuration error. Labels only select pull requests. They do not report progress, allow a merge, or skip check and review gates.
+
+## Choose repositories
+
+Without `filter.repository.allow`, the Babysitter serves every repository that its GitHub App can access. Installing the App on a repository enrolls it, and removing the App stops new work there.
+
+```ts [server/agents/babysitter/agent.ts] fragment
+filter: {
+  repository: { deny: ['acme/website'] },
+},
+```
+
+- The host lists the repositories of every App installation when it starts and again every 10 minutes. Suspended installations are skipped.
+- `installation` and `installation_repositories` webhooks update the list at once. GitHub sends them to every App, without a subscription.
+- A delivery from a repository that the list does not have yet adds it, because GitHub sends an App only events of repositories it is installed on.
+- Archived repositories and those in `repository.deny` are skipped.
+- With `repository.allow`, the Babysitter serves only the listed repositories and never lists installations.
+
+The health route reports the current list in `repositories` and where it came from in `repositorySource`: `allow` or `installations`.
 
 ## Limit model passes
 
@@ -290,7 +309,7 @@ The worker records and recovers Invocations under `<discovered-agent-name>-worke
 
 ## Configure GitHub
 
-Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
+Create a GitHub App with read and write access to contents, pull requests, issues, checks (to publish the `babysitter` check run), and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
 
 Set these variables on the host, or declare them in `env.server.github`:
 
@@ -324,6 +343,24 @@ The host install before the provider starts ([Dependency installation](#dependen
 
 For other sources, use `install: false` and prepare dependencies in an isolated workspace.
 
+### Status on the pull request
+
+The host reports each PR's state in an activity comment and in a check run named `babysitter` on the current head. Both go through the same durable outbox, so a failed write retries.
+
+| Babysitter state | Check run |
+| --- | --- |
+| Queued | `queued` |
+| Running | `in_progress` |
+| Waiting | `completed`, `neutral` |
+| Done | `completed`, `success` |
+| Failed | `completed`, `failure` |
+
+A waiting PR ends its run as neutral because the wait can last days, and a spinning check would claim work that is not happening. The title starts with the state and the first line of the result, and **Details** opens the Console session when there is one. Work on a head whose run completed starts a new run.
+
+The check run needs the App's `checks: write` permission. When GitHub answers 403, the host logs `babysitter.status.check_run.forbidden` once and stops writing check runs to that repository until it restarts. The comment still posts. Set `status: { checkRun: false }` to turn the check off, or `status: { comment: false }` to keep only the check.
+
+The host leaves its own `babysitter` check out of every CI and merge decision, so it never waits on itself. Don't make `babysitter` a required check.
+
 ## Deploy
 
 Deploy the long-running Babysitter with the Node host on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
@@ -339,7 +376,7 @@ To replace the process, send SIGUSR2, wait for the drain route to report `draine
 
 ## How it works
 
-1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute.
+1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute. With more than 40 repositories, the listing runs every 1.5 seconds per repository instead, to stay within the GraphQL rate limit.
 2. When a pull request needs work, the host clones its head and starts one repair pass.
 3. After a repair push, the pass ends within 3 minutes and the pull request waits on the pushed head.
 4. Known check results, pending checks, and its own push events keep it waiting. New feedback, a new failing check, a conflict, or an unresolved review thread wake it.
