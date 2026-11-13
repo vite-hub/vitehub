@@ -146,6 +146,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: viteHubAppEntries,
     vite: false,
   },
+  // test/mcp.test.ts reads normalizeToolResult() from the docs toolkit by file path.
+  content: { ignoreDependencies: ["@nuxtjs/mcp-toolkit"] },
   // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
   database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {

@@ -10,7 +10,7 @@ import type { AgentInvocationPruneResult, AgentInvocationStoreCreateInput } from
 import type { PostgresAgentInvocationStoreOptions } from "../src/invocations/postgres-store.ts"
 
 const useDatabase = vi.fn()
-vi.mock("@vite-hub/database/drizzle", () => ({ useDatabase }))
+vi.mock("@vite-hub/database", () => ({ useDatabase }))
 
 // Set it to a Postgres database that the test can write, for example one in `docker run postgres:17`.
 const url = process.env.VITEHUB_TEST_POSTGRES_URL
@@ -141,7 +141,7 @@ describe.skipIf(!url)("Postgres Agent Invocation store", () => {
     const journal = store(first, { database: "main", tablePrefix: missing })
 
     await expect(journal.create(invocation("no-table"))).rejects.toMatchObject({
-      code: "AGENT_R1038",
+      code: "AGENT_R1044",
       fix: expect.stringContaining("vitehub database migrate"),
       why: expect.stringContaining(`"${missing}invocations"`),
     })

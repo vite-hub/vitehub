@@ -142,6 +142,8 @@ export interface ConsoleDocumentPublished {
   documents: Array<{ change: "add" | "update" | "delete", collection: string, id: string }>
   /** Set when the project publishes through a pull request: the documents go live when it merges. */
   pullRequest?: { number: number, url: string }
+  /** With `pullRequest` and `previews: true` in Content: a signed preview link of each document with a page URL. */
+  previews?: Array<{ collection: string, id: string, locale?: string, url: string, expiresAt: string }>
   revision: string | null
 }
 

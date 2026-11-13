@@ -84,15 +84,16 @@ describe("GitHub history reads", () => {
     expect(fake.notModified).toHaveLength(1)
   })
 
-  it("keeps answers for a commit sha in KV, so another server instance sends no request for them", async () => {
+  it.each([false, true])("keeps answers for a commit sha in KV, so another server instance sends no request for them, ancestor: %s", async (ancestor) => {
     seedHistory(3)
     const kv = memoryKV()
     registerWorkspaceKV(kv)
     const head = fake.head("main")!
+    if (ancestor) fake.commit("main", { "docs/new.md": "new\n" })
     const first = history()
     // Content opens the head that head() returned, so the ref of the commit is known.
     await first.head({ ref: "published" })
-    const files = await (await first.open(head)).list("", { recursive: true })
+    const files = ancestor ? [] : await (await first.open(head)).list("", { recursive: true })
     await first.list({ ref: "published", cursor: `published:after:${head}` })
     expect(kv.values.size).toBeGreaterThan(0)
     const before = readGitHubReadStats()
@@ -100,10 +101,10 @@ describe("GitHub history reads", () => {
     const second = history()
     await second.head({ ref: "published" })
     fake.requests.length = 0
-    expect(await (await second.open(head)).list("", { recursive: true })).toEqual(files)
+    if (!ancestor) expect(await (await second.open(head)).list("", { recursive: true })).toEqual(files)
     await second.list({ ref: "published", cursor: `published:after:${head}` })
     expect(shapes()).toEqual([])
-    // The tree of the commit and the page of revisions.
+    // The page of revisions, plus the tree for a head cursor or the ancestry proof for an older cursor.
     expect(readGitHubReadStats().kv - before.kv).toBe(2)
   })
 

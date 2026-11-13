@@ -5,6 +5,10 @@ import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R1040",
+  "AGENT_R1041",
+  "AGENT_R1042",
+  "AGENT_R1043",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -1429,7 +1433,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1033: dynamicError,
     AGENT_R1034: dynamicError,
     AGENT_R1035: dynamicError,
-    AGENT_R1038: {
+    AGENT_R1044: {
       why: ({ database, tables }: { database: string, tables: string[] }) => `[vitehub] The Postgres Database "${database}" has no Agent Invocation table ${tables.map(table => JSON.stringify(table)).join(" or ")}. The journal does not create its tables, because a Database user can lack the CREATE privilege.`,
       fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds the journal tables to the target Database of `invocations: 'database'`. For another Database or tablePrefix, add `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres` to its schema.",
     },
@@ -1528,6 +1532,22 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1039: {
       why: ({ value }: { value: unknown }) => `[vitehub] Agent Invocation afterSequence must be a non-negative safe integer, but it is ${typeof value === "string" ? JSON.stringify(value) : String(value)}.`,
       fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
+    },
+    AGENT_R1040: {
+      why: ({ provider }: { provider: unknown }) => `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use "codex" or "claude-code".`,
+      fix: 'Pass "codex" or "claude-code" as the session provider.',
+    },
+    AGENT_R1041: {
+      why: "[vitehub] importAgentSession() needs agentName and runId.",
+      fix: "Pass non-empty agentName and runId strings in the import options.",
+    },
+    AGENT_R1042: {
+      why: "[vitehub] importAgentSession() replaces an earlier import, and this store cannot delete records.",
+      fix: "Use an Agent Invocation store that implements delete(), or choose a different runId for the import.",
+    },
+    AGENT_R1043: {
+      why: ({ id }: { id: string }) => `[vitehub] importAgentSession() cannot replace Invocation ${id}: it is still pending or running.`,
+      fix: "Wait for the existing Invocation to finish, or choose a different runId for the import.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

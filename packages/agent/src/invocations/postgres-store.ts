@@ -144,7 +144,7 @@ export function createPostgresAgentInvocationStore(options: PostgresAgentInvocat
     if (checked.has(sql)) return sql
     const [row] = await sql.unsafe("SELECT to_regclass($1) IS NOT NULL AS invocations, to_regclass($2) IS NOT NULL AS observations", [table, observationTable])
     const missing = [row?.invocations === true ? undefined : table, row?.observations === true ? undefined : observationTable].filter(name => name !== undefined)
-    if (missing.length) throw agentDiagnostics.AGENT_R1038({ database: options.database ?? "default", tables: missing })
+    if (missing.length) throw agentDiagnostics.AGENT_R1044({ database: options.database ?? "default", tables: missing })
     checked.add(sql)
     return sql
   }

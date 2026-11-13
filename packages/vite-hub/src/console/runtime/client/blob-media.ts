@@ -8,7 +8,7 @@ import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleM
 
 // The Blob section browses a Blob Store with the media browser of Content. The Blob route lists raw objects; this
 // client maps them to media files and keeps the raw metadata for the detail panel. It uploads and deletes through the
-// `blob.put` and `blob.del` operations. Folders, moves, and edits of media details are not part of a Blob Store.
+// `blob.put` and `blob.delete` operations. Folders, moves, and edits of media details are not part of a Blob Store.
 
 /** One Blob object as the Console Blob route returns it. */
 export interface ConsoleBlobObject {
@@ -224,7 +224,7 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
           continue
         }
         try {
-          await requestConsole(base, { body: { action: "del", pathname, store: options.store }, method: "POST" })
+          await requestConsole(base, { body: { action: "delete", pathname, store: options.store }, method: "POST" })
           objects.delete(pathname)
           removed.push(pathname)
         }

@@ -18,7 +18,7 @@ and in production builds.
 | Vite dev server | Definition discovery, server imports, Agent streams, and local providers | Terminal output and responses from your routes |
 | [ViteHub CLI](/docs/development/cli) | Package-owned commands such as `inspect`, `agent dev`, `agent eval`, and `provision` | Exit code, terminal output, and optional JSON |
 | [ViteHub Console](/docs/development/console) | Discovered Agents, retained sessions, invocation events, and stored data | [console.vitehub.dev](https://console.vitehub.dev), which calls your app |
-| [Generated files](/docs/development/generated-files) | Registries, generated types, Provision State, and host output | `.vitehub/**` and the preset's output directory |
+| [Generated files](/docs/development/generated-files) | Registries, generated types, Provision State, and host output | `.vitehub/**` and the host's output directory |
 | [Bundle reports](/docs/bundle) | Client and server size, startup code, and why each package is in a production build | `vitehub bundle` and `.vitehub/bundle/` |
 | [Application tests](/docs/development/testing) | Server API behavior and application regressions with `vite-hub/test` | Test output |
 

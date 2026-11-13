@@ -4,11 +4,13 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join, resolve } from "pathe"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 
-import type { LocalQueueClient, LocalQueueRules, QueueDefinition, QueueEnqueueOptions } from "../types.ts"
+import type { LocalQueueClient, LocalQueueDeliveryRules, LocalQueueJob, LocalQueueRules, LocalQueueStatus, QueueDefinition, QueueDeliveryErrorDetails, QueueEnqueueOptions, QueueJobStore } from "../types.ts"
+
+export type { LocalQueueClearFilter, LocalQueueDeliveryRules, LocalQueueJob, LocalQueueJobDetail, LocalQueueStatus, QueueJobsFilter, QueueJobStore } from "../types.ts"
 
 /** Cloudflare's default: one delivery and three retries. */
 export const localQueueMaxAttempts = 4
@@ -16,29 +18,7 @@ export const localQueueMaxAttempts = 4
 /** Dead jobs that the local provider keeps per Queue Definition. It deletes the oldest above this count. */
 export const localQueueDeadLimit = 100
 
-/** The delivery rules that the local engine applies. */
-export interface LocalQueueDeliveryRules {
-  /** Deliveries before a failing job becomes a dead job. `Infinity` retries until the job expires. */
-  maxAttempts: number
-  /** Largest `delaySeconds` that a send accepts. */
-  maxDelaySeconds?: number
-  /** Largest number of jobs in one `sendBatch()`. */
-  maxBatchJobs?: number
-  /** Largest JSON size in bytes of all payloads of one `sendBatch()`. */
-  maxBatchBytes?: number
-  /** Largest JSON size in bytes of one payload. */
-  maxPayloadBytes?: number
-  /** Accepted `retentionSeconds`. A job expires at the end of its retention, whether it ran or not. */
-  retention?: { defaultSeconds: number, maxSeconds: number, minSeconds: number }
-  /** Milliseconds before the next delivery after `attempts` failed deliveries. */
-  retryDelayMs: (attempts: number) => number
-  /** The provider whose documented rules these are. */
-  rules: LocalQueueRules
-  /** Enqueue options that fail with `QUEUE_UNSUPPORTED_OPTION`. */
-  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retentionSeconds")[]
-}
-
-type DeliveryError = ReturnType<typeof createQueueDeliveryErrorReport>["error"]
+type DeliveryError = QueueDeliveryErrorDetails
 
 /** One accepted job, as it is stored in `<base>/<key>.json`. */
 interface StoredJob {
@@ -67,16 +47,6 @@ interface StoredJob {
   state: "dead" | "done" | "pending"
 }
 
-export interface LocalQueueStatus {
-  /** Absolute directory of the stored jobs. */
-  base: string
-  /** Dead jobs kept per Queue Definition. Older dead jobs are deleted. */
-  deadLimit: number
-  /** The jobs survive a restart of this host. Another host or a new container does not see them. */
-  durability: "single-host"
-  queues: Record<string, { dead: number, pending: number, running: number }>
-}
-
 export interface LocalQueueEntry {
   delaySeconds?: number
   id: string
@@ -85,60 +55,16 @@ export interface LocalQueueEntry {
   retentionSeconds?: number
 }
 
-/** One stored job, as `vitehub queue jobs list` shows it. Times are ISO strings. */
-export interface LocalQueueJob {
-  attempts: number
-  /** When a pending job runs next. */
-  availableAt: string
-  enqueuedAt: string
-  /** The last delivery error. A pending job has one after a failed attempt. */
-  error?: DeliveryError
-  /** When the job expires, for Vercel rules. */
-  expiresAt?: string
-  /** When the job became dead. */
-  failedAt?: string
-  /** The message ID that `sendQueue()` returned. */
-  id: string
-  queue: string
-  state: "dead" | "pending" | "running"
-}
-
-/** One stored job with its payload and file, as `vitehub queue jobs show` shows it. */
-export interface LocalQueueJobDetail extends LocalQueueJob {
-  file: string
-  idempotencyKey?: string
-  payload?: unknown
-}
-
-/** Which jobs `clear()` removes. Running jobs always stay. */
-export interface LocalQueueClearFilter {
-  queue?: string
-  state?: "dead" | "pending"
-}
-
-export interface LocalQueueEngine {
-  readonly base: string
-  /** Removes the stored jobs that match, except running jobs. Returns how many it removed. */
-  clear: (filter?: LocalQueueClearFilter) => Promise<number>
+export interface LocalQueueEngine extends QueueJobStore {
+  readonly provider: "local"
   close: () => void
   /**
    * Stores the jobs and returns their message IDs. A pending or running job with the same `idempotencyKey` returns
    * its ID instead. When one file of the batch cannot be written, no job of the batch is stored.
    */
   enqueue: (queue: string, entries: readonly LocalQueueEntry[]) => Promise<string[]>
-  /** The newest stored job with this message ID, with its payload. */
-  job: (id: string) => Promise<LocalQueueJobDetail | undefined>
-  /** The stored jobs, newest first. */
-  jobs: () => Promise<LocalQueueJob[]>
-  /**
-   * Runs the newest stored job with this message ID now. A dead job gets a new set of attempts. A pending job keeps
-   * its attempts and does not wait for its delay or retry delay. A running job is not changed.
-   */
-  retry: (id: string) => Promise<LocalQueueJob | "missing" | "running">
-  readonly rules: LocalQueueDeliveryRules
   /** Reads the stored jobs and starts their delivery. Later calls return the same promise. */
   start: () => Promise<void>
-  status: () => Promise<LocalQueueStatus>
 }
 
 export interface LocalQueueEngineOptions {
@@ -156,7 +82,8 @@ export interface LocalQueueEngineOptions {
 // setTimeout fires at once for a delay above 2^31 - 1 milliseconds.
 const maxTimerDelay = 2 ** 31 - 1
 
-function defaultRetryDelayMs(attempts: number): number {
+/** Retries after 1, 2, and 4 seconds, up to 60 seconds. The local and postgres providers use it. */
+export function defaultRetryDelayMs(attempts: number): number {
   return Math.min(2 ** (attempts - 1), 60) * 1000
 }
 
@@ -187,6 +114,13 @@ export const localQueueDeliveryRules: Readonly<Record<LocalQueueRules, LocalQueu
     rules: "local",
     unsupportedOptions: localUnsupportedEnqueueOptions,
   },
+  // The postgres provider has the local rules. `vite dev` runs the jobs of a postgres app with the local engine.
+  postgres: {
+    maxAttempts: localQueueMaxAttempts,
+    retryDelayMs: defaultRetryDelayMs,
+    rules: "postgres",
+    unsupportedOptions: postgresUnsupportedEnqueueOptions,
+  },
   // https://vercel.com/docs/queues/concepts and https://vercel.com/docs/queues/pricing#limits
   vercel: {
     // The generated queue trigger sets no `maxDeliveries`, so Vercel retries until the job expires.
@@ -210,7 +144,7 @@ function isStoredJob(value: unknown): value is StoredJob {
     && (job.state === "pending" || job.state === "dead" || job.state === "done")
 }
 
-const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "Cloudflare", local: "The local provider", vercel: "Vercel" }
+const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "Cloudflare", local: "The local provider", postgres: "The postgres provider", vercel: "Vercel" }
 
 /** The JSON copy of the payload and its size in bytes. */
 function toStoredPayload(payload: unknown): { bytes: number, stored: { payload?: unknown } } {
@@ -219,7 +153,7 @@ function toStoredPayload(payload: unknown): { bytes: number, stored: { payload?:
   return text === undefined ? { bytes: 0, stored: {} } : { bytes: Buffer.byteLength(text), stored: { payload: JSON.parse(text) } }
 }
 
-function delayMs(delaySeconds: number | undefined, rules: LocalQueueDeliveryRules): number {
+export function delayMs(delaySeconds: number | undefined, rules: LocalQueueDeliveryRules): number {
   if (delaySeconds === undefined) return 0
   if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
     throw new RangeError(`\`delaySeconds\` must be a number of seconds from 0, got ${String(delaySeconds)}.`)
@@ -610,6 +544,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       schedule()
       return toJobSummary(job, runningKeys.has(job.key))
     },
+    provider: "local",
     rules,
     start() {
       started ??= recover()

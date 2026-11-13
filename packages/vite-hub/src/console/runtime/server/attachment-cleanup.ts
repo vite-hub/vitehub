@@ -23,7 +23,7 @@ function asError(value: unknown): Error {
 }
 
 /** Only call for objects whose input has never been handed to a runtime. */
-export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put" | "del">, paths: string[]): Promise<Error[]> {
+export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put" | "delete">, paths: string[]): Promise<Error[]> {
   const errors: Error[] = []
   if (!paths.length) return errors
   const ids = paths.map(path => v.parse(idSchema, path.slice(consoleAttachmentPrefix.length)))
@@ -37,7 +37,7 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
   catch (failure) { recordError = asError(failure) }
   for (const path of paths) {
     try {
-      const [failure] = await storage.del(path)
+      const [failure] = await storage.delete(path)
       if (failure) throw failure
     }
     catch (failure) { errors.push(asError(failure)) }
@@ -48,7 +48,7 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
   }
   // Keep the whole batch until every deletion succeeds; retries are idempotent.
   try {
-    const [failure] = await storage.del(marker)
+    const [failure] = await storage.delete(marker)
     if (failure) errors.push(failure)
   }
   catch (failure) { errors.push(asError(failure)) }
@@ -56,7 +56,7 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
 }
 
 /** Drain a bounded page before accepting another upload, including after restart. */
-export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "list" | "del" | "get" | "put">): Promise<void> {
+export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "list" | "delete" | "get" | "put">): Promise<void> {
   const pages = await Promise.all(cleanupPrefixes.map(async (cleanupPrefix, index) => {
     const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit: 100 })
     if (failure) throw failure
@@ -78,7 +78,7 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
         if (!(error instanceof CorruptCleanupRecord)) throw error
         const [writeError] = await storage.put(`${quarantinePrefix}${marker.pathname.slice(cleanupPrefix.length)}`, error.body, { contentType: "application/json" })
         if (writeError) throw writeError
-        const [deleteError] = await storage.del(marker.pathname)
+        const [deleteError] = await storage.delete(marker.pathname)
         if (deleteError) throw deleteError
         continue
       }
@@ -86,10 +86,10 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
       processed++
       for (const id of ids) {
         const attachmentPrefix = cleanupPrefix === cleanupPrefixes[1] ? legacyConsoleAttachmentPrefix : consoleAttachmentPrefix
-        const [deleteError] = await storage.del(`${attachmentPrefix}${id}`)
+        const [deleteError] = await storage.delete(`${attachmentPrefix}${id}`)
         if (deleteError) throw deleteError
       }
-      const [recordError] = await storage.del(marker.pathname)
+      const [recordError] = await storage.delete(marker.pathname)
       if (recordError) throw recordError
     }
     if (!visited) break

@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm"
 import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { trackD1Database, trackPostgresClient } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "./d1.ts"
 import { createPostgresAgentInvocationStore } from "./postgres-store.ts"

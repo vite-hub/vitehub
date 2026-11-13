@@ -86,6 +86,11 @@
       "import": "./dist/drivers/vercel.js",
       "default": "./dist/drivers/vercel.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./internal/vercel-blob": {
       "types": "./dist/internal/vercel-blob.d.ts",
       "import": "./dist/internal/vercel-blob.js",

@@ -1,3 +1,5 @@
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { workflowDurabilityUrl } from "./durability.ts"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { workflowRuntimeModule } from "./internal/runtime-modules.ts"
 import { randomUUID } from "node:crypto"
@@ -12,6 +14,7 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { normalizeWorkflowOptions } from "./config.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
@@ -43,7 +46,7 @@ interface WorkflowNitroConfigOptions {
 export { workflowRuntimeModule }
 
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
-  vitehub?: ViteHubInspectionPluginMetadata & {
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
     workflow?: {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
@@ -189,7 +192,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     const database = getProviderRuntimeModule(catalog, "database", provider, generation)
     const blob = getProviderRuntimeModule(catalog, "blob", provider, generation)
     return {
-      ...(database ? { "@vite-hub/database/drizzle": database } : {}),
+      ...(database ? { "@vite-hub/database/runtime/registry": database } : {}),
       ...(blob ? { "@vite-hub/blob": blob } : {}),
     }
   }
@@ -437,6 +440,16 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       }
     },
     vitehub: {
+      durability: () => {
+        const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
+        if (!options) return []
+        const input = {
+          provider: options.provider,
+          ...(options.provider === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
+          ...(options.provider === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
+        }
+        return [{ export: "workflowDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "workflow" }]
+      },
       // The Console, `vitehub workflow`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: ownModule(import.meta.url, "operations") }],
       inspect: () => {

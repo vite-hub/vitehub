@@ -12,7 +12,9 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/bus.ts",
       "src/client.ts",
+      "src/durability.ts",
       "src/index.ts",
       "src/internal/runtime/unavailable.ts",
       "src/server.ts",

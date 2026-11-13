@@ -9,7 +9,7 @@ import { vitehub } from "../src/index.ts"
 import { contentDefinition, createProject, path, runCli, server, serverBuild, type RunResult } from "./support/content-cms.ts"
 
 // Own file, so its Workspace and Database runtime state does not mix with content-cms-preset.test.ts.
-describe("Content cms preset with only server/content.ts and vitehub({ preset })", () => {
+describe("Content cms preset with only server/content.ts and vitehub({ host })", () => {
   it("turns on Workspace, Database, and Blob and uses the implicit default Database", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
@@ -18,7 +18,7 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
     })
     // The default libSQL file and Blob directory are relative to the working directory, as when the app runs.
     process.chdir(root)
-    const zeroConfig = () => vitehub({ preset: "node" })
+    const zeroConfig = () => vitehub({ host: "node" })
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
 
     const generate = await runCli(root, zeroConfig(), ["database", "generate"])

@@ -37,7 +37,7 @@ describe("blob.store(name, { mode: \"read\" })", () => {
 
   it("has no write methods at runtime", () => {
     const reader = blob.store("default", { mode: "read" })
-    for (const method of ["put", "del", "handleUpload", "handleMultipartUpload", "createMultipartUpload", "resumeMultipartUpload", "store"]) {
+    for (const method of ["put", "delete", "handleUpload", "handleMultipartUpload", "createMultipartUpload", "resumeMultipartUpload", "store"]) {
       expect(method in reader).toBe(false)
     }
     for (const method of ["put", "remove", "move", "moveFolder", "createFolder", "removeFolder", "replaceCrop", "update", "handleUpload"]) {
@@ -62,6 +62,6 @@ describe("blob.store(name, { mode: \"read\" })", () => {
 
   it("keeps the writable handle by default", () => {
     expect(typeof blob.store("default").put).toBe("function")
-    expect(typeof blob.store("default", { mode: "write" }).del).toBe("function")
+    expect(typeof blob.store("default", { mode: "write" }).delete).toBe("function")
   })
 })

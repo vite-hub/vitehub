@@ -14,10 +14,10 @@ Realtime is for collaborative documents, presence, and explicit Workspace checkp
 ## Install
 
 ```sh
-pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3 nitro vite vue
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5 h3 nitro vite vue
 ```
 
-ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both.
+ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both. It also declares `drizzle-orm` as a peer: Realtime depends on Auth, and Auth uses the app's copy of Drizzle.
 
 ## Connect one document
 
@@ -112,8 +112,9 @@ console.log(checkpoint.snapshot.id)
 ## Deployment and security boundaries
 
 - The Vue adapter connects to the generated same-origin `/api/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions.
-- `authority: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed host presets. It retains at most 128 active rooms.
-- `authority: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `authority: "auto"` selects it only when a Cloudflare Nitro preset or hosting environment can be resolved. Other production builds require an explicit authority.
+- `authority: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed hosts. It retains at most 128 active rooms.
+- `authority: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `authority: "auto"` selects it when a Cloudflare host or hosting environment can be resolved.
+- On a Node build, `authority: "auto"` picks when the server starts: `redis` with `REDIS_URL`, else `postgres` on the postgres.js client of the Default Database when it is on Postgres (`REALTIME_POSTGRES_URL` overrides it; `DATABASE_URL` is not read), else `memory`. A borrowed Database client is never closed. It prints the choice at boot. With `redis` or `postgres`, each instance holds its rooms in memory and shares Yjs updates and awareness with the other instances through Redis pub/sub or Postgres `LISTEN`/`NOTIFY`. The instances start each room from one shared record (`vitehub_realtime_rooms` on Postgres), and saves of one room run one at a time under a lock, so `ifDigest` stays correct across instances. `NOTIFY` payloads over 8,000 bytes go through the `vitehub_realtime_messages` table. Each app has its own namespace on the bus (`realtime.namespace`, else the app name; `REALTIME_NAMESPACE` replaces it at runtime), so two apps on one Redis or Postgres never share a room. Presence of a stopped instance leaves at once, and that of a crashed instance after the 30 second Yjs awareness timeout. Other production builds fail with `REALTIME_MISSING_AUTHORITY`.
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
 - Realtime Definitions are public by default. Set `auth: true` only after configuring ViteHub Auth; this verifies the session and replaces client-supplied presence identity. Presence in a public definition is untrusted and must not authorize application actions.
 - Other packages can contribute definitions through `hubRealtime({ contribute })`, such as Content live editing. Realtime adds them only when the build has a room authority and leaves them out without an error otherwise. A file in `server/realtime` with the same name wins.
@@ -130,6 +131,7 @@ console.log(checkpoint.snapshot.id)
 | `@vite-hub/realtime/vite` | `hubRealtime()` definition discovery and generated server wiring. |
 | `@vite-hub/realtime/vue` | `useRealtimeTiptap()` for Vue, TipTap, presence, status, and checkpoints. |
 | `@vite-hub/realtime/server` | `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
+| `@vite-hub/realtime/bus` | `useRealtimeBus()` and `closeRealtimeBuses()`, the Postgres and Redis buses that the generated Node handler passes to `createRealtimeHandler({ bus })`. |
 
 Generated files under `.vitehub/nitro/realtime` are inspectable build output, not application imports.
 

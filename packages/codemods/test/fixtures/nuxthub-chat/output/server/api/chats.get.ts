@@ -1,5 +1,5 @@
 import { defineEventHandler } from 'nuxt/server'
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { eq, desc } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
