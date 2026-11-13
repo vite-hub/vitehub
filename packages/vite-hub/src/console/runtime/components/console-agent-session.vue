@@ -4,7 +4,7 @@ import {
   AgentSessionDetailsRow,
   AgentSessionDetailsSection,
   type AgentSessionSurface,
-} from "@vite-hub/ui/agent-session";
+} from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import { AgentInvocation, invocationActivities, type AgentInvocationView } from "./invocation";
 import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
