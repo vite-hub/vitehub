@@ -269,7 +269,11 @@ export function resolveAuthOptions(
   // A callback result is request-scoped as a whole. A static Definition adds only the request defaults below.
   let requestRuntimeOptions = (callback ? declared : {}) as AuthRuntimeOptions & Record<string, unknown>
   if (request) {
-    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: trusted && proxiedOrigin ? { url: proxiedOrigin } : request })
+    const requestOrigin = trusted && proxiedOrigin ? proxiedOrigin : request.url
+    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: { url: requestOrigin } })
+    if (!baseURL) {
+      throw authErrorDiagnostics.AUTH_R0022({ message: `[vitehub] The request host ${new URL(requestOrigin).host} is not an origin of vitehub({ publicUrl }), so Auth has no base URL.` })
+    }
     // SAFETY: Origin defaults preserve the runtime options shape and add only supported Better Auth fields.
     requestRuntimeOptions = {
       ...(!Object.hasOwn(declared, "trustedOrigins") ? { trustedOrigins: [baseURL] } : {}),
