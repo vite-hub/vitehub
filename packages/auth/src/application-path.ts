@@ -47,12 +47,16 @@ export function canonicalAccessPath(path: string): string {
 }
 
 /**
- * The error message for an access route that uses route pattern syntax, or undefined for a literal path. Only a final
- * `/**` is a pattern. The access middleware does not read `*`, `:name`, `(`, `{`, or `?` as patterns, so such a route
- * would guard nothing.
+ * The error message for an access route that uses route pattern syntax or a dot segment, or undefined for a literal
+ * path. Only a final `/**` is a pattern. The access middleware does not read `*`, `:name`, `(`, `{`, or `?` as
+ * patterns, so such a route would guard nothing. H3 decodes escapes such as `%3A` and resolves `.` and `..` in a handler
+ * route, so the check reads the route after the same decoding.
  */
 export function accessRouteSyntaxError(route: string, label: string): string | undefined {
-  const syntax = /[*:(){}?\\]/.exec(route.endsWith("/**") ? route.slice(0, -3) : route)?.[0]
+  const path = canonicalAccessPath(route.endsWith("/**") ? route.slice(0, -3) : route)
+  if (path.split("/").some(segment => segment === "." || segment === ".."))
+    return `\`defineAuth()\` ${label} has a \`.\` or \`..\` segment in ${JSON.stringify(route)}. Access routes match literal paths, so write the path without dot segments.`
+  const syntax = /[*:(){}?\\]/.exec(path)?.[0]
   if (!syntax) return
   return `\`defineAuth()\` ${label} uses \`${syntax}\` in ${JSON.stringify(route)}. Access routes match literal paths, and only a final \`/**\` matches the paths below a route.`
 }

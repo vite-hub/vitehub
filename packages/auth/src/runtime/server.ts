@@ -62,7 +62,8 @@ export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccess
     const method = request.method.toUpperCase()
     return rules
       .filter(rule =>
-        (!rule.method || rule.method === method)
+        // H3 runs a GET handler for a HEAD request, so a GET rule also guards HEAD.
+        (!rule.method || rule.method === method || (rule.method === "GET" && method === "HEAD"))
         && (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))))
       .map(rule => ({ index: rule.index, authorize: rule.authorize }))
   }
