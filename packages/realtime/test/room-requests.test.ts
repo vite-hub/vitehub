@@ -127,6 +127,20 @@ describe("requestRealtimeRoom()", () => {
     expect(crowded?.code).toBe("REALTIME_ROOM_EMPTY")
   })
 
+  it("takes the answer through the hooks crossws restores after a Durable Object hibernates", async () => {
+    const sql = new FakeSql()
+    const server = createTestServer(pages, { durable: sql })
+    const page = await server.connect("page-1")
+    await settle()
+    const pending = requestRealtimeRoom("docs", "page-1", {}, { wait: 0 })
+    await settle()
+    // crossws restores the peer with a bare GET of its first URL and asks the app for hooks again.
+    const restored = await server.handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page-1")) as Response & { crossws?: { message(peer: object, message: { uint8Array(): Uint8Array }): void } }
+    const request = page.requests.at(-1)!
+    restored.crossws!.message(page.peer, { uint8Array: () => encodeRealtimeRequestFrame({ kind: "answer", id: request.id, ok: true, body: "after hibernation" }) })
+    await expect(pending).resolves.toEqual([undefined, "after hibernation"])
+  })
+
   it("ignores an answer that no request waits for", async () => {
     const server = createTestServer({ document: false })
     const page = await server.connect("page-1")

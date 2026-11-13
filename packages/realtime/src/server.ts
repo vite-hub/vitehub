@@ -734,6 +734,11 @@ function refuseUpgrade(request: Request, status: number): Response {
 
 const webSocketHooksKey = Symbol.for("crossws.hooks")
 
+/** A request with no headers at all, like the stub that crossws restores a hibernated socket's peer with. Browsers always send some. */
+function isBareRequest(request: Request): boolean {
+  return request.headers.keys().next().done === true
+}
+
 export function createRealtimeHandler(registry: RealtimeRegistry, options: RealtimeHandlerOptions = {}): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
@@ -1946,6 +1951,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     pending.settle(frame.ok ? [undefined, frame.body] : roomRequestError("REALTIME_ROOM_REFUSED", { reason: frame.why }))
   }
 
+  const restoredPeerHandler = defineWebSocketHandler({
+    message(peer, message: WebSocketMessage) {
+      const data = message.uint8Array()
+      if (data[0] === messageRealtimeRequest && data.byteLength <= maxMessageBytes) settleRequest(peer, data)
+    },
+  })
+
   /** The browser asked has left: its requests fail now instead of at their timeout. */
   function settleRequestsOf(peer: WebSocketPeer): void {
     for (const pending of pendingRequests.values()) {
@@ -2345,6 +2357,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         wait: typeof wait === "number" && wait >= 0 ? wait : defaultRequestWait,
       }, isDurableSockets(context) ? context : undefined))
     }
+    // After a Durable Object hibernates, crossws restores each socket's peer with a bare GET of its first URL, with no
+    // headers, and resolves its hooks again. Those hooks take the answers to `requestRealtimeRoom()`, which match by
+    // peer id. The rest of the room protocol still needs the original upgrade.
+    if (event.req.method === "GET" && isBareRequest(event.req)) return restoredPeerHandler(event)
     if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") return httpHandler(event)
     try {
       return await websocketHandler(event)

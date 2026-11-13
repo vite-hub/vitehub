@@ -19,16 +19,48 @@ The descriptions are ui-sdk's own. Every change reaches the component's `on<Key>
 
 ## Connect a page
 
-Turn on Agents and Realtime. A Node build keeps its rooms in memory in one process:
+Turn on Agents and Realtime. This Node build keeps its rooms in memory, in one process:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', agent: true, realtime: { authority: 'memory' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', agent: true, realtime: { authority: 'memory' } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ agent: true, realtime: true })],
+  plugins: [
+    vitehub({ host: 'node', agent: true, realtime: { authority: 'memory' } }),
+  ],
 })
 ```
+:::
+::
+
+On Cloudflare, `realtime: true` keeps the rooms in a Durable Object.
 
 Give the Agent the Capability and a web chat:
 
