@@ -124,6 +124,13 @@ describe("signed Console requests", () => {
       if (publicUrl) {
         const response = await sendToNode(await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` }), "production.example.com")
         expect(response.status, await response.clone().text()).toBe(200)
+
+        // A Console linking itself signs for its public URL, while Node runs behind a proxy.
+        stubKeys(link.env)
+        const page = new Request(`${publicUrl}/p/self/_vitehub/rpc`, { body: operationRpcBody("test.whoami", {}), headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })
+        const selfLink = await forwardProjectRequest(page, { caller: person, key: link.key, url: publicUrl }, "/_vitehub/rpc", (url, init) => sendToNode(new Request(url, init), "127.0.0.1"))
+        expect(selfLink.status, await selfLink.clone().text()).toBe(200)
+        await expect(operationRpcResponseResult(selfLink)).resolves.toMatchObject({ ok: true, value: { surface: "console", user: { email: "ada@example.com" } } })
       }
     }
     finally {

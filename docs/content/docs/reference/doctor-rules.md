@@ -990,6 +990,8 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
 - `logs` moved into `observability`, as `observability: { logs }`.
 - `contentImportBase` was removed.
+
+A build that sets `preset`, `sandbox`, `devtools`, `logs`, or `contentImportBase` fails with `VITE_HUB_B0024`, and the message names the fix. Without it, a renamed `preset` would build for the host ViteHub detects, which is Node when it finds none.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
 The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.

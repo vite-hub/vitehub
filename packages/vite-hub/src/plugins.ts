@@ -27,6 +27,7 @@ import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
+import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
@@ -1704,5 +1705,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
  * are, because Nuxt runs its own Nitro, so it never loads `nitro/vite`.
  */
 export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
+  assertNoRemovedViteHubOptions(options, "`vitehub()`")
   return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
 }
