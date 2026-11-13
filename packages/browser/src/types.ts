@@ -189,7 +189,7 @@ export type BrowserDefinitionRegistry = Record<
  */
 export type BrowserAvailability =
   | { available: true }
-  | { available: false, preset?: string, reason: string, fix: string }
+  | { available: false, host?: string, reason: string, fix: string }
 
 export interface BrowserRuntimeConfig {
   binding: string

@@ -87,7 +87,7 @@ icon: i-lucide-radio
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // Keep rooms in this server process
       realtime: { authority: 'memory' },
       workspace: true,
@@ -107,7 +107,7 @@ icon: i-lucide-radio
       vue(),
       nitro(),
       vitehub({
-        preset: 'node',
+        host: 'node',
         // Keep rooms in this server process
         realtime: { authority: 'memory' },
         workspace: true,
@@ -126,7 +126,7 @@ icon: i-lucide-radio
     plugins: [
       vue(),
       vitehub({
-        preset: 'node',
+        host: 'node',
         // Keep rooms in this server process
         realtime: { authority: 'memory' },
         workspace: true,

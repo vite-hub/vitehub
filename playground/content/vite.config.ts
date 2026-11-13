@@ -7,7 +7,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       // `server/agents/translator.ts` translates English docs pages. `server/queues/translate.ts` runs it after each change.
       agent: true,
       auth: true,

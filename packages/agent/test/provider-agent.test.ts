@@ -79,7 +79,7 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { codexDriver, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -2936,6 +2936,43 @@ cli_auth_credentials_store = "keyring"
     else expect(session).not.toHaveProperty("approvalPolicy")
   })
 
+  it("gives Codex edit sandboxes the network and package caches that driver.workspaceWrite grants", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-write-"))
+    const store = join(home, "store")
+    try {
+      for (const [permissions, expected] of [["allow-edits-unattended", true], ["allow-edits", true], ["allow-all", false], ["ask", false]] as const) {
+        const threadId = `thread-workspace-write-${permissions}`
+        const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+        await createProviderAgentAdapter({
+          provider: "codex",
+          permissions,
+          env: { HOME: home, npm_config_store_dir: store },
+          workspaceWrite: { network: true, packageCaches: true },
+          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        }).generate(context(threadId) as never)
+        const session = provider.startSession.mock.calls[0]?.[0]
+        if (!expected) {
+          expect(session).not.toHaveProperty("sandboxPolicy")
+          continue
+        }
+        expect(session).toHaveProperty("sandboxPolicy", {
+          type: "workspaceWrite",
+          networkAccess: true,
+          writableRoots: [store, join(home, ".local/share/pnpm"), join(home, ".cache/pnpm"), join(home, ".cache/node/corepack"), join(home, ".npm")],
+        })
+        await expect(stat(join(home, ".cache/node/corepack"))).resolves.toMatchObject({})
+      }
+      const threadId = "thread-workspace-write-network-only"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex", permissions: "allow-edits-unattended", workspaceWrite: { network: true } }).generate(context(threadId) as never)
+      expect(provider.startSession.mock.calls[0]?.[0]).toHaveProperty("sandboxPolicy", { type: "workspaceWrite", networkAccess: true, writableRoots: [] })
+    }
+    finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it("preauthorizes only assigned host tools for unattended Codex edits", async () => {
     const threadId = "thread-unattended-host-tools";
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })]);
@@ -5703,6 +5740,30 @@ cli_auth_credentials_store = "keyring"
     expect(launchedCodexDeveloperInstructions()).toBe("Repair one \"PR\" with `git` and $HOME.\nThen stop.")
   })
 
+  it.each([
+    { provider: "codex" as const, driver: codexDriver },
+    { provider: "claude-code" as const, driver: claudeCodeDriver },
+  ])("gives $provider the instructions that a child extend function returns", async ({ provider, driver }) => {
+    const threadId = `thread-${provider}-extended-instructions`
+    let prompt: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        if (provider === "codex") return
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        prompt = await readFile(args.split("--append-system-prompt-file ")[1]!.replace(/^['"]|['"]$/g, ""), "utf8")
+      },
+    })
+    const base = defineAgent({ workspace: {}, driver: driver({ instructions: ["Base rules.", () => "Answer {{{ context.customInstructions }}}"] }) })
+    const child = defineAgent({ extends: base, driver: { instructions: { extend: inherited => `${inherited}\n\nChild rules.` } } })
+    const invocation = context(threadId)
+    invocation.context.set("customInstructions", "in English.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ instructions: child.__vitehubWorkspaceAgentOptions.driver.instructions, provider }).generate(invocation as never)
+    const expected = "Base rules.\n\nAnswer in English.\n\nChild rules."
+    if (provider === "codex") expect(launchedCodexDeveloperInstructions()).toBe(expected)
+    else expect(prompt).toBe(expected)
+  })
+
   it("resumes a Codex session only with the developer instructions it started with", async () => {
     const threadId = `thread-codex-developer-resume-${crypto.randomUUID()}`
     const path = `.vitehub/${threadId}.sqlite`
@@ -5938,6 +5999,47 @@ cli_auth_credentials_store = "keyring"
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     }) as never)
+  })
+
+  it.each(["current", "advanced", "unavailable"])("records the materialized Workspace revision with %s optional history", async (history) => {
+    const threadId = `thread-workspace-revision-${history}`
+    let materialized = false
+    const runContext = context(threadId, {
+      workspace: {
+        fs: {},
+        history: { head: vi.fn(async () => {
+          expect(materialized).toBe(true)
+          if (history === "unavailable") throw new Error("history provider unavailable")
+          return { id: history === "advanced" ? "later" : "prepared", ref: "run-1" }
+        }) },
+        materializeSources: vi.fn(async () => {
+          materialized = true
+          return { sources: [] }
+        }),
+        startSession: vi.fn(async () => ({
+          revision: "prepared",
+          close: vi.fn(async () => undefined),
+          exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+          readFile: vi.fn(async () => new Uint8Array()),
+        })),
+        tools: {},
+      },
+      workspaceDefinition: { name: "docs" },
+      workspaceMode: "read",
+    })
+    await setAgentTelemetryConfiguration(runContext.context, {
+      driver: { kind: "provider", provider: "codex" },
+      runtime: { name: "vite" },
+      workspace: { mode: "read", name: "docs" },
+    })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(getAgentTelemetryConfiguration(runContext.context)?.value.workspace).toEqual({
+          mode: "read", name: "docs", revision: "prepared", ...(history === "current" ? { ref: "run-1" } : {}),
+        })
+      },
+    })
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
   })
 
   it("writes successful workspace sessions back before cleanup", async () => {

@@ -7,6 +7,8 @@
 
 `@vite-hub/web-container` runs a ViteHub app in the reader's browser tab, inside a [StackBlitz WebContainer](https://webcontainers.io). Docs tutorials and playgrounds use it to install, start, and preview an app without a server of ours.
 
+Read the [WebContainer docs](https://vitehub.dev/docs/web-container) for a tutorial, snapshots, and the API reference.
+
 Install this owner package directly, or import the same API from `vite-hub/web-container` when your app already uses the `vite-hub` framework distribution.
 
 ```sh
@@ -184,7 +186,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 - Node is 22.22.3 and cannot be changed. `engines` and `.nvmrc` are ignored.
 - `node:sqlite` loads but has no `exec()` or `prepare()`. Use `@libsql/client` with a `file:` URL.
-- workerd and Miniflare cannot run, so the Cloudflare preset cannot run locally in a container.
+- workerd and Miniflare cannot run, so the Cloudflare host cannot run locally in a container.
 - Outbound `fetch()` from the app is subject to CORS from a StackBlitz origin. A blocked request fails with `SocketError: other side closed`.
 - Spawned arguments lose backslashes. Mount a script file and run it instead of `node -e`.
 

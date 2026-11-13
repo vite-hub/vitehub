@@ -95,7 +95,7 @@ Pass `relations` from Drizzle's `defineRelations(schema, r => ({ ... }))` to `de
 
 In a Nuxt application, ViteHub also discovers Definitions in each layer's server directory. Definitions with the same name merge their tables into one database and one set of migrations in the application. The application Definition takes precedence over layer tables. Relations merge like tables: the relations of one table merge across layers, and the application wins a relation name. When the application sets `connection` or `cloudflare`, it replaces all layer options and must also set each option that a layer sets.
 
-When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration merges each resolved D1 binding into `nitro.cloudflare.wrangler.d1_databases` and copies the Definition's migration SQL to `.output/server/.vitehub/database/migrations/<binding>`. A Definition's binding replaces a Nitro binding with the same name.
+When the Nitro Vite plugin builds with a Cloudflare host, the Vite integration merges each resolved D1 binding into `nitro.cloudflare.wrangler.d1_databases` and copies the Definition's migration SQL to `.output/server/.vitehub/database/migrations/<binding>`. A Definition's binding replaces a Nitro binding with the same name.
 
 A production build bundles libSQL only when a Database can reach a remote libSQL server: a `libsql:`, `http(s):`, or `ws(s):` connection URL, a URL from the environment, or a Definition that the build cannot read. A Cloudflare build whose Databases use D1 bindings or D1 over HTTP, or a Nuxt build with only D1-over-HTTP Databases, ships no libSQL client and no SQLite WASM. There, a Database without its D1 binding fails with `DATABASE_MISSING_CONNECTION`. Development and Node builds keep local SQLite.
 
@@ -130,7 +130,7 @@ pnpm vitehub database export --remote --stage production # the deployed database
 
 A self-hosted Node build applies migrations itself when the server starts. The build writes each database's migrations into the server output, and a Nitro plugin that Nitro loads before the server listens applies them. Postgres databases migrate on start by default when the build's host is Node; `migrateOnStart: true` also migrates local SQLite files, and `migrateOnStart: false` turns it off. The plugin applies the pending migrations in one transaction, with Drizzle 1.0's ledger: a migration folder is pending when the `name` column does not list it. A Drizzle Kit 0.x ledger gets `name` first, as Drizzle 1.0 adds it. It refuses data loss like `vitehub database migrate`, unless `migrateOnStart: { allowDataLoss: true }`. A failed migration rolls back and stops the server with `DATABASE_MIGRATION_FAILED` for Postgres.
 
-On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_lock(hashtext('vitehub:migrations'))` and keeps it until the commit. Several instances can start together: one migrates, and the others wait, then find nothing pending. `vitehub database migrate` applies Postgres migrations with the same migrator and lock, not with Drizzle Kit. Definitions on one Postgres database, as the server reports it (`current_database()` and the server start time in Unix seconds, the same for every session), share its ledger and migrate in one transaction.
+On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_lock(hashtext('vitehub:migrations'))` and keeps it until the commit. Several instances can start together: one migrates, and the others wait, then find nothing pending. `vitehub database migrate` applies Postgres migrations with the same migrator and lock, not with Drizzle Kit. A Postgres Database on PGlite has no server to lock, so Drizzle Kit applies its migrations. Definitions on one Postgres database, as the server reports it (`current_database()` and the server start time in Unix seconds, the same for every session), share its ledger and migrate in one transaction.
 
 With `migrateOnStart: true`, another host, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a SQLite file or a Postgres database must not have one folder name with different SQL; otherwise startup refuses all changes with that error. SQLite has no lock across processes: run one server process per database file.
 
@@ -244,6 +244,8 @@ Outside a Cloudflare request, when `connection.url` is not set or its environmen
 
 `vitehub database generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub database migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Query a Postgres Definition through `useDatabase()`; `defineDatabase()` returns only the Definition.
 
+Without a Hyperdrive binding, a URL, and PG* variables, `vite dev`, `nuxt dev`, app tests, and `vitehub database migrate` run a Postgres Database on [PGlite](https://pglite.dev), a Postgres in the Node process. Install `@electric-sql/pglite` in the app; ViteHub loads it only then. The data is in `.vitehub/data/database/pglite`, or `.vitehub/data/database/<name>.pglite` for a Named Database, and app tests get an in-memory PGlite with the migrations. PGlite opens its folder in one process, so stop the dev server before `vitehub database migrate`. `driver: "pglite"` uses PGlite there even with a URL, and a production build with it fails with `DATABASE_PGLITE_IN_BUILD`. Production output never includes PGlite.
+
 ## Request stats
 
 With the evlog Nitro module registered, each request's wide event gets `database: { calls, ms, maxConcurrent }`: the calls to any database (a batch is one call), the milliseconds with at least one call in flight, and the most calls in flight at once. A Nitro middleware (`runtime/request-stats`) gives each request its own count, and each driver client (D1 binding, D1 over HTTP, libSQL, postgres.js) reports its calls to it. `db.$client` stays the app's own client (the request's D1 session under read replication), and calls made directly on it are not counted. Calls after the response are not counted, and without evlog nothing is measured. See [Server API](https://vitehub.dev/docs/database/server-api#see-database-work-on-each-request).
@@ -257,7 +259,7 @@ Nuxt apps can declare one D1 database resource in `vite-hub/nuxt` and let it wir
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt", "@nuxt/content"],
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     database: {
       driver: "d1",
       databaseName: "app-content",

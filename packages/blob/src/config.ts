@@ -188,7 +188,8 @@ function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedFsBlobStoreConfig {
-  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE") }, { base: ".vitehub/data/blob", driver: "fs" as const })
+  const urlBaseUrl = trimmed(config.urlBaseUrl)
+  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE"), ...(urlBaseUrl ? { urlBaseUrl } : {}) }, { base: ".vitehub/data/blob", driver: "fs" as const })
 }
 
 const CLOUDFLARE_R2_JURISDICTIONS = { eu: true, fedramp: true, us: true } satisfies Record<CloudflareR2Jurisdiction, true>

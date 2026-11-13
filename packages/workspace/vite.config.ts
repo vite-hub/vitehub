@@ -21,6 +21,7 @@ export default defineConfig({
       "src/blob-database.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
+      "src/durability.ts",
       "src/files.ts",
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",

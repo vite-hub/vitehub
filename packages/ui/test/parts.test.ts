@@ -224,7 +224,7 @@ describe("shadcn/ui parts", () => {
     const unlayered = unlayeredRules(stylesheet);
     // Outside a layer stay only the theme tokens and the rules that restyle Nuxt UI components, whose utility classes
     // would win over a layer: the Markdown elements in the typeset, the scroll button, the image dialog, and the rail.
-    const restylesNuxtUI = /^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-/;
+    const restylesNuxtUI = /^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^(\.vh-agent-session )?\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-/;
     for (const { body, prelude } of unlayered) {
       if (prelude === ":root" || prelude.startsWith(":where(:root,")) continue;
       if (prelude.startsWith("@")) expect(body, prelude).toMatch(/vh-primitive-/);

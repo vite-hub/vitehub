@@ -24,9 +24,9 @@ A required Env value that is not set fails in Server Env first. Then `email.send
  import { defineConfig } from 'vite'
 
  export default defineConfig({
--  plugins: [vitehub({ preset: 'node' })],
+-  plugins: [vitehub({ host: 'node' })],
 +  plugins: [vitehub({
-+    preset: 'node',
++    host: 'node',
 +    email: {
 +      driver: 'resend',
 +      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -35,7 +35,7 @@ A required Env value that is not set fails in Server Env first. Then `email.send
  })
 ```
 
-Add the `email` option. On the Cloudflare preset, `email: true` selects the `cloudflare-email` driver and generates the `EMAIL` binding. Restart the dev server after you change the config.
+Add the `email` option. On the Cloudflare host, `email: true` selects the `cloudflare-email` driver and generates the `EMAIL` binding. Restart the dev server after you change the config.
 
 ```diff [vite.config.ts]
      email: {

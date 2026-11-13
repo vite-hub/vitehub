@@ -281,6 +281,33 @@ The Console opens that page of the app of your team whose URL is `project`. When
 
 A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
+### Open the Console from your pages
+
+With `console` set, the [ViteHub tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages has a **Console** segment. It is a link. It opens your app in [console.vitehub.dev](https://console.vitehub.dev) in a new tab, with `hostedConsoleUrl()`, the page origin, and the app base. When the page shows one Content document, through [`contentField()`](/docs/content/server-api#field-addresses) attributes, the link opens that document. Otherwise it opens the project overview. The app does not need Comments for this.
+
+The link gives no access. The Console checks the person and the team when it opens the link, and opens Home when the team has not linked the app. The pill still keeps the link away from the app's other users:
+
+| Where | Who sees **Console** |
+| --- | --- |
+| Development server | Every visitor. |
+| Production, with [`console.authorize`](#limit-a-user-to-some-sections) | Visitors for whom `authorize` returns `true`, or `{ sections }` with one section or more. `authorize` gets `via: 'page'`, the session request of the page, and the app's Auth `user` when someone signed in. |
+| Production, without `authorize` | App Auth users with the admin role of Better Auth's `admin()` plugin. [Give the first admin role](/docs/auth/configure#give-the-first-admin-role) with `VITEHUB_ADMINS` or a claim code. Without app Auth, nobody. |
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize((context) => {
+  // Show the Console link to every signed-in user of the app.
+  if (context.via === 'page') return Boolean(context.user)
+  // Every other caller keeps the access that it has without `authorize`.
+  return true
+})
+```
+
+An `authorize` that returns `true` for every context also shows the link to every visitor. Check `context.via` first.
+
+The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. On a development server without Auth, open a page with `?vitehub` once. A page on `http:` with a host that is not `localhost` or a loopback address, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+
 ## Self-host the Console
 
 The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite or on Cloudflare Workers with D1. Its README shows how to build, configure, and deploy it.
@@ -372,7 +399,7 @@ export default defineNuxtConfig({
   vitehub: {
     console: true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   },
   $development: {
     vitehub: { console: { auth: false } },
@@ -391,7 +418,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   }), nitro()],
 }))
 ```
@@ -406,14 +433,14 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   })],
 }))
 ```
 :::
 ::
 
-A signed caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'console'` with the `user` that the Console signed, the `team` that linked the app and the role of the user in it, or `via: 'cli'` with no `user`. Both have `key`, the `<NAME>` of the key. Operations get the same user as `context.user`. An Agent that calls Console operations as tools gets `via: 'agent'`, so allow it on its own:
+A signed caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'console'` with the `user` that the Console signed, the `team` that linked the app and the role of the user in it, or `via: 'cli'` with no `user`. Both have `key`, the `<NAME>` of the key. Operations get the same user as `context.user`. An Agent that calls Console operations as tools gets `via: 'agent'`, and the page tools pill gets `via: 'page'` when it asks whether to show the [Console link](#open-the-console-from-your-pages). Allow each one on its own:
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
@@ -450,7 +477,7 @@ Earlier releases let the app sign people in to the Console with `console: { auth
 
 1. Remove `auth`, `origins`, `mcp`, and `signInPage` from the `console` options, or set `console: true`.
 2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/rpc?ticket=`: a signed call has no app session, a one-time link has its ticket as proof, and the route checks its own access. A build fails when an app route file, such as `server/routes/_vitehub/rpc.post.ts`, uses the same path.
-3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/development/app-mcp).
+3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/mcp).
 4. Link the app in [console.vitehub.dev](#in-production), and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows. Invite the people who used the app's Console to your team.
 5. For the CLI, make a key with `vitehub secret console-key`, and replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 6. Connect agents to the [ViteHub MCP](/docs/development/mcp) of the Console instead of `/_vitehub/mcp`.
@@ -752,7 +779,7 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 | A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. |
 | KV or Blob inspection returns a provider error | Check that the deployed app has permission and credentials to read the configured store. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal. |
-| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
+| Agent Console startup fails on a deployment host | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
 | The Console cannot reach a deployed app | Link the app with the URL that serves it, and check that the server is public. The Console cannot reach a `vite dev` server on your machine. |
 | The build fails with `VITE_HUB_B0020` and names a `console` option | The option is removed. Follow the fix in the message, or see [Move from auth: "app" or Console Auth](#move-from-auth-app-or-console-auth). |
 | `console.impersonation` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition with Better Auth's `admin` plugin, such as `server/auth.ts`. |
