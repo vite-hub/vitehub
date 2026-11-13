@@ -150,8 +150,19 @@ describe("@vite-hub/kit/catalog", () => {
       ["KIT_R0010", { root: "e0", elements: Object.fromEntries(Array.from({ length: 129 }, (_, index) => [`e${index}`, { type: "Divider", props: {} }])) }],
       ["KIT_R0011", { root: "e0", elements: Object.fromEntries(Array.from({ length: 23 }, (_, index) => [`e${index}`, { type: "Stack", props: {}, children: index < 22 ? [`e${index + 1}`] : [] }])) }],
       ["KIT_R0012", { root: "a", elements: { a: { type: "Stack", props: {}, children: ["b"] }, b: { type: "Stack", props: {}, children: ["a"] } } }],
+      ["KIT_R0015", { root: "a", elements: { a: { type: "Stack", props: {}, children: ["b", "b"] }, b: { type: "Divider", props: {} } } }],
+      ["KIT_R0015", { root: "a", elements: { a: { type: "Stack", props: {}, children: ["b", "c"] }, b: { type: "Stack", props: {}, children: ["d"] }, c: { type: "Stack", props: {}, children: ["d"] }, d: { type: "Divider", props: {} } } }],
     ];
     for (const [code, spec, surface] of cases) expect(codes(spec, surface), code).toEqual([code]);
+  });
+
+  it("visits each element once, so a spec that repeats a subtree stays fast", () => {
+    // Each element names the next one five times: 5^29 paths from 30 elements.
+    const elements = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`e${index}`, { type: "Stack", props: {}, children: index < 29 ? Array.from({ length: 5 }, () => `e${index + 1}`) : [] }]));
+    const started = performance.now();
+    const result = validateSpec({ root: "e0", elements }, { surface: "web" });
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(result.valid ? [] : [...new Set(result.diagnostics.map(diagnostic => diagnostic.code))]).toEqual(["KIT_R0011", "KIT_R0015"]);
   });
 
   it("points each diagnostic at the failing part of the spec", () => {

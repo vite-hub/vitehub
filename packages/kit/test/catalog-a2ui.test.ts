@@ -178,6 +178,23 @@ describe("A2UI v1.0", () => {
     });
   }
 
+  it("keeps data model keys as data, never as the object prototype", () => {
+    const surface = `{ "version": "1.0", "createSurface": { "surfaceId": "s", "catalogId": "${a2uiBasicCatalogId}", "dataModel": { "__proto__": { "fromCreate": true } } } }`;
+    const components = `{ "version": "1.0", "updateComponents": { "surfaceId": "s", "components": [{ "id": "root", "component": "Text", "text": "Hi" }] } }`;
+    const updates = [
+      `{ "version": "1.0", "updateDataModel": { "surfaceId": "s", "path": "/__proto__/fromPath", "value": true } }`,
+      `{ "version": "1.0", "updateDataModel": { "surfaceId": "s", "path": "/a/__proto__/fromNested", "value": true } }`,
+      `{ "version": "1.0", "updateDataModel": { "surfaceId": "s", "value": { "__proto__": { "fromRoot": true } } } }`,
+    ];
+    const result = fromA2ui(JSON.parse(`[${[surface, components, ...updates].join(",")}]`));
+    expect(result.ok ? [] : result.diagnostics.map(({ code }) => code)).toEqual(["KIT_R0014", "KIT_R0014", "KIT_R0014", "KIT_R0014"]);
+    const probe: Record<string, unknown> = {};
+    expect([probe.fromCreate, probe.fromPath, probe.fromNested, probe.fromRoot]).toEqual([undefined, undefined, undefined, undefined]);
+    expect(fromA2ui(JSON.parse(`[${surface.replace("__proto__", "safe")},${components},{ "version": "1.0", "updateDataModel": { "surfaceId": "s", "path": "/constructor/prototype", "value": 1 } }]`)))
+      .toMatchObject({ ok: true, spec: { state: { safe: { fromCreate: true }, constructor: { prototype: 1 } } } });
+    expect(({} as Record<string, unknown>).constructor).toBe(Object);
+  });
+
   it("names A2UI features that the catalog cannot express", () => {
     const result = fromA2ui([
       { version: "1.0", createSurface: { surfaceId: "s", catalogId: a2uiBasicCatalogId } },

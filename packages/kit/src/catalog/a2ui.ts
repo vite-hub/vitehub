@@ -204,17 +204,25 @@ const a2uiKeys: Record<string, string[]> = {
   Tabs: ["tabs"],
 };
 
-function setPath(state: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split("/").slice(1).map(segment => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+/** A key that would reach an object's prototype instead of holding data. */
+const unsafeKey = "__proto__";
+
+/** Writes `value` as an own data property, so a key such as `__proto__` stays data. */
+function writeOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, configurable: true, writable: true });
+}
+
+/** Writes `value` at an absolute JSON Pointer of `state`, through own properties only. */
+function setPath(state: Record<string, unknown>, segments: string[], value: unknown): void {
   let target = state;
   for (const segment of segments.slice(0, -1)) {
-    const next = target[segment];
-    if (!isRecord(next)) target[segment] = {};
-    const child = target[segment];
-    if (isRecord(child)) target = child;
+    const next = Object.hasOwn(target, segment) ? target[segment] : undefined;
+    const child = isRecord(next) ? next : {};
+    if (child !== next) writeOwn(target, segment, child);
+    target = child;
   }
   const last = segments.at(-1);
-  if (last !== undefined) target[last] = value;
+  if (last !== undefined) writeOwn(target, last, value);
 }
 
 /**
@@ -232,8 +240,15 @@ export function fromA2ui(messages: readonly unknown[]): FromA2uiResult {
     if (!Array.isArray(list)) return fail("components must be a list.", path);
     list.forEach((component, index) => {
       if (!isRecord(component) || typeof component.id !== "string" || typeof component.component !== "string") return fail("a component needs a string id and component.", `${path}/${index}`);
+      if (component.id === unsafeKey) return fail(`the component id "${unsafeKey}" is not allowed.`, `${path}/${index}/id`);
       byId.set(component.id, { ...component, id: component.id, component: component.component });
     });
+  };
+  const mergeRoot = (value: Record<string, unknown>, path: string) => {
+    for (const [key, item] of Object.entries(value)) {
+      if (key === unsafeKey) fail(`the data model uses the key "${unsafeKey}".`, `${path}/${unsafeKey}`);
+      else writeOwn(state, key, item);
+    }
   };
   const sameSurface = (id: unknown, path: string) => {
     if (typeof id !== "string") return fail("a message needs a surfaceId.", path);
@@ -250,7 +265,7 @@ export function fromA2ui(messages: readonly unknown[]): FromA2uiResult {
       if (catalogId !== a2uiBasicCatalogId) fail(`the catalog "${String(catalogId)}" is not the A2UI basic catalog.`, `${at}/createSurface/catalogId`);
       if (components !== undefined) addComponents(components, `${at}/createSurface/components`);
       if (isRecord(dataModel)) {
-        Object.assign(state, dataModel);
+        mergeRoot(dataModel, `${at}/createSurface/dataModel`);
         hasState = true;
       }
     }
@@ -262,10 +277,14 @@ export function fromA2ui(messages: readonly unknown[]): FromA2uiResult {
       const { path, value } = message.updateDataModel;
       sameSurface(message.updateDataModel.surfaceId, `${at}/updateDataModel`);
       if (path === undefined || path === "/") {
-        if (isRecord(value)) Object.assign(state, value);
+        if (isRecord(value)) mergeRoot(value, `${at}/updateDataModel/value`);
         else fail("a data model update of the root needs an object value.", `${at}/updateDataModel/value`);
       }
-      else if (typeof path === "string" && path.startsWith("/")) setPath(state, path, value);
+      else if (typeof path === "string" && path.startsWith("/")) {
+        const segments = path.split("/").slice(1).map(segment => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+        if (segments.includes(unsafeKey)) fail(`the data model path "${path}" uses the key "${unsafeKey}".`, `${at}/updateDataModel/path`);
+        else setPath(state, segments, value);
+      }
       else fail(`the data model path "${String(path)}" is not an absolute JSON Pointer.`, `${at}/updateDataModel/path`);
       hasState = true;
     }

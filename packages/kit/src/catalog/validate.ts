@@ -135,20 +135,34 @@ function checkElement(id: string, value: unknown, spec: Record<string, unknown>,
   }
 }
 
-/** Finds cycles and the depth of the tree from the root. Each problem is reported once. */
+/**
+ * Walks the tree from the root once. It reports cycles, depth, and an element that appears in `children` more than once,
+ * each problem once. Each element is visited at most once, so a spec that repeats a subtree cannot make the walk grow
+ * past the number of elements.
+ */
 function checkTree(root: string, elements: Record<string, unknown>, out: CatalogDiagnostic[]): void {
-  const cycles = new Set<string>();
+  const reported = new Set<string>();
+  const visited = new Set<string>([root]);
   let tooDeep = false;
+  const report = (id: string, code: "KIT_R0012" | "KIT_R0015") => {
+    if (reported.has(id)) return;
+    reported.add(id);
+    out.push(diagnostic(code, { id }, `/elements/${pointerSegment(id)}`));
+  };
   const visit = (id: string, ancestors: string[]): void => {
     const element = elements[id];
     if (!isRecord(element) || !Array.isArray(element.children)) return;
     for (const child of element.children) {
       if (typeof child !== "string" || !Object.hasOwn(elements, child)) continue;
       if (ancestors.includes(child)) {
-        if (!cycles.has(child)) out.push(diagnostic("KIT_R0012", { id: child }, `/elements/${pointerSegment(child)}`));
-        cycles.add(child);
+        report(child, "KIT_R0012");
         continue;
       }
+      if (visited.has(child)) {
+        report(child, "KIT_R0015");
+        continue;
+      }
+      visited.add(child);
       if (ancestors.length >= maxSpecDepth) {
         if (!tooDeep) out.push(diagnostic("KIT_R0011", { limit: maxSpecDepth }, `/elements/${pointerSegment(child)}`));
         tooDeep = true;

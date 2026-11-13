@@ -81,6 +81,11 @@ const catalogDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ id }: { id: string }) => `The element "${id}" contains itself through its children.`,
       fix: "Make the elements a tree: an element cannot be its own child or the child of a child.",
     },
+    /** An element appears in `children` more than once. */
+    KIT_R0015: {
+      why: ({ id }: { id: string }) => `The element "${id}" appears in children more than once.`,
+      fix: "Use each element id once in `children`. To show the same content twice, add a second element with its own id.",
+    },
     /** A spec uses a feature that A2UI cannot express. */
     KIT_R0013: {
       why: ({ problem }: { problem: string }) => `The spec cannot convert to A2UI: ${problem}`,
@@ -97,7 +102,7 @@ const catalogDiagnostics = /*#__PURE__*/ defineDiagnostics({
 /** A stable code of the catalog diagnostics. */
 export type CatalogDiagnosticCode
   = | "KIT_R0001" | "KIT_R0002" | "KIT_R0003" | "KIT_R0004" | "KIT_R0005" | "KIT_R0006" | "KIT_R0007"
-    | "KIT_R0008" | "KIT_R0009" | "KIT_R0010" | "KIT_R0011" | "KIT_R0012" | "KIT_R0013" | "KIT_R0014";
+    | "KIT_R0008" | "KIT_R0009" | "KIT_R0010" | "KIT_R0011" | "KIT_R0012" | "KIT_R0013" | "KIT_R0014" | "KIT_R0015";
 
 /**
  * One problem in a spec or in A2UI messages. It is plain JSON, so an app can send it back to the Agent that wrote the
@@ -128,6 +133,7 @@ interface DiagnosticParams {
   KIT_R0012: { id: string };
   KIT_R0013: { problem: string };
   KIT_R0014: { problem: string };
+  KIT_R0015: { id: string };
 }
 
 /** Builds the plain diagnostic of `code` at `path`. */
