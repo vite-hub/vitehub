@@ -41,6 +41,8 @@ Choose what starts a run:
 
 Only GitLab sends `ready_for_review`. Forgejo has no draft-to-ready event, so `forgejo()` rejects it in `reconcile.events`.
 
+`github()` also acts on reconcile runs when a person pushes to the branch or closes the pull request, with `reconcile.headMoves`. `gitlab()` and `forgejo()` do not: they do not pass `closed` events to the trigger, and they cannot always tell a bot push from a person's push. See [When the branch moves or the pull request closes](/docs/agents/channels#when-the-branch-moves-or-the-pull-request-closes).
+
 `pullRequest.ci` is `'report'` (default) or `'wait'`, as on GitHub. See [Hosted CI](/docs/agents/channels#hosted-ci).
 
 The final reply is a pull request comment. `pullRequest.reply: false` turns it off. Delivery effects can add reactions, edit the triggering comment, or report commit statuses. `statusContext` defaults to `ViteHub Agent`. `activity: true` keeps one comment with session links and status, owned by the authenticated account.
