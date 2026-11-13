@@ -112,6 +112,12 @@ export interface RealtimeWorkspaceDocumentOptions {
  */
 export interface RealtimeEditor {
   extensions(): AnyExtension[]
+  /**
+   * Version of the schema and codec. Change it when a new `extensions()` or codec cannot read the Yjs state of the
+   * previous one, such as a node type that was removed or renamed. A room persisted under another version opens fresh
+   * from the stored Markdown, and a browser that connects with another version is read-only until it reloads.
+   */
+  version?: string
   fromMarkdown(markdown: string): Promise<JSONContent> | JSONContent
   toMarkdown(document: JSONContent): Promise<string> | string
   /**
@@ -134,8 +140,11 @@ export interface RealtimeVerifyResult {
   writable: boolean
 }
 
-/** Why a connection is read-only: `access` (authorization denied write) or `document` (the codec cannot edit it losslessly). */
-export type RealtimeReadOnlyReason = "access" | "document"
+/**
+ * Why a connection is read-only: `access` (authorization denied write), `document` (the codec cannot edit it
+ * losslessly), or `version` (the browser runs another editor version than the server, so it must reload to edit).
+ */
+export type RealtimeReadOnlyReason = "access" | "document" | "version"
 
 /**
  * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings

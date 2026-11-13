@@ -88,6 +88,7 @@
   "dependencies": {
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-blockquote": "catalog:realtime",
+    "@tiptap/extension-code": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
     "@tiptap/extension-document": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",

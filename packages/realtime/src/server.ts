@@ -34,6 +34,7 @@ import { createRealtimeIdentity } from "./presence.ts"
 import { AwarenessOwnershipConflict, compactRealtimeAwareness, createRealtimeAwarenessOwners } from "./awareness.ts"
 import { isRealtimeDocumentConflict } from "./conflict.ts"
 import {
+  checkRealtimeBody,
   containsRealtimeState,
   createRealtimeYDoc,
   diffRealtimeYDoc,
@@ -56,6 +57,7 @@ import {
   messageQueryAwareness,
   messageWorkspaceChange,
   realtimeForbiddenWriteCloseCode,
+  realtimeInvalidDocumentCode,
   realtimeKeepalivePing,
   realtimeKeepalivePong,
   realtimeReadOnlyCode,
@@ -150,6 +152,7 @@ function holdsFields(map: Y.Map<unknown>, fields: Record<string, RealtimeFieldVa
 
 const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
 const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
+const invalidDocumentMessage = "The room document does not fit the editor schema, so Realtime did not save it. Undo the last change or reload."
 const codecReadBackIssue: RealtimeIssue = {
   message: "The editor cannot read back the Markdown that it saved. Some content can change when the document opens again.",
 }
@@ -446,7 +449,14 @@ function guardStatus(guard: DocumentGuard): { error: string | null, issues: Real
 }
 
 function documentTables(sql: RealtimeRoomSql): boolean {
-  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL)")
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL, editor_version TEXT)")
+  try {
+    sql.exec("ALTER TABLE vitehub_realtime_documents ADD COLUMN editor_version TEXT")
+  }
+  catch {
+    // A new table already has the column. A host that rejects ALTER TABLE keeps the five-column table: its rooms read
+    // as unversioned, so they restore only for an editor without `version`.
+  }
   sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
   // Older adapter-era deployments already have this table without the client_update
   // column. SQLite keeps CREATE TABLE IF NOT EXISTS as a no-op in that case, so
@@ -519,6 +529,16 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
         blob,
       )
     }
+  }
+}
+
+function readStoredRoom(sql: RealtimeRoomSql, key: string): Record<string, unknown> | undefined {
+  try {
+    return sql.exec("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
+  }
+  catch {
+    // The host rejected the editor_version column (see documentTables).
+    return sql.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
   }
 }
 
@@ -1276,13 +1296,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         const clientUpdateColumn = documentTables(sql)
         migrateLegacyDocument(sql, key, clientUpdateColumn)
       }
-      const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
+      const stored = sql && readStoredRoom(sql, key)
       const storedDigest = text(stored?.digest) ?? null
       const storedEpoch = text(stored?.epoch)
       const storedState = storedUpdate(stored?.update_blob)
       // Restore persisted Yjs state while it still describes the stored document. A different
       // digest means an external write: seed a new room so stale client state cannot merge back.
+      // A different editor version means a schema that may not read the old state: TipTap would
+      // delete the nodes it does not know from the room, so seed from the Markdown instead.
       const restores = !!sql && !!storedState && !!storedEpoch && storedDigest === loaded.digest
+        && (text(stored?.editor_version) ?? null) === (editor.version ?? null)
       let document: Y.Doc
       let persistedUpdates = 0
       let dirty = false
@@ -1376,14 +1399,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
     // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
-    room.sql.exec(
-      "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)",
-      room.key,
-      room.epoch,
-      room.digest,
-      room.dirty ? 1 : 0,
-      Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer,
-    )
+    const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
+    try {
+      room.sql.exec(
+        "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob, editor_version) VALUES (?, ?, ?, ?, ?, ?)",
+        ...row,
+        room.editor.version ?? null,
+      )
+    }
+    catch {
+      // The host rejected the editor_version column (see documentTables).
+      room.sql.exec("INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)", ...row)
+    }
     room.sql.exec("DELETE FROM vitehub_realtime_document_updates WHERE room_key = ?", room.key)
     room.persistedUpdates = 0
   }
@@ -1716,6 +1743,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       persistRoom(room)
     }
     try {
+      try {
+        checkRealtimeBody(editor, submitted)
+      }
+      catch {
+        // A codec reads such JSON as an empty or partial document. Writing it would lose content, so keep the room dirty.
+        throw new HTTPError({ status: 422, message: invalidDocumentMessage, data: { code: realtimeInvalidDocumentCode } })
+      }
       const written = await readRealtimeYDoc(editor, submitted)
       const document = { ...written, body: keepRealtimeFinalNewline(written.body, room.guard.finalNewline) }
       const { clean } = room.guard
@@ -1927,6 +1961,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       ? await getEventsRoom(request.definitionName)
       : await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
     const clientEpoch = request.searchParams.get("epoch")
+    // A browser on another editor version reads the room with another schema. TipTap deletes the nodes that schema does
+    // not know from the shared document as soon as it renders, so the connection may read but never write.
+    const otherEditor = room.kind === "document" && request.searchParams.get("editor") !== (room.editor.version ?? null)
     const clientId = request.searchParams.get("clientId")
     const awarenessClient = clientId !== null && /^\d+$/.test(clientId) && Number.isSafeInteger(Number(clientId)) ? Number(clientId) : undefined
 
@@ -1967,11 +2004,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     function applyDocumentMessage(peer: WebSocketPeer, data: Uint8Array) {
       if (room.kind !== "document") return
       try {
-        const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
+        const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable || otherEditor
         const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })
         if (response) peer.send(response)
       }
       catch (error) {
+        // The deletes of another editor version arrive on their own when it renders. Closing would make the browser
+        // reconnect and send them again, so drop them and keep the connection open for live updates.
+        if (error instanceof RealtimeWriteRejected && otherEditor) return
         if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
         else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
       }
@@ -2056,7 +2096,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           publish(room, "claim", encoding.toUint8Array(claim))
         }
         if (room.kind === "document") {
-          const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : writable ? undefined : "access"
+          const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : !writable ? "access" : otherEditor ? "version" : undefined
           peer.send(encodeRealtimeControl(reason
             ? { type: "session", access: "read", epoch: room.epoch, reason }
             : { type: "session", access: "write", epoch: room.epoch }))

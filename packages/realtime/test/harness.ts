@@ -124,11 +124,11 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
     return value
   }
 
-  async function connect(path: string, init: { doc?: Y.Doc, epoch?: string, headers?: Record<string, string>, clientId?: boolean } = {}): Promise<TestClient> {
+  async function connect(path: string, init: { doc?: Y.Doc, editor?: string, epoch?: string, headers?: Record<string, string>, clientId?: boolean } = {}): Promise<TestClient> {
     const doc = init.doc ?? new Y.Doc()
     const response = await handler.fetch(request(path, {
       headers: { upgrade: "websocket", ...init.headers },
-      query: { ...init.epoch ? { epoch: init.epoch } : {}, ...init.clientId ? { clientId: String(doc.clientID) } : {} },
+      query: { ...init.epoch ? { epoch: init.epoch } : {}, ...init.editor === undefined ? {} : { editor: init.editor }, ...init.clientId ? { clientId: String(doc.clientID) } : {} },
     })) as Response & { crossws?: Hooks }
     const client: TestClient = {
       awareness: [],
@@ -296,6 +296,9 @@ export class FakeSql {
       if (!this.intermediateJournal) throw new Error("duplicate column name: client_update")
       return rows([])
     }
+    if (query.startsWith("ALTER TABLE vitehub_realtime_documents ADD COLUMN editor_version")) {
+      throw new Error("duplicate column name: editor_version")
+    }
     if (query.startsWith("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0")) {
       if (this.intermediateJournal) throw new Error("no such column: client_update")
       return rows([])
@@ -304,7 +307,7 @@ export class FakeSql {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [{ room_key: bindings[0] }] : [])
     }
-    if (query.startsWith("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents")) {
+    if (query.startsWith("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents") || query.startsWith("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [row] : [])
     }
@@ -315,8 +318,8 @@ export class FakeSql {
       return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
     }
     if (query.startsWith("INSERT OR REPLACE INTO vitehub_realtime_documents")) {
-      const [room_key, epoch, digest, dirty, update_blob] = bindings
-      this.documents.set(String(room_key), { digest, dirty, epoch, update_blob })
+      const [room_key, epoch, digest, dirty, update_blob, editor_version] = bindings
+      this.documents.set(String(room_key), { digest, dirty, editor_version, epoch, update_blob })
       return rows([])
     }
     if (query.startsWith("DELETE FROM vitehub_realtime_document_updates")) {

@@ -195,6 +195,31 @@ A lossless codec gives `toMarkdown(fromMarkdown(x)) === x` for your users'
 documents. Realtime converts only at seed and save time, so a lossy codec
 changes stored formatting on the first save, not on every keystroke.
 
+### Change the schema safely
+
+TipTap deletes the nodes that its schema does not know from the shared Yjs
+document, for every client and the server. Give the codec a `version`, and
+change it when a new `extensions()` or codec cannot read the Yjs state of the
+previous one, such as when you remove or rename a node type:
+
+```ts [shared/editor.ts] fragment
+export const pagesEditor = defineRealtimeEditor({
+  version: '2',
+  extensions: () => [/* ... */],
+  fromMarkdown,
+  toMarkdown,
+})
+```
+
+- A Durable Object room restores its Yjs state only when the stored digest and
+  the version both match. Otherwise it seeds from the stored Markdown with a
+  new epoch, as after an outside write. Unsaved Yjs edits of the old version
+  are lost, so the first version you set also re-seeds each persisted room once.
+- `useRealtimeTiptap('pages', id, { editor: pagesEditor })` sends the version
+  with the connection. A connection with another version, or without one, is
+  read-only with `readOnlyReason` `version`. The server drops its document
+  updates and keeps it open for live updates. Ask the user to reload to edit.
+
 ### Guard documents the codec cannot keep
 
 Most codecs normalize some Markdown and lose some. For example, a codec can
@@ -227,6 +252,10 @@ stored document, `refresh()` re-seeds the room, so it can become writable.
 
 Realtime also guards every save, with or without `verify()`:
 
+- It builds the ProseMirror document from the room with the schema of
+  `extensions()` and checks it. If the room holds a node or content that the
+  schema does not allow, it does not save. The room stays dirty, `status.error`
+  explains why, and `save()` answers `422` with `REALTIME_INVALID_DOCUMENT`.
 - It parses the Markdown it is about to save. If `fromMarkdown(toMarkdown(doc))`
   differs from the room body, it saves anyway and adds an entry to
   `status.issues`.
@@ -251,12 +280,14 @@ const realtime = useRealtimeTiptap('pages', 'about')
 realtime.fields.value?.set('title', 'About us')
 realtime.saveStatus.value // { digest, error, issues, savedAt, savedBy }
 realtime.readOnly.value // true when the server rejects edits from this connection
-realtime.readOnlyReason.value // 'access', 'document', or null
+realtime.readOnlyReason.value // 'access', 'document', 'version', or null
 ```
 
-`readOnlyReason` is `access` when `authorize` denied write, and `document`
-when `verify()` returned `writable: false`. Pass `editable: !readOnly` to the
-editor, and show `saveStatus.error` for the `document` reason.
+`readOnlyReason` is `access` when `authorize` denied write, `document`
+when `verify()` returned `writable: false`, and `version` when the browser runs
+another editor `version` than the server. Pass `editable: !readOnly` to the
+editor, show `saveStatus.error` for the `document` reason, and ask the user to
+reload for the `version` reason.
 
 `status` lives in the Yjs document, so it arrives in order with its content,
 survives a Durable Object restart, and plain Yjs can read it.

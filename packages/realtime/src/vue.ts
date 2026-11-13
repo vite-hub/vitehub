@@ -53,8 +53,11 @@ export interface RealtimeResetEvent {
 }
 
 export interface UseRealtimeTiptapOptions {
-  /** Editor schema shared with the definition's `editor`. Defaults to the built-in Markdown kit. */
-  editor?: Pick<RealtimeEditor, "extensions">
+  /**
+   * Editor schema shared with the definition's `editor`. Defaults to the built-in Markdown kit. Its `version` goes with
+   * the connection: when it differs from the server's, the connection is read-only with `readOnlyReason` `version`.
+   */
+  editor?: Pick<RealtimeEditor, "extensions" | "version">
   enabled?: MaybeRefOrGetter<boolean>
   /** Presence identity. Defaults to the ViteHub Auth session; pass `null` for an anonymous guest. */
   identity?: MaybeRefOrGetter<RealtimeUser | null | undefined>
@@ -236,7 +239,11 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   function connect(id: string) {
     const nextDocument = markRaw(new Y.Doc())
     const room = id.split("/").map(encodeURIComponent).join("/")
-    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, { disableBc: true, params: { clientId: String(nextDocument.clientID) } })
+    const version = options.editor?.version
+    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, {
+      disableBc: true,
+      params: { clientId: String(nextDocument.clientID), ...version === undefined ? {} : { editor: version } },
+    })
     keepRealtimeSocketAlive(nextProvider)
     nextProvider.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       if (provider.value !== nextProvider) return
