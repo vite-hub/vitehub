@@ -29,11 +29,14 @@ import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions {
   assetPaths?: boolean | string | readonly string[]
+  /** Limits `blob_read` and `blob_edit` to pathnames under this folder, such as `reports/`. */
+  prefix?: string
 }
 
 export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "Blob")
   const assetPaths = normalizeAssetPaths(mode, options.assetPaths)
+  const scope = blobScope(options.prefix)
   return Object.assign(defineCapability({
     id: "blob",
     mode,
@@ -45,7 +48,7 @@ export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefini
       )
     },
     requires: [{ primitive: "blob" }],
-    tools: blobTools(mode, options),
+    tools: blobTools(mode, options, scope),
   }), assetPaths.length
     ? { [workspaceMaterializationPathsSymbol]: assetPaths }
     : {})
@@ -94,6 +97,84 @@ const blobEditInputSchema = jsonObjectSchema({
     type: "string",
   },
 }, ["operation", "pathname"])
+
+// The Blob primitive decodes a pathname once and drops leading slashes before a driver sees it.
+function decodeBlobPathname(pathname: string): string {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  }
+  catch {
+    decoded = pathname
+  }
+  return decoded.replace(/^\/+/, "")
+}
+
+function hasBlobDotSegment(pathname: string): boolean {
+  return pathname.split(/[/\\]/).some(segment => segment === "." || segment === "..")
+}
+
+function blobScope(prefix: string | undefined): string | undefined {
+  if (prefix === undefined) return
+  const scope = typeof prefix === "string" ? prefix.trim().replace(/\/+/g, "/").replace(/^\/|\/$/g, "") : ""
+  if (!scope || hasBlobDotSegment(scope) || scope.includes("\\") || /%[\da-f]{2}/i.test(scope)) {
+    throw agentDiagnostics.AGENT_R1044({ capability: "blob", prefix })
+  }
+  return scope
+}
+
+/** Checks a pathname as the Blob primitive resolves it, after decoding. */
+function inBlobScope(pathname: string, scope: string): boolean {
+  return pathname.startsWith(`${scope}/`) && !hasBlobDotSegment(pathname)
+}
+
+function assertBlobScope(pathname: string, scope: string | undefined, label: string): string {
+  if (scope !== undefined && !inBlobScope(decodeBlobPathname(pathname), scope)) {
+    throw agentDiagnostics.AGENT_R1045({ label, prefix: `${scope}/`, value: pathname })
+  }
+  return pathname
+}
+
+/** `put()` joins `options.prefix` before the pathname, so the check covers the joined pathname. */
+function assertBlobPutScope(pathname: string, putOptions: Record<string, unknown> | undefined, scope: string | undefined): void {
+  if (scope === undefined) return
+  const putPrefix = putOptions?.prefix
+  const joined = [typeof putPrefix === "string" ? putPrefix : "", decodeBlobPathname(pathname)]
+    .filter(Boolean)
+    .join("/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "")
+  if ((putPrefix !== undefined && typeof putPrefix !== "string") || !inBlobScope(joined, scope)) {
+    throw agentDiagnostics.AGENT_R1045({ label: "blob_edit pathname", prefix: `${scope}/`, value: joined })
+  }
+}
+
+function blobScopeNote(scope: string | undefined): string {
+  return scope === undefined ? "" : ` Every pathname must start with "${scope}/".`
+}
+
+/** Returns the prefix to list. Inside a scope, the prefix defaults to the scope and must stay under it. */
+function scopedBlobListPrefix(prefix: unknown, scope: string | undefined): string {
+  if (scope === undefined) return assertString(prefix, "blob_read prefix")
+  if (prefix === undefined || prefix === "") return `${scope}/`
+  const value = assertString(prefix, "blob_read prefix")
+  if (decodeBlobPathname(value).replace(/\/+$/, "") === scope) return `${scope}/`
+  return assertBlobScope(value, scope, "blob_read prefix")
+}
+
+function scopedBlobList(result: unknown, scope: string | undefined): unknown {
+  if (scope === undefined || typeof result !== "object" || result === null) return result
+  const list = result as { blobs?: unknown, folders?: unknown }
+  return {
+    ...list,
+    ...(Array.isArray(list.blobs)
+      ? { blobs: list.blobs.filter((object: { pathname?: unknown }) => typeof object?.pathname === "string" && inBlobScope(object.pathname, scope)) }
+      : {}),
+    ...(Array.isArray(list.folders)
+      ? { folders: list.folders.filter((folder: unknown) => typeof folder === "string" && inBlobScope(folder, scope)) }
+      : {}),
+  }
+}
 
 function normalizeAssetPath(path: string): string {
   const normalized = path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/")
@@ -273,20 +354,20 @@ async function readInputAttachment(context: AgentCapabilityContext, id: string) 
   return { body: typeof body === "string" ? attachmentStringBytes(body, attachment.mediaType) : isAttachmentBlob(body) ? new Uint8Array(await body.arrayBuffer()) : body, mediaType: attachment.mediaType }
 }
 
-function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
+function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions, scope: string | undefined): AgentCapabilityDefinition["tools"] {
   return (context) => {
     const attachments = resolvableInputAttachments(context)
       .flatMap(part => part.id ? [`${part.id} (${part.mediaType})`] : [])
     const tools: AgentToolSet = {
       blob_read: defineInternalTool<BlobReadInput>({
-        description: "Read one Blob object, read object metadata, or list objects under a developer-provided prefix.",
+        description: `Read one Blob object, read object metadata, or list objects under a prefix.${blobScopeNote(scope)}`,
         execute: async ({ cursor, folded, limit, operation, pathname, prefix }: BlobReadInput) => {
           const store = await resolveBlobStore(context, options)
-          if (operation === "get") return storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "get")(assertString(pathname, "blob_read pathname")))
-          if (operation === "head") return storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "head")(assertString(pathname, "blob_read pathname")))
+          if (operation === "get") return storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "get")(assertBlobScope(assertString(pathname, "blob_read pathname"), scope, "blob_read pathname")))
+          if (operation === "head") return storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "head")(assertBlobScope(assertString(pathname, "blob_read pathname"), scope, "blob_read pathname")))
           if (operation === "list") {
-            const scopedPrefix = assertString(prefix, "blob_read prefix")
-            return storageValue(method<(options?: unknown) => MaybePromise<unknown>>(store, "blob", "list")({ cursor, folded, limit: normalizeListLimit(limit), prefix: scopedPrefix }))
+            const scopedPrefix = scopedBlobListPrefix(prefix, scope)
+            return scopedBlobList(await storageValue(method<(options?: unknown) => MaybePromise<unknown>>(store, "blob", "list")({ cursor, folded, limit: normalizeListLimit(limit), prefix: scopedPrefix })), scope)
           }
           throw agentDiagnostics.AGENT_R0209({ message: `[vitehub] Unsupported blob_read operation: ${String(operation)}` })
         },
@@ -299,13 +380,14 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
     if (mode === "write") {
       tools.blob_edit = defineInternalTool<BlobEditInput>({
         description: [
-          "Put or delete Blob objects. Use attachmentId for a current input attachment or workspacePath for a Workspace file.",
+          `Put or delete Blob objects. Use attachmentId for a current input attachment or workspacePath for a Workspace file.${blobScopeNote(scope)}`,
           ...(attachments.length ? [`Current input attachments: ${attachments.join(", ")}.`] : []),
         ].join(" "),
         execute: async ({ attachmentId, body, operation, options: putOptions, pathname, workspacePath }) => {
           const store = await resolveBlobStore(context, options)
           if (operation === "put") {
             const path = assertString(pathname, "blob_edit pathname")
+            assertBlobPutScope(path, putOptions, scope)
             const sourcePath = typeof workspacePath === "string" && workspacePath.trim() ? workspacePath : undefined
             const sourceAttachment = typeof attachmentId === "string" && attachmentId.trim() ? attachmentId : undefined
             const sources = Number(body !== undefined) + Number(Boolean(sourcePath)) + Number(Boolean(sourceAttachment))
@@ -325,7 +407,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions))
           }
           if (operation === "delete") {
-            const path = assertString(pathname, "blob_edit pathname")
+            const path = assertBlobScope(assertString(pathname, "blob_edit pathname"), scope, "blob_edit pathname")
             await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "delete")(path))
             return { pathname: path, deleted: true }
           }

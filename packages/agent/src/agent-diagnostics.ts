@@ -9,6 +9,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1041",
   "AGENT_R1042",
   "AGENT_R1043",
+  "AGENT_R1044",
+  "AGENT_R1045",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -1544,6 +1546,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1043: {
       why: ({ id }: { id: string }) => `[vitehub] importAgentSession() cannot replace Invocation ${id}: it is still pending or running.`,
       fix: "Wait for the existing Invocation to finish, or choose a different runId for the import.",
+    },
+    AGENT_R1044: {
+      why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,
+      fix: 'Pass a prefix such as "support:" for kv() or "reports/" for blob(), or remove the option to give the Agent the whole store.',
+    },
+    AGENT_R1045: {
+      why: ({ label, prefix, value }: { label: string, prefix: string, value: string }) => `[vitehub] ${label} ${JSON.stringify(value)} is outside the prefix ${JSON.stringify(prefix)} that this Capability allows.`,
+      fix: "Use a key or pathname that starts with the Capability prefix. To give the Agent more of the store, change the prefix option of the Capability.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

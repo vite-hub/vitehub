@@ -49,6 +49,91 @@ describe("storage capabilities", () => {
     expect(store.delete).toHaveBeenCalledWith("app:2")
   })
 
+  it("keeps KV tools inside the configured prefix", async () => {
+    const { kv } = await import("../src/capabilities.ts")
+    const store = {
+      delete: vi.fn(async () => undefined),
+      get: vi.fn(async () => "value"),
+      keys: vi.fn(async () => ["support:1", "support-private:1", "secret"]),
+      set: vi.fn(async () => undefined),
+    }
+    const tools = await resolveTools([kv({ mode: "write", prefix: "support:" })], { kv: store })
+    const outside = (call: () => unknown) => expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_R1045" })
+
+    await expect(tools.kv_read!.execute?.({ key: "support:1" })).resolves.toBe("value")
+    await expect(tools.kv_read!.execute?.({ key: "support/1" })).resolves.toBe("value")
+    await outside(() => tools.kv_read!.execute?.({ key: "secret" }))
+    await outside(() => tools.kv_read!.execute?.({ key: "support" }))
+    await outside(() => tools.kv_read!.execute?.({ key: "support-private:1" }))
+    await outside(() => tools.kv_read!.execute?.({ key: "support:..:secret" }))
+    await outside(() => tools.kv_read!.execute?.({ key: "support/../secret" }))
+    await outside(() => tools.kv_read!.execute?.({ prefix: "supp" }))
+    await outside(() => tools.kv_edit!.execute?.({ key: "secret", operation: "put", value: 1 }))
+    await outside(() => tools.kv_edit!.execute?.({ key: "secret", operation: "delete" }))
+    expect(store.get).toHaveBeenCalledTimes(2)
+    expect(store.set).not.toHaveBeenCalled()
+    expect(store.delete).not.toHaveBeenCalled()
+
+    await expect(tools.kv_read!.execute?.({ prefix: "support" })).resolves.toEqual(["support:1"])
+    expect(store.keys).toHaveBeenLastCalledWith("support:")
+    await tools.kv_edit!.execute?.({ key: "support:2", operation: "put", value: 1 })
+    expect(store.set).toHaveBeenCalledWith("support:2", 1)
+    expect(tools.kv_read!.description).toContain("support:")
+
+    expect(() => kv({ prefix: ":" })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+  })
+
+  it("keeps Blob tools inside the configured prefix", async () => {
+    const { blob } = await import("../src/capabilities.ts")
+    const store = {
+      delete: vi.fn(async () => undefined),
+      get: vi.fn(async () => new Blob(["body"])),
+      head: vi.fn(async () => ({ pathname: "reports/a.txt" })),
+      list: vi.fn(async () => ({
+        blobs: [{ pathname: "reports/a.txt" }, { pathname: "reports-private/a.txt" }, { pathname: "secret.txt" }],
+        folders: ["reports/2026/", "private/"],
+        hasMore: false,
+      })),
+      put: vi.fn(async () => ({ pathname: "reports/a.txt" })),
+    }
+    const tools = await resolveTools([blob({ mode: "write", prefix: "/reports/" })], { blob: store })
+    const outside = (call: () => unknown) => expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_R1045" })
+
+    await tools.blob_read!.execute?.({ operation: "get", pathname: "reports/a.txt" })
+    await tools.blob_read!.execute?.({ operation: "head", pathname: "/reports/a.txt" })
+    await outside(() => tools.blob_read!.execute?.({ operation: "get", pathname: "secret.txt" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "get", pathname: "reports" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "get", pathname: "reports-private/a.txt" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "get", pathname: "reports/../secret.txt" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "get", pathname: "reports%2F..%2Fsecret.txt" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "get", pathname: "%2E%2E/secret.txt" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "head", pathname: "reports\\..\\secret.txt" }))
+    await outside(() => tools.blob_read!.execute?.({ operation: "list", prefix: "rep" }))
+    await outside(() => tools.blob_edit!.execute?.({ body: "x", operation: "put", pathname: "secret.txt" }))
+    await outside(() => tools.blob_edit!.execute?.({ body: "x", operation: "put", options: { prefix: "private" }, pathname: "reports/a.txt" }))
+    await outside(() => tools.blob_edit!.execute?.({ operation: "delete", pathname: "secret.txt" }))
+    expect(store.get).toHaveBeenCalledTimes(1)
+    expect(store.head).toHaveBeenCalledTimes(1)
+    expect(store.put).not.toHaveBeenCalled()
+    expect(store.delete).not.toHaveBeenCalled()
+
+    await expect(tools.blob_read!.execute?.({ operation: "list" })).resolves.toEqual({
+      blobs: [{ pathname: "reports/a.txt" }],
+      folders: ["reports/2026/"],
+      hasMore: false,
+    })
+    expect(store.list).toHaveBeenLastCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "reports/" })
+    await tools.blob_read!.execute?.({ operation: "list", prefix: "reports" })
+    expect(store.list).toHaveBeenLastCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "reports/" })
+    await tools.blob_read!.execute?.({ operation: "list", prefix: "reports/2026/" })
+    expect(store.list).toHaveBeenLastCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "reports/2026/" })
+    await tools.blob_edit!.execute?.({ body: "x", operation: "put", options: { prefix: "reports" }, pathname: "a.txt" })
+    expect(store.put).toHaveBeenCalledWith("a.txt", "x", { prefix: "reports" })
+    expect(tools.blob_read!.description).toContain("reports/")
+
+    expect(() => blob({ prefix: "reports/../" })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+  })
+
   it("selects configured KV and Blob stores from capability options", async () => {
     const { blob, kv } = await import("../src/capabilities.ts")
     const kvStore = { get: vi.fn(async () => "selected"), keys: vi.fn() }
