@@ -904,7 +904,7 @@ A github() Channel with `app` gives its Agent forge access (GitHub repository ac
 
 Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
