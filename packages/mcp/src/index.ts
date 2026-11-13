@@ -1,8 +1,8 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
-import type { McpToolAnnotations } from "@vite-hub/internal/runtime/mcp-server"
+import type { McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 
-export type { McpContentBlock, McpToolAnnotations } from "@vite-hub/internal/runtime/mcp-server"
+export type { McpContentBlock, McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations } from "@vite-hub/internal/runtime/mcp-server"
 
 /** A Standard Schema that also gives its JSON Schema, such as a Zod 4 object or Valibot's `toStandardJsonSchema()`. */
 export type McpToolInput = StandardSchemaV1 & StandardJSONSchemaV1
@@ -19,7 +19,7 @@ export interface McpToolCaller {
   clientName: string | undefined
 }
 
-/** The second argument of a tool handler. */
+/** The second argument of a tool, prompt, or resource handler. */
 export interface McpToolContext {
   /** The H3 event of the MCP request. `event.req` is the web `Request`. */
   event: H3Event
@@ -73,6 +73,127 @@ export function defineMcpTool<TInput extends McpToolInput | undefined = undefine
   return definition
 }
 
+/** A Standard Schema with a JSON Schema for the arguments of a prompt. Each field is a string. */
+export type McpPromptInput = StandardSchemaV1<Record<string, string | undefined>, unknown> & StandardJSONSchemaV1
+
+/** One prompt of the app MCP server, the default export of a file in `server/mcp/prompts/`. The file name is the prompt name. */
+export interface McpPromptDefinition<TInput extends McpPromptInput | undefined = McpPromptInput | undefined> {
+  /** A short name for people, such as "Address review feedback". */
+  title?: string
+  /** What the prompt does. Clients show it when people pick a prompt. */
+  description?: string
+  /**
+   * The arguments: an object schema with string fields. `prompts/list` shows each field as an argument, with its
+   * description, and the server checks the arguments with the schema before the handler runs.
+   */
+  input?: TInput
+  /** Also serve the prompt at `mcp.publicRoute`, where `caller` is `undefined`. */
+  public?: boolean
+  /**
+   * Makes the messages. A string becomes one user message. An array is the messages. An object with `messages` is the
+   * MCP prompt result.
+   */
+  handler: (
+    input: TInput extends McpPromptInput ? StandardSchemaV1.InferOutput<TInput> : Record<string, never>,
+    context: McpToolContext,
+  ) => string | McpPromptMessage[] | McpPromptResult | Promise<string | McpPromptMessage[] | McpPromptResult>
+}
+
+/**
+ * Define one prompt of the app MCP server. Put it in `server/mcp/prompts/<name>.ts` as the default export.
+ *
+ * ```ts [server/mcp/prompts/review.ts]
+ * import { defineMcpPrompt } from "vite-hub/mcp"
+ * import { z } from "zod"
+ *
+ * export default defineMcpPrompt({
+ *   description: "Review a pull request.",
+ *   input: z.object({ number: z.string().describe("The pull request number.") }),
+ *   handler: ({ number }) => `Read pull request ${number} and list its bugs.`,
+ * })
+ * ```
+ */
+export function defineMcpPrompt<TInput extends McpPromptInput | undefined = undefined>(definition: McpPromptDefinition<TInput>): McpPromptDefinition<TInput> {
+  return definition
+}
+
+/** A resource that `resources/list` shows for a template resource. */
+export interface McpListedResource {
+  uri: string
+  /** Defaults to the URI. */
+  name?: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+}
+
+/** The second argument of a resource handler. */
+export interface McpResourceContext extends McpToolContext {
+  /** The values of the `uriTemplate` variables. Empty for a resource with a fixed `uri`. */
+  variables: Record<string, string>
+}
+
+/** What a resource handler returns: text, bytes, the MCP contents, or `undefined` when no such resource exists. */
+export type McpResourceValue = string | Uint8Array | { contents: McpResourceContents[] } | undefined | null
+
+interface McpResourceFields {
+  /** A short name for people, such as "Changelog". */
+  title?: string
+  description?: string
+  /** The MIME type of the contents, such as `text/markdown`. */
+  mimeType?: string
+  /** Also serve the resource at `mcp.publicRoute`, where `caller` is `undefined`. */
+  public?: boolean
+  /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
+  handler: (uri: string, context: McpResourceContext) => McpResourceValue | Promise<McpResourceValue>
+}
+
+/**
+ * One resource of the app MCP server, the default export of a file in `server/mcp/resources/`. The file name is the
+ * resource name. Set `uri` for one resource, or `uriTemplate` for a family of resources, such as one per file.
+ */
+export type McpResourceDefinition = McpResourceFields & (
+  | { /** The URI of the resource, such as `docs://changelog`. */ uri: string, uriTemplate?: never, list?: never }
+  | {
+    uri?: never
+    /** An RFC 6570 URI template, such as `skill://{name}/{+path}`. `{name}` matches one path segment, and `{+path}` also matches `/`. */
+    uriTemplate: string
+    /** The resources of the template that `resources/list` shows. Without it, clients find them through `resources/templates/list`. */
+    list?: (context: McpToolContext) => McpListedResource[] | Promise<McpListedResource[]>
+  }
+)
+
+/**
+ * Define one resource of the app MCP server. Put it in `server/mcp/resources/<name>.ts` as the default export.
+ *
+ * ```ts [server/mcp/resources/changelog.ts]
+ * import { defineMcpResource } from "vite-hub/mcp"
+ *
+ * export default defineMcpResource({
+ *   uri: "docs://changelog",
+ *   mimeType: "text/markdown",
+ *   handler: () => "# Changelog",
+ * })
+ * ```
+ */
+export function defineMcpResource<TDefinition extends McpResourceDefinition>(definition: TDefinition): TDefinition {
+  return definition
+}
+
+/** The `serverInfo` that MCP clients show. An icon `src` or `websiteUrl` that starts with `/` is a path on the request origin. */
+export interface McpServerInfoOptions {
+  /** Defaults to the app name. */
+  name?: string
+  /** Defaults to `name`. */
+  title?: string
+  /** Defaults to `"1"`. */
+  version?: string
+  description?: string
+  websiteUrl?: string
+  icons?: McpIcon[]
+}
+
 /** Options of `vitehub({ mcp })`. */
 export interface McpOptions {
   /** The route of the MCP server. Defaults to `/mcp`. */
@@ -87,4 +208,8 @@ export interface McpOptions {
    * sign in on a route that answers without a token, so the tools that need a person stay on `route`.
    */
   publicRoute?: string
+  /** What `initialize` tells the Agent about the server, such as which tool to call first. Defaults to a short generic text. */
+  instructions?: string
+  /** The name, title, version, description, website, and icons that MCP clients show. */
+  serverInfo?: McpServerInfoOptions
 }

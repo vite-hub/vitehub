@@ -48,13 +48,17 @@ icon: i-lucide-plug-zap
   ViteHub's own stateless Streamable HTTP server. It keeps no session between requests.
   :::
 
+  :::product-feature-item{title="Prompts and resources" icon="i-lucide-files" to="/docs/mcp/server-api#define-a-prompt"}
+  Each file in `server/mcp/prompts/` is one prompt, and each file in `server/mcp/resources/` is one resource.
+  :::
+
   :::product-feature-item{title="Inspect the tools" icon="i-lucide-search" to="/docs/mcp/get-started#inspect-the-tools"}
   `vitehub inspect definitions --kind mcp-tool` lists the tools that the build found.
   :::
 ::
 
 ::agent-only
-Use the MCP server when the app must give its own tools to Agents. Install `@vite-hub/mcp`, set `mcp: true` in the ViteHub options, and add one `defineMcpTool()` default export for each file in `server/mcp/tools/`. Import it from `vite-hub/mcp`.
+Use the MCP server when the app must give its own tools to Agents. Install `@vite-hub/mcp`, set `mcp: true` in the ViteHub options, and add one `defineMcpTool()` default export for each file in `server/mcp/tools/`. Import it from `vite-hub/mcp`. Add prompts with `defineMcpPrompt()` in `server/mcp/prompts/` and resources with `defineMcpResource()` in `server/mcp/resources/`. Set `mcp.instructions` and `mcp.serverInfo` to name the server.
 
 This is not the ViteHub MCP of the Console at `https://console.vitehub.dev/mcp`. Do not add an MCP SDK. Throw an error with a 4xx `status` to tell the Agent what to fix.
 

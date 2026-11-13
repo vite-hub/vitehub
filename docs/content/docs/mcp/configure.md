@@ -1,6 +1,6 @@
 ---
 title: MCP server configuration
-description: Change the route of the MCP server, sign MCP clients in with MCP OAuth, or make the server public.
+description: Change the route of the MCP server, name it for MCP clients, sign MCP clients in with MCP OAuth, or make the server public.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -12,9 +12,39 @@ Set `mcp: true` in the ViteHub options, or pass an object with these options:
 | --- | --- | --- |
 | `route` | `/mcp` | The path of the server below the application base. |
 | `auth` | `true` with `auth` | Require an access token from `mcpOAuth()`. |
-| `publicRoute` | none | A second path that serves the tools with `public: true` without sign-in. |
+| `publicRoute` | none | A second path that serves the tools, prompts, and resources with `public: true` without sign-in. |
+| `instructions` | A short generic text | What `initialize` tells the Agent about the server. |
+| `serverInfo` | The app name, version `"1"` | The `name`, `title`, `version`, `description`, `websiteUrl`, and `icons` that MCP clients show. |
 
 A `route` that is not a path, such as one with a query or `//`, fails the build with [`MCP_B0001`](/docs/mcp/limits-and-errors#mcp_b0001).
+
+## Name the server
+
+MCP clients show the `serverInfo` of the server, and Agents read its `instructions` when they connect. Use the instructions to tell the Agent what the server is for and which tool to call first:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    mcp: {
+      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
+      serverInfo: {
+        name: 'drop',
+        title: 'Drop',
+        version: '0.1.0',
+        description: 'Publish docs for review.',
+        websiteUrl: '/',
+        icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
+      },
+    },
+  }), nitro()],
+})
+```
+
+An icon `src` or a `websiteUrl` that starts with `/` is a path on the origin of the request, so one build serves the right URL on each domain. Include the application base in the path when the app has one.
 
 ## Sign in with MCP OAuth
 
@@ -86,4 +116,4 @@ export default defineMcpTool({
 })
 ```
 
-`/mcp` lists only the tools with `public: true`. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
+`/mcp` lists only the tools with `public: true`. Prompts and resources with `public: true` are on it too. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.

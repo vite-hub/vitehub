@@ -47,11 +47,107 @@ export interface McpTool {
   handler(input: Record<string, unknown>): Promise<McpToolResult>
 }
 
-/** What one request may see: the server identity and the tools of the caller. */
+/** An icon that clients show for the server. `src` is an `https:` or `data:` URI. */
+export interface McpIcon {
+  src: string
+  mimeType?: string
+  /** Sizes such as `"48x48"`, or `"any"` for a scalable image. */
+  sizes?: string[]
+  theme?: "light" | "dark"
+}
+
+/** The `serverInfo` of `initialize`: who the server is. */
+export interface McpServerInfo {
+  name: string
+  title: string
+  version: string
+  description?: string
+  websiteUrl?: string
+  icons?: McpIcon[]
+}
+
+/** One argument of a prompt as `prompts/list` shows it. Prompt arguments are strings. */
+export interface McpPromptArgument {
+  name: string
+  title?: string
+  description?: string
+  required?: boolean
+}
+
+/** One message of a prompt. */
+export interface McpPromptMessage {
+  role: "user" | "assistant"
+  content: McpContentBlock
+}
+
+/** The result of `prompts/get`. */
+export interface McpPromptResult {
+  description?: string
+  messages: McpPromptMessage[]
+}
+
+/** A prompt as `prompts/list` shows it, with the function that `prompts/get` runs. */
+export interface McpPrompt {
+  name: string
+  title?: string
+  description?: string
+  arguments?: McpPromptArgument[]
+  /** Throw {@link McpMethodError} to answer with a JSON-RPC error, such as `-32602` for invalid arguments. */
+  get(input: Record<string, string>): Promise<McpPromptResult>
+}
+
+/** The contents of one resource in `resources/read`: text, or base64 bytes in `blob`. */
+export type McpResourceContents = { uri: string, mimeType?: string, text: string } | { uri: string, mimeType?: string, blob: string }
+
+/** A resource as `resources/list` shows it. */
+export interface McpListedResource {
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+}
+
+/**
+ * A resource with a fixed `uri`, or a family of resources with a `uriTemplate`. `resources/read` reads the first
+ * resource with that `uri`, else the first template that matches.
+ */
+export interface McpResource {
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  /** The URI of one resource. */
+  uri?: string
+  /** An RFC 6570 URI template. `{name}` matches one path segment, and `{+name}` also matches `/`. */
+  uriTemplate?: string
+  /** The resources of a template that `resources/list` shows. */
+  list?: () => Promise<McpListedResource[]>
+  /**
+   * Returns the contents, or `undefined` when no such resource exists. `variables` are the values of the template.
+   * Throw {@link McpMethodError} to answer with another JSON-RPC error.
+   */
+  read(uri: string, variables: Record<string, string>): Promise<McpResourceContents[] | undefined>
+}
+
+/** An error that a prompt or resource throws to answer with this JSON-RPC error. */
+export class McpMethodError extends Error {
+  constructor(readonly code: number, message: string, readonly data?: unknown) {
+    super(message)
+    this.name = "McpMethodError"
+  }
+}
+
+/** What one request may see: the server identity and the tools, prompts, and resources of the caller. */
 export interface McpServer {
-  serverInfo: { name: string, title: string, version: string }
+  serverInfo: McpServerInfo
   instructions: string
   tools: readonly McpTool[]
+  /** With prompts, `initialize` advertises the `prompts` capability. */
+  prompts?: readonly McpPrompt[]
+  /** With resources, `initialize` advertises the `resources` capability. */
+  resources?: readonly McpResource[]
   /** The scopes of the caller's access token. Without them, as for a session, no scope check applies. */
   scopes?: readonly string[]
   /** The `WWW-Authenticate` value of a `403` for a call that lacks `scopes`, so the client asks for them. */
@@ -95,8 +191,64 @@ function reply(id: JsonRpcId, result: unknown): Response {
   return Response.json({ jsonrpc: "2.0", id, result }, { headers })
 }
 
-function rpcError(id: JsonRpcId, code: number, message: string, status = 200): Response {
-  return Response.json({ jsonrpc: "2.0", id, error: { code, message } }, { headers, status })
+function rpcError(id: JsonRpcId, code: number, message: string, status = 200, data?: unknown): Response {
+  return Response.json({ jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } }, { headers, status })
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/**
+ * Matches `uri` against an RFC 6570 template and returns the values of its variables. `{name}` matches one path
+ * segment, and `{+name}` also matches `/`. Other operators match nothing.
+ */
+export function matchMcpUriTemplate(template: string, uri: string): Record<string, string> | undefined {
+  const names: string[] = []
+  const pattern = template.split(/(\{[^}]*\})/).map((part) => {
+    const variable = /^\{(\+?)([\w.]+)\}$/.exec(part)
+    if (!variable) return escapeRegExp(part)
+    names.push(variable[2]!)
+    return variable[1] ? "(.+)" : "([^/?#]+)"
+  }).join("")
+  const match = new RegExp(`^${pattern}$`).exec(uri)
+  if (!match) return undefined
+  try {
+    return Object.fromEntries(names.map((name, index) => [name, decodeURIComponent(match[index + 1]!)]))
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function readResource(server: McpServer, uri: string): Promise<McpResourceContents[] | undefined> {
+  const resources = server.resources ?? []
+  const fixed = resources.find(resource => resource.uri === uri)
+  if (fixed) return await fixed.read(uri, {})
+  for (const resource of resources) {
+    const variables = resource.uriTemplate === undefined ? undefined : matchMcpUriTemplate(resource.uriTemplate, uri)
+    if (variables) return await resource.read(uri, variables)
+  }
+  return undefined
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  const entries = record(value)
+  if (!entries || !Object.values(entries).every(entry => typeof entry === "string")) return undefined
+  // SAFETY: Every value is a string, checked above.
+  return entries as Record<string, string>
+}
+
+/** Answers a prompt or resource method, and turns a thrown {@link McpMethodError} into its JSON-RPC error. */
+async function answer(id: JsonRpcId, run: () => Promise<unknown>): Promise<Response> {
+  try {
+    return reply(id, await run())
+  }
+  catch (error) {
+    if (error instanceof McpMethodError) return rpcError(id, error.code, error.message, 200, error.data)
+    console.error("[vitehub] MCP request failed:", error)
+    return rpcError(id, -32603, "The request failed on the server.")
+  }
 }
 
 function missingScopes(server: McpServer, tool: McpTool): string[] {
@@ -105,7 +257,8 @@ function missingScopes(server: McpServer, tool: McpTool): string[] {
 }
 
 /**
- * Answer one MCP request: JSON-RPC parsing, revision negotiation, `initialize`, `ping`, `tools/list`, and `tools/call`.
+ * Answer one MCP request: JSON-RPC parsing, revision negotiation, `initialize`, `ping`, the `tools/*` methods, and the
+ * `prompts/*` and `resources/*` methods when the server has prompts or resources.
  * It holds no session, so every POST carries one message and gets one JSON answer.
  */
 export async function serveMcp(request: Request, server: McpServer): Promise<Response> {
@@ -150,13 +303,74 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
   if (bytes > limit) return tooLarge(limit)
   const names = new Set(server.tools.map(tool => tool.name))
   if (names.size !== server.tools.length) return rpcError(id, -32603, "Two tools of this server have the same name.", 500)
+  const prompts = server.prompts ?? []
+  const resources = server.resources ?? []
+
+  if (prompts.length && method === "prompts/list") {
+    return reply(id, {
+      prompts: prompts.map(prompt => ({
+        name: prompt.name,
+        ...(prompt.title ? { title: prompt.title } : {}),
+        ...(prompt.description ? { description: prompt.description } : {}),
+        ...(prompt.arguments?.length ? { arguments: prompt.arguments } : {}),
+      })),
+    })
+  }
+  if (prompts.length && method === "prompts/get") {
+    const prompt = prompts.find(candidate => candidate.name === params.name)
+    if (!prompt) return rpcError(id, -32602, `Unknown prompt: ${String(params.name)}. Call prompts/list for the prompts of this server.`)
+    const input = params.arguments === undefined ? {} : stringRecord(params.arguments)
+    if (!input) return rpcError(id, -32602, `Invalid arguments for ${prompt.name}: expected an object of strings.`)
+    return await answer(id, () => prompt.get(input))
+  }
+  if (resources.length && method === "resources/list") {
+    return await answer(id, async () => {
+      const listed = await Promise.all(resources.map(async (resource): Promise<McpListedResource[]> => {
+        if (resource.uri !== undefined) {
+          return [{
+            uri: resource.uri,
+            name: resource.name,
+            ...(resource.title ? { title: resource.title } : {}),
+            ...(resource.description ? { description: resource.description } : {}),
+            ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+          }]
+        }
+        return await resource.list?.() ?? []
+      }))
+      return { resources: listed.flat() }
+    })
+  }
+  if (resources.length && method === "resources/templates/list") {
+    return reply(id, {
+      resourceTemplates: resources.filter(resource => resource.uriTemplate !== undefined).map(resource => ({
+        uriTemplate: resource.uriTemplate,
+        name: resource.name,
+        ...(resource.title ? { title: resource.title } : {}),
+        ...(resource.description ? { description: resource.description } : {}),
+        ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+      })),
+    })
+  }
+  if (resources.length && method === "resources/read") {
+    const uri = params.uri
+    if (typeof uri !== "string" || !uri) return rpcError(id, -32602, "resources/read needs a uri.")
+    return await answer(id, async () => {
+      const contents = await readResource(server, uri)
+      if (!contents) throw new McpMethodError(-32002, `Resource not found: ${uri}. Call resources/list or resources/templates/list for the resources of this server.`, { uri })
+      return { contents }
+    })
+  }
 
   switch (method) {
     case "initialize": {
       const requested = params.protocolVersion
       return reply(id, {
         protocolVersion: typeof requested === "string" && mcpProtocolVersions.includes(requested) ? requested : mcpProtocolVersions[0],
-        capabilities: { tools: { listChanged: false } },
+        capabilities: {
+          tools: { listChanged: false },
+          ...(prompts.length ? { prompts: { listChanged: false } } : {}),
+          ...(resources.length ? { resources: { subscribe: false, listChanged: false } } : {}),
+        },
         serverInfo: server.serverInfo,
         instructions: server.instructions,
       })
