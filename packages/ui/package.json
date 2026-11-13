@@ -77,6 +77,7 @@
     "./theme.css": "./dist/theme.css"
   },
   "scripts": {
+    "bench:headless": "node scripts/headless-weight.ts",
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
