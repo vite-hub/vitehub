@@ -254,7 +254,7 @@ const githubToken = snapshot.githubToken.unseal()
 
 Each `loadServerEnv()` call batches requested keys once per provider and returns a fresh frozen snapshot. ViteHub does not cache across loads, so rotation appears on the next load. `useServerEnv()` stays synchronous for host-backed and literal values; provider-backed values require `loadServerEnv()` or `runWithServerEnv()`.
 
-`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true })` skips empty host values. Without `skipEmpty`, a defined empty string remains a value. Generated built-in Channel sources use `skipEmpty` to preserve their host fallback behavior.
+`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"])` reads the first variable that is set and not empty. An empty variable, such as `PRIMARY_TOKEN=`, counts as missing for every source. It does not shadow a later name, and it does not satisfy a required value or a secret.
 
 The Server Env helpers of `@vite-hub/env` are not blocked from client builds. Keep their imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 
