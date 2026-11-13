@@ -15,6 +15,10 @@ export default [
   { name: "Click opens", run: clickTrigger },
   { name: "Click outside closes", run: page => page.mouse.click(10, 10) },
   { name: "Space opens", run: press("Space") },
-  { name: "Click Close", run: page => page.getByRole("button", { name: "Close" }).click() },
+  // When "Space opens" did not open the dialog, there is no Close button, and the next records show it.
+  { name: "Click Close", run: async (page) => {
+    const close = page.getByRole("button", { name: "Close" });
+    if (await close.count()) await close.click();
+  } },
   { name: "Tab to After", run: press("Tab") },
 ];

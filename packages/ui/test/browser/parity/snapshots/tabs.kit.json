@@ -1,0 +1,258 @@
+{
+  "component": "tabs",
+  "engine": "kit",
+  "steps": [
+    {
+      "step": "load",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\" [selected]",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Files\": Files panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Files\" aria-controls tabpanel \"Files panel\"",
+        "tabpanel \"Files panel\" aria-labelledby tab \"Files\""
+      ]
+    },
+    {
+      "step": "Tab to Before",
+      "focus": "button \"Before\"",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\" [selected]",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Files\": Files panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Files\" aria-controls tabpanel \"Files panel\"",
+        "tabpanel \"Files panel\" aria-labelledby tab \"Files\""
+      ]
+    },
+    {
+      "step": "Tab into the tablist",
+      "focus": "tab \"Files\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\" [selected]",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Files\": Files panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Files\" aria-controls tabpanel \"Files panel\"",
+        "tabpanel \"Files panel\" aria-labelledby tab \"Files\""
+      ]
+    },
+    {
+      "step": "ArrowRight to Terminal",
+      "focus": "tab \"Terminal\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\" [selected]",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Terminal\": Terminal panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Terminal\" aria-controls tabpanel \"Terminal panel\"",
+        "tabpanel \"Terminal panel\" aria-labelledby tab \"Terminal\""
+      ]
+    },
+    {
+      "step": "ArrowRight to Preview",
+      "focus": "tab \"Preview\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "ArrowRight wraps to Files",
+      "focus": "tab \"Files\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\" [selected]",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Files\": Files panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Files\" aria-controls tabpanel \"Files panel\"",
+        "tabpanel \"Files panel\" aria-labelledby tab \"Files\""
+      ]
+    },
+    {
+      "step": "ArrowLeft wraps to Preview",
+      "focus": "tab \"Preview\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "Home",
+      "focus": "tab \"Files\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\" [selected]",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Files\": Files panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Files\" aria-controls tabpanel \"Files panel\"",
+        "tabpanel \"Files panel\" aria-labelledby tab \"Files\""
+      ]
+    },
+    {
+      "step": "End",
+      "focus": "tab \"Preview\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "Tab into the panel",
+      "focus": "tabpanel \"Preview\": Preview panel",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "Tab to After",
+      "focus": "button \"After\"",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "Shift+Tab to the panel",
+      "focus": "tabpanel \"Preview\": Preview panel",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "Shift+Tab to the selected tab",
+      "focus": "tab \"Preview\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\"",
+        "  - tab \"Preview\" [selected]",
+        "- tabpanel \"Preview\": Preview panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Preview\" aria-controls tabpanel \"Preview panel\"",
+        "tabpanel \"Preview panel\" aria-labelledby tab \"Preview\""
+      ]
+    },
+    {
+      "step": "Click Terminal",
+      "focus": "tab \"Terminal\" [selected]",
+      "tree": [
+        "- button \"Before\"",
+        "- tablist \"Surfaces\":",
+        "  - tab \"Files\"",
+        "  - tab \"Terminal\" [selected]",
+        "  - tab \"Preview\"",
+        "- tabpanel \"Terminal\": Terminal panel",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "tab \"Terminal\" aria-controls tabpanel \"Terminal panel\"",
+        "tabpanel \"Terminal panel\" aria-labelledby tab \"Terminal\""
+      ]
+    }
+  ]
+}

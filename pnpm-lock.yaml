@@ -3681,6 +3681,9 @@ importers:
       '@vite-hub/icons':
         specifier: workspace:*
         version: link:../icons
+      '@vite-hub/kit':
+        specifier: workspace:*
+        version: link:../kit
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
