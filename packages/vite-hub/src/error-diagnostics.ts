@@ -9,10 +9,6 @@ const dynamicError = {
 export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
-    VITE_HUB_R0143: {
-      why: "Console Auth received a value without a Web Request.",
-      fix: "Pass a Web Request or an H3 2 event with its Web Request in req.",
-    },
     VITE_HUB_R0120: dynamicError,
     VITE_HUB_R0121: dynamicError,
     VITE_HUB_R0124: dynamicError,
