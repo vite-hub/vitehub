@@ -5,6 +5,7 @@ import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readHub } from "./config.ts"
 import { moveSchema } from "./database.ts"
 import { rewriteSources } from "./sources.ts"
+import { findNuxtHubModuleFollowUps } from "./modules.ts"
 import { findGlobalH3Overrides } from "./overrides.ts"
 import { findWranglerFile, planWrangler, readCloudflareResourceOptions } from "./wrangler.ts"
 
@@ -83,7 +84,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
-    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
+    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,
