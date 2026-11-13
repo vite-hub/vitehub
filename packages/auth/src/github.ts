@@ -1,4 +1,5 @@
 import { defineErrors } from "@vite-hub/runtime"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Result } from "@vite-hub/runtime"
 
@@ -82,7 +83,12 @@ async function fetchActiveMembership(accessToken: string, org: string, timeoutMs
   if (status === 429 || status >= 500 || (!response.ok && (headers.get("x-ratelimit-remaining") === "0" || headers.has("retry-after")))) {
     return [githubErrors.AUTH_GITHUB_UNAVAILABLE({ status }), undefined]
   }
-  if (status === 403) return [githubErrors.AUTH_GITHUB_ORG_ACCESS_DENIED({ org, sso: headers.has("x-github-sso") }), undefined]
+  if (status === 403) {
+    // A secondary rate limit can answer 403 without rate-limit headers. Only its body says so.
+    const body: unknown = await response.json().catch(() => undefined)
+    if (isRecord(body) && /rate.limit/i.test(`${body.message} ${body.documentation_url}`)) return [githubErrors.AUTH_GITHUB_UNAVAILABLE({ status }), undefined]
+    return [githubErrors.AUTH_GITHUB_ORG_ACCESS_DENIED({ org, sso: headers.has("x-github-sso") }), undefined]
+  }
   if (status === 404) {
     // Without an org scope, GitHub answers 404 as for a non-member. Only classic OAuth tokens list their scopes.
     const scopes = headers.get("x-oauth-scopes")?.split(/[\s,]+/)

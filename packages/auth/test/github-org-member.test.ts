@@ -134,6 +134,7 @@ describe("checkGitHubOrgMember()", () => {
     expect(await code(() => new Response(null, { status: 502 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
     expect(await code(() => new Response(null, { status: 429 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
     expect(await code(() => Response.json({ message: "API rate limit exceeded" }, { headers: { "x-ratelimit-remaining": "0" }, status: 403 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
+    expect(await code(() => Response.json({ message: "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.", documentation_url: "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits" }, { headers: { "x-ratelimit-remaining": "4000" }, status: 403 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
     expect(await code(() => Promise.reject(new TypeError("fetch failed")))).toBe("AUTH_GITHUB_UNAVAILABLE")
     expect(await code(() => new Response("<html>", { status: 200 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
   })
