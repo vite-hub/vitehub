@@ -240,7 +240,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
       "const disabled = async () => { throw new Error('[vitehub] `@vite-hub/kv` runtime is disabled.') }",
       "export const kv = {",
       "  clear: disabled,",
-      "  del: disabled,",
+      "  delete: disabled,",
       "  get: disabled,",
       "  has: disabled,",
       "  keys: disabled,",
@@ -281,7 +281,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
       : "const storage = createStorage({ driver: createDriver(resolvedKvConfig.store) })",
     "export const kv = {",
     "  async clear(base, options) { return kvResult(\"clear\", \"default\", async () => { await storage.clear(base, options) }) },",
-    "  async del(key, options) { return kvResult(\"del\", \"default\", async () => { await storage.removeItem(key, options) }) },",
+    "  async delete(key, options) { return kvResult(\"delete\", \"default\", async () => { await storage.removeItem(key, options) }) },",
     "  async get(key, options) { return kvResult(\"get\", \"default\", () => storage.getItem(key, options)) },",
     "  async has(key, options) { return kvResult(\"has\", \"default\", () => storage.hasItem(key, options)) },",
     "  async keys(base, options) { return kvResult(\"keys\", \"default\", () => storage.getKeys(base, options)) },",
@@ -761,7 +761,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(
       writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"),
-      writeFile(kvViteRuntimeGuardFile, "export const hubKv = () => { throw new Error('[vitehub] `@vite-hub/kv/vite` is config-only.') }\n", "utf8"),
+      writeFile(kvViteRuntimeGuardFile, "export const hubKV = () => { throw new Error('[vitehub] `@vite-hub/kv/vite` is config-only.') }\n", "utf8"),
     )
   }
 

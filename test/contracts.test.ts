@@ -415,7 +415,7 @@ describe("playground import contracts", () => {
     )
 
     expect(kvShim).toContain('resolve(kvPackageDir, "src/errors.ts")')
-    for (const operation of ["clear", "del", "get", "has", "keys", "set"]) {
+    for (const operation of ["clear", "delete", "get", "has", "keys", "set"]) {
       expect(kvShim).toContain(String.raw`kvResult(\"${operation}\", \"default\"`)
     }
   })

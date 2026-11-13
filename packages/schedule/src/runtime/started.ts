@@ -102,7 +102,7 @@ export function createKVStartedScheduleStore(options: KVStartedScheduleStoreOpti
     async delete(id) {
       read.delete(id)
       if (!await kv.has(key(id))) return false
-      await kv.del(key(id))
+      await kv.delete(key(id))
       return true
     },
     async get(id) {

@@ -410,7 +410,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "  return { settings: result[1], other, error }",
         "})",
         "export async function clear() {",
-        '  const [error] = await kv.del("settings")',
+        '  const [error] = await kv.delete("settings")',
         "  if (error) throw error",
         "}",
         "export async function readSettings() {",
@@ -444,7 +444,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         '  await callMcpTool({ connection: "crm" }, "search", {})',
         '  await enqueueChannelTask("airtable", "close", { data: {} })',
         '  await cancelChannelTask("airtable", "close", { key: "pair" })',
-        '  kv.del("state")',
+        '  kv.delete("state")',
         "}",
       ].join("\n"),
       // Doctor keeps one diagnostic per message in a file, so each other `send()` goes in its own file.

@@ -30,7 +30,7 @@ import { hubAgent } from "@vite-hub/agent/vite"
 import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
-import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
+import { hubKV, kvNitroCacheDriver } from "@vite-hub/kv/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
@@ -510,7 +510,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
-    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })])
+    mocks.vitehub.mockReturnValue([hubKV({ driver: "cloudflare-kv-binding", binding: "KV" })])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
     await viteHubNuxtModule({ kv: true, host: "cloudflare" }, nuxt)
     const config: Record<string, unknown> = {}
@@ -837,7 +837,7 @@ describe("ViteHub Nuxt integration", () => {
     const envDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-kv-env-"))
     for (const name of ["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"]) vi.stubEnv(name, undefined)
     await writeFile(resolve(envDir, ".env.development"), "KV_REST_API_URL=https://nuxt-kv.test\nKV_REST_API_TOKEN=nuxt-kv-secret\n")
-    const plugin = hubKv({ remote: true })
+    const plugin = hubKV({ remote: true })
     mocks.vitehub.mockReturnValue([plugin])
     const { nuxt, runNitroConfigHook } = createNuxt(true)
     nuxt.options.vite.envDir = envDir
@@ -865,7 +865,7 @@ describe("ViteHub Nuxt integration", () => {
 
   it("registers Content KV when Nuxt 5 builds Nitro 3 without a Vite environment", async () => {
     const content = hubContent()
-    mocks.vitehub.mockReturnValue([content, hubKv(undefined, { hosting: "node" })])
+    mocks.vitehub.mockReturnValue([content, hubKV(undefined, { hosting: "node" })])
     const { nuxt, runNitroConfigHook } = createNuxt(false)
     Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
     const file = resolve(nuxt.options.serverDir!, "content.ts")
@@ -885,7 +885,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each(["application", "layer", "contribution"])("infers Postgres KV from a %s Database when Nuxt skips the Vite build", async (source) => {
-    const plugin = hubKv(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node" })
+    const plugin = hubKV(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node" })
     mocks.vitehub.mockReturnValue([plugin])
     const { nuxt, runNitroConfigHook } = createNuxt(false)
     Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })

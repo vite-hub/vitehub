@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 describe("Nuxt hosted Database module preparation", () => {
   it.each([
@@ -24,7 +24,7 @@ describe("Nuxt hosted Database module preparation", () => {
       // Cloudflare needs a D1 resource for each Definition. Without one, the Vite build removes the hosted runtime.
       const cloudflare = provider === "cloudflare" ? `cloudflare: { databaseId: "db-id", databaseName: "db" },` : ""
       await writeFile(definition, `export default defineDatabase({ ${name === "default" ? "" : `name: ${JSON.stringify(name)},`} ${cloudflare} schema: {} })\n`)
-      await hubDb({ projectRoot: "service" })(undefined, {
+      await hubDatabase({ projectRoot: "service" })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => void | Promise<void>) => {
           if (event === "nitro:config") hooks.push(callback)
         },

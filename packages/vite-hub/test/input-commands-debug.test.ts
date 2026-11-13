@@ -11,7 +11,7 @@ import { defineAgent } from "../src/agent.ts"
 import { inputCommands } from "../src/agent/capabilities.ts"
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { console as consoleRuntime } from "../src/console/server.ts"
+import { agentConsole as consoleRuntime } from "../src/console/server.ts"
 
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 

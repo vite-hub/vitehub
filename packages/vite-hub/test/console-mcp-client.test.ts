@@ -31,7 +31,7 @@ import type { ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, 
 /** The app's default KV store, for `VITEHUB_CONSOLE_MCP_KEY`. Each value is a copy, as a real store keeps. */
 const kvValues = vi.hoisted(() => new Map<string, unknown>())
 const kv = vi.hoisted(() => ({
-  del: async (key: string) => [undefined, kvValues.delete(key)] as const,
+  delete: async (key: string) => [undefined, kvValues.delete(key)] as const,
   get: async (key: string) => [undefined, kvValues.has(key) ? structuredClone(kvValues.get(key)) : null] as const,
   keys: async (base = "") => [undefined, [...kvValues.keys()].filter(key => key.startsWith(base))] as const,
   set: async (key: string, value: unknown) => {

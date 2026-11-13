@@ -164,7 +164,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.handleUpload()` checks each file's size and type, then saves it. Every Blob method returns `[error, value]`. On a public store, the saved object has a `url` the browser can open. See [Blob server API](/docs/blob/server-api) for `put()`, `list()`, `del()`, and `head()`.
+`blob.handleUpload()` checks each file's size and type, then saves it. Every async Blob method except `serve()` returns `[error, value]`. On a public store, the saved object has a `url` the browser can open. See [Blob server API](/docs/blob/server-api) for `put()`, `list()`, `delete()`, and `head()`.
 
 ### Serve files from a private store
 

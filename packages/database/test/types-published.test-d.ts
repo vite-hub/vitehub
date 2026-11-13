@@ -1,6 +1,6 @@
 import { chunkParameters, db, defineDatabase, schema, useDatabase } from "@vite-hub/database"
 import { agentDb, databases } from "@vite-hub/database/runtime/registry"
-import { hubDb } from "@vite-hub/database/nuxt"
+import { hubDatabase } from "@vite-hub/database/nuxt"
 import { defineRelations, defineRelationsPart } from "drizzle-orm"
 import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -157,6 +157,6 @@ describe("published package types", () => {
       databaseId: "content-id",
     } satisfies DatabaseNuxtIntegrationOptions
 
-    expectTypeOf(hubDb(options).getMeta().name).toEqualTypeOf<string>()
+    expectTypeOf(hubDatabase(options).getMeta().name).toEqualTypeOf<string>()
   })
 })
