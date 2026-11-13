@@ -101,8 +101,6 @@ describe("Auth option resolution", () => {
     const definition = defineAuth({
       appName: "ViteHub",
       basePath: "/auth/",
-      database: { name: "auth", dedicated: true },
-      secondaryStorage: { store: "auth" },
       access: { routes: ["/private"] },
       runtime,
     })
@@ -112,7 +110,7 @@ describe("Auth option resolution", () => {
     expect(resolved.requestRuntimeOptions).toMatchObject({ baseURL: "https://auth.example.com", trustedOrigins: ["https://auth.example.com"] })
     expect(resolved.providerOptions).toMatchObject({ appName: "ViteHub", basePath: "/auth", secret: "override" })
     for (const name of ["access", "runtime", "secondaryStorage"]) expect(resolved.providerOptions).not.toHaveProperty(name)
-    // Database metadata is not an adapter, so Better Auth gets the shared in-memory store.
+    // Without a database adapter, Better Auth gets the shared in-memory store.
     expect(resolved.providerOptions.database).toBeTypeOf("function")
     expect(runtime).toHaveBeenCalledOnce()
     expect(env).toHaveBeenCalledExactlyOnceWith(event)
@@ -141,6 +139,22 @@ describe("Auth option resolution", () => {
     expect(resolved.requestRuntimeOptions).toEqual({ baseURL: "https://request.example.com" })
     expect(resolved.providerOptions.trustedOrigins).toEqual(["https://trusted.example.com"])
     expect(env).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { name: "a callback", definition: () => defineAuth(() => ({ database: { name: "auth", dedicated: true } }) as never) },
+    { name: "a callback with `true`", definition: () => defineAuth(() => ({ database: true }) as never) },
+    { name: "runtime", definition: () => defineAuth({ runtime: () => ({ database: { name: "auth" } }) as never }) },
+  ])("rejects database placement from $name instead of using memory", ({ definition }) => {
+    expect(() => resolveAuthOptions(definition()).providerOptions).toThrow(expect.objectContaining({
+      code: "AUTH_C0061",
+      fix: expect.stringContaining("authDatabase()"),
+    }))
+  })
+
+  it.each([true, { store: "auth" }])("rejects secondary storage placement %j", (secondaryStorage) => {
+    const definition = defineAuth(() => ({ secondaryStorage }) as never)
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0062" }))
   })
 
   it("preserves runtime placement objects with inherited metadata names", () => {

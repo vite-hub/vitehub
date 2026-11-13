@@ -1,6 +1,5 @@
 import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source"
 
-import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
@@ -15,15 +14,14 @@ export function file<const TKey extends string>(input: TKey): WorkspaceSource
 export function file<const TKey extends string = string, const TOptions extends FileSourceOptions<TKey> = FileSourceOptions<TKey>>(input: ExactOptions<TOptions, FileSourceOptions<TKey>>): WorkspaceSource
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {
   const options = (typeof input === "string" ? { path: input } : input) as FileSourceOptions<TKey>
-  const workspacePath = ownSourceOption(options, "workspacePath") || ownSourceOption(options, "path") || ""
-  const key = normalizeSafeWorkspacePath(workspacePath)
-  const declaredMount = ownSourceOption(options, "mount")
-  const mount = typeof declaredMount === "object" && declaredMount && !Object.hasOwn(declaredMount, "path")
-    ? { ...declaredMount, path: "" }
-    : declaredMount ?? ""
-  const source = createFileSource(options)
+  return withFileSourceOptions(createFileSource(options), options)
+}
+
+/** Adds Workspace binding options to a file Source. Workspace normalization picks the default mount and probe keys. */
+export function withFileSourceOptions(source: WorkspaceSource, options: FileWorkspaceSourceRuntimeOptions): WorkspaceSource {
+  const probeKeys = ownSourceOption(options, "probeKeys")
   return {
-    ...withWorkspaceRuntimeOptions(source, { ...options, mount }),
-    probeKeys: ownSourceOption(options, "probeKeys") || [key],
+    ...withWorkspaceRuntimeOptions(source, options),
+    ...(probeKeys ? { probeKeys } : {}),
   }
 }

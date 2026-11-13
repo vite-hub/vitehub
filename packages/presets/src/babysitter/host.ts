@@ -240,7 +240,11 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
         const enrolled = repositories.observe(event, payload);
         if (enrolled) host.event("babysitter.repositories.changed", { event, repositories: repositories.known().length });
         const result = await inbox.ingest(deliveryId, event, payload);
-        if (result.updated.length || enrolled || event === "installation" || event === "installation_repositories") host.wake("webhook");
+        const mainRepair = await runtime?.observeMainRepair(event, payload).catch((error: unknown) => {
+          host.error("babysitter.main_repair.observe_failed", error);
+          return false;
+        });
+        if (result.updated.length || enrolled || mainRepair || event === "installation" || event === "installation_repositories") host.wake("webhook");
         return Response.json(result, { status: 202 });
       });
       // Bring over an inbox file from a hand-wired Babysitter once, before the first claim.
