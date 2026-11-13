@@ -58,6 +58,7 @@ import { providerSessionDecision, workspaceDecision, type PullRequestWorkspaceEn
 import type { BabysitterRepositories } from "./repositories.ts";
 import { createBabysitterCheckRuns } from "./check-run.ts";
 import { isTransientNetworkError, retryTransient } from "./transient.ts";
+import { isFailedBaseRun, repairBaseBranch, type MainRepairGitHub } from "./main-repair.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 export { createGitHubAppCredentials, createGitHubHost } from "../github/host.ts";
@@ -178,6 +179,11 @@ export interface BabysitterRuntime {
     accepting?: () => boolean,
   ): Promise<void>;
   workload(): { running: number };
+  /**
+   * Makes the next reconcile check the default branch of the delivery's repository when the delivery
+   * is a failed push run of a watched workflow there. Returns whether it did.
+   */
+  observeMainRepair(event: string, payload: unknown): Promise<boolean>;
 }
 
 export function createBabysitterRuntime(options: BabysitterRuntimeOptions): BabysitterRuntime {
@@ -358,6 +364,55 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     rest: (path, signal, key) => readRest(path, key ? `.${key}[]` : ".[]", signal),
     page: readOnePage,
   };
+
+  // Main repair: one check per repository every 10 minutes, or at once after a failed push run on the default branch.
+  const mainRepairPrefix = presetOptions.mainRepairBranchPrefix;
+  const mainRepair = presetOptions.mainRepair && mainRepairPrefix ? presetOptions.mainRepair : undefined;
+  const mainRepairRepositories = mainRepair?.repositories?.map(repository => repository.toLowerCase());
+  const mainRepairIntervalMs = 10 * 60_000;
+  const mainRepairRunning = new Set<string>();
+  const mainRepairKey = (repository: string) => `main-repair-next:${repository.toLowerCase()}`;
+  const mainRepairWatches = (repository: string) => repositorySource.known().includes(repository.toLowerCase())
+    && (!mainRepairRepositories || mainRepairRepositories.includes(repository.toLowerCase()));
+  function mainRepairGitHub(repository: string, signal: AbortSignal): MainRepairGitHub {
+    return {
+      async read(path, query) {
+        const { provider } = await forge(repository, signal);
+        try {
+          return (await retryTransient(() => provider.request<unknown>("GET", `/${path}`, { query, signal }), signal)).data;
+        } catch (error) {
+          if (forgeErrorStatus(error) === 404) return undefined;
+          throw error;
+        }
+      },
+      async write(path, body) {
+        const { provider } = await forge(repository, signal);
+        return (await provider.request<unknown>("POST", `/${path}`, { body, signal })).data;
+      },
+    };
+  }
+  async function checkMainRepairs(repositories: readonly string[], track: ProcessReconcilerRunContext["track"]) {
+    if (!mainRepair || !mainRepairPrefix) return;
+    for (const repository of repositories) {
+      if (!mainRepairWatches(repository) || mainRepairRunning.has(repository)) continue;
+      if ((await pullRequestInbox.metaNumber(mainRepairKey(repository)) ?? 0) > Date.now()) continue;
+      await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs);
+      mainRepairRunning.add(repository);
+      void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, mainRepair, event: schedulerEvent })
+        .catch(async (error: unknown) => {
+          await noteForgeQuota(error, "main-repair");
+          schedulerError("babysitter.main_repair.failed", error, { repository });
+        })
+        .finally(() => mainRepairRunning.delete(repository)));
+    }
+  }
+  async function observeMainRepair(event: string, payload: unknown): Promise<boolean> {
+    if (!mainRepair || !isFailedBaseRun(event, payload, mainRepair.workflows)) return false;
+    const repository = isRuntimeRecord(payload) && isRuntimeRecord(payload.repository) ? payload.repository.full_name : undefined;
+    if (!hasRuntimeType(repository, "string") || !mainRepairWatches(repository)) return false;
+    await pullRequestInbox.setMeta(mainRepairKey(repository), 0);
+    return true;
+  }
 
   /**
    * Marks a reviewed draft ready for review when `merge.markDraftsReady` lists its author and its head
@@ -1436,6 +1491,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerError("babysitter.bootstrap.failed", error, { repository });
       }
     }
+    await checkMainRepairs(repositories, track);
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
       await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap);
@@ -2729,7 +2785,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     track(batch);
   }
 
-  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload };
+  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload, observeMainRepair };
 }
 
 function fixedOrSource(repositories: readonly string[] | BabysitterRepositories): BabysitterRepositories {

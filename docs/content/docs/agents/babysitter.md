@@ -130,6 +130,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `dailyPushBudget` | `false` | Repair pushes per PR in a rolling 24 hours ([Limit pushes per pull request](#limit-pushes-per-pull-request)). `false` turns it off. |
 | `priorityLabels` | `[]` | Labels that put a PR first in the queue, after main repairs, and exempt it from `dailyPassBudget` and `dailyPushBudget`. Matched case-insensitively. |
 | `mainRepairBranchPrefix` | None | Head branch prefix of PRs that repair the base branch, such as `'repair-main-'`. These PRs go first in the queue, and `noProgressBudget` never stops them. |
+| `mainRepair` | `false` | Open a pull request that repairs the default branch when a watched workflow fails on it: `{ workflows, repositories, stuckJobMinutes }`. Needs `mainRepairBranchPrefix` ([Repair a red default branch](#repair-a-red-default-branch)). |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
 | `minorReviewRounds` | `false` | Heads in a row whose automated review has no valid finding above P2. Then automated review settles as if `reviewPushBudget` were spent ([Stop review ping-pong](#stop-review-ping-pong)). Needs `reviewPushBudget`. |
 | `reviewConvergencePushes` | `false` | Review-driven pushes after which each pass is asked to fix a recurring class of finding at its root instead of one more case. |
@@ -446,6 +447,29 @@ The queue claims, in order: pull requests whose head branch starts with `mainRep
 ### Failures from the base branch
 
 With `merge: 'direct'`, the host reads the logs of failing GitHub Actions jobs before a model pass. A job fails *the same way on the base* when the same job fails on the base branch tip in the same step, and the pull request's output names no failure that the base's lacks. A missing log proves nothing. When every failing required check fails the same way on the base, or stopped on a runner or network error, the pull request waits without a pass: it looks again every 15 minutes and is retested once the base passes. A runner or network error gets one branch update for a fresh run, once per head and base and at most hourly. A conflict, a person's feedback, a person's open review thread, or a head branch matching `mainRepairBranchPrefix` still starts a pass. A failing optional check still gets the pass that assesses it.
+
+### Repair a red default branch
+
+Pull request checks often run only fast suites, while the full suites run on the default branch. Two pull requests that each pass can then break the default branch together. With `mainRepair`, the host opens a pull request that repairs it:
+
+```ts [server/agents/babysitter/agent.ts] fragment
+export default defineAgent({
+  extends: babysitter,
+  options: {
+    filter: { repository: { allow: ['acme/app'] } },
+    mainRepairBranchPrefix: 'repair-main-',
+    mainRepair: { workflows: ['ci'] },
+  },
+})
+```
+
+Every 10 minutes per repository, and at once when GitHub delivers a failed `workflow_run`, the host reads the GitHub Actions push runs of `workflows` on the default branch:
+
+1. A running job older than `stuckJobMinutes` (default `90`; `false` turns it off) is stuck, and the host force-cancels its run, so later runs can start.
+2. A failed run on the tip is red. When the tip has no finished run, the newest finished run of each workflow counts, if it started after the last repair pull request merged. Cancelled and skipped runs do not count.
+3. When it finds a failure, and no repair pull request is open, the host pushes an empty commit on the tip to the branch `<mainRepairBranchPrefix><short SHA of the red commit>` and opens a pull request with the failed jobs. The queue claims it first.
+
+One repair pull request is open at a time. A red commit gets one repair branch: when the branch exists, the host waits until a newer commit fails instead of opening the same pull request again. `repositories` limits the check to some of the served repositories. The `filter` must select pull requests that the GitHub App opens, and the App needs `contents: write`, `pull_requests: write`, and `actions: write` to cancel runs. The journal records each check as `babysitter.main_repair.opened`, `.repair_open`, `.already_attempted`, `.waiting`, `.green`, `.cancelled_stuck`, or `.failed`.
 
 A required check that never reported on a head whose checks finished 10 minutes ago gets a fresh run once per head every six hours: the host updates a branch that is behind its base, or reruns the head's Actions runs.
 
