@@ -131,11 +131,6 @@
       "import": "./dist/drawer.js",
       "default": "./dist/drawer.js"
     },
-    "./editable": {
-      "types": "./dist/editable.d.ts",
-      "import": "./dist/editable.js",
-      "default": "./dist/editable.js"
-    },
     "./field": {
       "types": "./dist/field.d.ts",
       "import": "./dist/field.js",
@@ -325,11 +320,6 @@
       "types": "./dist/tabs.d.ts",
       "import": "./dist/tabs.js",
       "default": "./dist/tabs.js"
-    },
-    "./tag-group": {
-      "types": "./dist/tag-group.d.ts",
-      "import": "./dist/tag-group.js",
-      "default": "./dist/tag-group.js"
     },
     "./tags-input": {
       "types": "./dist/tags-input.d.ts",
