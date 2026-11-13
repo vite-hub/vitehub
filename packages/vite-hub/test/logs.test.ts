@@ -16,7 +16,7 @@ const entry = (id: string) => ({
 describe("Logs source", () => {
   it.each([["trace", "debug"], ["fatal", "error"]] as const)("maps Evlog %s to the Console %s level without losing the event", async (level, expected) => {
     const buffer = createLogBuffer();
-    const event = { timestamp: entry("a").timestamp, service: "app", level, message: "Event" };
+    const event = { timestamp: entry("a").timestamp, service: "app", environment: "test", level, message: "Event" };
     buffer.drain({ event });
     const page = await buffer.source.query({ level: expected });
     expect(page.entries).toHaveLength(1);

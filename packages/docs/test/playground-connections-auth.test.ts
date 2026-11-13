@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 const { getSession } = vi.hoisted(() => ({ getSession: vi.fn() }))
 vi.mock("vite-hub/auth/server", () => ({ useAuth: () => ({ api: { getSession } }) }))
+// Exercise the real policy without requiring the framework facade build in the Docs shard.
+vi.mock("vite-hub/cms/access", () => import("../../cms/src/access.ts"))
 
 import actor from "../playground/server/connections-auth.ts"
 
