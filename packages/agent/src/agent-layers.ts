@@ -320,8 +320,10 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
     copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(resolved))
     const skills = Object.getOwnPropertyDescriptor(definition, colocatedSkills)
     const inheritedSkills = Object.getOwnPropertyDescriptor(parent, colocatedSkills)
-    // Preserve discovered Skill source identity when configuration only copied the decoration.
-    if (skills && inheritedSkills && "value" in skills && "value" in inheritedSkills) Object.defineProperty(resolved, colocatedSkills, inheritedSkills)
+    // A data property on the callback definition is discovered Skills, while a
+    // manual composition uses a getter. Preserve the preset's live discovery
+    // layer for the former; re-evaluate manual Skills with the new options.
+    if (skills && inheritedSkills && "value" in skills) inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     else if (skills) Object.defineProperty(resolved, colocatedSkills, skills)
     else inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     return resolved
