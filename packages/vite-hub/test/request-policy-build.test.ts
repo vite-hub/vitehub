@@ -12,6 +12,7 @@ describe("trustProxy and sameOriginWrites in a built Node server", () => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "request-policy-build", private: true, type: "module" }),
       "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
+      "server/plugins/async.ts": "export default async () => { await Promise.resolve() }\n",
       "server/routes/api/url.ts": echo,
       "server/routes/api/notes.post.ts": echo,
       "server/routes/hooks/inbox.post.ts": echo,
@@ -20,7 +21,7 @@ describe("trustProxy and sameOriginWrites in a built Node server", () => {
     })
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
     const app = [vitehub({ host: "node", trustProxy: true, sameOriginWrites: { exclude: ["/hooks"] } }), nitro()]
-    const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: app, root } as never)
+    const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: app, root, nitro: { plugins: [`${root}/server/plugins/async.ts`] } } as never)
     await builder.buildApp()
 
     const server = await startBuiltServer(root, {})
@@ -32,7 +33,7 @@ describe("trustProxy and sameOriginWrites in a built Node server", () => {
       expect(await (await server.fetch("/api/url")).json()).toMatchObject({ url: `http://${base}/api/url` })
 
       const write = (path: string, headers: Record<string, string>) => server.fetch(path, { method: "POST", headers: { "x-reached": "fail", ...headers } })
-      const foreign = await write("/api/notes", { cookie: "session=1", origin: "https://evil.test" })
+      const foreign = await write("/api/notes", { cookie: "session=1", origin: "https://evil.test", "sec-fetch-site": "cross-site" })
       expect(foreign.status).toBe(403)
       expect(await foreign.json()).toMatchObject({ error: { code: "VITEHUB_CROSS_ORIGIN_WRITE" } })
       expect((await write("/api/notes", { cookie: "session=1", "sec-fetch-site": "same-site" })).status).toBe(403)

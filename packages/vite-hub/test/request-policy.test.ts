@@ -117,13 +117,13 @@ describe("request policy Vite plugin", () => {
       .toContain(`installRequestPolicy(nitroApp, {"trustProxy":true,"sameOriginWrites":{"exclude":["/hooks"]}})`)
   })
 
-  it("registers the generated plugin with Nitro", async () => {
+  it("registers the generated plugin before configured async plugins", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-request-policy-"))
     try {
-      const config: { root: string, nitro?: { plugins?: string[] } } = { root }
+      const config: { root: string, nitro?: { plugins?: string[] } } = { root, nitro: { plugins: ["async-plugin.mjs"] } }
       await (requestPolicyVitePlugin({ sameOriginWrites: true }).config as (config: object) => Promise<void>)(config)
       const file = join(root, ".vitehub/nitro/request-policy.mjs")
-      expect(config.nitro?.plugins).toContain(file)
+      expect(config.nitro?.plugins).toEqual([file, "async-plugin.mjs"])
       expect(await readFile(file, "utf8")).toContain(`{"trustProxy":false,"sameOriginWrites":{"exclude":[]}}`)
     }
     finally {

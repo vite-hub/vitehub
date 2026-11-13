@@ -26,8 +26,8 @@ export function renderRequestPolicyNitroPlugin(options: RequestPolicyOptions): s
 }
 
 /**
- * Register the request policy after the other generated plugins, so its `fetch` wrapper answers a cross-origin write
- * before theirs run. Its `request` hook still goes before theirs.
+ * Install the policy synchronously before other Nitro plugins can defer initialization. Server entries capture
+ * `nitroApp.fetch` immediately, so installing after an async plugin would leave that captured entry unprotected.
  */
 export function requestPolicyVitePlugin(options: { trustProxy?: boolean, sameOriginWrites?: boolean | SameOriginWritesOptions }): Plugin {
   const sameOriginWrites = options.sameOriginWrites
@@ -35,5 +35,5 @@ export function requestPolicyVitePlugin(options: { trustProxy?: boolean, sameOri
     trustProxy: options.trustProxy === true,
     sameOriginWrites: sameOriginWrites ? { exclude: sameOriginWrites === true ? [] : sameOriginWrites.exclude ?? [] } : false,
   }
-  return generatedNitroPlugin("vite-hub/request-policy", "request-policy.mjs", () => renderRequestPolicyNitroPlugin(policy))
+  return generatedNitroPlugin("vite-hub/request-policy", "request-policy.mjs", () => renderRequestPolicyNitroPlugin(policy), { position: "start" })
 }
