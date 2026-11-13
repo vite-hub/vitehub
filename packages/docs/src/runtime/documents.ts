@@ -3,15 +3,17 @@ import parser, { githubRepo } from "#docs/parser"
 import { defu } from "defu"
 import { createDocsParser } from "../markdown.ts"
 import { readDocsFile } from "./files.ts"
-import type { DocsDocument } from "../markdown.ts"
+import type { DocsDocument, DocsParserOptions } from "../markdown.ts"
 
 // `#123` links to the site's issues unless the parser names another repository or turns references off.
 const references = githubRepo ? { github: { references: { repo: githubRepo } } } : {}
-export const parseDocsDocument = createDocsParser({ exampleSources: examples, ...parser, comarkUi: defu(parser.comarkUi, references) })
+/** The one parser configuration of the site. The page route's Content, drafts, credits, and search parse with it. */
+export const docsParserOptions: DocsParserOptions = { exampleSources: examples, ...parser, comarkUi: defu(parser.comarkUi, references) }
+export const parseDocsDocument = createDocsParser(docsParserOptions)
 const parsed = new Map<string, Promise<DocsDocument | null>>()
 const pending = new Map<string, Promise<DocsDocument | null>>()
 
-/** Page JSON and search share in-flight parses; drafts always use the parser directly. */
+/** Search reads each page here, with the parser of the page route. Drafts and credits use the parser directly. */
 export function loadDocsDocument(file: string, source = "docs", cache = true): Promise<DocsDocument | null> {
   const key = `${source}:${file}`
   const load = async () => {

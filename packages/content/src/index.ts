@@ -273,8 +273,13 @@ export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
   TCollections extends ContentCollections = ContentCollections,
   TPresetOptions extends object = object,
-> = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
+> = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources" | "markdown"> & {
   plugins?: TPlugins
+  /**
+   * Comark parser options. `plugins` add to Content's Comark UI preset, and a plugin with a preset plugin's name
+   * replaces it. `preset: false` parses with `plugins` alone, for an app that brings its own Comark UI configuration.
+   */
+  markdown?: NonNullable<ContentOptions["markdown"]> & { preset?: false }
   /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
   route?: boolean
   /** One read-only Source, served as the `default` instance. */
@@ -489,12 +494,11 @@ export function defineContent<
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
-  const customPlugins = sharedOptions.markdown?.plugins ?? []
+  const { preset, ...markdownOptions } = sharedOptions.markdown ?? {}
+  const customPlugins = markdownOptions.plugins ?? []
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
-  sharedOptions.markdown = {
-    ...sharedOptions.markdown,
-    plugins: [...comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
-  }
+  const presetPlugins = preset === false ? [] : comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name))
+  sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins, ...customPlugins] }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace

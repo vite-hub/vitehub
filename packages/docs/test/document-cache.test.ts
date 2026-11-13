@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { gzipSync } from "node:zlib"
 import { H3 } from "h3"
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
@@ -35,22 +36,47 @@ async function app() {
   return new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
 }
 
-it("shares each page parse between concurrent page and search requests", async () => {
+it("reads a page once through Content for concurrent page requests, and search reads it apart", async () => {
   const server = await app()
   const page = () =>
     server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
-  const search = () => server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
-  const responses = await Promise.all([page(), page(), search()])
+  const responses = await Promise.all([page(), page()])
   for (const response of responses) expect(response.status).toBe(200)
   expect(await responses[0]!.json()).toMatchObject({ page: { path: "/docs/kv" } })
-  expect(await responses[2]!.json()).toContainEqual(expect.objectContaining({ id: "/docs/kv" }))
-  const files = getItem.mock.calls.map(([file]) => file)
+  expect(getItem.mock.calls).toEqual([["docs/kv/index.md"]])
+  expect(parsed).toHaveBeenCalledTimes(1)
+  expect((await page()).status).toBe(200)
+  expect(getItem).toHaveBeenCalledTimes(1)
+  expect(parsed).toHaveBeenCalledTimes(1)
+  // Search parses each indexed page with the same parser, without keeping the trees.
+  const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+  expect(search.status).toBe(200)
+  expect(await search.json()).toContainEqual(expect.objectContaining({ id: "/docs/kv" }))
+  const files = getItem.mock.calls.slice(1).map(([file]) => file)
   expect(new Set(files).size).toBe(files.length)
-  expect(parsed).toHaveBeenCalledTimes(files.length)
-  await page()
-  await search()
-  expect(getItem).toHaveBeenCalledTimes(files.length)
-  expect(parsed).toHaveBeenCalledTimes(files.length)
+  expect(parsed).toHaveBeenCalledTimes(1 + files.length)
+})
+
+it.each([undefined, "docs-1"])("reads packed production pages from %s through Content without Nitro server assets", async (source) => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const original = page.source
+  page.source = source
+  onTestFinished(() => { page.source = original })
+  const markdown = "# Packed page\n\nOnly in the production bundle.\n"
+  const bytes = Buffer.from(markdown)
+  vi.doMock("#docs/files", () => ({ default: {
+    index: { [source ?? "docs"]: { [page.file]: [0, bytes.length] } },
+    packed: gzipSync(bytes).toString("base64"),
+  } }))
+  onTestFinished(() => { vi.doMock("#docs/files", () => ({ default: null })) })
+  getItem.mockResolvedValue(null)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+  expect(response.status).toBe(200)
+  expect(JSON.stringify(await response.json())).toContain("Only in the production bundle.")
+  expect(useKV).not.toHaveBeenCalled()
 })
 
 it("retries a page after storage or parsing fails", async () => {
@@ -147,5 +173,26 @@ it("reads mapped page and search content from the configured storage mount", asy
   const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect(search.status).toBe(200)
   expect(JSON.stringify(await search.json())).toContain("Only in mapped content.")
-  expect(mapped).toHaveBeenCalledExactlyOnceWith(page.file)
+  // Once for the page route's Content, once for search.
+  expect(mapped.mock.calls).toEqual([[page.file], [page.file]])
+})
+
+it("gives the page route the same document as the docs parser", async () => {
+  const markdown = [
+    "---\ntitle: Same\n---\n",
+    "# Same\n\n- one\n\n- two\n",
+    ":::example\n```md\n## Install\n\n- [ ] task\n```\n:::\n",
+    "## Install\n\n> [!NOTE]\n> Read this.\n",
+    "::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n",
+    "::question{#callback}\nWhich callback runs first?\n\n- [x] A promise\n- [ ] A timer\n::\n",
+  ].join("\n")
+  getItem.mockResolvedValue(markdown)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+  expect(response.status).toBe(200)
+  const { document } = await response.json()
+  const { parseDocsDocument } = await import("../src/runtime/documents.ts")
+  expect(document).toEqual(JSON.parse(JSON.stringify(await parseDocsDocument(markdown))))
+  expect(JSON.stringify(document)).toContain("comark-html")
+  expect(document.toc).toEqual([expect.objectContaining({ text: "Install" })])
 })
