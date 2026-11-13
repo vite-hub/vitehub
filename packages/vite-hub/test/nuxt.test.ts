@@ -623,7 +623,7 @@ describe("ViteHub Nuxt integration", () => {
     })
     const facades = [
       ["vite-hub/ui", "@vite-hub/ui"],
-      ["vite-hub/ui/avatar-stack", "@vite-hub/ui"],
+      ["vite-hub/ui/headless", "@vite-hub/ui"],
       ["vite-hub/ui/styles.css", "@vite-hub/ui"],
       ["vite-hub/presets/babysitter/server", "@vite-hub/presets"],
       ["vite-hub/shell", "@vite-hub/shell"],
