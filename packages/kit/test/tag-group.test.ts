@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { h, ref, type Ref } from "vue";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TagGroup, TagGroupItem, TagGroupItemRemove } from "@vite-hub/kit/tag-group";
 
@@ -37,6 +37,18 @@ function render(tags: Ref<string[]>, selected: Ref<string[]>, props: Record<stri
 }
 
 describe("TagGroup", () => {
+  it("warns and omits a remove button used outside an item", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const view = mount(() => h(TagGroupItemRemove, {}, () => "Remove"));
+      cleanup = view.unmount;
+      expect(view.host.querySelector("button")).toBeNull();
+      expect(warning.mock.calls.flat().join(" ")).toContain("<TagGroupItemRemove> must be used inside <TagGroupItem>.");
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it("is a grid of rows, each with one cell, and one tab stop", async () => {
     const { grid, rows } = render(ref(["vue", "nuxt", "vite"]), ref([]));
     await settle();

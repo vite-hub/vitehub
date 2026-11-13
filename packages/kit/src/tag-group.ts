@@ -1,5 +1,5 @@
 import { createParts, usePart, type PartSlots, type Parts } from "@ui-sdk/vue/primitive";
-import { defineComponent, h, inject, provide, type InjectionKey } from "vue";
+import { defineComponent, h, inject, provide, warn, type InjectionKey } from "vue";
 
 import {
   tagGroupPrimitive,
@@ -56,7 +56,10 @@ export const TagGroupItemRemove: TagGroupParts["ItemRemove"] = defineComponent({
   slots: Object as PartSlots<TagGroupPrimitive, "item-remove">,
   setup() {
     const item = inject(ItemKey, null);
-    if (!item) throw new Error("<TagGroupItemRemove> must be used inside <TagGroupItem>.");
+    if (!item) {
+      warn("<TagGroupItemRemove> must be used inside <TagGroupItem>.");
+      return () => null;
+    }
     return usePart(tagGroupPrimitive, "item-remove", item, undefined, "button");
   },
 }) as unknown as TagGroupParts["ItemRemove"];
