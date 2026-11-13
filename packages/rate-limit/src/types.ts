@@ -166,7 +166,11 @@ export interface CreateRateLimiterOptions extends RateLimitPolicy {
   name?: string
 }
 
-export type RateLimitProvider = "auto" | "cloudflare" | "memory"
+/**
+ * `kv` counts in the default KV store, shared by every server process when KV uses `redis`, `database`, or `upstash`.
+ * With another KV driver, it counts in process memory and prints a warning at boot.
+ */
+export type RateLimitProvider = "auto" | "cloudflare" | "kv" | "memory"
 
 export interface RateLimitOptions {
   namespace?: string

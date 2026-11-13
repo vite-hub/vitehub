@@ -1,6 +1,6 @@
 import * as v from "valibot"
 
-import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy, passAllows } from "./define.ts"
+import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { foldName } from "../fold-name.ts"
@@ -129,10 +129,8 @@ export async function can(runtime: Pick<CommentsRuntime, "definition" | "develop
   const subject = context.subject ?? context.thread?.subject
   const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}) }
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
-  // A page pass carries the decision of the Console member who made it.
-  if (checked.pass) return passAllows(checked.pass.grants, full.action)
   if (authorize) return await authorize(full) === true
-  if (defaultPolicy(full.user, checked)) return true
+  if (defaultPolicy(full.user, checked, full.action)) return true
   if (deniedForMissingPolicy(runtime.definition, full.user, checked)) warnMissingPolicy()
   return false
 }
@@ -150,7 +148,7 @@ function warnMissingPolicy(): void {
 /** The diagnostic of a denied action: `COMMENTS_R0006` when only the missing `authorize` denied it, else `COMMENTS_R0009`. */
 export function deniedError(runtime: Pick<CommentsRuntime, "definition" | "development">, action: string, user: CommentsUser | null, gate: CommentsPolicyGate = {}): Error {
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
-  if (!checked.pass && deniedForMissingPolicy(runtime.definition, user, checked)) return fail(commentsErrorDiagnostics.COMMENTS_R0006(), 403)
+  if (deniedForMissingPolicy(runtime.definition, user, checked)) return fail(commentsErrorDiagnostics.COMMENTS_R0006(), 403)
   return fail(commentsErrorDiagnostics.COMMENTS_R0009({ action }), 403)
 }
 

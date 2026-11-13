@@ -75,16 +75,33 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Use a Workspace Store that returns file digests, or return `digest` from the document adapter `save()`.",
     },
 
+    REALTIME_INVALID_POSTGRES_URL: {
+      why: "REALTIME_POSTGRES_URL is set, and it is not a `postgres://` or `postgresql://` URL.",
+      fix: "Set REALTIME_POSTGRES_URL to a Postgres URL, or remove it so that Realtime uses the connection of the Default Database.",
+    },
+    REALTIME_MISSING_BUS_CONNECTION: {
+      why: ({ authority }: { authority: "postgres" | "redis" }) => authority === "redis"
+        ? "Realtime authority \"redis\" shares rooms through Redis, and REDIS_URL is not set."
+        : "Realtime authority \"postgres\" shares rooms through Postgres, and the app has no Postgres Default Database and no REALTIME_POSTGRES_URL.",
+      fix: "Set REDIS_URL for Redis. For Postgres, define the Default Database with `dialect: \"postgresql\"`, or set REALTIME_POSTGRES_URL. Or set `realtime.authority` to \"auto\".",
+    },
+    REALTIME_ROOM_LOCK_TIMEOUT: {
+      why: "Realtime waited 30 seconds for the save lock of a room, and another instance still holds it.",
+      fix: "Make the document adapter `save()` finish in less than 30 seconds. Realtime tries the save again.",
+    },
+
     // Build errors. The Vite integration throws them when it reads the config.
     REALTIME_AUTHORITY_CONFLICT: {
-      why: ({ authority, host }: { authority: "cloudflare" | "memory", host: string }) => authority === "memory"
+      why: ({ authority, host }: { authority: "cloudflare" | "memory" | "postgres" | "redis", host: string }) => authority === "memory"
         ? `Realtime authority "memory" is single-process only, and the ${host} host runs more than one process.`
-        : `Realtime authority "cloudflare" does not work with the ${host} host.`,
-      fix: "Set `realtime.authority` to \"cloudflare\" with the Cloudflare host, or to \"memory\" for one Node.js process.",
+        : authority === "cloudflare"
+          ? `Realtime authority "cloudflare" does not work with the ${host} host.`
+          : `Realtime authority "${authority}" needs a Node.js server, and the ${host} host does not run one.`,
+      fix: "Set `realtime.authority` to \"cloudflare\" with a Cloudflare host. With the Node host, use \"auto\", \"postgres\", \"redis\", or \"memory\".",
     },
     REALTIME_MISSING_AUTHORITY: {
       why: "Realtime production builds need one room authority, and ViteHub cannot select one for this deployment.",
-      fix: "Deploy with the Cloudflare host to use Durable Objects, or set `realtime.authority` to \"memory\" for one Node.js process.",
+      fix: "Deploy with a Cloudflare host to use Durable Objects, or with the Node host to share rooms through Postgres or Redis.",
     },
   },
 })

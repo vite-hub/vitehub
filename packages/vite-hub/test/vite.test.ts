@@ -427,7 +427,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","workflows","site"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","workflows"])`,
       )
     }
     finally {
@@ -921,10 +921,12 @@ describe("vitehub", () => {
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ host: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      kvImport: "vite-hub/kv",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ host: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      kvImport: "vite-hub/kv",
       provider: "cloudflare",
     })
     expect(pluginNames(vitehub({
@@ -932,6 +934,7 @@ describe("vitehub", () => {
       rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
     }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      kvImport: "vite-hub/kv",
       projectRoot: "packages/policies",
       provider: "cloudflare",
       scanDirs: ["rules"],
@@ -2084,6 +2087,31 @@ describe("vitehub", () => {
     await expect(applyDeploymentConfig(options, {}, "serve")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { namespace: "acme", provider: "memory" } },
     })
+  })
+
+  it("counts Node Rate Limits in KV when the app enables KV", async () => {
+    await expect(applyDeploymentConfig({ host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
+    })
+    await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } },
+    })
+    // An explicit provider wins, and the dev server counts in memory.
+    await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "memory" } }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
+    })
+    await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "serve")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
+    })
+
+    // Off Node, no KV store has a shared atomic increment that ViteHub selects.
+    for (const preset of ["cloudflare", "vercel"] as const) {
+      expect(() => vitehub({ kv: true, host: preset, rateLimit: { provider: "kv" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0144" }))
+    }
+
+    integrationMocks.hubRateLimit.mockClear()
+    vitehub({ kv: true, host: "node", rateLimit: true })
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

@@ -35,7 +35,7 @@ vi.mock("nitro/kv", () => ({ useKV: () => ({ getItem }) }))
 vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: fixtures, base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: fixtures, base: "/docs" }) }
 })
 vi.mock("#docs/content", () => ({ content }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))

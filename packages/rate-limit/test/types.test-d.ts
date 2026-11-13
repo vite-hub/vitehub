@@ -59,6 +59,7 @@ it("types custom and provider drivers", async () => {
   hubRateLimit({ namespace: "types-test", provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
   expectTypeOf(discoverRateLimitDeclarations({ rootDir: "." })).toEqualTypeOf<RateLimitDeclaration[]>()
 
-  // @ts-expect-error kv is not a Rate Limit provider.
   hubRateLimit({ provider: "kv" })
+  // @ts-expect-error redis is a KV driver, not a Rate Limit provider.
+  hubRateLimit({ provider: "redis" })
 })

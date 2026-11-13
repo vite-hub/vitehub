@@ -61,6 +61,15 @@ it. When `server/content.ts` imports it, the generated
 `.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
 because a Worker compiles WebAssembly only then.
 
+`content.searchSections(names?, { headings, ignore })` returns every document
+split by heading, for a search that ranks in the browser or in another index.
+It needs no database, so it works on every host. Each part has `id` (the
+document path, plus `#<heading id>`), `title`, `titles` (the headings above it),
+`level`, `content`, and its document's `source` and `key`. `headings` defaults
+to `[2, 3]`, and headings inside components count. `ignore` lists tags whose
+text search skips. `contentSearchSections(document, options)` splits one parsed
+document the same way.
+
 Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()`, `defineContentRobotsHandler()`, and `defineContentLlmsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on. It takes the Content runtime or a function that loads it; with a function, it loads Content only for requests that ask for Markdown. `@vite-hub/content/markdown` exports it without the Content runtime, for the generated middleware that loads when the server starts.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
@@ -280,7 +289,7 @@ In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type 
 
 ## Markdown rendering
 
-Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.
+Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. `markdown: { preset: false, plugins }` parses with your plugins alone, as `@vite-hub/docs` does with `docsMarkdown()`. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.
 
 Render a page with ViteHub UI. Its `Markdown` primitive accepts both a parsed Content page and a Markdown string, with Comark UI components and document styles already configured:
 
