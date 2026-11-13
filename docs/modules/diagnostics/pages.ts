@@ -34,6 +34,7 @@ export const diagnosticSections: Record<string, string> = {
   "schedule": "schedule",
   "shell": "shell",
   "source": "source",
+  "sync": "sync",
   "ui": "ui",
   "vite-hub": "development",
   "workflow": "workflows",

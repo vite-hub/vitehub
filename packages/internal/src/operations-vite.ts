@@ -7,7 +7,7 @@ import { flattenPluginOptions } from "./contributions.ts"
 import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "./cli.ts"
 
 // The first of these plugins hosts the shared RPC. Its operations module also exports the handler factory.
-const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite", "@vite-hub/forms/vite"])
+const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite", "@vite-hub/forms/vite", "@vite-hub/sync/vite"])
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
