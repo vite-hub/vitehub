@@ -1,3 +1,4 @@
+import { assertWorkspaceRules } from "./rule-keys.ts"
 import type { WorkspaceDefinitionInput } from "./types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -28,5 +29,7 @@ export function defineWorkspace(definition: WorkspaceDefinitionInput): Workspace
     throw workspaceErrorDiagnostics.WORKSPACE_R0017({ message: "[vitehub] Workspace names are inferred from definition filenames." })
   }
   assertWorkspaceDefinitionKeys(definition)
+  assertWorkspaceRules(definition.rules)
+  for (const plugin of definition.plugins ?? []) assertWorkspaceRules(plugin?.rules)
   return definition
 }

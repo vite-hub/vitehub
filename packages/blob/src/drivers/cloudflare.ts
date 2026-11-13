@@ -85,6 +85,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
   return {
     name: "cloudflare-r2",
     options,
+    copy: (from, to) => activeDriver().copy!(from, to),
     delete: pathnames => activeDriver().delete(pathnames),
     get: pathname => activeDriver().get(pathname),
     getArrayBuffer: pathname => activeDriver().getArrayBuffer(pathname),
