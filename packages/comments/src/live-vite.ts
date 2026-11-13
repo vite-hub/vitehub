@@ -130,7 +130,7 @@ const defaultImports: CommentsImports = {
   realtime: "@vite-hub/comments/realtime",
   auth: "@vite-hub/comments/runtime/auth",
   database: "@vite-hub/comments/database",
-  databases: "@vite-hub/database/drizzle",
+  databases: "@vite-hub/database/runtime/registry",
   contentClient: "@vite-hub/content/client",
   connect: "@vite-hub/comments/runtime/connect",
   blob: "@vite-hub/blob",

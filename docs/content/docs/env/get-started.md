@@ -91,7 +91,7 @@ Create `server/api/app-name.get.ts`. This file is the route `GET /api/app-name`.
 
 ```ts [server/api/app-name.get.ts]
 import { defineEventHandler } from 'h3'
-import { usePublicEnv } from '#vitehub/env/public'
+import { usePublicEnv } from 'vite-hub/env'
 
 export default defineEventHandler(() => {
   const { appName } = usePublicEnv()
@@ -99,7 +99,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-`#vitehub/env/public` is a module that Env makes from your config, so `appName` has a type. Only the dev server and the build can load this module. You cannot run this file with `node` alone.
+`usePublicEnv()` reads the Env values generated from your config, so `appName` has a type. Run this route through the dev server or built server output. Outside a ViteHub build it throws `ENV_NOT_GENERATED`.
 
 ::
 

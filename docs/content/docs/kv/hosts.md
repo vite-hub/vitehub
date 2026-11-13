@@ -14,7 +14,7 @@ KV picks the store and generates store-name types. Put namespaces, bindings, and
 
 ## Read and write keys during development
 
-`hubKv()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
+`hubKV()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users:

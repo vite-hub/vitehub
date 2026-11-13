@@ -1,6 +1,6 @@
-import { defineDatabase } from "@vite-hub/database"
-import { agentDb, chunkParameters, db, databases, schema, useDatabase } from "@vite-hub/database/drizzle"
-import { hubDb } from "@vite-hub/database/nuxt"
+import { chunkParameters, db, defineDatabase, schema, useDatabase } from "@vite-hub/database"
+import { agentDb, databases } from "@vite-hub/database/runtime/registry"
+import { hubDatabase } from "@vite-hub/database/nuxt"
 import { defineRelations, defineRelationsPart } from "drizzle-orm"
 import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -30,7 +30,7 @@ const reviewRelations = defineRelationsPart(librarySchema, r => ({
   books: { reviews: r.many.reviews({ from: r.books.id, to: r.reviews.bookId }) },
 }))
 
-declare module "@vite-hub/database/drizzle" {
+declare module "@vite-hub/database" {
   interface DatabaseRegistry {
     analytics: {
       config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig
@@ -52,7 +52,7 @@ declare module "@vite-hub/database/drizzle" {
 }
 
 describe("published package types", () => {
-  it("resolves virtual schema types from the drizzle subpath without manual ambient imports", () => {
+  it("resolves virtual schema types from the root without manual ambient imports", () => {
     expectTypeOf(schema).toMatchTypeOf<Record<string, unknown>>()
     expectTypeOf(schema.notes).toEqualTypeOf<unknown>()
     expectTypeOf(databases.default.schema).toMatchTypeOf<typeof schema>()
@@ -157,6 +157,6 @@ describe("published package types", () => {
       databaseId: "content-id",
     } satisfies DatabaseNuxtIntegrationOptions
 
-    expectTypeOf(hubDb(options).getMeta().name).toEqualTypeOf<string>()
+    expectTypeOf(hubDatabase(options).getMeta().name).toEqualTypeOf<string>()
   })
 })

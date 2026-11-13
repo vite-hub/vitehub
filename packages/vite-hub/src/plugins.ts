@@ -131,6 +131,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
   "@vite-hub/cms": true,
+  // `vitehub migrate` tooling: generated server code never imports it.
+  "@vite-hub/codemods": false,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
@@ -1313,7 +1315,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
-  // hubKv() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
+  // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
   const kvHosting = options.kv ? plan.nitroPreset : undefined
   configureProviderOptionalImportAliases(providerImportAliases, options, configuredKV, kvHosting)
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(
@@ -1325,7 +1327,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   if (!options.database) {
     const databaseRuntimeImports = new Map<string, string>()
-    for (const specifier of ["vite-hub/database/drizzle", "@vite-hub/database/drizzle"]) {
+    for (const specifier of ["vite-hub/database", "@vite-hub/database", "@vite-hub/database/runtime/registry"]) {
       databaseRuntimeImports.set(specifier, specifier)
       // Vite applies the framework alias first, so resolveId can receive the facade path.
       const facade = frameworkProviderImportAliases[specifier]
@@ -1353,10 +1355,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     blob: blobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
-    db: options.database ? "vite-hub/database/drizzle" : false,
+    db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // Email and KV capabilities exist only when the app installed their packages.
-    ...emailVite ? { email: "vite-hub/email/server" } : {},
+    ...emailVite ? { email: "vite-hub/email" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 
@@ -1464,11 +1466,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.channels) plugins.push(requireOptionalOwner(channelsVite, "channels").hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
     const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
-    const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
+    const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "@vite-hub/database/runtime/registry", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
     plugins.push(requireOptionalOwner(connectionsVite, "connections").hubConnections(connectionsOptions))
   }
   else if (connectionsVite) plugins.push(connectionsVite.hubConnectionsTypesCleanup())
-  if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
+  if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDatabase(options.database === true ? undefined : options.database))
   if (blobEnabled) {
     plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: "vite-hub/blob", presetDriver: blob => Boolean(blob && hostBlobConfigs.has(blob)) })))
   }
@@ -1486,10 +1488,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else if (emailVite) plugins.push(emailVite.hubEmailOptionalPeerResolver())
   // A KV cache also needs the owner plugin when no KV options were set.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    // hubKv() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
-    plugins.push(requireOptionalOwner(kvVite, "kv").hubKv(configuredKV, { ...(kvHosting ? { hosting: kvHosting } : {}), databaseImport: "vite-hub/database/drizzle" }))
+    // hubKV() infers the driver itself, because development keeps inferred stores local unless they set `remote: true`.
+    plugins.push(requireOptionalOwner(kvVite, "kv").hubKV(configuredKV, { ...(kvHosting ? { hosting: kvHosting } : {}), databaseImport: "@vite-hub/database/runtime/registry" }))
   }
-  else if (kvVite) plugins.push(kvVite.hubKvOptionalPeerResolver())
+  else if (kvVite) plugins.push(kvVite.hubKVOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     const provider = configuredQueue?.provider ?? plan.services.queue.adapter
     // SAFETY: The provider is the host's Queue adapter or the app's own `queue.provider`.
@@ -1534,7 +1536,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
-      databases: "vite-hub/database/drizzle",
+      databases: "@vite-hub/database/runtime/registry",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },
@@ -1566,7 +1568,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "vite-hub/database/drizzle",
+      databaseImport: "@vite-hub/database/runtime/registry",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1618,8 +1620,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       runtime: "vite-hub/forms/runtime",
       operations: "vite-hub/forms/operations",
       database: "vite-hub/forms/database",
-      databases: "vite-hub/database/drizzle",
-      email: "vite-hub/email/server",
+      databases: "@vite-hub/database/runtime/registry",
+      email: "vite-hub/email",
       auth: "vite-hub/auth/server",
       standard: "vite-hub/runtime",
     },
@@ -1631,7 +1633,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       contentDatabase: "vite-hub/content/database",
-      database: "vite-hub/database/drizzle",
+      database: "@vite-hub/database/runtime/registry",
       workspace: "vite-hub/workspace",
     },
   }))

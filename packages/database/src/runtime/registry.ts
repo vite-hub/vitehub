@@ -1,11 +1,13 @@
 import virtualSchema from "#vitehub/database/schema"
-import { databases as runtimeDatabases, db as runtimeDb, useDatabase as useRuntimeDatabase } from "./runtime/drizzle-runtime.ts"
-import { createAgentDatabase, createDatabaseBindingLookup } from "./runtime/agent.ts"
-import { ensureDatabaseMigrations } from "./runtime/migrate-on-start.ts"
+import { ensureDatabaseMigrations } from "./migrate-on-start.ts"
 
+import { createAgentDatabase, createDatabaseBindingLookup } from "./agent.ts"
+import { getRuntimeDatabases } from "./drizzle-runtime.ts"
+import { createUseDatabase } from "./use-database.ts"
+
+import type { DatabaseD1Binding } from "./agent.ts"
 import type { AnyRelations } from "drizzle-orm"
-import type { DatabaseDialect, MergeDatabaseRelations, RuntimeDrizzleDatabase, RuntimePostgresDatabase, SchemaRelations } from "./types.ts"
-import type { DatabaseD1Binding } from "./runtime/agent.ts"
+import type { DatabaseDialect, MergeDatabaseRelations, RuntimeDrizzleDatabase, RuntimePostgresDatabase, SchemaRelations } from "../types.ts"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect, TRelations extends AnyRelations> = TDialect extends "postgresql"
   ? RuntimePostgresDatabase<TSchema, TRelations>
@@ -22,6 +24,7 @@ export interface RuntimeDatabaseEntry<
   schema: TSchema
 }
 
+/** The Databases of the app. ViteHub generates this registry from the Database Definitions. */
 export interface DatabaseRegistry {}
 
 type RegisteredDatabaseSchema<Name extends keyof DatabaseRegistry> = DatabaseRegistry[Name] extends {
@@ -54,11 +57,44 @@ type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: DefaultDatabaseEntry
 } & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
-// SAFETY: generated registry declarations specialize the runtime database lookup by name.
-export const databases = runtimeDatabases as RuntimeDatabaseLookup
+/**
+ * An object that forwards every read to `resolve()`. Database Definitions import this module, and the generated
+ * registry imports the Definitions, so the registry must not be read while the modules load.
+ */
+function deferred<T extends object>(resolve: () => T, bindMethods = false): T {
+  // SAFETY: Every trap forwards to the resolved object, so the proxy behaves as that object.
+  return new Proxy({} as T, {
+    get: (_, property) => {
+      const target = resolve()
+      const value: unknown = Reflect.get(target, property, target)
+      // A Drizzle method reads its own instance through `this`.
+      return bindMethods && typeof value === "function" ? value.bind(target) : value
+    },
+    getOwnPropertyDescriptor: (_, property) => {
+      const descriptor = Reflect.getOwnPropertyDescriptor(resolve(), property)
+      return descriptor && { ...descriptor, configurable: true }
+    },
+    has: (_, property) => Reflect.has(resolve(), property),
+    ownKeys: () => Reflect.ownKeys(resolve()),
+  })
+}
 
+// SAFETY: generated registry declarations specialize the runtime database lookup by name.
+export const databases = deferred(() => getRuntimeDatabases().databases) as RuntimeDatabaseLookup
+
+/** The default Database, as a Drizzle database. Each query connects on first use. */
 // SAFETY: generated schema declarations specialize the default runtime database schema.
-export const db = runtimeDb as DefaultDatabaseEntry["db"]
+export const db = deferred(() => getRuntimeDatabases().databases.default.db, true) as DefaultDatabaseEntry["db"]
+
+/**
+ * The schema of the default Database.
+ *
+ * The generated registry types the default database, and the virtual schema is that database's schema. The package
+ * resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that module for this
+ * file. The registry is the one type source.
+ */
+// SAFETY: the generated registry gives the schema type of the default database.
+export const schema = deferred(() => virtualSchema) as DefaultDatabaseEntry["schema"]
 
 type IsUnion<T, U = T> = T extends unknown ? ([U] extends [T] ? false : true) : never
 
@@ -67,18 +103,14 @@ type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
   ? "default"
   : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
 
-/**
- * Returns the Drizzle client and schema of a discovered Database. Without a name, it returns the `default` Database or
- * the only one. It throws `DATABASE_NOT_FOUND` for a name without a Database Definition, and `DATABASE_NAME_REQUIRED`
- * without a name when the app has several Databases and none is named `default`.
- */
+/** Returns the default or only Database without a name; unknown or ambiguous names throw with the available choices. */
 export function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
   ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
 ): RuntimeDatabaseRegistry[Name]
 export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
-export function useDatabase(name?: keyof RuntimeDatabaseRegistry): RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry] {
-  // SAFETY: generated registry declarations type each runtime entry by its name.
-  return useRuntimeDatabase(name) as RuntimeDatabaseRegistry[keyof RuntimeDatabaseRegistry]
+export function useDatabase(name?: string): RuntimeDatabaseEntry<Record<string, unknown>> {
+  const runtime = getRuntimeDatabases()
+  return createUseDatabase(runtime.databases, [...runtime.configured])(name)
 }
 
 const lookupDatabaseBinding = createDatabaseBindingLookup(databases)
@@ -92,6 +124,7 @@ export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegist
   return lookupDatabaseBinding(name)
 }
 
+/** The Database Agent Capability handle. Generated Agent routes pass it to the Capability. */
 export const agentDb = createAgentDatabase(databases)
 
 /**
@@ -109,11 +142,3 @@ export function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string):
   return ensureDatabaseMigrations({ databases, load }, name === undefined ? undefined : [name])
 }
 
-// SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
-// The package resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that
-// module for this file. The registry is the one type source.
-export const schema = virtualSchema as DefaultDatabaseEntry["schema"]
-export { chunkParameters } from "./runtime/chunk-parameters.ts"
-export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
-export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.ts"
-export * from "#vitehub/database/schema"

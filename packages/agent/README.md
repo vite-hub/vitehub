@@ -173,7 +173,7 @@ export default defineConfig({
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
 import { file } from "@vite-hub/workspace";
-import { loadServerEnv } from "#vitehub/env/server";
+import { loadServerEnv } from "@vite-hub/env";
 
 export default defineAgent({
   driver: codexDriver({

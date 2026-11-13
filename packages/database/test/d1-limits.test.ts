@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createCloudflareD1HttpResolver } from "../src/runtime/d1-http.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 import { localLibsql } from "../src/runtime/local-client.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 import type { RuntimeDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -135,12 +135,12 @@ describe("the Vite databases module", () => {
       "export default defineDatabase({ schema: { notes: sqliteTable('notes', { title: text('title') }) } })",
       "",
     ].join("\n"))
-    const plugin = hubDb({ driver: "d1" })
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const plugin = hubDatabase({ driver: "d1" })
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, ...config })
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const load = (plugin.load as { handler: (id: string) => string | undefined }).handler
     return load(resolveId("#vitehub/database/databases")!)
   }

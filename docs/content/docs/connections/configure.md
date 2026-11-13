@@ -170,7 +170,7 @@ export default defineConfig({
 ::
 
 ```ts [server/connections/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({

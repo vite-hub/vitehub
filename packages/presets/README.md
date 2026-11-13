@@ -139,7 +139,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready, markDraftsReady }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, and optional draft authors. |
+| `{ strategy: "direct", method, ready, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -157,6 +157,23 @@ or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
 after checking that the head did not move.
+
+PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
+
+Before a model pass, the host compares the logs of failing GitHub Actions jobs
+with the same jobs on the base branch tip. A failing required check whose step
+fails there too, and whose output names no failure the base lacks, is the
+base's failure. When every failing required check is the base's, or stopped on a
+runner or network error, the PR waits without a pass, retries every 15 minutes,
+and is retested once the base passes; a runner or network error gets one branch
+update. `bypassInheritedChecks` (off by default), such as
+`{ "acme/app": ["ci"] }`, lets the host merge past those required checks. It
+rereads the checks, the base tip, branch protection, rulesets, reviews and
+threads first, and refuses when any other rule is unknown or unmet. The merge
+sets GitHub's `bypass_rules`, so the GitHub App must be allowed to bypass the
+branch rules. A required check that never reported, 10 minutes after the head's
+checks finished, gets a branch update or an Actions rerun once per head every
+six hours.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
 drafts should merge. Off by default. When a pass has reviewed a draft's head, no
@@ -181,7 +198,10 @@ assessment. Feedback that a pass assessed or answered with a repair push stays
 assessed on later heads, so a direct merge needs a model pass only for new
 feedback. Bot issue comments count by identity, not body. Without required
 checks on the base branch, the newest run of every current-head check must
-finish before a merge.
+finish before a merge, and a failing GitHub Actions check outside
+`reviewChecks` blocks it. A cancelled run does not replace a finished run of the
+same check. A pass that assessed the current head and all its feedback lets
+failing `reviewChecks` alone merge.
 
 `deferWhilePending` (default `true`) holds a pass while required checks or
 review checks run, unless a failure or conflict already needs repair; the PR
@@ -372,7 +392,7 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
 
 For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
-`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ minLifetime })` mints a new App installation token when the cached one expires within that many milliseconds. `host.channel()` passes it for Provider Driver runs. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
+`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. Providers from `forge()` revalidate repeated GETs with `If-None-Match`; an unchanged response comes back as a `304` that GitHub does not count against the rate limit. Entries are kept per App installation, so they outlast token rotation. Set `conditionalRequests: false` on `createGitHubHost()` to turn this off. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ minLifetime })` mints a new App installation token when the cached one expires within that many milliseconds. `host.channel()` passes it for Provider Driver runs. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
 
 `host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
 A provider `env` resolver can call `host.environment()` inside

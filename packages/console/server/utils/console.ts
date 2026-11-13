@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 import { withAuthorization } from "vite-hub/auth/server"
-import { useDatabase } from "vite-hub/database/drizzle"
+import { useDatabase } from "vite-hub/database"
 
 import { createConsoleProjectStore } from "../../src/projects.ts"
 import { allowPrivateVariable } from "../../src/project-url.ts"

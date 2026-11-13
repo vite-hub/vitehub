@@ -20,7 +20,7 @@ through [Capabilities](/docs/agents/capabilities).
 | --- | --- | --- |
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
-| `db` and `schema` from `@nuxthub/db` | `db` and `schema` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
+| `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
@@ -99,7 +99,7 @@ instead of throwing, so check the error.
  })
 ```
 
-`get`, `set`, `has`, `del`, `keys`, and `clear` keep their names. NuxtHub also
+`get`, `set`, `has`, `keys`, and `clear` keep their names; `del` becomes `delete`. NuxtHub also
 has other unstorage methods. Check those calls against ViteHub's
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
@@ -107,12 +107,11 @@ driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
 ## Move Blob calls
 
-Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
+Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `delete`, and
 `serve` keep their names, and `put` takes the same `contentType`, `prefix`,
 `addRandomSuffix`, and `customMetadata` options. Each method except `serve`
 returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
-`Response`, with `404` for a missing file. NuxtHub's `blob.delete()` is
-`blob.del()` in ViteHub. The methods take a `string` pathname, so check a
+`Response`, with `404` for a missing file. Use `blob.delete()` for both NuxtHub's `blob.delete()` and `blob.del()`. The methods take a `string` pathname, so check a
 `getRouterParam()` result for `undefined` before you pass it.
 
 For a custom serving route on Nitro 3, see
@@ -168,12 +167,12 @@ export default defineDatabase({
 })
 ```
 
-`vite-hub/database/drizzle` exports `db` and `schema` for the `default`
+`vite-hub/database` exports `db` and `schema` for the `default`
 Database, so only the import path changes. Queries do not change.
 
 ```diff [server/api/users.get.ts]
 -import { db, schema } from "@nuxthub/db"
-+import { db, schema } from "vite-hub/database/drizzle"
++import { db, schema } from "vite-hub/database"
 
  export default defineEventHandler(async () => {
    return await db.select().from(schema.users)

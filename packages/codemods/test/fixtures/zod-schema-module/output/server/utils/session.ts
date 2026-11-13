@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export function sessionOptions(event: H3Event) {
   const { sessionPassword, webhook } = useServerEnv(event)

@@ -42,7 +42,7 @@ interface RenderMigrateOnStartOptions {
   /** The names that `selectMigrateOnStartDatabases()` returned. */
   databases: string[]
   /** Module that exports `databases` in the server build. */
-  drizzleImport: string
+  registryImport: string
   /** Module that `renderShippedMigrationsModule()` wrote. */
   migrationsImport: string
   /** Module that exports `ensureDatabaseMigrations()`. */
@@ -77,7 +77,7 @@ export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options
   const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name).length)
   if (!databases.length) return
   return [
-    `import { databases } from ${JSON.stringify(options.drizzleImport)}`,
+    `import { databases } from ${JSON.stringify(options.registryImport)}`,
     `import { ensureDatabaseMigrations } from ${JSON.stringify(options.runtimeImport)}`,
     `import migrations from ${JSON.stringify(options.migrationsImport)}`,
     "",

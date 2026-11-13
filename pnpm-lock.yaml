@@ -3761,6 +3761,9 @@ importers:
       '@vite-hub/cms':
         specifier: workspace:*
         version: link:../cms
+      '@vite-hub/codemods':
+        specifier: workspace:*
+        version: link:../codemods
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments

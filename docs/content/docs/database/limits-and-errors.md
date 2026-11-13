@@ -35,7 +35,7 @@ export default defineDatabase({
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')
@@ -104,7 +104,7 @@ One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store lar
 
 ### DATABASE_DISABLED
 
-Code read the Default Database, but the runtime has none. If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDb()` to the Vite plugins and do not pass `false` to it.
+Code read the Default Database, but the runtime has none. If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDatabase()` to the Vite plugins and do not pass `false` to it.
 
 ### DATABASE_INVALID_D1_HTTP_URL
 
@@ -140,9 +140,9 @@ A Postgres Database runs on PGlite in development, and the app cannot load `@ele
 
 ### DATABASE_NOT_FOUND
 
-`useDatabase(name)`, `agentDb.database(name)`, or `useDatabaseBinding(name)` received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
+`useDatabase(name)`, `useDatabaseBinding(name)`, or the Database Agent Capability received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
 
-The `db` export and `databases.default` exist in every app. When the app has no Default Database, a query on them throws `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`.
+The `db` export exists in every app. When the app has no Default Database, a query on it throws `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`.
 
 Run `vitehub inspect definitions --kind database` to see the database names.
 

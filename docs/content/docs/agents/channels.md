@@ -385,7 +385,7 @@ export default defineConfig({
 
 ```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export default defineChannel({
   adapter: webhook({

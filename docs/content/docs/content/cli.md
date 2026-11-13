@@ -40,9 +40,10 @@ The commands appear when the app has a Content file. Without `--url`, they call 
 | `vitehub content unschedule <schedule>` | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Print the sitemap URLs of published documents. |
 | `vitehub content head [source]` | Show the commit that each `github()` Source serves, and what holds it back. |
-| `vitehub content advance [source]` | Move the head to the latest commit of the branch when every document parses. |
+| `vitehub content advance [source]` | Move the head to the latest commit of the branch when every document parses and `check` finds no error. |
 | `vitehub content pin <sha> [source]` | Serve one commit until `unpin`, for example to roll back. |
 | `vitehub content unpin [source]` | Remove the pin and move to the latest valid commit. |
+| `vitehub content check [source]` | Check frontmatter, links, titles, and descriptions. With `--dir`, check a folder without an app. |
 
 Omit the id for a [singleton](/docs/content/configure#singletons-and-data-files): `vitehub content edit settings` edits `settings.json`.
 
@@ -252,6 +253,49 @@ docs
 `advance` and `unpin` exit with status 1 when the head is held back, so a CI step fails on a broken push. A pinned head does not move and exits with status 0. `pin` needs the full 40-character SHA and checks that every document of the commit parses. `--json` prints the [`ContentSourceHead`](https://github.com/vite-hub/vitehub/tree/main/packages/content#live-github-sources), with the diagnostic in `diagnostic: { code, message, fix }`. `head --json` prints `{ "heads": [...] }`.
 
 `head` needs the `content` section of the Console access, read-only is enough. `advance`, `pin`, and `unpin` need the whole section. `defineContent({ authorize })` does not apply, because Sources are read-only and public.
+
+## Check
+
+```bash [Terminal]
+pnpm vitehub content check
+pnpm vitehub content check docs --sha 9d1c4e2a7b3f5c8d0e6a1b4f7c2d9e3a5b8f0c1d
+pnpm vitehub content check --dir content --site https://acme.dev --ignore "/learn" --title-template "%s · Acme"
+```
+
+```txt [Output]
+docs/kv/configure.md:41  error  CONTENT_R0062  /docs/kv/configure links to /docs/kv/drivers, which is no page of Source "docs". Fix the link, or add the path to `check.ignoreLinks` when another route serves it.
+docs/kv/index.md:2  warning  CONTENT_R0065  /docs/kv has a title of 2 characters, "KV". Keep it between 10 and 60, with `seo.title` when the heading must stay.
+
+357 pages in docs: 1 error, 1 warning.
+```
+
+`check` reads the parsed documents, not built HTML, and makes no network calls. A `github()` Source is checked at `--sha`, or at the latest commit of its branch. The head does not move. `advance` runs the same error rules before it moves a head.
+
+Links can target pages and headings in any configured Source. A check of one Source and a head change use the published heads of the other Sources, or their branch commits when no head exists. A check of all Sources uses their checked commits. Pages removed from a checked commit cannot resolve against its previous head.
+
+| Code | Severity | Finds |
+| --- | --- | --- |
+| [`CONTENT_R0060`](/docs/content/diagnostics/content_r0060) | error | A document that does not parse. |
+| [`CONTENT_R0061`](/docs/content/diagnostics/content_r0061) | error | Frontmatter that does not match the Source `schema`. |
+| [`CONTENT_R0062`](/docs/content/diagnostics/content_r0062) | error | A link to a missing page below a first path segment that holds pages, such as `/docs/kvv`. |
+| [`CONTENT_R0063`](/docs/content/diagnostics/content_r0063) | warning | A link to a path that no page serves, such as `/learn`. Another route may serve it. |
+| [`CONTENT_R0064`](/docs/content/diagnostics/content_r0064) | warning | A link to a heading that the target page does not have. |
+| [`CONTENT_R0065`](/docs/content/diagnostics/content_r0065) | warning | No title, or a title outside 10 to 60 characters. |
+| [`CONTENT_R0066`](/docs/content/diagnostics/content_r0066) | warning | No description, or one outside 70 to 160 characters. |
+| [`CONTENT_R0067`](/docs/content/diagnostics/content_r0067) | warning | Pages with the same title or description. |
+| [`CONTENT_R0068`](/docs/content/diagnostics/content_r0068) | warning | A heading that skips a level. |
+
+Warnings do not hold a head back. Errors do, and `check` exits with status 1 on them. Against the app, the options come from [`defineContent({ check })`](https://github.com/vite-hub/vitehub/tree/main/packages/content#check-documents). With `--dir`, `check` needs no app, so a CI step can run it on a content pull request. It parses the folder as one Source with the default Content Markdown, and these options replace the app config:
+
+| Option | Use it for |
+| --- | --- |
+| `--page-url <pattern>` | The page URL of each document, such as `/blog/:id`. Defaults to the document path. |
+| `--schema <file>` | A JSON Schema file that the frontmatter must match. |
+| `--site <url>` | The site origin. Absolute links to it are checked too. |
+| `--ignore <path>` | A link target that another route serves: a path or a glob such as `/docs/*/diagnostics/**`. Repeatable. |
+| `--title-template <pattern>` | The `<title>` pattern, such as `%s · Acme`, for the title length rule. |
+
+`--json` prints `{ ok, errors, warnings, sources, findings }`. Each finding has `source`, `path`, `url`, `line`, `rule`, `code`, `severity`, and `message`. `check` against the app needs `content:read`.
 
 ## How it reaches storage
 
