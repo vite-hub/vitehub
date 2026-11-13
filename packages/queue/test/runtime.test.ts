@@ -816,6 +816,34 @@ describe("cloudflare queue runtime", () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it("uses request runtime Cloudflare context for deferred dispatch", async () => {
+    const send = vi.fn(async () => {})
+    const waitUntil = vi.fn()
+
+    setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
+    setQueueRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => {} } }),
+    })
+
+    await runWithQueueRuntimeEvent({
+      req: {
+        runtime: {
+          cloudflare: {
+            context: { waitUntil },
+            env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } },
+          },
+        },
+      },
+    }, async () => {
+      deferQueue("welcome", { email: "ava@example.com" })
+      await Promise.resolve()
+    })
+
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    await waitUntil.mock.calls[0]?.[0]
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
   it("clears the active Cloudflare env for an explicitly unbound request", async () => {
     const send = vi.fn(async () => {})
     setQueueRuntimeConfig({ provider: "cloudflare" }, createCloudflareQueueRuntimeClient)
@@ -1340,8 +1368,8 @@ describe("vercel provider", () => {
     }))
   })
 
-  it("infers the sdk region from Nitro node request headers", async () => {
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::iad1::request" } } } }, async () => {
+  it("infers the sdk region from Nitro request headers", async () => {
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "fra1::iad1::request" } } }, async () => {
       const client = await createVercelQueueClient({
         provider: "vercel",
         topic: "topic--77656c636f6d65",
@@ -1359,9 +1387,9 @@ it("does not cache regions inferred from Vercel requests", async () => {
       welcome: async () => ({ handler: async () => {} }),
     })
 
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "fra1::request" } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "iad1::request" } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "iad1" })
   })
 
@@ -1375,7 +1403,7 @@ it("does not cache regions inferred from Vercel requests", async () => {
     setQueueRuntimeConfig({ provider: "vercel", region: explicit }, createVercelQueueRuntimeClient);
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => {} }) });
     const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "ams1" } }) }, () => dynamicQueue.use("welcome"));
-    const second = await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "hnd1::request" } } } }, () => dynamicQueue.use("welcome"));
+    const second = await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "hnd1::request" } } }, () => dynamicQueue.use("welcome"));
     expect(first).toBe(second);
     expect(vercelQueueMock.options).toEqual({ region: expected });
   });

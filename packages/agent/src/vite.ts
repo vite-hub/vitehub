@@ -182,7 +182,6 @@ const optionalAgentRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
@@ -848,12 +847,6 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
       (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
     )
   }
-  const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
-  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
-  externals.inline = externals.inline === true
-    ? true
-    : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
-  nitro.externals = externals
   if (isWebContainer()) {
     const existingTraceDeps = Array.isArray(nitro.traceDeps) ? nitro.traceDeps : []
     nitro.traceDeps = [...new Set([...existingTraceDeps, ...wasmSqliteTraceDeps])]
@@ -2312,7 +2305,7 @@ async function writeAgentWebhookRouteHandler(
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
             `  const webhookAliases = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, '') || '/', target])))};`,
             "  nitroApp.hooks.hook('request', event => {",
-            "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
+            "    const pathname = new URL(event?.path || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
             "    waitUntil ||= waitUntilFromContext(event)",
             "    void warmWebhookRoutes()",
