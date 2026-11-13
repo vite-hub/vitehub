@@ -53,6 +53,11 @@ export function discoverAuthDefinitions(rootDir: string, options: { serverDirs?:
   return layerDefinitions
 }
 
+/** Finds the app's Auth client options, `auth.client.ts`, in the Vite root, which is `app/` in a Nuxt app. */
+export function discoverAuthClient(appDir: string): string | undefined {
+  return authDefinitionExtensions.map(extension => resolve(appDir, `auth.client${extension}`)).find(file => existsSync(file))
+}
+
 export function discoverAuthDefinition(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredAuthDefinition | undefined {
   return discoverAuthDefinitions(rootDir, options)[0]
 }

@@ -10,6 +10,9 @@
       "#vitehub/auth/abilities": [
         "../../packages/auth/src/runtime/empty-abilities.ts"
       ],
+      "#vitehub/auth/client": [
+        "../../packages/auth/src/runtime/empty-client.ts"
+      ],
       "#vitehub/auth/definition": [
         "../../packages/auth/src/runtime/empty-definition.ts"
       ],
