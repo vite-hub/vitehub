@@ -333,6 +333,8 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/realtime/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
+  // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
+  "vite-hub/durability",
   "vite-hub/cloudflare-pkce-challenge",
   "vite-hub/unavailable-services",
 ])
@@ -1063,6 +1065,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     access: consoleAccess,
     runtimeCapabilityImports,
     development: nuxt.options.dev === true,
+    pageTool: { base: nuxt.options.app?.baseURL || "/" },
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string

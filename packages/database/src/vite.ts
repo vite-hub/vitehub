@@ -3,6 +3,8 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -13,6 +15,7 @@ import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { createDbCliContributor } from "./cli.ts"
+import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
@@ -20,7 +23,7 @@ import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
+import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -28,6 +31,7 @@ import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.
 import { createDatabaseProvisionStep } from "./provision.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -86,7 +90,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & {
+  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & DurabilityPluginMetadata & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -162,7 +166,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
   const entries = config.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     config.databases[definition.name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`, `relations_${index}`)},`
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`, `relations_${index}`, dev)},`
       : dev
         ? `    config: resolveDevRemoteConfig(${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)}, definition_${index}.remote),`
         : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)},`,
@@ -175,7 +179,11 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
     // `runtime/d1` imports no libSQL client: `runtime/hosted` would add `@libsql/client/http`, which a local app does not use
     // and a WebContainer's `@libsql/client` does not export.
     ...(usesSqlite(config) ? [`import { ${dev ? "resolveDevRemoteConfig, " : ""}resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`] : []),
-    ...(usesPostgres(config) ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`] : []),
+    ...(usesPostgres(config)
+      ? [dev
+          ? `import { createDevPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/pglite"))}`
+          : `import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`]
+      : []),
     ...imports,
     "",
     "export const databases = {",
@@ -186,14 +194,40 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
   ].join("\n")
 }
 
+/** Evaluate the same Definitions and precedence as the Database runtime, without opening a connection. */
+function renderDatabaseDurabilityModule(config: ResolvedDBViteConfig, dev: boolean) {
+  const safeConfig: ResolvedDBViteConfig = {
+    ...config,
+    databases: Object.fromEntries(Object.entries(config.databases).map(([name, database]) => [name, {
+      ...database,
+      connection: database.connection?.url === undefined ? undefined : { url: databaseDurabilityUrl(database.connection.url) },
+    }])),
+  }
+  const entries = config.definitions.map((definition, index) => {
+    const expression = renderDatabaseConfigExpression(definition.name, safeConfig, `definition_${index}`)
+    return dev ? `resolveDevRemoteConfig(${expression}, definition_${index}.remote)` : expression
+  })
+  return [
+    `import { databaseDurability as report } from ${JSON.stringify(durabilityModuleFile(import.meta.url))}`,
+    `import { resolveDevRemoteConfig, resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`,
+    ...config.definitions.map((definition, index) => `import definition_${index} from ${JSON.stringify(definition.handler)}`),
+    "export function databaseDurability(_input, context) {",
+    `  const databases = [${entries.join(",\n")}].map(database => ({`,
+    "    dialect: database.dialect, name: database.name, http: database.cloudflare?.http, url: database.connection?.url,",
+    "  }))",
+    "  return report({ databases }, context)",
+    "}",
+    "",
+  ].join("\n")
+}
+
 function renderNitroRequestScopeMiddleware() {
   return [
-    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
     "",
     "export default (event, next) => {",
     "  const env = getRequestCloudflareEnv(event) ?? globalThis.__env__",
-    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
-    "  setActiveCloudflareEnv(env)",
+    "  return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "}",
     "",
   ].join("\n")
@@ -203,7 +237,7 @@ function renderNitroRequestStatsMiddleware() {
   return [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/request-stats"))}`,
     "",
-    "export default (event, next) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
+    "export default (event, next) => runWithDatabaseRequestStats(event, next)",
     "",
   ].join("\n")
 }
@@ -463,6 +497,12 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
       },
     },
     vitehub: {
+      durability: () => {
+        if (!runtimeConfig) return []
+        const module = resolve(databaseRoot(), ".vitehub/database/durability.mjs")
+        writeFileIfChangedSync(module, renderDatabaseDurabilityModule(runtimeConfig, resolved?.command === "serve"))
+        return [{ export: "databaseDurability", input: {}, module, primitive: "database" }]
+      },
       cli: async () => {
         const db = resolvedOptions()
         if (db === false) return
@@ -554,9 +594,14 @@ export function hubDb(options?: DatabaseOptions): DBVitePlugin {
       }
     },
     buildStart() {
+      const database = resolvedOptions()
+      // Production output has no PGlite. Under Nuxt, the module checks this in `nitro:config`.
+      if (resolved?.command === "build" && runtimeConfig && !(database && "nuxtHostResource" in database)) {
+        const databases = pgliteDatabases(runtimeConfig)
+        if (databases.length) throw databaseErrorDiagnostics.DATABASE_PGLITE_IN_BUILD({ databases })
+      }
       // Fail before bundling: without a D1 resource, the server bundle falls back to the Node libSQL client. Under Nuxt,
       // the module checks this in `nitro:config`, where it can see an alias that the app sets.
-      const database = resolvedOptions()
       if (resolved && runtimeConfig && !(database && "nuxtHostResource" in database) && !shouldSkipViteProviderBuild(resolved.command) && resolveHostedProvider(resolved) === "cloudflare") {
         const { unresolved } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved.root) })
         assertDefinitionD1Resources(runtimeConfig, contributions, unresolved.map(binding => binding.database))

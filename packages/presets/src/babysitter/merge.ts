@@ -70,10 +70,12 @@ export interface BabysitterMergeEvidence {
   /** Host-recorded evidence from an explicit assessment of this exact head and feedback. */
   reviewedEvidenceKey?: string;
   /**
-   * The PR spent its review push budget. Bot feedback, bot-only review threads and failed
+   * The PR spent its review push budget. Bot feedback, bot-only review threads and running or failed
    * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
    */
   automatedReviewSettled?: boolean;
+  /** Unresolved review threads with only bot comments do not block once their comments are assessed. */
+  ignoreAssessedBotThreads?: boolean;
 }
 
 type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
@@ -258,11 +260,11 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   if (requiredChecks !== "passed") return no(`required checks ${requiredChecks}`);
   const evidence = snapshotCheckEvidence(snapshot);
   const reviewChecks = assessment.pendingReviewChecks ?? new Set<string>();
-  if (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
-    || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) {
+  const settled = assessment.automatedReviewSettled === true;
+  if (!settled && (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
+    || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase())))) {
     return no("a current-head review is still running");
   }
-  const settled = assessment.automatedReviewSettled === true;
   const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase())))
     || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
   const assessed = assessment.assessedFeedback ?? new Set<string>();
@@ -272,7 +274,8 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
-  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!settled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  const botThreadsSettled = settled || assessment.ignoreAssessedBotThreads === true;
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
   return { ready: true, head };
 }
 

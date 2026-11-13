@@ -118,7 +118,7 @@ function createAgentUIMessageStream(options: {
 
 /**
  * Encodes UI message parts as SSE frames that end with `[DONE]`. When the parts fail, the body ends with an error frame
- * instead of failing: H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+ * instead of failing, so the client reads the error and the response always ends.
  */
 export function encodeUIMessageStream(parts: ReadableStream<unknown>): ReadableStream<string> {
   const reader = parts.getReader()

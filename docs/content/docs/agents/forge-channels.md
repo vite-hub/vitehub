@@ -47,7 +47,7 @@ The final reply is a pull request comment. `pullRequest.reply: false` turns it o
 
 ## Server Env
 
-Explicit options win over Server Env. If Server Env does not declare a field, the Channel reads the Forge variable.
+Explicit options win over Server Env. If Server Env does not declare a field, the Channel reads the Forge variable. [Forge configuration](/docs/forge/configure#server-env) lists the same fields for `useForge()`.
 
 | Server Env field | Forge variable | Default or use |
 | --- | --- | --- |

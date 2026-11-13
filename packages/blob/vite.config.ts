@@ -61,6 +61,7 @@ export default defineConfig({
       "src/cli.ts",
       "src/client.ts",
       "src/config.ts",
+      "src/durability.ts",
       "src/errors.ts",
       "src/storage.ts",
       "src/drivers/azure.ts",

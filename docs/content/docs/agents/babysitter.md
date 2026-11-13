@@ -91,6 +91,9 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
+| `minorReviewRounds` | `false` | Heads in a row whose automated review has no valid finding above P2. Then automated review settles as if `reviewPushBudget` were spent ([Stop review ping-pong](#stop-review-ping-pong)). Needs `reviewPushBudget`. |
+| `reviewConvergencePushes` | `false` | Review-driven pushes after which each pass is asked to fix a recurring class of finding at its root instead of one more case. |
+| `ignoreAssessedBotThreads` | `false` | Unresolved review threads with only bot comments stop blocking a direct merge and stop waking the PR once a pass assessed their comments. |
 | `install` | `true` | Host install before the model starts. `true` runs a frozen pnpm, npm, or Yarn install from the lockfile. `{ command, args }` replaces the command, `{ cache: { directory, entries } }` sets the pnpm cache, `{ concurrency }` sets parallel installs (default `2`), `{ required: true }` parks the PR on failure (default `false`), and `{ refreshes }` limits `refreshDependencies` calls per pass (default no limit). `false` skips it. See [Dependency installation](#dependency-installation). |
 | `ciRecovery` | `true` | Rerun failed GitHub Actions runs once before a model pass repairs them. |
 | `repairStackChildren` | `false` | Repair a pull request whose base is another open pull request's branch alongside its parent, instead of waiting for the parent to merge. It never merges into the parent's branch. Requires `merge: 'direct'`. |
@@ -368,9 +371,16 @@ A repair for one bot finding often gets new findings. `reviewPushBudget` (defaul
 - After the budget, bot comments, reviews, and review threads, and failures of `reviewChecks`, no longer wake the pull request.
 - A person's comment or review, a failing check outside `reviewChecks`, a merge conflict, and a head someone else pushed still start a pass.
 - With `merge: 'direct'`, the host merges when required checks pass, every review thread with a person's comment is resolved, and every comment from a person was assessed. Bot feedback and failed `reviewChecks` do not block it. GitHub branch rules still apply.
+- A running `reviewChecks` run no longer holds a pass or the merge.
 - Otherwise the pull request parks. Its result and GitHub status say why and what resumes it. Health lists it under `queue.parked` with `budget: "review-push-budget"`.
 
-The count lasts for the life of the pull request, in its `reviewPushBudget` inbox record `{ count, heads }`, which the inbox summary also returns. `heads` lists heads the worker pushed and heads that had a pass after the budget was spent.
+The count lasts for the life of the pull request, in its `reviewPushBudget` inbox record `{ count, heads, minorHeads }`, which the inbox summary also returns. `heads` lists heads the worker pushed and heads that had a pass after the budget was spent.
+
+Review bots rarely run out of findings, but after a few rounds they are mostly edge cases. Three opt-in options settle review sooner:
+
+- `minorReviewRounds: 2` asks each pass to report the highest class of valid finding in the automated reviews of its head, from P0 (security hole, data loss, broken main path) to P3 (style). Two heads in a row with nothing above P2 spend the review push budget. A P0 or P1 starts the count again. `minorHeads` lists those heads.
+- `reviewConvergencePushes: 2` adds a prompt block from the second review-driven push on. It asks the pass to check whether a new finding is another case of a class an earlier push fixed, and if so to fix the class at its root in one push or decline the remaining P2 cases.
+- `ignoreAssessedBotThreads: true` lets a direct merge and a waiting PR ignore an unresolved thread that only bots commented on, once a pass assessed those comments. A new bot comment still needs a pass, and a thread with a person's comment still blocks. Without it, such threads stop blocking only after the budget is spent.
 
 ### Limit passes per pull request
 

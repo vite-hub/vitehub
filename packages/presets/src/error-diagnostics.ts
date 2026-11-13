@@ -31,6 +31,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "GitHub returned an invalid review comment cursor.",
       fix: "Retry the operation to read the thread again. If the cursor is still missing or repeated, check the GitHub API response before resolving the thread.",
     },
+    PRESETS_BABYSITTER_MINOR_ROUNDS_NEED_BUDGET: {
+      why: "Babysitter minorReviewRounds needs a reviewPushBudget: settled rounds spend that budget.",
+      fix: "Set reviewPushBudget to a positive integer, or set minorReviewRounds to false.",
+    },
     PRESETS_DEPENDENCY_PATCH_MISSING: {
       why: ({ path }: { path: string }) => `Dependency patch ${path} does not exist in this checkout.`,
       fix: "Restore the patch file, or remove its entry from patchedDependencies.",

@@ -185,7 +185,13 @@ merge conflict and without a failing check outside `reviewChecks`. After that
 many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
 person's feedback, another failing check, a conflict or a head that someone else
 pushed still do. The PR then merges on its required checks or parks with the
-reason, which health lists under `queue.parked`. `dailyPassBudget` (default
+reason, which health lists under `queue.parked`. `minorReviewRounds` (default
+`false`) spends that budget once that many heads in a row had no automated
+finding above P2; each pass reports the class in `automatedReview`.
+`reviewConvergencePushes` (default `false`) asks each pass from that many
+review-driven pushes on to fix a recurring finding class at its root.
+`ignoreAssessedBotThreads` (default `false`) stops assessed bot-only review
+threads from blocking a direct merge or waking the PR. `dailyPassBudget` (default
 `16`, `false` disables it) limits the model passes per PR in a rolling 24
 hours. A PR that reached it parks until its oldest pass is 24 hours old, and
 health lists it with `resumeAt`. A person's new feedback, the first failing

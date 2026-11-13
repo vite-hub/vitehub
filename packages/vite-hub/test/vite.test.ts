@@ -706,6 +706,8 @@ describe("vitehub", () => {
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
+      "vite-hub/durability/nitro",
+      "vite-hub/durability",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
       "vite-hub/nitro-order",

@@ -1732,6 +1732,15 @@ describe("Babysitter preset runtime", () => {
       expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget } })).toThrow(/reviewPushBudget must be a positive integer or false/);
     }
     expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget: false } })).not.toThrow();
+    for (const minorReviewRounds of [0, 1.5, true as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds } })).toThrow(/minorReviewRounds must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewPushBudget: false } })).toThrow(/minorReviewRounds needs a reviewPushBudget/);
+    for (const reviewConvergencePushes of [0, 2.5, "2" as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { reviewConvergencePushes } })).toThrow(/reviewConvergencePushes must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { ignoreAssessedBotThreads: "yes" as unknown as boolean } })).toThrow(/ignoreAssessedBotThreads must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewConvergencePushes: 2, ignoreAssessedBotThreads: true } })).not.toThrow();
     for (const dailyPassBudget of [0, 2.5, "16" as unknown as number]) {
       expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget } })).toThrow(/dailyPassBudget must be a positive integer or false/);
     }
@@ -1799,6 +1808,87 @@ describe("Babysitter preset runtime", () => {
         comment: { id: 202, body: "Please rename it after all.", user: { login: "developer", type: "User" } } });
       await f.reconcile();
       expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks each pass for its automated review class and settles review after minorReviewRounds minor heads", async () => {
+    const result: Record<string, unknown> = { disposition: "park", text: "Assessed; only a P2 finding is left.", automatedReview: "P2" };
+    const f = await fixture(false, false, { result, options: { minorReviewRounds: 2, deferWhilePending: false } });
+    const botReview = (id: number) => f.runtime.inbox.ingest(`bot-review-${id}`, "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id, body: `Finding ${id}`, user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]!.prompt).toContain("<automated-review-severity>");
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 0, heads: [], minorHeads: ["a".repeat(40)] });
+      const next = "d".repeat(40);
+      f.advanceHead(next);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 3, heads: [next], minorHeads: ["a".repeat(40), next] });
+      // Automated review is settled, so new bot feedback parks without a pass.
+      await botReview(401);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.wait?.reason).toBe("review-push-budget");
+      expect(parked.lastResult).toMatch(/^Automated review settled: 2 heads in a row had no finding above P2/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks for a class-level fix from reviewConvergencePushes review-driven pushes on", async () => {
+    const f = await fixture(false, false, { options: { reviewConvergencePushes: 1, deferWhilePending: false } });
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(f.passes[0]!.prompt).not.toContain("<review-convergence>");
+      f.choose(undefined);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 501, body: "Another alias case is missing.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.passes[1]!.prompt).toContain("<review-convergence>\nThis PR already has 1 review-driven repair pushes.");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("keeps read tools working after new evidence arrives mid-pass", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 601, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("ends the pass at the first write that new evidence refuses", async () => {
+    const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
+    f.choose("updatePullRequest", { title: "Fix value now" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 602, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("evidence changed");
+      expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
     } finally { await f.runtime.inbox.close(); }
   });
 
