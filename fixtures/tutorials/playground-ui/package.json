@@ -8,7 +8,8 @@
     "preview": "vite preview --port 3000"
   },
   "dependencies": {
-    "@vite-hub/kit": "workspace:*",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vitejs/plugin-vue": "^6.0.10",
     "vite": "catalog:vite",
     "vue": "catalog:ui"

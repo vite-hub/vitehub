@@ -36,11 +36,11 @@ describe("playground", () => {
     expect(channels.files["vite.config.ts"]).toContain("channels: { simulate: true }");
     expect(channels.preview).toBe("/api/_vitehub/agents/support/webhooks/slack");
     for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
-    // The ViteHub UI template is a Vue app on the headless parts of @vite-hub/kit, and its preview is the app page.
+    // The ViteHub UI template is a Vue app on the headless parts of @ui-sdk/vue, and its preview is the app page.
     const ui = built.find(template => template.id === "ui")!;
     expect(ui.preview).toBe("/");
-    expect(ui.files["src/App.vue"]).toContain("@vite-hub/kit/dialog");
-    expect(JSON.parse(ui.files["package.json"]!).dependencies["@vite-hub/kit"]).toMatch(/^\^\d/);
+    expect(ui.files["src/App.vue"]).toContain("@ui-sdk/vue/dialog");
+    expect(JSON.parse(ui.files["package.json"]!).dependencies["@ui-sdk/vue"]).toMatch(/^\d/);
   });
 
   it("reuses tutorial snapshots only for matching dependencies", async () => {

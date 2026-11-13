@@ -316,7 +316,7 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   console.log(`ViteHub UI: preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
   await shot(page, "ui-ready");
 
-  // The parts of @vite-hub/kit work in the frame: a dialog with a form, a toast, tabs, a menu, and a tooltip.
+  // The parts of @ui-sdk/vue work in the frame: a dialog with a form, a toast, tabs, a menu, and a tooltip.
   await app.getByRole("button", { name: "Invite a member" }).click();
   await app.getByRole("dialog", { name: "Invite a member" }).waitFor();
   await app.getByLabel("Name").fill("Linus Torvalds");

@@ -1,5 +1,5 @@
 /*
- * A small stylesheet for the parts of @vite-hub/kit. Each part has a data-slot attribute, and its state shows in
+ * A small stylesheet for the parts of @ui-sdk/vue. Each part has a data-slot attribute, and its state shows in
  * attributes such as data-open, data-selected, and data-highlighted.
  *
  * The ViteHub style family will ship as @vite-hub/kit/styles/default.css. Until then, this file is the whole look.

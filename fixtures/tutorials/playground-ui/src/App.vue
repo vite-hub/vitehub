@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref } from "vue"
-import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@vite-hub/kit/dialog"
-import { Field, FieldLabel } from "@vite-hub/kit/field"
-import { Input } from "@vite-hub/kit/input"
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@vite-hub/kit/menu"
-import { Tabs, TabsIndicator, TabsList, TabsPanel, TabsTab } from "@vite-hub/kit/tabs"
-import { Toast, ToastClose, ToastDescription, ToastRegion, ToastTitle, createToaster } from "@vite-hub/kit/toast"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@vite-hub/kit/tooltip"
+import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@ui-sdk/vue/dialog"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@ui-sdk/vue/menu"
+import { Tabs, TabsIndicator, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs"
+import { Toast, ToastClose, ToastDescription, ToastRegion, ToastTitle, createToaster } from "@ui-sdk/vue/toast"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/vue/tooltip"
 
-// Every part comes from @vite-hub/kit. The parts have behavior, focus, keyboard, and ARIA, and no styles:
+// Every part comes from @ui-sdk/vue. The parts have behavior, focus, keyboard, and ARIA, and no styles:
 // src/style.css styles them through their data-slot and state attributes.
 const toast = createToaster()
 const members = ref(["Ada Lovelace", "Grace Hopper"])
