@@ -47,7 +47,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "cloudflare", queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })],
+      plugins: [vitehub({ blob: false, console: false, database: true, env: false, host: "cloudflare", queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })],
       root,
     }, "build")
     const inspectors = await collectViteHubDefinitionInspectors(config.plugins)
@@ -94,7 +94,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "node" }), historyOwner],
+      plugins: [vitehub({ blob: false, console: false, database: true, env: false, host: "node" }), historyOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "database")
@@ -124,7 +124,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", workspace: true }), contentOwner],
+      plugins: [vitehub({ blob: false, console: false, env: false, host: "node", workspace: true }), contentOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "workspace")
@@ -151,7 +151,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", schedule: { runtime: { driver: "process" } } }), contentOwner],
+      plugins: [vitehub({ blob: false, console: false, env: false, host: "node", schedule: { runtime: { driver: "process" } } }), contentOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "schedule")

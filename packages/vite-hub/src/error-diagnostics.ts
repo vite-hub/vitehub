@@ -23,6 +23,18 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_R0136: dynamicError,
     VITE_HUB_R0137: dynamicError,
     VITE_HUB_R0141: dynamicError,
+    VITE_HUB_R0142: {
+      ...dynamicError,
+      fix: "Set vitehub({ systemd }) to one-line values: a unit name of letters, digits, and _.:-, an absolute workingDirectory, and environment names such as PORT. Or set systemd: false and write the unit yourself.",
+    },
+    VITE_HUB_R0143: {
+      why: "This server has no durability report. ViteHub records it when a Node server starts.",
+      fix: "Run the app with the Node host, then run vitehub durability list against that server.",
+    },
+    VITE_HUB_R0144: {
+      ...dynamicError,
+      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,

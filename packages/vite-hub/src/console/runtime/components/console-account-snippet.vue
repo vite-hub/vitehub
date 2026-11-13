@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader } from "@vite-hub/ui/code-block";
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import { useConsoleToast } from "../client/toast";

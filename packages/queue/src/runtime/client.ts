@@ -11,7 +11,7 @@ import { createTestQueueClient } from "./test-client.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueSendResult, VercelQueueProviderOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, PostgresQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueSendResult, VercelQueueProviderOptions } from "../types.ts"
 import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "../internal/runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -45,6 +45,10 @@ function toProviderOptions(name: string, config: QueueRuntimeOptions): QueueRunt
 
   if (config.provider === "local") {
     return { ...config, queue: name } satisfies LocalQueueProviderOptions
+  }
+
+  if (config.provider === "postgres") {
+    return { ...config, queue: name } satisfies PostgresQueueProviderOptions
   }
 
   return {

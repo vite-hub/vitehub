@@ -75,6 +75,11 @@
       "import": "./dist/cloudflare/state.js",
       "default": "./dist/cloudflare/state.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./env-identity": {
       "types": "./dist/env-identity.d.ts",
       "import": "./dist/env-identity.js",
@@ -160,6 +165,11 @@
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
     },
+    "./sessions": {
+      "types": "./dist/sessions.d.ts",
+      "import": "./dist/sessions.js",
+      "default": "./dist/sessions.js"
+    },
     "./state": {
       "types": "./dist/state.d.ts",
       "import": "./dist/state.js",
@@ -236,7 +246,9 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@whatwg-node/node-fetch": "0.8.6",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
     "miniflare": "4.20260730.0",

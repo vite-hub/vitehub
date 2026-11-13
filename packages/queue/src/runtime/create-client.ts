@@ -17,6 +17,12 @@ export async function createQueueClient(options: QueueProviderOptions): Promise<
     })
   }
 
+  if (options.provider === "postgres") {
+    // Node bundlers retain the provider; Worker conditions select a module without its optional driver.
+    const { createPostgresQueueRuntimeClient } = await import("#vitehub/queue/node-client")
+    return await createPostgresQueueRuntimeClient(options)
+  }
+
   const { createVercelQueueRuntimeClient } = await import("../internal/runtime/vercel-client.ts")
   return await createVercelQueueRuntimeClient(options)
 }

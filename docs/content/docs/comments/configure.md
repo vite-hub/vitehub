@@ -29,7 +29,7 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -46,7 +46,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -64,7 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -114,11 +114,12 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | --- | --- |
 | Signed in [with GitHub](#sign-in-with-github) | Everything when they can push to the build's repository. Otherwise nothing, also on the dev server. |
 | A caller of comment operations through the [Console](#comments-through-the-console), the CLI, or MCP, with the Comments section, in an app without `identify` | Everything the Console grant allows. The overlay on pages does not use this check. |
+| Signed in with a `comments-` role, which [Site access](#roles-from-site-access) gives | What the roles allow. |
 | Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API returns [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the log shows `COMMENTS_R0006` once. |
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
 
 On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
@@ -279,6 +280,20 @@ The server does not verify a guest name or ID. They are display data, never proo
 ::
 
 A guest id starts with `guest:`, so it never matches a signed-in person's id. Guests cannot delete messages or threads, even when the policy allows `delete`, and nobody can mention a guest. To delete your messages, sign in, or ask a signed-in moderator with `delete`.
+
+### Roles from Site access
+
+[Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+
+Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
+
+```ts [server/comments.ts]
+import { commentsRoleAllows, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  authorize: ({ user, action }) => commentsRoleAllows(user, action) || user?.role === "admin",
+})
+```
 
 ## Comments in your own UI
 
@@ -512,11 +527,12 @@ By default, a person may be mentioned only in a thread they may read: `authorize
 
 ```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
+import { foldName } from 'vite-hub/comments/client'
 import { team } from './utils/team'
 
 export const comments = defineComments({
   people: {
-    search: query => team.filter(person => person.name.toLowerCase().includes(query.toLowerCase())),
+    search: query => team.filter(person => foldName(person.name).includes(foldName(query))),
     byIds: ids => team.filter(person => ids.includes(person.id)),
   },
   // Only people of the same team, whatever they may read.
@@ -526,13 +542,15 @@ export const comments = defineComments({
 
 `people.search` gets the text after `@` and returns at most 20 people. Return full records for `canMention` and `authorize`; the browser gets only `id`, `name`, and `image`. A message keeps at most 20 mentions, as ids.
 
+Suggestions keep a person whose name holds the text after `@` when accents and case do not count, so `@jose` keeps José. `foldName()` removes accents and case in the same way. Auth users and earlier authors are found with a database search that does not remove accents, so there `@jose` finds only names written without them. Give `people` to find them all.
+
 ## Notify mentioned people
 
 `onMention` runs once per saved message that mentions people, with those people. An edit runs it only for added people. It runs after the response, through `waitUntil` where available. A failure is logged and never fails the comment. Use it with [Email](/docs/email):
 
 ```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 import { findUserEmail } from './utils/users'
 
 export const comments = defineComments({

@@ -1,12 +1,14 @@
 import { parseMarkdown } from "comark/parse"
 import type { ComarkPlugin } from "comark"
+import type { LeaseStore } from "@vite-hub/runtime"
 
 import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { AnyContentCollection } from "./collections-types.ts"
-import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
+import type { ContentCollectionsRuntime, ContentDocumentSummary } from "./collections-runtime.ts"
 import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentMcpOptions } from "./mcp.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
@@ -21,6 +23,46 @@ export interface DefineContentSeoOptions {
    * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat.
    */
   markdown?: boolean
+  /**
+   * Serve `/rss.xml`, an RSS 2.0 feed of the published Markdown pages that the sitemap lists, newest first by the date
+   * of their latest `content.history()` entry. `title` defaults to the host name, `limit` to 20 items, at most 500.
+   */
+  rss?: boolean | ContentRssOptions
+  /**
+   * Serve a public read-only MCP server at `/mcp` with two tools: `list-pages` lists the published Markdown pages that
+   * the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
+   */
+  mcp?: boolean | ContentMcpOptions
+  /**
+   * Atomic leases for Source date refreshes across server instances. Use a shared LeaseStore, such as
+   * `createSqlLeaseStore()` from `@vite-hub/runtime`. Without it, work is shared only within this Content instance.
+   * Cloudflare KV cannot provide these leases. A held lease serves cached dates until a later read sees the new set.
+   */
+  dateLeases?: LeaseStore
+  /**
+   * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from the published Markdown documents with a URL. Their links
+   * point at the `.md` copies, so this also turns on `markdown`. `title` and `description` head `llms.txt`; the title
+   * defaults to the site host name.
+   */
+  llms?: boolean | DefineContentLlmsOptions
+}
+
+/** `defineContent({ seo: { rss } })`. */
+export interface ContentRssOptions {
+  /** The feed title. Defaults to the host name of the site. */
+  title?: string
+  /** The feed description. Defaults to the title. */
+  description?: string
+  /** The newest pages to list, default 20, at most 500. */
+  limit?: number
+}
+
+/** `defineContent({ seo: { llms } })`. */
+export interface DefineContentLlmsOptions {
+  /** The heading of `llms.txt` and `sitemap.md`, such as `ViteHub`. Defaults to the host name of the site. */
+  title?: string
+  /** The summary under the `llms.txt` heading. */
+  description?: string
 }
 
 export interface ContentSitemapEntry {
@@ -37,6 +79,13 @@ export interface ContentSitemapEntry {
 export interface ContentSitemapOptions {
   /** Public origin. Defaults to `defineContent({ seo: { site } })`. */
   site?: string
+  /**
+   * The `waitUntil` of the request, such as `getStandardContext(request).waitUntil`. After a `github()` Source head
+   * moves, the answer then uses the page dates of the previous head at once, and Content computes the new dates after
+   * the response. Without it, the first answer after a head move waits for GitHub.
+   * When another instance holds `seo.dateLeases`, either form serves cached dates until the new set is visible.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 /** One sitemap file holds at most this many URLs. */
@@ -46,10 +95,33 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots, markdown } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
+  if (llms !== undefined && llms !== true && llms !== false) {
+    if (llms === null || Object(llms) !== llms || Array.isArray(llms)) throw invalid("llms must be true, false, or { title, description }.")
+    for (const key of ["title", "description"]) {
+      const value: unknown = Reflect.get(llms, key)
+      if (value !== undefined && String(value) !== value) throw invalid(`llms.${key} must be text.`)
+    }
+  }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) throw invalid("markdown must be true or false.")
+  if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
+    throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")
+  }
+  if (rss !== undefined && rss !== true && rss !== false) {
+    const shape = "rss must be true, false, or { title, description, limit }."
+    if (rss === null || Object(rss) !== rss || Array.isArray(rss)) throw invalid(shape)
+    const { title, description, limit } = rss as Record<string, unknown>
+    if ((title !== undefined && String(title) !== title) || (description !== undefined && String(description) !== description)) throw invalid(shape)
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 500)) throw invalid("rss limit must be an integer from 1 to 500.")
+  }
+  if (mcp !== undefined && mcp !== true && mcp !== false) {
+    const shape = "mcp must be true, false, or { name }."
+    if (mcp === null || Object(mcp) !== mcp || Array.isArray(mcp)) throw invalid(shape)
+    const { name } = mcp as Record<string, unknown>
+    if (name !== undefined && (String(name) !== name || !name.trim())) throw invalid(shape)
+  }
   if (robots !== undefined && robots !== true && robots !== false) {
     if (robots === null || Object(robots) !== robots || Array.isArray(robots)) throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     const disallow = Reflect.get(robots, "disallow")
@@ -57,7 +129,11 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
       throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     }
   }
-  return options as DefineContentSeoOptions
+  const normalized = options as DefineContentSeoOptions
+  if (llms === undefined || llms === false) return normalized
+  // The llms files link to the `.md` copies of each page.
+  if (markdown === false) throw invalid("llms links to the .md copy of each page. Remove markdown: false, or set llms: false.")
+  return { ...normalized, markdown: true }
 }
 
 /** The origin of a site URL, such as `https://example.com`, without a trailing slash. */
@@ -80,17 +156,42 @@ function absolute(path: string, site: string | undefined): string {
 export interface ContentSitemapSource {
   name: string
   url: ContentDocumentUrl
-  list(): Promise<ReadonlyArray<{ path: string, data: Record<string, unknown> }>>
+  list(): Promise<ReadonlyArray<{ path: string, data: Record<string, unknown>, meta?: { key?: string, extension?: string } }>>
+}
+
+/** A published page with a URL, as the sitemap and the RSS feed list it. */
+export interface ContentRoutedPage extends ContentSitemapEntry {
+  /** The page is a Markdown document. */
+  markdown: boolean
+  title?: string
+  description?: string
+  /** The Source key of a Source page, for `content.history()`. */
+  key?: string
+  /** The `date` field of the page, as an ISO timestamp. */
+  date?: string
+}
+
+function dateField(data: Record<string, unknown>): string | undefined {
+  const value: unknown = data.date
+  const time = value instanceof Date ? value.getTime() : String(value) === value ? Date.parse(value) : Number.NaN
+  return Number.isNaN(time) ? undefined : new Date(time).toISOString()
+}
+
+/** A published document that search engines may index, from {@link contentIndexedDocuments}. */
+export interface ContentIndexedDocument {
+  collection: AnyContentCollection
+  document: ContentDocumentSummary
+  /** The document URL, such as `/blog/hello`. */
+  url: string
+  /** The URL, absolute when a site is known. */
+  loc: string
 }
 
 /**
- * The sitemap entries of every routable collection: published documents with a URL, without `noindex` and without a
- * canonical URL that points elsewhere. A collection with locales lists each published translation, but not the pages
- * that show the source locale as a fallback. Singletons with a `url` are included. Then the documents of every Source
- * with a `url`.
+ * The published documents with a URL of every routable collection, in definition order, without `noindex` ones, ones
+ * whose canonical URL points elsewhere, and pages that show the source locale as a fallback. Each URL comes once.
  */
-export async function contentSitemapEntries(collections: readonly AnyContentCollection[], site: string | undefined, sources: readonly ContentSitemapSource[] = []): Promise<ContentSitemapEntry[]> {
-  const entries: ContentSitemapEntry[] = []
+export async function* contentIndexedDocuments(collections: readonly AnyContentCollection[], site: string | undefined): AsyncGenerator<ContentIndexedDocument> {
   const seen = new Set<string>()
   for (const collection of collections) {
     if (!collection.routable) continue
@@ -109,14 +210,34 @@ export async function contentSitemapEntries(collections: readonly AnyContentColl
           if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
           if (seen.has(loc)) continue
           seen.add(loc)
-          const entry: ContentSitemapEntry = { collection: collection.name, id: document.id, loc }
-          if (document.locale !== undefined) entry.locale = document.locale
-          if (document.updatedAt) entry.lastmod = document.updatedAt
-          entries.push(entry)
+          yield { collection, document, url: document.url, loc }
         }
         cursor = page.nextCursor ?? undefined
       } while (cursor)
     }
+  }
+}
+
+/**
+ * The sitemap entries of every routable collection: published documents with a URL, without `noindex` and without a
+ * canonical URL that points elsewhere. A collection with locales lists each published translation, but not the pages
+ * that show the source locale as a fallback. Singletons with a `url` are included. Then the documents of every Source
+ * with a `url`.
+ */
+export async function contentRoutedPages(collections: readonly AnyContentCollection[], site: string | undefined, sources: readonly ContentSitemapSource[] = []): Promise<ContentRoutedPage[]> {
+  const pages: ContentRoutedPage[] = []
+  const seen = new Set<string>()
+  for await (const { collection, document, loc } of contentIndexedDocuments(collections, site)) {
+    seen.add(loc)
+    const entry: ContentRoutedPage = { collection: collection.name, id: document.id, loc, markdown: collection.format === "markdown" }
+    const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
+    const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField) ?? stringField(document.data, "title")
+    const description = stringField(seo, "description") ?? stringField(document.data, "description")
+    if (title) entry.title = title
+    if (description) entry.description = description
+    if (document.locale !== undefined) entry.locale = document.locale
+    if (document.updatedAt) entry.lastmod = document.updatedAt
+    pages.push(entry)
   }
   for (const source of sources) {
     for (const document of await source.list()) {
@@ -124,18 +245,43 @@ export async function contentSitemapEntries(collections: readonly AnyContentColl
       const url = contentDocumentUrl(source.url, { id, data: document.data })
       if (url === null) continue
       const loc = absolute(url, site)
+      const seo: unknown = document.data.seo
+      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true) continue
+      const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
+      if (String(canonical) === canonical && absolute(canonical, site) !== loc) continue
       if (seen.has(loc)) continue
       seen.add(loc)
-      entries.push({ collection: source.name, id, loc })
+      const entry: ContentRoutedPage = { collection: source.name, id, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }
+      const key = document.meta?.key
+      // Comark keys a file as `<source>/<Source key>`.
+      if (key) entry.key = key.startsWith(`${source.name}/`) ? key.slice(source.name.length + 1) : key
+      const title = stringField(document.data, "title")
+      const description = stringField(document.data, "description")
+      const date = dateField(document.data)
+      if (title) entry.title = title
+      if (description) entry.description = description
+      if (date) entry.date = date
+      pages.push(entry)
     }
   }
-  if (entries.length > contentSitemapLimit) {
-    throw contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] The Content sitemap has ${entries.length} URLs, exceeding the ${contentSitemapLimit}-URL sitemap limit. Split the routes across sitemap files.` })
-  }
-  return entries
+  return pages
 }
 
-function escapeXml(value: string): string {
+/** The sitemap entries of the routed pages. A Source page gets `lastmod` from `dates`, its latest history entry. */
+export function contentSitemapEntries(pages: readonly ContentRoutedPage[], dates: ReadonlyMap<ContentRoutedPage, string>): ContentSitemapEntry[] {
+  if (pages.length > contentSitemapLimit) {
+    throw contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] The Content sitemap has ${pages.length} URLs, exceeding the ${contentSitemapLimit}-URL sitemap limit. Split the routes across sitemap files.` })
+  }
+  return pages.map((page) => {
+    const entry: ContentSitemapEntry = { collection: page.collection, id: page.id, loc: page.loc }
+    if (page.locale !== undefined) entry.locale = page.locale
+    const lastmod = page.lastmod ?? dates.get(page)
+    if (lastmod) entry.lastmod = lastmod
+    return entry
+  })
+}
+
+export function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character]!)
 }
 
@@ -225,10 +371,27 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   if (!collection.routable || collection.format !== "markdown") return null
   const document = await collection.get(resolved.id, { ref: "published", ...(resolved.locale === undefined ? {} : { locale: resolved.locale }) })
   if (!document) return null
-  const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
-  const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)
-  const description = stringField(seo, "description") ?? stringField(document.data, "description")
-  const body = document.body.trim()
+  return await renderMarkdownCopy(collection, document, site)
+}
+
+/** The title and description of a document: its `seo()` values, then its title field and `description`. */
+export function contentDocumentSummary(collection: AnyContentCollection, data: Record<string, unknown>): { title?: string, description?: string } {
+  const seo: unknown = collection.seo ? data[collection.seo] : undefined
+  const title = stringField(seo, "title") ?? stringField(data, collection.titleField)
+  const description = stringField(seo, "description") ?? stringField(data, "description")
+  return { ...(title ? { title } : {}), ...(description ? { description: description.replace(/\s*\n\s*/g, " ") } : {}) }
+}
+
+/** The Markdown copy of a published document: its title, unless the body has its own, its description as a quote, then the body. */
+export async function renderMarkdownCopy(collection: AnyContentCollection, document: { data: Record<string, unknown>, body: string }, site: string | undefined): Promise<string> {
+  const { title, description } = contentDocumentSummary(collection, document.data)
+  return await renderPageMarkdownCopy({ title, description, body: document.body }, site)
+}
+
+/** Render a page from either a collection or a Source as Markdown. */
+export async function renderPageMarkdownCopy(page: { title?: string, description?: string, body: string }, site: string | undefined): Promise<string> {
+  const { title, description } = page
+  const body = page.body.trim()
   const head = [
     title && !/^#\s/.test(body) ? `# ${title}` : undefined,
     description ? `> ${description.replace(/\s*\n\s*/g, " ")}` : undefined,

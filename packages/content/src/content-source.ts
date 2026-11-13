@@ -234,6 +234,25 @@ function createContentSourceFactory(
         return itemsPromise
       }
 
+      let knownReader: { get(key: string): Promise<ContentSourceItem> } | undefined
+      // A path that the last full load saw is read alone. Other paths, such as a new file, load every item.
+      async function readKnownItem(path: string) {
+        const known = state.latestItems?.get(path)
+        if (!known || itemsPromise || options.commits) return
+        // One reader per load keeps every read of a load on one revision.
+        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? createSource(sourceInput) : undefined
+        if (!knownReader) return
+        // A failed read, such as a deleted file, falls back to the full load, which reports real errors.
+        try {
+          const item = await knownReader.get(known.key)
+          if (contentPath(item) !== path) return
+          state.latestItems?.set(path, item)
+          return item
+        } catch {
+          return undefined
+        }
+      }
+
       const source: ComarkContentSource = {
         async keys() {
           itemsPromise = undefined
@@ -241,7 +260,7 @@ function createContentSourceFactory(
         },
         async getItem(key) {
           const path = normalizeContentSourcePath(key)
-          const item = (await loadItems()).get(path)
+          const item = await readKnownItem(path) ?? (await loadItems()).get(path)
           if (!item) throw contentErrorDiagnostics.CONTENT_R0004({ message: `[vitehub] contentSource() could not find ${JSON.stringify(key)}.` })
           return textContent(item)
         },
@@ -348,19 +367,39 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
 
   // Each async load retains its own Source reader, including parsers that outlive a failed load.
   const loads = new AsyncLocalStorage<ComarkContentSource>()
+  const loaded = new WeakSet<ComarkContentSource>()
+  let currentSource = source
+  let nextSequence = 0
+  let currentSequence = 0
+  async function load<T>(run: () => Promise<T>): Promise<T> {
+    const reader = factory!.create()
+    const sequence = ++nextSequence
+    const result = await loads.run(reader, run)
+    // Cached reads do not load a reader. Only a successful load can replace this instance's raw Source.
+    if (loaded.has(reader) && sequence >= currentSequence) {
+      currentSource = reader
+      currentSequence = sequence
+    }
+    return result
+  }
   const scopedSource: ComarkContentSource = {
     ...source,
-    keys: () => (loads.getStore() ?? source).keys(),
-    getItem: key => (loads.getStore() ?? source).getItem(key),
-    getItemRaw: key => (loads.getStore() ?? source).getItemRaw(key),
+    async keys() {
+      const reader = loads.getStore() ?? currentSource
+      const keys = await reader.keys()
+      loaded.add(reader)
+      return keys
+    },
+    getItem: key => (loads.getStore() ?? currentSource).getItem(key),
+    getItemRaw: key => (loads.getStore() ?? currentSource).getItemRaw(key),
   }
   const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot, keys) : commits ? commits.documents(scopedSource) : scopedSource })
   const init = instance.init.bind(instance)
   const refresh = instance.refresh.bind(instance)
   const get = instance.get.bind(instance)
-  instance.init = opts => loads.getStore() ? init(opts) : loads.run(factory.create(), () => init(opts))
-  instance.refresh = () => loads.run(factory.create(), refresh)
+  instance.init = opts => loads.getStore() ? init(opts) : load(() => init(opts))
+  instance.refresh = () => load(refresh)
   // SAFETY: The wrapper forwards the key and options without changing the generic document result.
-  instance.get = ((key: string, opts?: ContentGetOptions) => loads.run(factory.create(), () => get(key, opts))) as typeof instance.get
+  instance.get = ((key: string, opts?: ContentGetOptions) => load(() => get(key, opts))) as typeof instance.get
   return instance
 }

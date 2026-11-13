@@ -28,6 +28,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
+import { docsFilesModule } from "./files.ts"
 import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
@@ -226,6 +227,7 @@ interface NitroOptions {
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
+  virtual?: Record<string, string | (() => string | Promise<string>)>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
   experimental?: { asyncContext?: boolean }
@@ -318,6 +320,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // package must be listed itself: its Vue app runtime ships as `.vue` and `.ts` source that imports `#imports`.
     const packageRoot = resolver.resolve("..")
     nuxt.options.build.transpile.push(packageRoot)
+    // The shell renders with Comark, comark-ui and its block packages, and VueUse. They go into the app's server bundle
+    // so that they share its copy of Vue. Nitro would bundle them with a second copy that has no app, and Markdown would
+    // render on the server without the app's prose components.
+    nuxt.options.build.transpile.push(/^(?:@comark\/|comark(?:-[\w-]+)?(?:\/|$))/, "@vueuse/core")
     // Nuxt auto-imports composables only outside node_modules. The shell components use them, so an app that installs
     // this package needs its files included, or they fail with `useRoute is not defined`.
     const transform = nuxt.options.imports.transform ??= {}
@@ -358,7 +364,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })
     const moduleOptions: DocsNuxtOptions = nuxt.options
 
-    let manifest = createDocsManifest(manifestOptions)
+    let manifest = await createDocsManifest(manifestOptions)
     /**
      * Writes the agent copy of every page, with the links of its section at the end. `nuxi build` empties the build
      * folder after the modules load, so it runs before the build.
@@ -458,6 +464,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
+    nuxt.options.alias["#docs/primitive-rail"] = resolver.resolve("./primitive-rail.js")
     nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
     addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
@@ -528,7 +535,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
             regeneration = regeneration.then(async () => {
               if (closed) return
               try {
-                const next = createDocsManifest(manifestOptions)
+                const next = await createDocsManifest(manifestOptions)
                 const changed = JSON.stringify(next) !== JSON.stringify(manifest)
                 await writeRaw(next)
                 manifest = next
@@ -555,7 +562,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // lists the folders that Tailwind scans, so the docs folders go there. An app with its own `@import "@nuxt/ui"`
     // then builds the docs classes in its one Tailwind build. A second build would put its utilities after the docs
     // ones, so `flex` would win over `xl:hidden`. An app without one gets the Tailwind build of the docs.
-    const cssSources = [join(runtime, "app"), resolver.resolve("./theme.js"), ...contentDirsToWatch].map(source => `@source "${source}";`).join("\n")
+    // Tailwind reads the design's classes from this file. In the package build, `theme.js` only re-exports a hashed chunk.
+    const designClasses = addTemplate({ filename: "docs/design.json", write: true, getContents: () => JSON.stringify(design, null, 1) }).dst
+    const cssSources = [join(runtime, "app"), designClasses, ...contentDirsToWatch].map(source => `@source "${source}";`).join("\n")
     nuxt.hook("app:templates", (app) => {
       const ui = app.templates.find(template => template.filename === "ui.css")
       const getContents = ui?.getContents
@@ -742,8 +751,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         }
       }
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
-      // Pages are read at runtime, so a host without a file system serves them too.
-      nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
+      // Pages are read at runtime, so a host without a file system serves them too. Development reads the folders
+      // through Nitro server assets. A build packs them into one module: server assets add a module per file, and
+      // Cloudflare rejects a Worker upload with more than 5,000 modules.
+      const stores = [...sources ? sources.map((source, index) => ({ name: `docs-${index}`, dir: source.dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-raw", dir: rawDir }]
+      if (nuxt.options.dev) {
+        nitro.serverAssets = [...nitro.serverAssets ?? [], ...stores.map(store => ({ baseName: store.name, dir: store.dir, pattern: "**/*.md" }))]
+        nitro.virtual = { ...nitro.virtual, "#docs/files": "export default null\n" }
+      }
+      else {
+        // Each page sits next to its raw copy, so gzip finds the repeated text.
+        const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-raw", docsRawFile(page.path)]])
+        nitro.virtual = { ...nitro.virtual, "#docs/files": () => docsFilesModule(stores, order()) }
+      }
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development

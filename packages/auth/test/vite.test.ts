@@ -365,7 +365,7 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
   })
 
-  it("declares #vitehub/auth/server for a tsconfig that cannot resolve it, as a Nuxt 4 app's does", async () => {
+  it("declares #vitehub/auth/server for a tsconfig that cannot resolve it", async () => {
     const root = await createTempProject()
     await writeAuth(root)
     await mkdir(join(root, "node_modules/@vite-hub/auth"), { recursive: true })

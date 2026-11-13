@@ -6,6 +6,7 @@ type Request = { app: { runWithContext<T>(run: () => T): T }, event: { req: { he
 const mocks = vi.hoisted(() => ({ request: undefined as Request | undefined }))
 
 vi.mock("#app", () => ({
+  createError: (input: unknown) => Object.assign(new Error("nuxt"), input),
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: () => {},
   navigateTo: (target: unknown) => target,

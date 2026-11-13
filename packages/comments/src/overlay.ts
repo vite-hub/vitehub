@@ -172,8 +172,7 @@ export function injectLoader(html: string, tag: string, found = createHtmlScanne
 
 /**
  * Source of the Nitro middleware that adds the loader to HTML responses: server-rendered pages and, when Nitro
- * prerenders them, the saved files. It is Nitro 3 middleware `(event, next)`. Where the host calls it without `next`,
- * such as Nitro 2 under Nuxt, it does nothing, and the `render:html` hook of the runtime plugin does the work.
+ * prerenders them, the saved files. It is Nitro middleware `(event, next)`.
  *
  * It rewrites only what is safe to rewrite: UTF-8 `text/html` that is not compressed, with a `</body>` or `</html>`.
  * A stream is piped through a transform that holds back a short tail, so a tag split across chunks is still found.
@@ -252,7 +251,6 @@ export function renderOverlayMiddleware(url: string): string {
     "}",
     "",
     "export default async function injectCommentsLoader(event, next) {",
-    "  if (typeof next !== \"function\") return",
     "  const result = await next()",
     "  try {",
     // ViteHub's Nitro plugin sets Standard Context on every request before middleware runs.

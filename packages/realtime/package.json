@@ -5,7 +5,9 @@
   "keywords": [
     "collaboration",
     "h3",
+    "postgres",
     "realtime",
+    "redis",
     "typescript",
     "vite",
     "vitehub",
@@ -40,10 +42,20 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./bus": {
+      "types": "./dist/bus.d.ts",
+      "import": "./dist/bus.js",
+      "default": "./dist/bus.js"
+    },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
       "default": "./dist/client.js"
+    },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./internal/runtime/unavailable": {
       "types": "./dist/internal/runtime/unavailable.d.ts",
@@ -76,6 +88,7 @@
   "dependencies": {
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-blockquote": "catalog:realtime",
+    "@tiptap/extension-code": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
     "@tiptap/extension-document": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -87,9 +100,11 @@
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
+    "ioredis": "catalog:storage",
     "lib0": "catalog:realtime",
     "marked": "catalog:realtime",
     "nostics": "catalog:runtime",
+    "postgres": "catalog:database",
     "prosemirror-model": "catalog:realtime",
     "prosemirror-state": "catalog:realtime",
     "prosemirror-transform": "catalog:realtime",
@@ -102,6 +117,7 @@
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "linkedom": "^0.18.13",
     "publint": "catalog:tooling",
@@ -110,12 +126,14 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "miniflare": "4.20260730.0"
+    "miniflare": "4.20260730.0",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {

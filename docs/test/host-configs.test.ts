@@ -16,13 +16,13 @@ const landings = readdirSync(docsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(resolve(docsRoot, entry.name, "index.md")))
   .flatMap((entry) => {
     const source = readFileSync(resolve(docsRoot, entry.name, "index.md"), "utf8");
-    const match = source.match(/^ {2}:::code-tree\{feature="(\w+)"\}\n([\s\S]*?)^ {2}:::$/m);
+    const match = source.match(/^::code-tree\{feature="(\w+)"\}\n([\s\S]*?)^::$/m);
     if (!match) return [];
     return frameworks.map((framework) => {
-      const view = match[2]!.replace(/^ {2}::::framework\{name="([^"]+)"\}\n([\s\S]*?)^ {2}::::$/gm,
+      const view = match[2]!.replace(/^:::framework\{name="([^"]+)"\}\n([\s\S]*?)^:::$/gm,
         (_, name: string, content: string) => name === framework ? content : "");
-      const blocks = [...view.matchAll(/^ {2}```\w+ \[(.+)\]\n([\s\S]*?)^ {2}```$/gm)].map((block) => ({
-        code: block[2]!.split("\n").map((line) => line.slice(2)).join("\n").trimEnd(),
+      const blocks = [...view.matchAll(/^```\w+ \[(.+)\]\n([\s\S]*?)^```$/gm)].map((block) => ({
+        code: block[2]!.trimEnd(),
         path: block[1]!,
       }));
       return { blocks, feature: match[1] as FeatureId, framework, slug: entry.name };
@@ -58,7 +58,7 @@ describe("host configs of the primitive heroes", () => {
         expect(code).toBeUndefined();
         return;
       }
-      expect(code).toContain(`preset: '${host}'`);
+      expect(code).toContain(`host: '${host}'`);
       // A config that declares Env values imports `env`.
       expect(code!.includes("env(")).toBe(/^import \{ env \} from /m.test(code!));
       // The hero panel is narrow. A rewrite is never wider than the files of its hero.
@@ -78,7 +78,7 @@ describe("rewriteHostConfig", () => {
     "import { env } from 'vite-hub/env'",
     "",
     "vitehub({",
-    "  preset: 'node',",
+    "  host: 'node',",
     "  // Two lines",
     "  // of comment",
     "  kv: {",
@@ -95,12 +95,12 @@ describe("rewriteHostConfig", () => {
     vercel: { options: { queue: { value: "true" } }, remove: ["kv"] },
   };
 
-  it("sets the preset, replaces the option and its comment, and drops imports only other hosts use", () => {
+  it("sets the host, replaces the option and its comment, and drops imports only other hosts use", () => {
     expect(rewriteHostConfig(code, configs, "cloudflare")).toBe([
       "import { vitehub } from 'vite-hub'",
       "",
       "vitehub({",
-      "  preset: 'cloudflare',",
+      "  host: 'cloudflare',",
       "  // Workers KV",
       "  kv: true,",
       "  queue: true,",
@@ -114,7 +114,7 @@ describe("rewriteHostConfig", () => {
       "import { env } from 'vite-hub/env'",
       "",
       "vitehub({",
-      "  preset: 'netlify',",
+      "  host: 'netlify',",
       "  // Two lines",
       "  // of comment",
       "  kv: {",
@@ -130,7 +130,7 @@ describe("rewriteHostConfig", () => {
       "import { vitehub } from 'vite-hub'",
       "",
       "vitehub({",
-      "  preset: 'vercel',",
+      "  host: 'vercel',",
       "  queue: true,",
       "})",
     ].join("\n"));

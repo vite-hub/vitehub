@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createApp, defineComponent, h, nextTick, ref } from "vue"
+import { createApp, defineComponent, effectScope, h, nextTick, ref } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -12,10 +12,16 @@ const { document } = globalThis as unknown as Window
 type SessionState = { data: unknown, error: null, isPending: boolean, isRefetching: boolean, refetch: () => Promise<void> }
 
 // Better Auth's session in the browser, which a test sets once the client has "loaded".
-const betterAuth = vi.hoisted(() => ({ session: undefined as unknown, watched: 0 }))
+const betterAuth = vi.hoisted(() => ({ session: undefined as unknown, watched: 0, current: null as unknown, asked: 0, askedAt: [] as unknown[] }))
 
 vi.mock("better-auth/vue", () => ({
-  createAuthClient: () => ({
+  createAuthClient: (options?: { basePath?: string }) => ({
+    // What `/get-session` answers now.
+    getSession: async () => {
+      betterAuth.asked++
+      betterAuth.askedAt.push(options?.basePath)
+      return { data: betterAuth.current, error: null }
+    },
     useSession: () => {
       betterAuth.watched++
       return betterAuth.session
@@ -31,12 +37,19 @@ vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
 // Each test gets new modules, because the app shares one session per client.
 let Can: typeof import("../src/vue.ts").Can
+let Cannot: typeof import("../src/vue.ts").Cannot
+let createAuthClient: typeof import("../src/vue.ts").createAuthClient
+let setNuxtAppResolver: typeof import("../src/vue.ts").setNuxtAppResolver
+let setNuxtErrorFactory: typeof import("../src/vue.ts").setNuxtErrorFactory
 let setSessionSeedResolver: typeof import("../src/vue.ts").setSessionSeedResolver
 let useAbility: typeof import("../src/vue.ts").useAbility
+// The class from the same module instance as `vue.ts`, so `toBeInstanceOf()` matches.
+let AbilityError: typeof import("../src/ability-error.ts").AbilityError
 
 beforeEach(async () => {
   vi.resetModules()
-  ;({ Can, setSessionSeedResolver, useAbility } = await import("../src/vue.ts"))
+  ;({ Can, Cannot, createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts"))
+  ;({ AbilityError } = await import("../src/ability-error.ts"))
 })
 
 const author = { session: { id: "s1" }, user: { id: "u1", name: "Ada", emailVerified: true } }
@@ -60,8 +73,11 @@ function canEdit(post: unknown) {
 }
 
 afterEach(() => {
+  setNuxtErrorFactory(undefined)
+  setNuxtAppResolver(undefined)
   setSessionSeedResolver(undefined)
   betterAuth.session = undefined
+  betterAuth.current = null
   document.body.innerHTML = ""
 })
 
@@ -167,5 +183,164 @@ describe("useAbility()", () => {
     expect(ability!.can("posts.tag", "a", "b", "c")).toBe(false)
     expect(ability!.can("posts.create")).toBe(true)
     expect(ability!.can("admin.open")).toBe(false)
+  })
+})
+
+/** `useAbility()` in a mounted component, so the session follows Better Auth. */
+function mountAbility(): ReturnType<typeof useAbility> {
+  let ability: ReturnType<typeof useAbility> | undefined
+  createApp(defineComponent(() => {
+    ability = useAbility()
+    return () => null
+  })).mount(document.createElement("div") as never)
+  return ability!
+}
+
+describe("useAbility().cannot()", () => {
+  it("is undefined until the session is known, then the opposite of can()", async () => {
+    const session = pendingSession()
+    betterAuth.session = session
+    const watched = betterAuth.watched
+    const { cannot } = mountAbility()
+
+    expect(cannot("posts.edit", ownPost)).toBeUndefined()
+    await untilLoaded(watched)
+    session.value = { ...session.value, isPending: false, data: author }
+    await nextTick()
+    expect(cannot("posts.edit", ownPost)).toBe(false)
+    expect(cannot("posts.edit", otherPost)).toBe(true)
+    expect(cannot("posts.move", "a", "a")).toBe(true)
+    expect(cannot("posts.draft")).toBe(false)
+    expect(cannot("admin.open")).toBe(true)
+  })
+})
+
+describe("useAbility().authorize()", () => {
+  it("returns when the rule allows, and throws the server's refusal when it refuses", async () => {
+    betterAuth.current = author
+    betterAuth.session = pendingSession()
+    const { authorize } = mountAbility()
+
+    await expect(authorize("posts.edit", ownPost)).resolves.toBeUndefined()
+    const refused = await authorize("posts.edit", otherPost).catch((error: unknown) => error)
+    expect(refused).toBeInstanceOf(AbilityError)
+    expect(refused).toMatchObject({ status: 403, statusText: "Forbidden", data: { code: "not-author", details: undefined } })
+    await expect(authorize("billing.upgrade")).rejects.toMatchObject({ status: 402, data: { code: "plan-limit", details: { limit: 3 } } })
+    await expect(authorize("posts.delete", otherPost)).rejects.toMatchObject({ status: 404, data: { code: "not-found" } })
+    await expect(authorize("posts.move", "a", "a")).rejects.toMatchObject({ status: 403, data: { code: undefined } })
+
+    betterAuth.current = null
+    await expect(authorize("posts.edit", ownPost)).rejects.toMatchObject({ status: 401, data: { code: "signed-out" } })
+    await expect(authorize("posts.read", { authorId: "u2", published: true })).resolves.toBeUndefined()
+  })
+
+  it("throws Nuxt's fatal error, with the same status and data, when the Nuxt module is installed", async () => {
+    betterAuth.current = author
+    betterAuth.session = pendingSession()
+    const nuxtError = new Error("from createError()")
+    const createError = vi.fn(() => nuxtError)
+    setNuxtErrorFactory(createError)
+    const { authorize } = mountAbility()
+
+    await expect(authorize("billing.upgrade")).rejects.toBe(nuxtError)
+    expect(createError).toHaveBeenCalledWith({
+      status: 402,
+      statusText: "Payment Required",
+      message: "Payment Required.",
+      data: { code: "plan-limit", details: { limit: 3 } },
+      fatal: true,
+    })
+  })
+
+  it("asks Better Auth in the browser, because the server's session is old after a sign-in or sign-out in the tab", async () => {
+    // The server rendered the app signed out. Then the visitor signed in, and the app navigated without a reload.
+    setSessionSeedResolver(() => null)
+    betterAuth.session = ref({ data: author, error: null, isPending: false, isRefetching: false, refetch: async () => {} })
+    betterAuth.current = author
+    await expect(mountAbility().authorize("posts.edit", ownPost)).resolves.toBeUndefined()
+
+    setSessionSeedResolver(() => author)
+    betterAuth.current = null
+    await expect(mountAbility().authorize("posts.edit", ownPost)).rejects.toMatchObject({ status: 401, data: { code: "signed-out" } })
+  })
+
+  it("asks the Auth endpoint of the Nuxt page guard, also with a custom basePath below app.baseURL", async () => {
+    // `defineAuth({ basePath: '/auth' })` under Nuxt `app.baseURL: '/app/'`: the Nuxt plugin provides the client of the guard.
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: createAuthClient({ basePath: "/app/auth" }) }))
+    setSessionSeedResolver(() => null)
+    betterAuth.session = ref({ data: author, error: null, isPending: false, isRefetching: false, refetch: async () => {} })
+    betterAuth.current = author
+    betterAuth.askedAt = []
+    await expect(mountAbility().authorize("posts.edit", ownPost)).resolves.toBeUndefined()
+    expect(betterAuth.askedAt).toEqual(["/app/auth"])
+  })
+
+  it("uses the server's session while Nuxt hydrates the page that the server rendered with it", async () => {
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), isHydrating: true }))
+    setSessionSeedResolver(() => author)
+    betterAuth.session = pendingSession()
+    betterAuth.current = null
+    const asked = betterAuth.asked
+    await expect(mountAbility().authorize("posts.edit", ownPost)).resolves.toBeUndefined()
+    expect(betterAuth.asked).toBe(asked)
+  })
+
+  it("asks Better Auth while Nuxt hydrates a prerendered page, which has no session from the server", async () => {
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), isHydrating: true }))
+    setSessionSeedResolver(() => undefined)
+    betterAuth.session = pendingSession()
+    betterAuth.current = null
+    const asked = betterAuth.asked
+    await expect(mountAbility().authorize("posts.edit", ownPost)).rejects.toMatchObject({ status: 401 })
+    expect(betterAuth.asked).toBe(asked + 1)
+  })
+
+  it("counts an unknown session as signed out during server rendering", async () => {
+    betterAuth.session = pendingSession()
+    const window = Object.getOwnPropertyDescriptor(globalThis, "window")!
+    Reflect.deleteProperty(globalThis, "window")
+    const scope = effectScope()
+    try {
+      const { authorize } = scope.run(() => useAbility())!
+      await expect(authorize("posts.edit", ownPost)).rejects.toMatchObject({ status: 401, data: { code: "signed-out" } })
+    }
+    finally {
+      scope.stop()
+      Object.defineProperty(globalThis, "window", window)
+    }
+  })
+})
+
+describe("<Cannot>", () => {
+  const cannot = (props: Record<string, unknown>) => render(h(Cannot as never, props, {
+    default: ({ code }: { code?: string }) => h("span", `cannot: ${code}`),
+  }))
+
+  it("renders its slot with the refusal only when the rule refuses", async () => {
+    betterAuth.session = pendingSession()
+    expect(await cannot({ do: "posts.edit", with: otherPost })).toBe("<!---->")
+
+    setSessionSeedResolver(() => author)
+    expect(await cannot({ do: "posts.edit", with: ownPost })).toBe("<!---->")
+    expect(await cannot({ do: "posts.edit", with: otherPost })).toBe("<span>cannot: not-author</span>")
+    expect(await cannot({ do: "posts.edit", with: otherPost, pending: true })).toBe("<!---->")
+    expect(await cannot({ do: "posts.move", args: ["a", "a"] })).toBe("<span>cannot: undefined</span>")
+    expect(await cannot({ do: "posts.move", args: ["a", "b"] })).toBe("<!---->")
+    expect(await cannot({ do: "posts.draft" })).toBe("<!---->")
+  })
+
+  it("renders its slot with the signed-out refusal when the server read no session", async () => {
+    setSessionSeedResolver(() => null)
+    betterAuth.session = pendingSession()
+    expect(await cannot({ do: "posts.edit", with: ownPost })).toBe("<span>cannot: signed-out</span>")
+  })
+
+  it("passes the details of deny() to its slot", async () => {
+    setSessionSeedResolver(() => author)
+    betterAuth.session = pendingSession()
+    const html = await render(h(Cannot as never, { do: "billing.upgrade" }, {
+      default: ({ code, details }: { code: string, details: { limit: number } }) => h("span", `${code} ${details.limit}`),
+    }))
+    expect(html).toBe("<span>plan-limit 3</span>")
   })
 })

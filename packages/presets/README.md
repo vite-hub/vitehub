@@ -79,6 +79,22 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+With only `filter.repository.allow`, the Babysitter serves pull requests whose
+author is an owner, member, or collaborator, skips those labelled
+`babysitter:skip`, and merges ready ones directly. A direct merge holds a pull
+request from someone without write access until a maintainer approves its head.
+Any `filter.author` or `filter.authorAssociation` rule replaces the author
+default, `lifecycle.labels` or `filter.labels` replace the label, and
+`merge: false` turns merging off.
+
+`filter.authorAssociation` selects authors by their GitHub `author_association`,
+such as `{ allow: ["OWNER", "MEMBER", "COLLABORATOR"] }`. A pull request passes
+when its author matches `filter.author.allow` or `filter.authorAssociation.allow`,
+and a match on either deny list excludes it. Bots usually report `NONE`, so list
+them in `filter.author`. Logins match without case and in either bot spelling,
+so `renovate[bot]` also matches the GraphQL login `renovate`; this also applies
+to `filter.actor` and `ignoreFeedbackAuthors`.
+
 `driver` selects the provider Driver that repairs each checkout: `"codex"` (the
 default) or `"claude-code"`. Set its model and other provider settings with the
 ordinary `driver` field. Model and custom run Drivers cannot repair a checkout.
@@ -123,7 +139,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, and an optional `ready` hook. |
+| `{ strategy: "direct", method, ready, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -131,7 +147,40 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass.
+other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
+PR from an author without write access only after a reviewer with write access
+approves its current head and no such reviewer's latest review requests changes.
+
+A PR that is only `behind` a base requiring up-to-date branches, or whose base
+changed its files after its checks ran, gets a branch update instead of a merge
+or a model pass. A head that already contains the base tip needs no update. When
+GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
+the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
+after checking that the head did not move.
+
+PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
+
+Before a model pass, the host compares the logs of failing GitHub Actions jobs
+with the same jobs on the base branch tip. A failing required check whose step
+fails there too, and whose output names no failure the base lacks, is the
+base's failure. When every failing required check is the base's, or stopped on a
+runner or network error, the PR waits without a pass, retries every 15 minutes,
+and is retested once the base passes; a runner or network error gets one branch
+update. `bypassInheritedChecks` (off by default), such as
+`{ "acme/app": ["ci"] }`, lets the host merge past those required checks. It
+rereads the checks, the base tip, branch protection, rulesets, reviews and
+threads first, and refuses when any other rule is unknown or unmet. The merge
+sets GitHub's `bypass_rules`, so the GitHub App must be allowed to bypass the
+branch rules. A required check that never reported, 10 minutes after the head's
+checks finished, gets a branch update or an Actions rerun once per head every
+six hours.
+
+`markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
+drafts should merge. Off by default. When a pass has reviewed a draft's head, no
+required check failed, and the head branch is in the repository itself, the host
+marks the draft ready for review. The `ready_for_review` event wakes the PR and
+starts workflows that skip drafts. A fork's draft and an unlisted author's draft
+stay drafts.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when
@@ -149,7 +198,10 @@ assessment. Feedback that a pass assessed or answered with a repair push stays
 assessed on later heads, so a direct merge needs a model pass only for new
 feedback. Bot issue comments count by identity, not body. Without required
 checks on the base branch, the newest run of every current-head check must
-finish before a merge.
+finish before a merge, and a failing GitHub Actions check outside
+`reviewChecks` blocks it. A cancelled run does not replace a finished run of the
+same check. A pass that assessed the current head and all its feedback lets
+failing `reviewChecks` alone merge.
 
 `deferWhilePending` (default `true`) holds a pass while required checks or
 review checks run, unless a failure or conflict already needs repair; the PR
@@ -161,12 +213,23 @@ merge conflict and without a failing check outside `reviewChecks`. After that
 many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
 person's feedback, another failing check, a conflict or a head that someone else
 pushed still do. The PR then merges on its required checks or parks with the
-reason, which health lists under `queue.parked`. `dailyPassBudget` (default
+reason, which health lists under `queue.parked`. `minorReviewRounds` (default
+`false`) spends that budget once that many heads in a row had no automated
+finding above P2; each pass reports the class in `automatedReview`.
+`reviewConvergencePushes` (default `false`) asks each pass from that many
+review-driven pushes on to fix a recurring finding class at its root.
+`ignoreAssessedBotThreads` (default `false`) stops assessed bot-only review
+threads from blocking a direct merge or waking the PR. `dailyPassBudget` (default
 `16`, `false` disables it) limits the model passes per PR in a rolling 24
 hours. A PR that reached it parks until its oldest pass is 24 hours old, and
 health lists it with `resumeAt`. A person's new feedback, the first failing
-required check on a head and a conflict on an otherwise ready PR still start a
-pass. `install` (default `true`) installs
+required check on a head, any conflict and a head whose required checks pass
+still start a pass. `dailyPushBudget` (default `false`) limits repair pushes per
+PR in a rolling 24 hours; past it, only a conflict repair pushes, and a PR whose
+required checks fail pushes once every two hours. `priorityLabels` (default none)
+put a labelled PR first in the queue and exempt it from both daily budgets.
+`mainRepairBranchPrefix` (default none) puts PRs from those head branches before
+every other PR and exempts them from `noProgressBudget`. `install` (default `true`) installs
 dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in
@@ -181,10 +244,13 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 `install: { cache: { directory, entries } }` configures the cache on any filesystem, and
 `cache: false` disables it. At startup, the built-in host removes pass
 workspaces from an earlier process when its temporary directory is inside the
-service directory. Claims take reviewed heads first, then heads whose checks all
-passed, then stack parents. A restart releases the claims of the previous process.
+service directory. Claims take main repairs and priority-labelled PRs first, then reviewed heads,
+then heads whose checks all passed, then stack parents. A restart releases the claims of the previous process.
 A stacked PR whose parent merged into the default branch is retargeted to the
-default branch. A provider rate limit is retried three times; after that, model
+default branch; until then the child waits. With `merge: "direct"`,
+`repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
+and feedback alongside its open parent. The child never merges into the parent's
+branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.
@@ -192,6 +258,16 @@ Each owner rechecks the durable deadline before dispatch, including after
 workspace setup. Host merges and stack retargets continue during the cooldown.
 A failed dependency install continues the pass without dependencies unless
 `install.required` is set; `install.concurrency` sets the install slots.
+`warmWorkspaces` (default `false`) keeps one workspace per open PR in
+`<dataDir>/pr-workspaces`. A pass on the head the previous pass pushed or left,
+after a pass that finished, on a clean tree, keeps `node_modules` and build
+caches and skips a current install; any other pass empties the workspace and
+checks the head out again. The host clone is fetched instead of cloned. Entries
+go when the PR closes, after `idleDays` (7) without a pass, and least recently
+used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
+`warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
+provider thread when that pass pushed or recorded a wait on the same base and
+release.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding
@@ -201,7 +277,11 @@ headings. Explicit `driver.instructions` replaces that slot. Use
 A discovered Agent that imports the preset runs without more wiring on the Node
 server preset. ViteHub generates a Nitro plugin that starts a process host for
 it: a SQLite PR inbox in Agent State, bounded GitHub discovery of
-`filter.repository.allow`, claims, repair passes, and wake handling. Signed
+`filter.repository.allow` (or, without it, of every repository the GitHub App
+installations can access, except archived ones and `filter.repository.deny`),
+claims, repair passes, and wake handling. Installing the App on a repository
+enrolls it; `installation` and `installation_repositories` webhooks update the
+list at once, and the host lists the installations again every 10 minutes. Signed
 GitHub deliveries to `/api/_vitehub/agents/<name>/webhooks/github` feed the
 inbox; they never start the Agent directly. `GET /api/_vitehub/host/drain`
 reports drain status, and `GET /api/_vitehub/host/health` reports each host's
@@ -281,6 +361,11 @@ has no merge tool and the host rejects auto-merge operations. With `"auto"`, it
 requests GitHub native auto-merge subject to current PR admission and repository
 checks and reviews. Workers never merge directly or delete branches.
 
+CI logs reach the worker without color codes or fetch branch listings, capped at
+the last 4 MB of each failed job. Preloaded evidence and `readCheckLogs` return a
+failure-focused excerpt; `readCheckLogs` also takes `tailLines` or
+`startLine`/`endLine` for up to 1,000 lines the excerpt omitted.
+
 Before a repair push, the host durably associates the exact candidate commit with
 its active claim. Check and status webhooks for that commit are retained even when
 they arrive before the source-push and synchronize webhooks. This association does
@@ -307,7 +392,7 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
 
 For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
-`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
+`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. Providers from `forge()` revalidate repeated GETs with `If-None-Match`; an unchanged response comes back as a `304` that GitHub does not count against the rate limit. Entries are kept per App installation, so they outlast token rotation. Set `conditionalRequests: false` on `createGitHubHost()` to turn this off. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. `access({ minLifetime })` mints a new App installation token when the cached one expires within that many milliseconds. `host.channel()` passes it for Provider Driver runs. `access({ repository })` returns Git credentials for that repository only, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. An unscoped `env` has `GH_TOKEN` but no Git credentials.
 
 `host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
 A provider `env` resolver can call `host.environment()` inside

@@ -17,14 +17,14 @@ function snapshot(conclusion = "success"): Snapshot {
   };
 }
 
-function reader(responses: { files?: string[][]; compare?: { ahead: number; files?: unknown[] }; activity?: unknown; baseFailures?: number }): BaseFreshnessReader & { paths: string[] } {
+function reader(responses: { files?: string[][]; compare?: { ahead: number; files?: unknown[] }; activity?: unknown; baseFailures?: string[] }): BaseFreshnessReader & { paths: string[] } {
   const paths: string[] = [];
   return {
     paths,
     async rest(path) {
       paths.push(path);
       if (path.includes("/files?")) return (responses.files ?? []).map(([filename, previous_filename]) => ({ filename, previous_filename }));
-      if (path.includes("/check-runs?")) return Array.from({ length: responses.baseFailures ?? 0 }, () => ({ conclusion: "failure" }));
+      if (path.includes("/check-runs?")) return (responses.baseFailures ?? []).map(name => ({ name, conclusion: "failure" }));
       return [];
     },
     async page(path) {
@@ -56,6 +56,16 @@ describe("Babysitter base freshness", () => {
     expect(await staleBaseOverlap(reader({ files: [["src/a.ts"]], compare: { ahead: 0, files: [] } }), snapshot(), live, signal)).toEqual([]);
   });
 
+  it("finds no overlap when the head already contains the base tip", async () => {
+    const read = reader({ files: [["src/a.ts"]] });
+    const originalPage = read.page;
+    read.page = async (path, requestSignal) => path === `repos/acme/app/compare/main...${head}?per_page=1` ? { ahead_by: 1, behind_by: 0 } : originalPage(path, requestSignal);
+    const noRun = snapshot();
+    noRun.checks["check_run:1"]!.html_url = "https://example.test/external";
+    expect(await staleBaseOverlap(read, noRun, live, signal)).toEqual([]);
+    expect(read.paths.some(path => path.includes("/files?"))).toBe(false);
+  });
+
   it("treats a missing run or a truncated comparison as overlap", async () => {
     const noRun = snapshot();
     noRun.checks["check_run:1"]!.html_url = "https://example.test/external";
@@ -78,7 +88,9 @@ describe("Babysitter base freshness", () => {
   it("retests failed checks only after the base moved and passes again", async () => {
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 } }), snapshot("failure"), failedConclusions, signal)).toBe(3);
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 0 } }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
-    expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 }, baseFailures: 1 }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
+    expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 }, baseFailures: ["test"] }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
+    // A base that fails other checks, such as a release proposal, still fixed this one.
+    expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 }, baseFailures: ["release"] }), snapshot("failure"), failedConclusions, signal)).toBe(3);
     // Passing checks are not the failures this retest is for.
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 } }), snapshot("success"), failedConclusions, signal)).toBeUndefined();
   });
