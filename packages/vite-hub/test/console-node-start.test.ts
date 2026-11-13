@@ -30,7 +30,7 @@ it("starts a KV app with the Console from the Node output", async () => {
     await writeFile(join(root, "server/api/health.get.ts"), "import { defineEventHandler } from \"h3\"\n\nexport default defineEventHandler(() => ({ ok: true }))\n")
 
     const ci = await consoleTestKey("CI")
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: true, kv: true, preset: "node" })], root })
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ console: true, kv: true, host: "node" })], root })
     await builder.buildApp()
 
     const port = await freePort()

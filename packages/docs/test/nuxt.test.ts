@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import type { DocsPackedFiles } from "../src/files.ts"
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
 
 type Hook = (...args: never[]) => unknown
@@ -389,6 +390,37 @@ describe("docs Nuxt setup", () => {
     ]);
   });
 
+  it("packs the pages and raw copies of a build into one module instead of a server asset per file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-packed-"));
+    roots.push(dir);
+    for (const name of ["a", "b"]) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "index.md"), `---\ntitle: ${name}\n---\nSource ${name}`);
+    }
+    await setupDocs({ base: "/", sources: [{ dir: join(dir, "a"), mount: "/a" }, { dir: join(dir, "b"), mount: "/b" }] });
+    const nitro: { serverAssets?: Array<{ baseName: string }>, virtual?: Record<string, string | (() => string)> } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    expect(nitro.serverAssets?.filter(asset => asset.baseName.startsWith("docs")) ?? []).toEqual([]);
+    for (const hook of hooks.get("build:before") ?? []) await hook();
+    const template = nitro.virtual?.["#docs/files"];
+    if (typeof template !== "function") throw new Error("#docs/files is not generated at build time");
+    const { default: files } = await import(`data:text/javascript,${encodeURIComponent(template())}`) as { default: DocsPackedFiles };
+    vi.doMock("#docs/files", () => ({ default: files }));
+    vi.doMock("nitro/kv", () => ({ useKV: () => { throw new Error("A build must not read server assets") } }));
+    vi.resetModules();
+    const { readDocsFile } = await import("../src/runtime/files.ts");
+    expect(await readDocsFile("docs-0", "index.md")).toBe("---\ntitle: a\n---\nSource a");
+    expect(await readDocsFile("docs-1", "index.md")).toBe("---\ntitle: b\n---\nSource b");
+    expect(await readDocsFile("docs-raw", "b.md")).toContain("Source b");
+    for (const [store, file] of [["docs-0", "missing.md"], ["docs-raw", "constructor"], ["__proto__", "index.md"], ["docs-raw", "../a/index.md"]]) {
+      expect(await readDocsFile(store!, file!)).toBeNull();
+    }
+    // Each page sits next to its raw copy in the packed bytes.
+    expect(files.index["docs-0"]!["index.md"]![1]).toBe(files.index["docs-raw"]!["a.md"]![0]);
+    vi.doUnmock("#docs/files");
+    vi.doUnmock("nitro/kv");
+  });
+
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
@@ -431,7 +463,8 @@ describe("docs Nuxt setup", () => {
     const changed = watchContent.mock.calls.at(-1)![2]!
     changed("rename", "nested")
     await vi.advanceTimersByTimeAsync(100)
-    expect(templates.get("docs/manifest.mjs")?.()).toContain("First page")
+    // The manifest reads the files through Content, so the run ends after real I/O, not after a timer.
+    await vi.waitFor(() => expect(templates.get("docs/manifest.mjs")?.()).toContain("First page"))
     expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("First page")
   })
 
@@ -476,20 +509,19 @@ describe("docs Nuxt setup", () => {
       writeFileSync(page, "---\ntitle: Page\n---\n# Older");
       changed("change", multiple ? "index.md" : "docs/index.md");
       await vi.advanceTimersByTimeAsync(100);
-      expect(transform).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(transform).toHaveBeenCalledTimes(1));
       writeFileSync(multiple ? join(second, "index.md") : page, "---\ntitle: Page\n---\n# Newer");
       changedSecond("change", multiple ? "index.md" : "docs/index.md");
       await vi.advanceTimersByTimeAsync(100);
       const concurrent = transform.mock.calls.length;
       release();
-      await vi.advanceTimersByTimeAsync(0);
       expect(concurrent).toBe(1);
-      expect(
+      await vi.waitFor(() => expect(
         readFileSync(
           join(options.buildDir, multiple ? "docs/raw/other.md" : "docs/raw/docs.md"),
           "utf8",
         ),
-      ).toContain("Newer");
+      ).toContain("Newer"));
     },
   );
 

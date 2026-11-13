@@ -3,7 +3,8 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { runInNewContext } from "node:vm"
 
-import { env, resolveServerEnv, SecretEnv } from "@vite-hub/env"
+import { env, SecretEnv } from "@vite-hub/env"
+import { resolveServerEnv } from "@vite-hub/env/server"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { end, parseProgram, start } from "@vite-hub/internal/ast"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -266,7 +267,7 @@ describe("module list safety", () => {
   })
 })
 
-describe("deployment preset safety", () => {
+describe("host safety", () => {
   it.each(["process.env.NITRO_PRESET", "deploymentPreset", "selectPreset()"])("rejects nitro.preset: %s without writing files", async (preset) => {
     const files = {
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: ${preset} } })`,
@@ -280,18 +281,18 @@ describe("deployment preset safety", () => {
   })
 
   it.each([
-    "modules: ['nuxt-safe-runtime-config'], vitehub: { preset: 'cloudflare' }",
-    "modules: ['nuxt-safe-runtime-config', ['vite-hub/nuxt', { preset: 'cloudflare' }]]",
-  ])("keeps an explicit ViteHub preset with a dynamic Nitro preset: %s", async (options) => {
+    "modules: ['nuxt-safe-runtime-config'], vitehub: { host: 'cloudflare' }",
+    "modules: ['nuxt-safe-runtime-config', ['vite-hub/nuxt', { host: 'cloudflare' }]]",
+  ])("keeps an explicit ViteHub host with a dynamic Nitro preset: %s", async (options) => {
     const cwd = await app({
       "nuxt.config.ts": `export default defineNuxtConfig({ ${options}, safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: process.env.NITRO_PRESET } })`,
       ".env.example": "NUXT_PUBLIC_TITLE=site\n",
     })
     const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
     const edited = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
-    expect(edited).toContain("preset: 'cloudflare'")
+    expect(edited).toContain("host: 'cloudflare'")
     expect(edited).toContain("preset: process.env.NITRO_PRESET")
-    expect(edited).not.toContain("preset: 'node'")
+    expect(edited).not.toContain("host: 'node'")
   })
 })
 

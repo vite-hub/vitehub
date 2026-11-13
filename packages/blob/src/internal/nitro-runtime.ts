@@ -14,23 +14,13 @@ const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packa
 type BlobProvider = "cloudflare" | "vercel"
 
 const driverModules = {
-  akamai: "drivers/akamai",
   azure: "drivers/azure",
-  box: "drivers/box",
   "cloudflare-r2": "drivers/cloudflare",
-  "digitalocean-spaces": "drivers/digitalocean-spaces",
-  dropbox: "drivers/dropbox",
   fs: "drivers/fs",
   gcs: "drivers/gcs",
-  "google-drive": "drivers/google-drive",
-  hetzner: "drivers/hetzner",
   minio: "drivers/minio",
   "netlify-blobs": "drivers/netlify-blobs",
-  onedrive: "drivers/onedrive",
   s3: "drivers/s3",
-  storj: "drivers/storj",
-  supabase: "drivers/supabase",
-  uploadthing: "drivers/uploadthing",
   "vercel-blob": "drivers/vercel-bundled",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
@@ -246,7 +236,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    async handleMultipartUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.handleMultipartUpload(event, options) },",
           "    async handleUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"upload\"); return error ? [error, undefined] : storage.handleUpload(event, options) },",
           "    async resumeMultipartUpload(pathname, uploadId) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.resumeMultipartUpload(pathname, uploadId) },",
-          "    async del(pathnames) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"del\"); return error ? [error, undefined] : storage.del(pathnames) },",
+          "    async delete(pathnames) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"delete\"); return error ? [error, undefined] : storage.delete(pathnames) },",
           "    async get(pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"get\"); return error ? [error, undefined] : storage.get(pathname) },",
           "    async head(pathname) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"head\"); return error ? [error, undefined] : storage.head(pathname) },",
           "    async list(options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"list\"); return error ? [error, undefined] : storage.list(options) },",

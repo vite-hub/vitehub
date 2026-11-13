@@ -11,11 +11,11 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineDatabase` from `vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `vite-hub/database/drizzle` | Select a generated Drizzle database and its schema, by name or the only one. |
-| `useDatabaseBinding` from `vite-hub/database/drizzle` | Get the D1 binding or request session of a database. |
-| `chunkParameters` from `vite-hub/database/drizzle` | Split values so each statement stays under the D1 parameter limit. |
-| `ensureMigrations` from `vite-hub/database/drizzle` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
-| `hubDb` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
+| `useDatabase` from `vite-hub/database` | Select a generated Drizzle database and its schema, by name or the only one. |
+| `useDatabaseBinding` from `vite-hub/database` | Get the D1 binding or request session of a database. |
+| `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
+| `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
+| `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
 
@@ -57,7 +57,7 @@ export default defineDatabase({
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('default')
@@ -65,7 +65,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-ViteHub resolves `vite-hub/database/drizzle` only in server code that Nitro builds. Do not run files that import it with plain `node`. Run your Nitro server output.
+`db`, `schema`, and `useDatabase()` read the Databases that the ViteHub Vite Integration generates for server code that Nitro builds. Run them through your Nitro server output. In plain `node`, outside Vite, they find no Database.
 
 ### Use Named Databases
 
@@ -90,7 +90,7 @@ export default defineDatabase({
 
 ```ts [server/api/events.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('analytics')
@@ -112,7 +112,7 @@ D1 binds at most 100 parameters per statement. A longer `inArray()` list or a mu
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
-import { chunkParameters, useDatabase } from 'vite-hub/database/drizzle'
+import { chunkParameters, useDatabase } from 'vite-hub/database'
 
 const { db, schema } = useDatabase('default')
 
@@ -144,7 +144,7 @@ Each array has at most `(limit - reserved) / per` values. When one value does no
 `ensureMigrations(name?)` applies the pending migrations of the Database `name`, or of every Database without a name. It uses the same code as [migrate on start](/docs/database/configure#migrate-when-the-server-starts): the same migrations table, the same data loss check, and the Postgres advisory lock. Use it where the start plugin does not run first: a Nitro task, a Nitro plugin, an app test, or a build with `migrateOnStart: false`.
 
 ```ts [server/tasks/db/migrate.ts]
-import { ensureMigrations } from 'vite-hub/database/drizzle'
+import { ensureMigrations } from 'vite-hub/database'
 import { defineTask } from 'nitro/task'
 
 export default defineTask({
@@ -178,4 +178,4 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 
 `calls: 9`, `maxConcurrent: 1`, and a high `ms` mean the calls ran one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
 
-It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.
+It counts every database and driver: a D1 binding, D1 over HTTP, libSQL, and Postgres, also on local PGlite. A request with no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. Only queries through `db` count. Calls made directly on `db.$client`, the raw driver client, do not count, and neither do calls after the response, in `waitUntil()`. Without evlog, nothing is measured.

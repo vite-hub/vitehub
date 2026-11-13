@@ -91,6 +91,9 @@ export {
   posthogPapercuts,
 } from "./papercuts.ts"
 export {
+  createPapercutIndex,
+} from "./papercut-index.ts"
+export {
   progressSummary,
 } from "./progress-summary.ts"
 export {
@@ -301,6 +304,12 @@ export type {
   PapercutSeverity,
   PosthogPapercutsOptions,
 } from "./papercuts.ts"
+export type {
+  MemoryPapercutIndex,
+  PapercutIndex,
+  PapercutIndexOptions,
+  PapercutOccurrence,
+} from "./papercut-index.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,

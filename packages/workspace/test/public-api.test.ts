@@ -188,7 +188,7 @@ describe("workspace public API", () => {
 
     // The server helpers return Fetchable routes and do not import h3.
     expect(packageJson.dependencies?.h3).toBeUndefined()
-    expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.ofetch).toBeUndefined()
     expect(packageJson.dependencies?.vite).toBeUndefined()
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
     expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")

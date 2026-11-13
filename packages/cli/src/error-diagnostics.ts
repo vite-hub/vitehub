@@ -33,8 +33,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `ViteHub cannot edit the vitehub() options in ${String(file)} without running the config (${String(reason)}).`,
     },
     SETUP_FEATURE_UNSUPPORTED: {
-      fix: "Remove the feature from the command, or set `preset` to a host that supports it. Run `vitehub catalog` to compare hosts.",
-      why: ({ detail, feature, host }: { detail?: unknown, feature?: unknown, host?: unknown }) => `${String(feature)} is not supported on the ${String(host)} preset. ${String(detail)}`,
+      fix: "Remove the feature from the command, or set `host` to a host that supports it. Run `vitehub catalog` to compare hosts.",
+      why: ({ detail, feature, host }: { detail?: unknown, feature?: unknown, host?: unknown }) => `${String(feature)} is not supported on the ${String(host)} host. ${String(detail)}`,
     },
     SETUP_FILE_EXISTS: {
       fix: "Choose another --name, or edit the file by hand.",
@@ -85,7 +85,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file?: unknown }) => `${String(file)} changed after ViteHub planned the change.`,
     },
     SETUP_LINK_HOST_UNSUPPORTED: {
-      fix: "Pass --host cloudflare, vercel, netlify, or deno, or set `preset` in vitehub().",
+      fix: "Pass --host cloudflare, vercel, netlify, or deno, or set `host` in vitehub().",
       why: ({ host }: { host?: unknown }) => `The ${String(host)} host has no project to link. A self-hosted Node server needs no link.`,
     },
     SETUP_LINK_CREDENTIALS_MISSING: {
@@ -116,14 +116,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_INIT_HOST_MIGRATION: {
       fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
-      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} preset.`,
+      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} host.`,
     },
     SETUP_INIT_NUXT_VERSION: {
       fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
       why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
     },
     SETUP_DEPLOY_HOST_UNSUPPORTED: {
-      fix: "Set `preset` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
+      fix: "Set `host` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
       why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
     },
     SETUP_DEPLOY_CREDENTIALS_MISSING: {

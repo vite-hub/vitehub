@@ -30,7 +30,7 @@ describe("App Auth access routes and the Console route in vite dev", () => {
         configFile: false,
         logLevel: "silent",
         root,
-        plugins: [vitehub({ preset: "node", publicUrl: "http://127.0.0.1", auth: true, console: true }), nitro()],
+        plugins: [vitehub({ host: "node", publicUrl: "http://127.0.0.1", auth: true, console: true }), nitro()],
         server: { host: "127.0.0.1", port: 0, hmr: false },
       })
       await server.listen()

@@ -18,10 +18,10 @@ In this tutorial, you open the same document in two browser tabs. You type in on
 ::tutorial-step{title="Configure Realtime"}
 ## Configure Realtime
 
-Add Realtime, Workspace, and the TipTap editor for Vue to your app:
+Add Realtime, Workspace, the TipTap editor for Vue, and Drizzle to your app. Realtime checks sessions with Auth, which uses the `drizzle-orm` of your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5
 ```
 
 Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app. In Vite, also keep the Vue plugin.
@@ -32,8 +32,8 @@ Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` o
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
-    realtime: { authority: 'memory' },
+    host: 'node',
+    realtime: true,
     workspace: true,
   },
 })
@@ -51,8 +51,8 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
-      realtime: { authority: 'memory' },
+      host: 'node',
+      realtime: true,
       workspace: true,
     }), nitro(),
   ],
@@ -70,8 +70,8 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
-      realtime: { authority: 'memory' },
+      host: 'node',
+      realtime: true,
       workspace: true,
     }),
   ],
@@ -80,7 +80,7 @@ export default defineConfig({
 ::::
 :::
 
-- `authority: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
+- `realtime: true` keeps the rooms in the memory of your dev server. A Node build shares them across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
 
 Create `server/realtime/docs.ts`. The file name is the name of the room setup: `docs`.
@@ -188,7 +188,7 @@ The tabs get each edit at once. Realtime saves the Markdown file to the Workspac
 
 ## What happens when you deploy
 
-In this tutorial, the rooms and the files are in memory. A server restart loses them, and two servers do not share them. Before you deploy, pick a room authority and a Workspace store that keep their data. [Configure](/docs/realtime/configure#host-support) shows what each host supports.
+In this tutorial, the rooms and the files are in memory. A server restart loses them. Before you deploy, pick a Workspace store that keeps its files. To run several Node instances, use a Postgres Default Database or set `REDIS_URL`, so that they share rooms. [Configure](/docs/realtime/configure#host-support) shows what each host supports.
 
 ## Next steps
 
