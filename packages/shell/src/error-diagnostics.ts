@@ -31,6 +31,9 @@ export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SHELL_R0021: dynamicError,
     SHELL_R0022: dynamicError,
     SHELL_R0023: dynamicError,
-    SHELL_R0024: dynamicError,
+    SHELL_R0024: {
+      ...dynamicError,
+      fix: "Make the provider return its process handle within the Shell timeout, or raise the Shell policy timeout if longer startup is expected.",
+    },
   },
 })

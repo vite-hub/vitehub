@@ -233,8 +233,8 @@ class RuntimeShellSession implements ShellSession {
     let cancelStart!: (error: Error) => void
     const cancelled = new Promise<never>((_, reject) => {
       cancelStart = (error) => {
-        controller?.abort(error)
         reject(error)
+        controller?.abort(error)
       }
     })
     if (timeout !== undefined) {

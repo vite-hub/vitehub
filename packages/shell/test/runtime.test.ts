@@ -1268,6 +1268,33 @@ describe("shell timeout policy", () => {
     expect(stopped).toBe(1)
   })
 
+  it.each(["timeout", "dispose"] as const)("keeps %s cancellation authoritative when the provider settles on abort", async (cancellation) => {
+    for (const settlement of ["resolve", "reject"] as const) {
+      let stopped = 0
+      const provider = timeoutProvider("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), (command, options) => new Promise((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          if (settlement === "reject") reject(new DOMException("Provider aborted", "AbortError"))
+          else resolve({
+            id: "worker",
+            command,
+            async stop() {
+              stopped += 1
+              return stoppedProcessObservation(command)
+            },
+          })
+        }, { once: true })
+      }))
+      const session = createShellRuntime({ provider, policy: { timeout: cancellation === "timeout" ? 10 : 60_000 } }).createSession()
+      const rejected = expect(session.startProcess("worker")).rejects.toThrow(cancellation === "timeout" ? "Shell process start timed out after 10ms" : "Shell session is disposed")
+      if (cancellation === "dispose") await session.dispose()
+      await rejected
+      if (settlement === "resolve") await vi.waitFor(() => expect(stopped).toBe(1))
+      else expect(stopped).toBe(0)
+      await expect(session.listProcesses()).resolves.toEqual([])
+      await session.dispose()
+    }
+  })
+
   it("counts process startup time against the runtime timeout", async () => {
     let stopped = 0
     let startSignal: AbortSignal | undefined
