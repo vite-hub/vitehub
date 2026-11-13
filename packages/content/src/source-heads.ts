@@ -314,6 +314,11 @@ interface ContentSourceHeadsRuntime {
   names(): string[]
   /** The names of the `github()` Sources that follow `ref` of `repo`. `defaultBranch` resolves a Source without `ref`. */
   match(repo: string, ref: string, defaultBranch: string | undefined): { repository: boolean, sources: string[] }
+  /**
+   * Run a read with the Comark instance of the commit of a ref, for a preview request. The commit must pass validation,
+   * as for `at()`. The view stays open until the read ends.
+   */
+  read<T>(target: ContentSourceRef, read: (view: ComarkContent) => Promise<T>): Promise<T>
   /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
 }
@@ -755,10 +760,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   /** Run one read on the view of a commit. A view that left the pool opens again, from the commit cache. */
-  async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>) => Promise<T>): Promise<T> {
+  async function readAt<T>(state: HeadState, sha: string, read: (hub: ContentHub<ComarkContent[]>, view: ComarkContent) => Promise<T>): Promise<T> {
     const open = await openView(state, sha, true)
     try {
-      return await read(open.hub)
+      return await read(open.hub, open.view)
     }
     finally {
       open.readers--
@@ -1028,6 +1033,14 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       })
     },
     names: () => [...states.keys()],
+    async read(ref, read) {
+      assertActive()
+      const target = givenRef(ref)
+      const state = stateOf(target.source)
+      const loaded = await load(state, { id: target.sha, immutable: true })
+      if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
+      return await readAt(state, target.sha, (_hub, view) => read(view))
+    },
     match(repo, ref, defaultBranch) {
       const result: { repository: boolean, sources: string[] } = { repository: false, sources: [] }
       for (const state of states.values()) {
