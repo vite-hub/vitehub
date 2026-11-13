@@ -77,6 +77,7 @@ export default defineConfig({
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
 | `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files. `false` turns it off. See [Migrate when the server starts](#migrate-when-the-server-starts). |
+| `database.migrateOnDeploy` | `boolean` | `false` | Applies the pending migrations of each Cloudflare D1 binding in the deploy command, before the Worker deploys. See [Migrate when you deploy](#migrate-when-you-deploy). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
 With `vitehub()`, a Definition file alone does not turn Database on. Without the `database` option, importing `vite-hub/database` fails the build or `vite dev` with `VITE_HUB_B0013`, and `vitehub database generate` and `migrate` exit with an error. Set `database`, or add `hubDatabase()` yourself.
@@ -326,6 +327,33 @@ Definitions that share a SQLite file share one transaction. Their migrations run
 
 > [!WARNING]
 > SQLite has no lock across processes here. Run one server process per database file. Two processes that start together can both find a migration pending, and the second fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
+
+## Migrate when you deploy
+
+A Cloudflare Worker reads D1 through a binding, so it cannot migrate when it starts. When a deploy ships code before its migrations, the new code queries tables or columns that do not exist yet. Set `migrateOnDeploy: true` to apply the migrations as part of the deploy:
+
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', database: { migrateOnDeploy: true } }), nitro()],
+})
+```
+
+The build then puts one `wrangler d1 migrations apply <binding> --remote` for each D1 binding before `wrangler deploy` in the deploy command of `.output/nitro.json`:
+
+```bash [.output/nitro.json commands.deploy]
+npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json
+```
+
+- **Order.** `pnpm exec nitro deploy --prebuilt`, which Workers Builds runs, and `vitehub deploy` apply the migrations first. When a migration fails, the command stops and the Worker does not deploy.
+- **Ledger.** Wrangler applies the migration files that the build copies into the server output, and records them in Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`). `vitehub database migrate` reads the same table, so you can still run it by hand.
+- **Old code.** The Worker that serves traffic runs on the new tables until the deploy finishes. Write migrations that the previous code can use, for example add a column before you drop the old one.
+- **Prompt.** In CI, Wrangler applies the migrations without a question. In a terminal, `nitro deploy --prebuilt` asks first. If you answer no, the deploy continues without them.
+- **Preview.** `vitehub deploy --preview` and `--temporary` do not apply migrations, so a preview version does not change the production database.
+- **Limits.** The option works only for a Cloudflare build where each Database has a D1 binding. Another host, D1 over HTTP, or Postgres fails the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`. Your own `nitro.commands.deploy` gets the same migrate steps in front of it.
 
 ## Export a database
 

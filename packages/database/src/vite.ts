@@ -26,6 +26,7 @@ import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from ".
 import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
+import { installMigrateOnDeploy } from "./internal/migrate-on-deploy.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
@@ -100,6 +101,7 @@ interface DBCliContributingPlugin {
 
 /** The Nitro surface that the database plugin reads and extends on a Cloudflare host. */
 interface DatabaseNitroHooks {
+  hook(name: "build:before", callback: () => void): void
   hook(name: "compiled", callback: () => Promise<void>): void
   /** `@vite-hub/bundle` calls it when it writes the report of the server build. */
   hook(name: "vitehub:bundle:rules", callback: (rules: DatabaseBundleStartupRule[]) => void): void
@@ -109,9 +111,10 @@ interface DatabaseNitroHost {
   hooks: DatabaseNitroHooks
   options: {
     cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown, compatibility_flags?: unknown } }
+    commands?: Record<string, unknown>
     dev?: boolean
     handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>
-    output: { serverDir: string }
+    output: { dir?: string, serverDir: string }
     plugins?: string[]
     preset?: string
     traceDeps?: (string | RegExp)[]
@@ -315,7 +318,7 @@ async function collectSourceDependencies(file: string, require: NodeRequire, fil
 
 export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
-  let nitroMigrations: Array<{ source: string, target: string }> = []
+  let nitroMigrations: Array<{ binding: string, source: string, target: string }> = []
   let providerOutput: ProviderOutputCatalog | undefined
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
@@ -408,7 +411,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       ? { ...binding, migrations_dir: `${NITRO_MIGRATIONS_DIR}/${binding.binding}` }
       : binding)
     nitroMigrations = d1Databases.flatMap(binding => binding.migrations_dir
-      ? [{ source: resolve(databaseRoot(), binding.migrations_dir), target: `${NITRO_MIGRATIONS_DIR}/${binding.binding}` }]
+      ? [{ binding: binding.binding, source: resolve(databaseRoot(), binding.migrations_dir), target: `${NITRO_MIGRATIONS_DIR}/${binding.binding}` }]
       : [])
     const wrangler = (nitroOptions.cloudflare ??= {}).wrangler ??= {}
     wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, bindings)
@@ -499,6 +502,12 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
         installNitroMigrateOnStart()
         // Keep the feature hook surface when Nitro augments Vite's Plugin type.
         const hooks: DatabaseNitroHooks = nitro.hooks
+        installMigrateOnDeploy({ hooks, options: nitro.options }, () => {
+          const database = resolvedOptions()
+          // In Nuxt the Database module installs it.
+          if (!database || !database.migrateOnDeploy || "nuxtHostResource" in database) return
+          return { bindings: nitroMigrations.map(item => item.binding), config: runtimeConfig }
+        })
         hooks.hook("vitehub:bundle:rules", (rules) => {
           const rule = libsqlStartupRule(runtimeConfig, nitro.options.preset)
           if (rule) rules.push(rule)

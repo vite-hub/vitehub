@@ -1,6 +1,6 @@
 import { createServer as createHttpServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { execFile } from "node:child_process"
+import { execFile, spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
@@ -248,6 +248,72 @@ describe("hubDatabase", () => {
     ])
     await expect(readFile(join(serverDir, ".vitehub/database/migrations/DB/0001_init.sql"), "utf8")).resolves.toBe("create table notes (title text);\n")
     expect(vercelNitro.options.cloudflare).toBeUndefined()
+  })
+
+  describe("migrateOnDeploy", () => {
+    async function buildCommand(options: { cloudflare?: string, preset?: string, serverDir?: string } = {}) {
+      const rootDir = await createTempProject()
+      await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: options.cloudflare ?? "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
+      await writeDefinition(rootDir, "server/databases/analytics/index.ts", "events", { cloudflare: "databaseName: 'analytics', databaseId: 'analytics-id'," })
+      const buildBefore: Array<(...args: never[]) => unknown> = []
+      const commands: Record<string, unknown> = { deploy: "npx wrangler deploy --config ./server/wrangler.json" }
+      const nitro = {
+        hooks: { hook: (name: string, callback: (...args: never[]) => unknown) => { if (name === "build:before") buildBefore.push(callback) } },
+        options: {
+          commands,
+          output: { dir: join(rootDir, ".output"), serverDir: join(rootDir, ".output", options.serverDir ?? "server") },
+          preset: options.preset ?? "cloudflare-module",
+        },
+      }
+      const plugin = hubDatabase({ migrateOnDeploy: true })
+      plugin.nitro.setup(nitro)
+      await resolveConfigResolved(plugin)({ root: rootDir })
+      return () => {
+        for (const hook of buildBefore) hook()
+        return nitro.options.commands.deploy
+      }
+    }
+
+    it("applies the D1 migrations of each binding before the Cloudflare deploy", async () => {
+      const build = await buildCommand()
+      const command = [
+        "npx wrangler d1 migrations apply DB_ANALYTICS --remote --config ./server/wrangler.json",
+        "npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json",
+        "npx wrangler deploy --config ./server/wrangler.json",
+      ].join(" && ")
+      expect(build()).toBe(command)
+      // A second build of the same Nitro instance keeps one migrate step per binding.
+      expect(build()).toBe(command)
+    })
+
+    it("runs the migrations from the shell after Nitro's deploy --prebuilt rewrite, and stops at the first failure", async () => {
+      const build = await buildCommand({ serverDir: "cloudflare worker" })
+      const command = String(build()).replace(/(^|[\s:])\.\/(\S*)/g, "$1.output/$2")
+      const npx = 'npx() { printf "%s\\n" "$*"; if [ "$5" = "DB" ]; then return 1; fi; }\n'
+      const result = spawnSync("sh", ["-c", npx + command], { encoding: "utf8" })
+
+      expect(result.status).toBe(1)
+      expect(result.stdout.trim().split("\n")).toEqual([
+        "wrangler d1 migrations apply DB_ANALYTICS --remote --config .output/cloudflare worker/wrangler.json",
+        "wrangler d1 migrations apply DB --remote --config .output/cloudflare worker/wrangler.json",
+      ])
+    })
+
+    it("fails the build for another host or a database without a D1 binding", async () => {
+      const caught = (build: () => unknown) => {
+        try {
+          build()
+        }
+        catch (error) {
+          return error
+        }
+      }
+      expect(caught(await buildCommand({ preset: "vercel" }))).toMatchObject({ code: "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED" })
+      expect(caught(await buildCommand({ cloudflare: "databaseId: 'database-id', http: true," }))).toMatchObject({
+        code: "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED",
+        why: expect.stringContaining("cannot migrate the database \"default\". It uses Cloudflare D1 over HTTP."),
+      })
+    })
   })
 
   async function buildStartForCloudflare(plugin: ReturnType<typeof hubDatabase>, rootDir: string, plugins: unknown[] = [], command = "build") {
