@@ -183,7 +183,7 @@ export default defineAuth({
 });
 ```
 
-Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request` or a request event with Standard Context properties, such as an H3 2 event in a ViteHub app. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
+Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from the private `@vite-hub/auth/internal/server` entry. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Its route metadata follows the Definition's `access.routes` order; a route with `authorize: true` and no runtime callback returns `403`. Unmatched requests do not resolve Auth.
 
 The Nitro build fails with `AUTH_B0002` when a route rule caches or prerenders a path that `access.routes` guards for `GET` or `HEAD`: `swr`, `cache`, `isr`, `prerender`, or `static`. A cached response is made for one visitor and served to others. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. In development, a route rule update that caches a guarded path logs `AUTH_B0002` as a warning.
 

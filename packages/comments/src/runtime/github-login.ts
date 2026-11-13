@@ -5,13 +5,13 @@ import { stateless } from "@vite-hub/auth/presets"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
 import { forgetGitHubToken, rememberGitHubToken } from "../forge/tokens.ts"
 import { commentsRoute } from "../page.ts"
 
-import type { createAuthForRequest } from "@vite-hub/auth/server"
+import type { createAuthForRequest } from "@vite-hub/auth/internal/server"
 import type { CommentsGitHubAccess, CommentsRequestEvent, CommentsUser } from "../types.ts"
 
 /** The Server Env names of the OAuth client that people sign in to Comments with: a GitHub App's, or an OAuth App's. */
@@ -102,7 +102,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
         // The app's own Auth may use Better Auth's default cookie names.
         advanced: { cookiePrefix: "vitehub_comments" },
       }))
-      instance = (await import("@vite-hub/auth/server")).createAuthForRequest(definition, request, undefined, event)
+      instance = (await import("@vite-hub/auth/internal/server")).createAuthForRequest(definition, request, undefined, event)
       if (instances.size > 20) instances.clear()
       instances.set(key, instance)
     }

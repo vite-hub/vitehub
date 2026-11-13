@@ -64,8 +64,9 @@ describe("managed Rate Limit guard", () => {
   it("requires a key when the request has no client address", async () => {
     await expect(requireRateLimit(requestEvent(), "background-uploads", { limit: 1, window: "1m" }))
       .rejects.toThrow("`requireRateLimit()` could not determine a request key")
-    await expect(checkRateLimit(requestEvent(), "background-checks", { limit: 1, window: "1m" }))
-      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+    const [error, decision] = await checkRateLimit(requestEvent(), "background-checks", { limit: 1, window: "1m" })
+    expect(decision).toBeUndefined()
+    expect(error).toMatchObject({ code: "RATE_LIMIT_R0013", message: expect.stringContaining("`checkRateLimit()` could not determine a request key") })
   })
 
   it("isolates budgets by stable ID", async () => {
@@ -169,7 +170,7 @@ describe("managed Rate Limit guard", () => {
     expect(limited).toMatchObject({ status: 429 })
     expect(limited.headers?.get("Retry-After")).toBe("30")
     await expect(checkRateLimit(request, "request-checks", { limit: 1, window: "1m" }))
-      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+      .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
   })
 
   it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
@@ -192,10 +193,10 @@ describe("managed Rate Limit guard", () => {
       const name = `request-metadata-${property}-${inherited}`
       const options = { key: "user", limit: 1, window: "1m" } as const
 
-      await expect(checkRateLimit(request, name, options)).resolves.toMatchObject({ allowed: true })
+      await expect(checkRateLimit(request, name, options)).resolves.toMatchObject([undefined, { allowed: true }])
       await expect(requireRateLimit(request, name, options)).rejects.toMatchObject({ status: 429 })
       await expect(checkRateLimit(request, name, { limit: 1, window: "1m" }))
-        .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+        .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
     }
   })
 
@@ -303,18 +304,25 @@ describe("managed Rate Limit guard", () => {
 })
 
 describe("non-throwing Rate Limit check", () => {
-  it("consumes a token and returns the decision instead of throwing", async () => {
+  it("consumes a token and returns the decision as a Result", async () => {
     vi.spyOn(Date, "now").mockReturnValue(30_000)
     const event = requestEvent("192.0.2.30")
     const policy = { limit: 2, window: "1m" } as const
 
-    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({ allowed: true, limit: 2, remaining: 1 })
-    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({ allowed: true, remaining: 0 })
-    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject([undefined, { allowed: true, limit: 2, remaining: 1 }])
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject([undefined, { allowed: true, remaining: 0 }])
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject([undefined, {
       allowed: false,
       reason: "limited",
       retryAfter: 30,
-    })
+    }])
+  })
+
+  it("returns a missing Cloudflare binding as an error", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const [error, decision] = await checkRateLimit(cloudflareEvent("other-binding", { limit: async () => ({ success: true }) }), "missing-binding", { key: "user", limit: 1, window: "1m" })
+    expect(decision).toBeUndefined()
+    expect(error).toMatchObject({ code: "RATE_LIMIT_R0009", name: "RATE_LIMIT_R0009" })
   })
 
   it("shares counters with requireRateLimit() and peekRateLimit()", async () => {
@@ -325,7 +333,7 @@ describe("non-throwing Rate Limit check", () => {
     await requireRateLimit(event, "shared", policy)
     await expect(peekRateLimit("shared", "user")).resolves.toMatchObject({ counters: [{ used: 2 }] })
     await expect(requireRateLimit(event, "shared", policy)).rejects.toMatchObject({ status: 429 })
-    await expect(checkRateLimit(event, "shared", policy)).resolves.toMatchObject({ allowed: false, reason: "limited" })
+    await expect(checkRateLimit(event, "shared", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
   })
 
   it("reports provider unavailability as a decision", async () => {
@@ -333,11 +341,12 @@ describe("non-throwing Rate Limit check", () => {
     const cause = new Error("provider unavailable")
     const event = cloudflareEvent("unavailable-previews", { limit: async () => { throw cause } })
 
-    const closed = await checkRateLimit(event, "unavailable-previews", { failure: "deny", key: "user", limit: 1, window: "1m" })
+    const [error, closed] = await checkRateLimit(event, "unavailable-previews", { failure: "deny", key: "user", limit: 1, window: "1m" })
+    expect(error).toBeUndefined()
     expect(closed).toMatchObject({ allowed: false, reason: "unavailable" })
-    expect(closed.cause).toBeDefined()
+    expect(closed?.cause).toBeDefined()
     await expect(checkRateLimit(event, "unavailable-previews", { failure: "allow", key: "user", limit: 1, window: "1m" }))
-      .resolves.toMatchObject({ allowed: true, reason: "unavailable" })
+      .resolves.toMatchObject([undefined, { allowed: true, reason: "unavailable" }])
   })
 
   it("still throws for invalid options", async () => {

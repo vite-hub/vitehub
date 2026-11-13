@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
 import { authSqliteSchema } from "../src/auth/schema.ts"
-import { createAuthForRequest } from "../src/auth/server.ts"
+import { createAuthForRequest } from "../src/_internal/auth/internal/server.ts"
 import { mcpOAuth } from "../src/auth/mcp.ts"
 
 const app = "https://app.example.com"

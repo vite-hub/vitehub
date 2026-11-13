@@ -96,7 +96,7 @@ const nuxtModules = {
 const appDeclarations = [
   {
     // The ViteHub plugin includes this H3 augmentation in `.vitehub/types.d.ts`.
-    code: `import type {} from "vite-hub/runtime/h3"\nexport {}\n`,
+    code: `import type {} from "vite-hub/_internal/runtime/internal/h3"\nexport {}\n`,
     file: join(docsRoot, ".snippets/standard-context.d.ts"),
   },
   {

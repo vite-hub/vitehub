@@ -1,10 +1,10 @@
 import { defineHandler } from "h3"
 import { memoryAdapter } from "better-auth/adapters/memory"
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, handleAuthRequest, resetAuth, toAuthRequest, withAuth } from "../src/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, resetAuth, toAuthRequest, withAuth } from "../src/internal/server.ts"
 
 import type { H3Event } from "h3"
 import type { ViteHubContext } from "@vite-hub/runtime"

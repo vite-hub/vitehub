@@ -7,7 +7,7 @@ export default defineConfig({
       "#vitehub/auth/abilities": new URL("./src/runtime/empty-abilities.ts", import.meta.url).pathname,
       "#vitehub/auth/client": new URL("./src/runtime/empty-client.ts", import.meta.url).pathname,
       "#vitehub/auth/definition": new URL("./src/runtime/empty-definition.ts", import.meta.url).pathname,
-      "#vitehub/auth/server": new URL("./src/server.ts", import.meta.url).pathname,
+      "#vitehub/auth/server": new URL("./src/internal/server.ts", import.meta.url).pathname,
     },
   },
   test: {

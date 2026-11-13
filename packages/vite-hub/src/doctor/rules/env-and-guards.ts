@@ -464,11 +464,14 @@ export const checkRateLimitDecision: DoctorRule = createRule({
           || parent.type === "LogicalExpression"
           || ["IfStatement", "WhileStatement", "ConditionalExpression"].includes(parent.type) && parent.test === child
         if (!ignored && !asBoolean) return
+        const result = name === "checkRateLimit()"
         ctx.report(diagnostics.VHUB0008({
           why: ignored
-            ? `\`${name}\` uses a token and returns a decision, but this code ignores the decision. The operation runs when the limit is reached.`
-            : `\`${name}\` returns a decision object, which is always truthy. This check never sees a reached limit.`,
-          fix: "Store the decision and stop the operation when it is not allowed: `if (!decision.allowed) ...`. Use `requireRateLimit()` to reject with status 429.",
+            ? `\`${name}\` uses a token and returns ${result ? "a Result with the decision" : "a decision"}, but this code ignores it. The operation runs when the limit is reached.`
+            : `\`${name}\` returns ${result ? "an `[error, decision]` Result" : "a decision object"}, which is always truthy. This check never sees a reached limit.`,
+          fix: result
+            ? "Read the Result and stop the operation when it is not allowed: `const [error, decision] = await checkRateLimit(...)`, then `if (error || !decision.allowed) ...`. Use `requireRateLimit()` to reject with status 429."
+            : "Store the decision and stop the operation when it is not allowed: `if (!decision.allowed) ...`. Use `requireRateLimit()` to reject with status 429.",
         }), { range: ctx.range(awaited) })
       },
     }

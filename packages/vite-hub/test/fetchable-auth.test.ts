@@ -1,6 +1,6 @@
 
 import { defineAuth } from "@vite-hub/auth"
-import { handleAuthRequest, setAuthRuntimeEnvResolver, withAuthorization } from "@vite-hub/auth/server"
+import { handleAuthRequest, setAuthRuntimeEnvResolver, withAuthorization } from "@vite-hub/auth/internal/server"
 import { getStandardContext } from "@vite-hub/runtime"
 import { defineCollection } from "@vite-hub/source"
 import { defineCollectionHandler } from "@vite-hub/source/server"
