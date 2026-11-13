@@ -6,11 +6,14 @@ import { gitBlobSha, textSha } from "./fake-github.ts"
 
 const root = ".vitehub/workspaces/docs"
 const requests: string[] = []
+const c1 = "1".repeat(40)
+const c2 = "2".repeat(40)
+const c3 = "3".repeat(40)
 
 const commits = {
-  c1: {
-    sha: "c1",
-    html_url: "https://github.com/onmax/repo/commit/c1",
+  [c1]: {
+    sha: c1,
+    html_url: `https://github.com/onmax/repo/commit/${c1}`,
     commit: {
       message: "Initial files",
       author: { name: "Ada Lovelace", email: "ada@example.com", date: "2026-10-15T08:00:00Z" },
@@ -19,27 +22,27 @@ const commits = {
     },
     parents: [],
   },
-  c2: {
-    sha: "c2",
-    html_url: "https://github.com/onmax/repo/commit/c2",
+  [c2]: {
+    sha: c2,
+    html_url: `https://github.com/onmax/repo/commit/${c2}`,
     commit: {
       message: "Update guide",
       author: { name: "Grace Hopper", email: "grace@example.com", date: "2026-10-15T09:00:00Z" },
       committer: { name: "Grace Hopper", email: "grace@example.com", date: "2026-10-15T09:00:00Z" },
       tree: { sha: "t2" },
     },
-    parents: [{ sha: "c1" }],
+    parents: [{ sha: c1 }],
   },
-  c3: {
-    sha: "c3",
-    html_url: "https://github.com/onmax/repo/commit/c3",
+  [c3]: {
+    sha: c3,
+    html_url: `https://github.com/onmax/repo/commit/${c3}`,
     commit: {
       message: "Draft guide",
       author: { name: "Katherine Johnson", date: "2026-10-15T10:00:00Z" },
       committer: { name: "Katherine Johnson", date: "2026-10-15T10:00:00Z" },
       tree: { sha: "t3" },
     },
-    parents: [{ sha: "c1" }],
+    parents: [{ sha: c1 }],
   },
 } as const
 
@@ -66,11 +69,11 @@ const blobBodies = new Map<string, Uint8Array>([
 ])
 
 const bodies = new Map([
-  ["c1/guide.md", new TextEncoder().encode("hello\n")],
-  ["c1/image.bin", new Uint8Array([0, 255])],
-  ["c2/guide.md", new TextEncoder().encode("updated\n\n")],
-  ["c2/image.bin", new Uint8Array([0, 255])],
-  ["c3/draft.md", new TextEncoder().encode("draft\n")],
+  [`${c1}/guide.md`, new TextEncoder().encode("hello\n")],
+  [`${c1}/image.bin`, new Uint8Array([0, 255])],
+  [`${c2}/guide.md`, new TextEncoder().encode("updated\n\n")],
+  [`${c2}/image.bin`, new Uint8Array([0, 255])],
+  [`${c3}/draft.md`, new TextEncoder().encode("draft\n")],
 ])
 
 function json(value: unknown, headers: Record<string, string> = {}) {
@@ -95,25 +98,25 @@ beforeEach(() => {
       const page = requestPage(url)
       if (page > 1) return json([])
       return json([
-        { name: "feature/draft", commit: { sha: "c3" } },
-        { name: "feature/api+v2", commit: { sha: "c3" } },
-        { name: "main", commit: { sha: "c2" } },
+        { name: "feature/draft", commit: { sha: c3 } },
+        { name: "feature/api+v2", commit: { sha: c3 } },
+        { name: "main", commit: { sha: c2 } },
       ])
     }
     if (url.pathname.includes("/git/ref/heads/")) {
       const ref = decodeURIComponent(url.pathname.split("/git/ref/heads/")[1] || "")
-      const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
+      const sha = ref === "main" ? c2 : ref === "feature/draft" ? c3 : undefined
       return sha ? json({ object: { sha } }) : new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/commits/heads%2F")) {
       const ref = decodeURIComponent(url.pathname.split("/commits/heads%2F")[1] || "")
-      const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
+      const sha = ref === "main" ? c2 : ref === "feature/draft" ? c3 : undefined
       // GitHub answers a branch with its whole head commit.
       return sha ? json(commits[sha]) : new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/git/trees/")) {
       const ref = url.pathname.split("/git/trees/")[1]
-      const tree = trees[ref as keyof typeof trees] || trees[{ c1: "t1", c2: "t2", c3: "t3" }[ref] as keyof typeof trees]
+      const tree = trees[ref as keyof typeof trees] || trees[{ [c1]: "t1", [c2]: "t2", [c3]: "t3" }[ref] as keyof typeof trees]
       return tree ? json({ tree }) : new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/git/blobs/")) {
@@ -135,20 +138,20 @@ beforeEach(() => {
       const ref = url.searchParams.get("sha")
       const page = requestPage(url)
       if (ref === "main") return page === 1
-        ? json([commits.c2], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
-        : page === 2 ? json([commits.c1]) : json([])
-      if (ref === "feature/draft") return json(page === 1 ? [commits.c3, commits.c1] : [])
-      if (ref === "c2") {
+        ? json([commits[c2]], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
+        : page === 2 ? json([commits[c1]]) : json([])
+      if (ref === "feature/draft") return json(page === 1 ? [commits[c3], commits[c1]] : [])
+      if (ref === c2) {
         const perPage = Number(url.searchParams.get("per_page") || "30")
-        const items = [commits.c2, commits.c1].slice((page - 1) * perPage, page * perPage)
-        return json(items, page * perPage < 2 ? { link: `<https://api.github.com/repos/onmax/repo/commits?sha=c2&per_page=${perPage}&page=${page + 1}>; rel="next"` } : {})
+        const items = [commits[c2], commits[c1]].slice((page - 1) * perPage, page * perPage)
+        return json(items, page * perPage < 2 ? { link: `<https://api.github.com/repos/onmax/repo/commits?sha=${c2}&per_page=${perPage}&page=${page + 1}>; rel="next"` } : {})
       }
       return new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/compare/")) {
       const [base = "", head = ""] = decodeURIComponent(url.pathname.split("/compare/")[1] || "").split("...")
-      const ancestors: Record<string, string[]> = { c1: ["c1"], c2: ["c2", "c1"], c3: ["c3", "c1"] }
-      const tip = (ref: string) => ({ "main": "c2", "feature/draft": "c3" } as Record<string, string>)[ref] ?? ref
+      const ancestors: Record<string, string[]> = { [c1]: [c1], [c2]: [c2, c1], [c3]: [c3, c1] }
+      const tip = (ref: string) => ({ "main": c2, "feature/draft": c3 } as Record<string, string>)[ref] ?? ref
       const left = ancestors[tip(base)]
       const right = ancestors[tip(head)]
       const mergeBase = left && right?.find(id => left.includes(id))
@@ -180,36 +183,36 @@ describe("GitHub Workspace history", () => {
     await expect(history.refs()).resolves.toEqual([
       {
         name: "feature/draft",
-        head: expect.objectContaining({ id: "c3", ref: "feature/draft", parentId: "c1", files: 1, bytes: 6, message: "Draft guide", createdAt: "2026-10-15T10:00:00.000Z", metadata: { author: "Katherine Johnson", url: "https://github.com/onmax/repo/commit/c3" } }),
+        head: expect.objectContaining({ id: c3, ref: "feature/draft", parentId: c1, files: 1, bytes: 6, message: "Draft guide", createdAt: "2026-10-15T10:00:00.000Z", metadata: { author: "Katherine Johnson", url: `https://github.com/onmax/repo/commit/${c3}` } }),
       },
       {
         name: "main",
-        head: expect.objectContaining({ id: "c2", ref: "main", parentId: "c1", files: 2, bytes: 12, metadata: { author: "Grace Hopper", authorEmail: "grace@example.com", url: "https://github.com/onmax/repo/commit/c2" } }),
+        head: expect.objectContaining({ id: c2, ref: "main", parentId: c1, files: 2, bytes: 12, metadata: { author: "Grace Hopper", authorEmail: "grace@example.com", url: `https://github.com/onmax/repo/commit/${c2}` } }),
       },
     ])
-    await expect(history.head({ ref: "main" })).resolves.toMatchObject({ id: "c2", ref: "main" })
+    await expect(history.head({ ref: "main" })).resolves.toMatchObject({ id: c2, ref: "main" })
   })
 
   it("pages one branch and opens immutable text and binary content", async () => {
     const history = store().history!
     const first = await history.list({ ref: "main", limit: 1 })
     expect(first.revisions).toHaveLength(1)
-    expect(first.revisions[0]).toMatchObject({ id: "c2", parentId: "c1" })
-    expect(first.cursor).toBe("main:after:c2")
+    expect(first.revisions[0]).toMatchObject({ id: c2, parentId: c1 })
+    expect(first.cursor).toBe(`main:after:${c2}`)
     await expect(history.list({ ref: "feature/draft", cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
-    await expect(history.list({ ref: "main", cursor: first.cursor, limit: 1 })).resolves.toMatchObject({ revisions: [{ id: "c1" }] })
+    await expect(history.list({ ref: "main", cursor: first.cursor, limit: 1 })).resolves.toMatchObject({ revisions: [{ id: c1 }] })
     // A cursor cannot list another branch from this one.
     await expect(history.list({ ref: "main", cursor: "main:after:feature/draft", limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
-    await expect(history.list({ ref: "main", cursor: "main:after:c3", limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
+    await expect(history.list({ ref: "main", cursor: `main:after:${c3}`, limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
 
-    const view = await history.open("c2")
+    const view = await history.open(c2)
     await expect(view.readFile("guide.md")).resolves.toBe("updated\n\n")
     await expect(view.readFile("image.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([0, 255]))
     await expect(view.list()).resolves.toEqual([
       expect.objectContaining({ path: "guide.md", type: "file", size: 10, mediaType: "text/markdown" }),
       expect.objectContaining({ path: "image.bin", type: "file", size: 2, mediaType: "application/octet-stream" }),
     ])
-    await expect(view.stat("guide.md")).resolves.toMatchObject({ revision: "c2", size: 10 })
+    await expect(view.stat("guide.md")).resolves.toMatchObject({ revision: c2, size: 10 })
     expect(requests.some(path => path.includes(`api.github.com/repos/onmax/repo/git/blobs/${textSha("updated\n\n")}`))).toBe(true)
   })
 
