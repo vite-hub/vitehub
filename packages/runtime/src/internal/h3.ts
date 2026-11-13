@@ -20,7 +20,7 @@ export type H3RuntimeContextOptions = RuntimeContextOptions
 
 /**
  * A request event without Standard Context types, such as the event of a `nuxt/server` handler: a web Request and the
- * response that the host prepares. `getStandardContext()` sets `~standard` on it.
+ * response that the host prepares. `installStandardContext()` sets `~standard` on it.
  */
 export interface HostRequestEvent {
   readonly req: Request
@@ -168,11 +168,11 @@ export function installStandardContext<T extends object>(event: T): asserts even
 }
 
 /**
- * Return the Standard Context of an H3 event, a `nuxt/server` event, or a web Request. ViteHub primitives read request
- * events through this function. It sets Standard Context first when Nitro did not, such as for an H3 app without the
- * ViteHub Vite plugin or an event in a test. Throws `RUNTIME_R0015` when the event has no request.
+ * Return the Standard Context of an H3 event or a web Request. ViteHub primitives read request events through this
+ * function. It sets Standard Context first when Nitro did not, such as for an H3 app without the ViteHub Vite plugin
+ * or an event in a test. Throws `RUNTIME_R0015` when the event has no request.
  */
-export function getStandardContext(value: Request | ViteHubContext | HostRequestEvent): ViteHubStandardProps {
+export function getStandardContext(value: Request | ViteHubContext): ViteHubStandardProps {
   if (isHostRequest(value)) return getRequestStandardContext(value)
   installStandardContext(value)
   return value["~standard"]
