@@ -723,6 +723,8 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
   /** Stable provider name used for inspection and diagnostics. */
   name?: string
   mount?: WorkspaceSourceMount

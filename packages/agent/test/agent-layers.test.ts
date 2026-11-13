@@ -251,8 +251,12 @@ describe("Agent definition layers", () => {
     expect(modes(base)).toEqual({ docs: "startup", pinned: "lazy" })
     // A provider Agent still fetches the Skill folders of a Source with materialize none.
     expect(modes(child)).toEqual({
-      "__vitehubSourceSkills:docs": "startup",
-      "__vitehubSourceSkills:extra": "startup",
+      "__vitehubSourceSkills:docs:.agents/skills": "startup",
+      "__vitehubSourceSkills:docs:.codex/skills": "startup",
+      "__vitehubSourceSkills:docs:.claude/skills": "startup",
+      "__vitehubSourceSkills:extra:.agents/skills": "startup",
+      "__vitehubSourceSkills:extra:.codex/skills": "startup",
+      "__vitehubSourceSkills:extra:.claude/skills": "startup",
       docs: "none",
       extra: "none",
       pinned: "lazy",

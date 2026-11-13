@@ -307,7 +307,7 @@ Codex loads the folder as an extra skill root through `skills/extraRoots/set`. C
 
 Precedence by name: the working directory, then Agent-owned Skills, then the outer Workspace root, then the Sources in declaration order. An Agent-owned Skill replaces a Source Skill with the same name, with all its files.
 
-A Source with `materialize: 'none'` still gives its Skills. ViteHub adds a startup Source named `__vitehubSourceSkills:<key>` that fetches only the `.agents/skills`, `.codex/skills`, and `.claude/skills` folders of the Source and mounts them at the same path, so the Console file tree shows them under the Source's mount. A GitHub Source fetches only those paths. A Source whose type has no `subset()` method gives Skills only when it is materialized. Set `skills: false` on a Source binding to keep its Skills out:
+A Source with `materialize: 'none'` still gives its Skills. ViteHub adds startup Sources named `__vitehubSourceSkills:<key>:<skill-root>` that fetch only the `.agents/skills`, `.codex/skills`, and `.claude/skills` folders of the Source and mount each at its Skill directory, so the Console file tree shows them under the Source's mount. A GitHub Source fetches only those paths. A Source whose type has no `subset()` method gives Skills only when it is materialized. Set `skills: false` on a Source binding to keep its Skills out:
 
 ```ts [server/agents/support/agent.ts] fragment
 workspace: {

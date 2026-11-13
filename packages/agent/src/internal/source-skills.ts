@@ -1,6 +1,6 @@
 import { normalizeWorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import { isRuntimeRecord } from "./runtime-type.ts"
-import type { WorkspaceSourceInput } from "@vite-hub/workspace"
+import type { WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 /** The skill roots that a Source can hold, relative to the Source. */
 const sourceSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
@@ -38,14 +38,14 @@ export function sourceSkillMounts(sources: Record<string, WorkspaceSourceInput> 
 
 /**
  * Adds a startup Source for the Skill folders of each Source with `materialize: "none"`.
- * The added Source fetches only the skill roots and mounts them at the same path,
+ * The added Sources fetch only the skill roots and each own only their Skill directory,
  * so a Provider Agent finds them without the rest of the Source.
  */
 export function withSourceSkills(sources: Record<string, WorkspaceSourceInput>): Record<string, WorkspaceSourceInput> {
   let result = sources
   for (const [key, input] of Object.entries(sources)) {
     const skillsKey = `${sourceSkillsKeyPrefix}${key}`
-    if (key.startsWith("__vitehub") || Object.hasOwn(sources, skillsKey) || skillsDisabled(input)) continue
+    if (key.startsWith("__vitehub") || sourceSkillRoots.every(root => Object.hasOwn(sources, `${skillsKey}:${root}`)) || skillsDisabled(input)) continue
     let metadata
     try {
       metadata = normalizeWorkspaceSourceMetadata(key, input)
@@ -56,7 +56,32 @@ export function withSourceSkills(sources: Record<string, WorkspaceSourceInput>):
     if (metadata.materialize !== "none" || metadata.requestOnly || !metadata.source.subset) continue
     const source = metadata.source.subset(sourceSkillRoots.map(root => `${root}/**`))
     if (result === sources) result = { ...sources }
-    result[skillsKey] = { source, mount: metadata.mountPath, materialize: "startup" }
+    for (const root of sourceSkillRoots) {
+      result[`${skillsKey}:${root}`] = {
+        source: skillDirectorySource(source, root),
+        mount: [metadata.mountPath, root].filter(Boolean).join("/"),
+        materialize: "startup",
+      }
+    }
   }
   return result
+}
+
+/** Rebase subset keys so each generated mount owns only one Skill directory. */
+function skillDirectorySource(source: WorkspaceSource, root: string): WorkspaceSource {
+  const prefix = `${root}/`
+  return {
+    name: source.name,
+    fingerprint: { source: source.fingerprint, root },
+    prepare: source.prepare ? ctx => source.prepare!(ctx) : undefined,
+    resolveRevision: source.resolveRevision ? ctx => source.resolveRevision!(ctx) : undefined,
+    async getKeys(ctx) {
+      return (await source.getKeys(ctx)).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))
+    },
+    async getItem(key, ctx) {
+      const item = await source.getItem(`${prefix}${key}`, ctx)
+      return { ...item, key, path: item.path?.startsWith(prefix) ? item.path.slice(prefix.length) : key }
+    },
+    getMeta: source.getMeta ? (key, ctx) => source.getMeta!(`${prefix}${key}`, ctx) : undefined,
+  }
 }
