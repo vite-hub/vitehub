@@ -184,9 +184,7 @@ function formatMessage(message: EmailOutboxMessage): string {
     ...(message.bcc?.length ? [`Bcc: ${message.bcc.join(", ")}`] : []),
     ...(message.replyTo?.length ? [`Reply-To: ${message.replyTo.join(", ")}`] : []),
     `Subject: ${message.subject}`,
-    ...(message.preheader ? [`Preheader: ${message.preheader}`] : []),
     ...(message.scheduledAt ? [`Scheduled at: ${message.scheduledAt}`] : []),
-    ...(message.template ? [`Provider template: ${message.template}`] : []),
     ...(headers.length ? ["Headers:", ...headers.map(([name, value]) => `  ${name}: ${value}`)] : []),
     ...(message.attachments.length
       ? ["Attachments:", ...message.attachments.map(attachment => `  ${attachment.filename} (${[attachment.contentType, `${attachment.size} bytes`, attachment.disposition].filter(Boolean).join(", ")})`)]
@@ -209,8 +207,8 @@ const attachmentSchema = v.object({ cid: v.optional(v.string()), contentType: v.
 const outboxMessageSchema = v.object({
   ...messageFields, attachments: v.array(attachmentSchema), bcc: v.optional(v.array(v.string())), cc: v.optional(v.array(v.string())),
   headers: v.record(v.string(), v.string()), html: v.optional(v.string()), metadata: v.optional(v.record(v.string(), v.string())),
-  preheader: v.optional(v.string()), replyTo: v.optional(v.array(v.string())), scheduledAt: v.optional(v.string()), stream: v.optional(v.string()),
-  tags: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))), template: v.optional(v.string()), text: v.optional(v.string()),
+  replyTo: v.optional(v.array(v.string())), scheduledAt: v.optional(v.string()),
+  tags: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))), text: v.optional(v.string()),
 })
 const nonnegativeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(0))
 const resultSchemas = {

@@ -195,7 +195,7 @@ describe("labeller preset", () => {
     expect(calls).toEqual(["label:Receipts", "archive", "star"])
   })
 
-  it("keeps cleanup off until rules, apply, and live mode are all set", async () => {
+  it("keeps cleanup off until rules, apply, live mode, and trashEnabled are all set", async () => {
     const requests: string[] = []
     const client = async (request: { method: string, path: string }) => {
       requests.push(`${request.method} ${request.path}`)
@@ -211,9 +211,13 @@ describe("labeller preset", () => {
     await cleanupLabeller(configured({ cleanup, client, dryRun: false }))
     expect(requests).toEqual(["GET messages", "GET messages"])
 
-    const live = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false } })
+    const trashOff = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false } })
+    await expect(cleanupLabeller(trashOff, { apply: true })).resolves.toMatchObject({ applied: false })
+    expect(requests.slice(2)).toEqual(["GET messages"])
+
+    const live = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false, trashEnabled: true } })
     await expect(cleanupLabeller(live, { apply: true })).resolves.toMatchObject({ applied: true })
-    expect(requests.slice(2)).toEqual(["GET messages", "POST messages/m1/trash"])
+    expect(requests.slice(3)).toEqual(["GET messages", "POST messages/m1/trash"])
   })
 
   it("searches Spam too and skips messages that are gone before trash", async () => {
@@ -229,7 +233,7 @@ describe("labeller preset", () => {
       return {}
     }
     const query = 'label:"Shop/Deals" older_than:14d -is:starred -in:trash'
-    const agent = configured({ labels: { "Shop/Deals": {} }, cleanup: { promotions: { label: "Shop/Deals", olderThan: 14 } }, client, dryRun: false })
+    const agent = configured({ labels: { "Shop/Deals": {} }, cleanup: { promotions: { label: "Shop/Deals", olderThan: 14 } }, client, dryRun: false, trashEnabled: true })
     await expect(cleanupLabeller(agent, { apply: true })).resolves.toEqual({
       applied: true,
       rules: [{ messageIds: ["m1", "gone", "spam"], query, rule: "promotions" }],

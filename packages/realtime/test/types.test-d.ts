@@ -6,6 +6,7 @@ import type {} from "@vite-hub/runtime/internal/h3"
 
 import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeSaved } from "../src/index.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"
+import { defineRealtime } from "../src/index.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
 declare const realtime: ReturnType<typeof useRealtimeTiptap>
@@ -60,5 +61,13 @@ describe("realtime definition types", () => {
     expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<RealtimeRequestEvent>()
     expectTypeOf<RealtimeRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
     expectTypeOf<H3Event>().toExtend<RealtimeRequestEvent>()
+  })
+
+  it("leaves document options out of a definition without a document", () => {
+    defineRealtime({ auth: true, document: false })
+    // @ts-expect-error A room without a document never saves.
+    defineRealtime({ document: false, persistence: false })
+    // @ts-expect-error A room without a document has no history.
+    defineRealtime({ document: false, history: { checkpoint: true } })
   })
 })

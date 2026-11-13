@@ -130,7 +130,11 @@ export function localBrowser(options: LocalBrowserOptions): BrowserProvider<CDPB
     },
     isolation: "trusted-host",
     name: "local",
-    async open() {
+    async open(openOptions = {}) {
+      // Nothing closes an idle local Chromium, so a timeout would only look applied.
+      if (openOptions.idleTimeoutMs !== undefined) {
+        throw browserProviderError("local", "configure an idle timeout for a local Chromium")
+      }
       let profile: string | undefined
       let child: ChildProcess | undefined
       try {

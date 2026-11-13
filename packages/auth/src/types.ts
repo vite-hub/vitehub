@@ -62,8 +62,6 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
 }
 
 export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">> & { events?: AuthEventsConfiguration | false }
-export type AuthRuntimeOptionsResolver = (context: AuthRuntimeContext) => AuthRuntimeOptions
-export type AuthRuntimeConfiguration = AuthRuntimeOptions | AuthRuntimeOptionsResolver
 
 export interface AuthSignInConfiguration {
   callbackURL?: string
@@ -122,14 +120,15 @@ export interface AuthViteHubOptions {
   basePath?: string
   /**
    * `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
-   * Auth adapter from the Definition callback or `runtime`.
+   * Auth adapter from the Definition callback.
    */
   database?: AuthAppDatabase
   /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
   preset?: AuthPreset
   route?: false
-  runtime?: AuthRuntimeConfiguration
-  /** Return a Better Auth `secondaryStorage` adapter from the Definition callback or `runtime`. */
+  /** Removed. Pass a callback that returns all options: `defineAuth(({ env }) => ({ ... }))`. */
+  runtime?: never
+  /** Return a Better Auth `secondaryStorage` adapter from the Definition callback. */
   secondaryStorage?: never
 }
 
@@ -142,7 +141,7 @@ export type AuthDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthB
 
 export type AuthResolvedDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthBetterAuthOptions> =
   TOptions
-  & Omit<AuthViteHubOptions, "database" | "runtime" | "secondaryStorage">
+  & Omit<AuthViteHubOptions, "database" | "secondaryStorage">
   & AuthRuntimeOptions
 
 export type AuthDefinitionResolver<TOptions extends AuthResolvedDefinitionOptions = AuthResolvedDefinitionOptions> =

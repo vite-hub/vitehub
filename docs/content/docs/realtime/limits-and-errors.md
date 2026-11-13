@@ -34,6 +34,7 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 | `REALTIME_AWARENESS_OWNERSHIP_CONFLICT` | WebSocket close code `4500` |
 | `REALTIME_AWARENESS_TOO_LARGE`, `REALTIME_DOCUMENT_TOO_LARGE`, `REALTIME_INVALID_AWARENESS`, `REALTIME_TOO_MANY_AWARENESS_CLIENTS` | WebSocket close code `4400` |
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
+| `REALTIME_CHECKPOINT_UNSUPPORTED` | Thrown by `defineRealtime()` when the server loads the definition |
 | `REALTIME_INVALID_PERSISTENCE`, `REALTIME_INVALID_USER`, `REALTIME_MISSING_DIGEST` | Thrown on the server when a room opens or saves |
 | `REALTIME_AUTHORITY_CONFLICT`, `REALTIME_MISSING_AUTHORITY` | Thrown when Vite reads the config |
 
@@ -93,6 +94,10 @@ An awareness state is not a plain object.
 One peer sent more than 1,024 awareness clients.
 
 ## Configuration errors
+
+### REALTIME_CHECKPOINT_UNSUPPORTED
+
+The definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method. Add `checkpoint()` to the adapter, use `document: { workspace }`, or remove `history`.
 
 ### REALTIME_INVALID_PERSISTENCE
 

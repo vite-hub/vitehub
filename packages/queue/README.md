@@ -199,7 +199,7 @@ type QueueSendResult = {
 };
 ```
 
-The optional message ID is provider-specific. Vercel returns the ID from its enqueue response. Cloudflare returns the input's `id`, generating one locally when omitted; it does not send that ID to Cloudflare, and the later delivery has a different Cloudflare message ID. The local provider returns the input's `id`, or a generated one, and the handler receives the same `id`. In every case, `status: "queued"` is the portable acceptance signal. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
+ViteHub generates the message ID; an `id` option returns `QUEUE_UNSUPPORTED_OPTION`. Pass `idempotencyKey` to deduplicate sends on the local, postgres, and Vercel providers. When `send()` returns a `messageId`, the handler receives the same `id`. The local and postgres providers return the ID of the stored job, and Vercel returns the ID from its enqueue response. Cloudflare returns no `messageId`, because its binding does not report the ID that the delivery gets. In every case, `status: "queued"` is the portable acceptance signal. Queue handlers run later and return no value to the producer. Use a [Workflow](https://vitehub.dev/docs/workflows) when the caller needs a tracked run, durable steps, waits, or progress.
 
 `deferQueue()` does not wait for provider acceptance. It schedules enqueue work through the current request's `waitUntil`, logs dispatch failures, and calls the Queue Definition's `onDispatchError` hook when present.
 

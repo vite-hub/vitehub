@@ -17,7 +17,7 @@ it.each(["oauth2", "api-key"] as const)("confines %s catalog requests to credent
     access: { "agent:worker": { read: true, write: "approve" } },
   })
   const test = createTestRuntime(definition)
-  if (kind === "api-key") await test.runtime.setKey({ key: "stored-key", name: "mail" })
+  if (kind === "api-key") await test.runtime.setKey({ actor: "user:owner", key: "stored-key", name: "mail" })
   else await connect(test)
   test.provider.valid.add("stored-key")
   const before = test.provider.calls.length

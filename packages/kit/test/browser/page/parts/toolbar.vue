@@ -1,0 +1,35 @@
+<script setup lang="ts">
+import { BoldIcon, ItalicIcon, LinkIcon, UnderlineIcon } from "../icons"
+import { Toggle, ToggleIcon } from "@vite-hub/kit/toggle"
+import { Toolbar, ToolbarButton, ToolbarSeparator } from "@vite-hub/kit/toolbar"
+import { useLog } from "../log"
+
+const styles = [
+  { label: "Bold", icon: BoldIcon },
+  { label: "Italic", icon: ItalicIcon },
+  { label: "Underline", icon: UnderlineIcon },
+]
+
+const log = useLog()
+</script>
+
+<template>
+  <Toolbar aria-label="Formatting">
+    <Toggle
+      v-for="style in styles"
+      :key="style.label"
+      :aria-label="style.label"
+      @pressed-change="
+        (pressed) => log(`${style.label} ${pressed ? 'on' : 'off'}`)
+      "
+    >
+      <ToggleIcon>
+        <component :is="style.icon" />
+      </ToggleIcon>
+    </Toggle>
+    <ToolbarSeparator />
+    <ToolbarButton aria-label="Insert link" @click="log('Insert link')">
+      <LinkIcon aria-hidden="true" />
+    </ToolbarButton>
+  </Toolbar>
+</template>
