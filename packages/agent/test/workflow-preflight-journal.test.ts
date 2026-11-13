@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineAgent, portableAgentWorkflowInput, startAgentInvocation, workflow } from "../src/index.ts"
+import { defineAgent, portableAgentWorkflowInput, startAgentInvocation, agentWorkflow } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
@@ -38,7 +38,7 @@ describe("Workflow preparation Invocation journal", () => {
         },
       }),
     })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     const result = runAgentWithContext(agent, runtime(), stage === "input" ? { context: { invalid: () => true } } : {})
     if (stage === "input") await expect(result).rejects.toThrow()
     else await expect(result).rejects.toBe(failure)
@@ -56,7 +56,7 @@ describe("Workflow preparation Invocation journal", () => {
       state: async () => { controller.abort(failure); throw failure },
       workflow: () => import("@vite-hub/workflow"),
     })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     await expect(runAgentWithContext(agent, runtime(), { abortSignal: controller.signal })).rejects.toBe(failure)
     await expect(invocations.getByRunId("parent-run", "preflight")).resolves.toMatchObject({ status: "cancelled" })
   })
@@ -65,7 +65,7 @@ describe("Workflow preparation Invocation journal", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     await Promise.all([1, 2].map(async () => {
       await expect(startAgentInvocation(agent, runtime(), {})).rejects.toBe(failure)
     }))
@@ -80,7 +80,7 @@ describe("Workflow preparation Invocation journal", () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, name: "preflight", runtime: agentWorkflow("preflight") })
     const input = { context: { "vitehub.channelDelivery": {
       channelId: "telegram", deliveryId: "delivery", provider: "telegram", state: "chat",
     } } }
@@ -96,7 +96,7 @@ describe("Workflow preparation Invocation journal", () => {
     const invocations = defineAgentInvocations({ store })
     const failure = new Error("Preparation failed")
     setAgentWorkflowRuntimeLoaders({ state: async () => { throw failure }, workflow: () => import("@vite-hub/workflow") })
-    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, runtime: workflow("preflight") })
+    const agent = defineAgent({ driver: { run: () => "unreachable" }, invocations, runtime: agentWorkflow("preflight") })
     await expect(runAgentWithContext(agent, runtime(), {})).rejects.toBe(failure)
     expect(store.create).toHaveBeenCalled()
   })
@@ -159,7 +159,7 @@ it.each(["preparation", "provider-preparation", "provider"] as const)("signals i
       createWorkflow: () => ({ start: providerRun }) as never,
     }),
   })
-  const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: workflow("handoff") })
+  const agent = defineAgent({ driver: { run: () => "unreachable" }, name: "handoff", runtime: agentWorkflow("handoff") })
   await expect(startAgentInvocation(agent, runtime(), {}, { onInputHandoff })).rejects.toBe(failure)
   expect(onInputHandoff).toHaveBeenCalledTimes(stage === "provider" ? 1 : 0)
   expect(providerRun).toHaveBeenCalledTimes(stage === "preparation" ? 0 : 1)

@@ -6,9 +6,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { Plugin } from "esbuild"
-import { satisfies, validRange } from "semver"
 
-import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
+import type { ViteAlias } from "./bundle-options.ts"
+import { bundleEsmEntry } from "./esbuild.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
@@ -687,7 +687,17 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
   }
 }
 
-function normalizePeerRange(range: string): string | null {
+// Only Deno output copies runtime packages, so other builds and dev servers do not load semver. The `semver` entry loads
+// every one of its 47 modules. These two load a handful.
+async function loadSemver() {
+  const [{ default: satisfies }, { default: validRange }] = await Promise.all([
+    import("semver/functions/satisfies.js"),
+    import("semver/ranges/valid.js"),
+  ])
+  return { satisfies, validRange }
+}
+
+function normalizePeerRange(range: string, validRange: (range: string) => string | null): string | null {
   if (validRange(range)) return range
   if (range === "workspace:" || range === "workspace:*") return "*"
   const workspaceRange = range.startsWith("workspace:") ? range.slice("workspace:".length) : undefined
@@ -749,8 +759,9 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   let resolvedPackageJsonPath = await realpath(packageJsonPath)
   let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (outputNodeModules === rootOutputNodeModules) {
+    const { satisfies, validRange } = await loadSemver()
     const existingPath = rootPackagePaths.get(name)
-    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [normalizePeerRange(options.peerRange)] : [])]
+    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [normalizePeerRange(options.peerRange, validRange)] : [])]
     const satisfiesPeerRanges = (version: string): boolean => peerRanges.every(range => range !== null && satisfies(version, range))
     if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
       if (existingPath.version && satisfiesPeerRanges(existingPath.version)) {

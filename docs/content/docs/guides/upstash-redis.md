@@ -30,7 +30,7 @@ features.
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', kv: { driver: 'upstash' } },
+  vitehub: { host: 'node', kv: { driver: 'upstash' } },
 })
 ```
 :::
@@ -42,7 +42,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-	plugins: [vitehub({ preset: 'node', kv: { driver: 'upstash' } }), nitro()],
+	plugins: [vitehub({ host: 'node', kv: { driver: 'upstash' } }), nitro()],
 })
 ```
 :::
@@ -53,7 +53,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-	plugins: [vitehub({ preset: 'node', kv: { driver: 'upstash' } })],
+	plugins: [vitehub({ host: 'node', kv: { driver: 'upstash' } })],
 })
 ```
 :::
@@ -71,8 +71,8 @@ ViteHub also reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, and that pair
 wins. If the app connects to the wrong database, remove old values. In
 production, use the host's secret store. Keep the token out of browser code.
 
-For Vercel, use `preset: 'vercel'` and set the same credentials in the project.
-That preset uses Upstash for KV by default.
+For Vercel, use `host: 'vercel'` and set the same credentials in the project.
+That host uses Upstash for KV by default.
 
 ## Verify remote persistence
 

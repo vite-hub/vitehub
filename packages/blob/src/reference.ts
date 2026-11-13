@@ -97,6 +97,7 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
   const patterns = list.map(pattern => pattern.trim().toLowerCase())
   for (const pattern of patterns) {
     if (!mimePattern.test(pattern)) {
+      // Internal invariant: reference schemas run in forms in the browser without nostics, and callers check for TypeError.
       throw new TypeError(`[vitehub] ${kind}() accept entry "${pattern}" is not a MIME type or pattern such as "image/png" or "image/*".`)
     }
   }
@@ -154,6 +155,7 @@ function pathnameIssue(pathname: string): string | undefined {
 
 function referenceJsonSchema(hint: BlobReferenceHint, maxBytes: number | undefined, direction: "input" | "output", options: BlobReferenceJsonSchemaOptions): Record<string, unknown> {
   if (!jsonSchemaTargets.has(options.target)) {
+    // Internal invariant: Standard JSON Schema converters throw a plain error for an unknown target, and this module runs in the browser without nostics.
     throw new Error(`[vitehub] Blob reference schemas emit draft-07, draft-2020-12, or openapi-3.0 JSON Schema, not "${options.target}".`)
   }
   const description = "Size in bytes recorded at upload."
@@ -175,10 +177,12 @@ function referenceJsonSchema(hint: BlobReferenceHint, maxBytes: number | undefin
 
 function createReferenceSchema(kind: BlobReferenceKind, options: BlobReferenceOptions = {}): BlobReferenceSchema {
   const store = options.store ?? "default"
+  // Internal invariant: reference schemas run in forms in the browser without nostics, and callers check for TypeError.
   if (!isString(store) || !store) throw new TypeError(`[vitehub] ${kind}() store must be a non-empty Blob Store name.`)
   const accept = resolveAccept(kind, options.accept)
   const maxBytes = options.maxSize === undefined ? undefined : blobSizeToBytes(options.maxSize)
   if (options.maxSize !== undefined && maxBytes === undefined) {
+    // Internal invariant: reference schemas run in forms in the browser without nostics, and callers check for TypeError.
     throw new TypeError(`[vitehub] ${kind}() maxSize "${options.maxSize}" is not a size such as "512KB" or "8MB".`)
   }
   const hint: BlobReferenceHint = { kind, store }

@@ -19,8 +19,8 @@ pnpm add @vite-hub/rate-limit
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { rateLimit } from 'vite-hub/agent/capabilities'
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const invocations = createRateLimiter({
   driver: memoryRateLimitDriver(),
@@ -113,7 +113,9 @@ Decision callbacks get a limiter with `consume()`, `peek()`, and `reset()`. A li
 
 The Capability no longer owns `limit`, `window`, `action`, or `store`. Move the policy into a direct `RateLimiter`, then replace `store` with `limiter`.
 
-```ts [Before]
+```ts [Before] fails=TS2561
+import { rateLimit } from 'vite-hub/agent/capabilities'
+
 rateLimit({
   limit: 20,
   store: 'memory',
@@ -123,7 +125,7 @@ rateLimit({
 
 ```ts [After]
 import { rateLimit } from 'vite-hub/agent/capabilities'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 import { createRateLimiter } from 'vite-hub/rate-limit'
 
 const invocations = createRateLimiter({

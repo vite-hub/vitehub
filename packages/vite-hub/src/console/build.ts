@@ -129,6 +129,23 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     content.comments = await readViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection, undefined)
     sectionOverrides.comments = describeViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection)
   }
+  // The Workspaces section browses the files of each Workspace through `workspaces.files`, not only its Definition.
+  const workspaceVite = ownerModules.workspaceVite
+  if (workspaceVite && sections.includes("workspaces")) {
+    const workspaces = describeViteHubConsoleSection(workspaceVite.workspaceConsoleSection)
+    sectionOverrides.workspaces = {
+      ...workspaces,
+      view: { kind: "workspace-browser", notice: "Files, refs, and revisions come from the Workspace Store when you open them. Without retained history, the browser shows the mounted files." },
+    }
+  }
+  // `server/forms/` runs the forms operations, so the Console section lists submissions through them.
+  const formsVite = ownerModules.formsVite
+  if (formsVite?.usesForms({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
+    content.forms = await readViteHubConsoleSection(formsVite.formsConsoleSection, undefined)
+    sectionOverrides.forms = describeViteHubConsoleSection(formsVite.formsConsoleSection)
+    // No section registers Forms, so the folder turns it on here.
+    if (!entries.includes("forms")) entries.push("forms")
+  }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))

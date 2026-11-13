@@ -96,15 +96,21 @@ If the provider supports `maxOutputTokens`, AI SDK model calls also get the outp
 
 Read the result from a finish hook:
 
-```ts
-hooks: {
-  'agent:finish'(event) {
-    const budget = event.extensions.get('budget')
-    if (budget?.exceeded.length) {
-      console.log(budget.exceeded)
-    }
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'gpt-5.6-sol' },
+  budget: { tokens: 40_000 },
+  hooks: {
+    'agent:finish'(event) {
+      const budget = event.extensions.get('budget')
+      if (budget?.exceeded.length) {
+        console.log(budget.exceeded)
+      }
+    },
   },
-}
+})
 ```
 
 The snapshot has the configured `limits`, the normalized `usage` record when available, and an `exceeded` list of `inputTokens`, `outputTokens`, `totalTokens`, or `usd` entries.

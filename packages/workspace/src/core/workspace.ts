@@ -7,7 +7,6 @@ import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { createWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import { createWorkspaceHistory } from "./history.ts"
 import type {
@@ -36,7 +35,7 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
     name: definition.name,
     history: createWorkspaceHistory(definition, store, files),
     async capabilities() {
-      return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function"), retainedHistory: Boolean(store.history) }
+      return { conditionalWrites: typeof store.writeFileConditional === "function", retainedHistory: Boolean(store.history) }
     },
     async sync(options) {
       const { syncWorkspaceSources } = await import("../sources/sync.ts")

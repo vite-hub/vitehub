@@ -1,0 +1,21 @@
+one-entry-imports: moved the imports of 9 file(s) to one entry per concept
+Dry run: no files were written.
+
+Files to change (9):
+  app/components/Upload.vue
+  server/api/upload.post.ts
+  server/content.ts
+  server/routes/connections/[...path].ts
+  server/tasks/seed.ts
+  server/utils/bridge.ts
+  server/utils/env.ts
+  server/utils/screenshot.ts
+  test/screenshot.ts
+
+Manual follow-ups (3):
+  1. server/tasks/types.ts:1 Re-export `defineTask` and `runTask` from `nitro/task`, and the task types from `nitro/types`.
+  2. test/screenshot.ts:5 This string names `vite-hub/source/glob`. Its exports moved to `vite-hub/source`, so update it by hand.
+  3. package.json `nitro/task` comes from the `nitro` package. Add `nitro` to `dependencies`.
+
+Next steps:
+  - Run your typecheck.

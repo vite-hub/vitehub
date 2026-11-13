@@ -8,24 +8,24 @@ icon: i-lucide-cloud-cog
 
 ## Provider output
 
-KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `@vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
+KV picks the store and generates store-name types. Put namespaces, bindings, and credentials in your config or deployment. Your code imports `kv` from `vite-hub/kv` on every driver (local, Cloudflare, Deno, Vercel, or others).
 
 `vite dev` keeps every store local unless it sets `remote: true`, also when `.env` has Upstash credentials. Read [Development stays local](/docs/kv/configure#development-stays-local).
 
 ## Read and write keys during development
 
-`hubKv()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
+`hubKV()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users:
 pnpm vitehub kv get settings --json
 pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
-pnpm vitehub kv del settings
+pnpm vitehub kv delete settings
 ```
 
 - They run the app's `kv.*` [operations](/docs/development/operations) in the Nitro runtime, on the same storage. They target the dev server or, with `--url`, a deployed app with the [Console](/docs/development/console) on. `--store <name>` picks a named store.
 - Each write prints what it changed. There is no `clear` command.
-- `kv set` and `kv del` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
+- `kv set` and `kv delete` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
 
 Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
 
@@ -54,7 +54,7 @@ Read [Preview deployments share data](/docs/development/provisioning#preview-dep
 
 Key prefixes are not tables. Use Database for constraints, joins, migrations, history, or complex queries.
 
-Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads and writes (`setIfAbsent()`) and counters, not general compare-and-swap.
+Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 

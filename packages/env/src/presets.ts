@@ -37,8 +37,8 @@ export interface TypesafeEnvOptions {
 
 /**
  * Declares the Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey`
- * (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`). `defineAgent({ driver: { ask } })`, `llmGate()`, and
- * `llmRoute()` use `typesafe()` when they get no other gateway. The values are optional here: Jev diagnoses a
+ * (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`). `defineAgent({ driver: { ask } })` uses `typesafe()`
+ * when it gets no other gateway. The values are optional here: Jev diagnoses a
  * missing key when it runs, so an application without AI still starts.
  */
 export function typesafeEnv(options: TypesafeEnvOptions = {}): EnvRuntimeConfigOptions {

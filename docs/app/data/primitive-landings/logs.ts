@@ -43,7 +43,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "node", logs: true, console: { auth: false, local: true } }),
+    vitehub({ host: "node", observability: { logs: true }, console: { auth: false, local: true } }),
     nitro(),
   ],
 })`,
@@ -65,9 +65,9 @@ export default defineHandler((event) => {
           content: `# Local Logs
 
 Use Node.js 22.22 or newer. Run pnpm install, then pnpm dev.
-Request /api/status, then open /_vitehub/logs to inspect the event.
+Request /api/status, then open the Console link that pnpm dev prints, and select Logs.
 This starter uses temporary development capture. It has no production build script.
-For production, connect an existing backend with logs.source.
+For production, connect an existing backend with observability.logs.source.
 See https://vitehub.dev/docs/logs/configure for the read contract.`,
         },
       ],

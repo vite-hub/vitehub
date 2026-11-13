@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { readGuest, saveGuest } from "../src/overlay/api.ts"
-import { clickPage, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
+import { defineCommentSubject } from "../src/operations-core/define.ts"
+import { api, readGuest, saveGuest } from "../src/overlay/api.ts"
+import { clickPage, commentsButton, openList, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 import type { CommentsUser, ElementAnchor } from "../src/types.ts"
 
@@ -41,7 +42,7 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
   await before?.(server.comments)
   const tools = pageTools()
   const { shadow, overlay, cleanup } = await startOverlay(tools)
-  await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")).not.toBeNull())
+  await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
   return { ...server, ...tools, shadow, overlay, cleanup }
 }
 
@@ -59,7 +60,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
@@ -80,7 +81,7 @@ describe("the Comments overlay on the comment parts", () => {
     }, async (comments) => {
       threadId = (await comments.create({ page: "/pricing", anchor, body: "Thread grant", author: grace }))[1]!.id
     })
-    expect(tool(bar, "Comment (C)")).toBeNull()
+    expect(tool(bar, "Comment on the page (C)")).toBeNull()
     let root: ShadowRoot
     if (surface === "layer") {
       await vi.waitFor(() => expect(shadow.querySelector(`[data-thread-id="${threadId}"]`)).not.toBeNull())
@@ -88,7 +89,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       expect(composer(root, "Comment")).toBeNull()
@@ -112,7 +113,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
@@ -135,7 +136,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
     }
     const label = "Comment"
@@ -180,7 +181,7 @@ describe("the Comments overlay on the comment parts", () => {
       root = shadow
     }
     else {
-      tool(bar, "Comments on this page")!.click()
+      await openList(bar)
       root = panel()!
     }
     await vi.waitFor(() => expect(root.querySelector('input[type="file"]')).not.toBeNull())
@@ -203,7 +204,7 @@ describe("the Comments overlay on the comment parts", () => {
   it("comments on an element with the overlay's anchor hints and the page context", async () => {
     const { shadow, bar, comments } = await site()
     press(document.body, "c")
-    await vi.waitFor(() => expect(tool(bar, "Comment (C)")!.getAttribute("aria-pressed")).toBe("true"))
+    await vi.waitFor(() => expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true"))
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
     await clickPage(shadow, 60, 20)
     await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
@@ -284,7 +285,7 @@ describe("the Comments overlay on the comment parts", () => {
 
   it("asks a guest for a name before comment mode, then sends it in the guest headers", async () => {
     const { shadow, bar, comments, requests } = await site(null, { authorize: () => true })
-    tool(bar, "Comment (C)")!.click()
+    tool(bar, "Comment on the page (C)")!.click()
     await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
     expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull()
     const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
@@ -357,6 +358,235 @@ describe("the Comments overlay on the comment parts", () => {
     expect((await comments.list())[1]![0]!.messages[0]!.attachments).toEqual(["files/shot.png"])
   })
 
+  it("comments and uploads on the subject that the server maps the page to, also after navigation", async () => {
+    const { shadow, comments, requests } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3), revision: 2 } : url.pathname === "/pricing" ? { kind: "drop", id: "pricing" } : undefined,
+      storeAttachment: file => `files/${file.name}`,
+    })
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    const picker = shadow.querySelector<HTMLInputElement>('[data-slot="comment-layer-popover"] input[type="file"]')!
+    Object.defineProperty(picker, "files", { configurable: true, value: [new File(["png"], "shot.png", { type: "image/png" })] })
+    picker.dispatchEvent(new Event("change", { bubbles: true }))
+    await type(composer(shadow, "Comment")!, "On the drop")
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.subject).toEqual({ kind: "drop", id: "pricing" })
+    expect(requests.find(request => request.path.endsWith("/attachments"))?.body).toMatchObject({ subject: { kind: "drop", id: "pricing" } })
+
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=drop&subjectId=abc"))).toBe(true))
+    history.pushState(null, "", "/plain")
+    await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=page&subjectId=%2Fplain"))).toBe(true))
+  })
+
+  it("follows the permissions of the new page after a navigation", async () => {
+    const { bar } = await site(ada, { authorize: ({ action, subject }) => action === "read" || subject?.id === "/pricing" })
+    await vi.waitFor(() => expect(tool(bar, "Comment on the page (C)")).not.toBeNull())
+    history.pushState(null, "", "/docs")
+    await vi.waitFor(() => expect(tool(bar, "Comment on the page (C)")).toBeNull())
+    press(document.body, "c")
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
+    history.pushState(null, "", "/pricing")
+    await vi.waitFor(() => expect(tool(bar, "Comment on the page (C)")).not.toBeNull())
+  })
+
+  it("starts a whole-page thread from the list on the revision that the server maps the page to", async () => {
+    const { bar, panel, comments } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "pricing", revision: 4 }),
+    })
+    await openList(bar)
+    await vi.waitFor(() => expect(panel()?.querySelector("textarea")).not.toBeNull())
+    const box = panel()!.querySelector("textarea")!
+    await type(box, "On the whole drop")
+    press(box, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]).toMatchObject({ subject: { kind: "drop", id: "pricing" }, anchor: { kind: "page" }, revision: 4 })
+  })
+
+  it("starts a thread on the revision that the person saw, when a new one comes out while they type", async () => {
+    let latest = 4
+    const { bar, panel, comments } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "pricing", revision: latest }),
+    })
+    latest = 5
+    await openList(bar)
+    await vi.waitFor(() => expect(panel()?.querySelector("textarea")).not.toBeNull())
+    const box = panel()!.querySelector("textarea")!
+    await type(box, "On version 4")
+    press(box, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]).toMatchObject({ subject: { kind: "drop", id: "pricing" }, revision: 4 })
+  })
+
+  it("keeps comments paused and offers Retry when the session of the new page fails", async () => {
+    const session = api.session
+    let fail = true
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      if (page === "/d/abc" && fail) return [{ code: "COMMENTS_UNAVAILABLE", why: "The server did not answer." }, undefined] as unknown as Awaited<ReturnType<typeof session>>
+      return await session(page)
+    })
+    const { shadow, comments } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    press(document.body, "c")
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Comments are paused"))
+    // No comment starts on a guessed subject.
+    expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull()
+    fail = false
+    const retry = [...shadow.querySelectorAll<HTMLButtonElement>(".toast button")].find(button => button.textContent === "Retry")!
+    retry.click()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    expect(shadow.querySelector(".toast")).toBeNull()
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "On abc")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.subject).toEqual({ kind: "drop", id: "abc" })
+  })
+
+  it("ignores the Retry of a page the person left, and drops its toast", async () => {
+    const session = api.session
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      if (page === "/d/abc") return [{ code: "COMMENTS_UNAVAILABLE", why: "The server did not answer." }, undefined] as unknown as Awaited<ReturnType<typeof session>>
+      if (page === "/d/next") await held
+      return await session(page)
+    })
+    const { shadow } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    press(document.body, "c")
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Comments are paused"))
+    const retry = [...shadow.querySelectorAll<HTMLButtonElement>(".toast button")].find(button => button.textContent === "Retry")!
+    history.pushState(null, "", "/d/next")
+    await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/d/next"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")).toBeNull())
+    // A click that was already on its way when the toast went.
+    retry.click()
+    const calls = vi.mocked(api.session).mock.calls.length
+    release()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    expect(vi.mocked(api.session).mock.calls.length).toBe(calls)
+  })
+
+  it("uses only the answer of the latest navigation", async () => {
+    const session = api.session
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      // The first answer for /d/abc comes last and is out of date.
+      if (page === "/d/abc" && calls++ === 0) {
+        await held
+        const [error, answer] = await session(page)
+        return (error ? [error, undefined] : [undefined, { ...answer, subject: { kind: "drop", id: "stale" } }]) as Awaited<ReturnType<typeof session>>
+      }
+      return await session(page)
+    })
+    const { requests } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    // Each navigation asks the session route before the next one starts.
+    for (const path of ["/d/abc", "/d/other", "/d/abc"]) {
+      const before = vi.mocked(api.session).mock.calls.length
+      history.pushState(null, "", path)
+      await vi.waitFor(() => expect(vi.mocked(api.session).mock.calls.length).toBe(before + 1))
+    }
+    await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectKind=drop&subjectId=abc"))).toBe(true))
+    release()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(requests.some(request => request.path.includes("subjectId=stale"))).toBe(false)
+  })
+
+  it("discards the draft after the person agrees, also when the new page has the same subject", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true))
+    const { shadow } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: () => ({ kind: "drop", id: "one" }),
+    })
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "Half a thought")
+    history.pushState(null, "", "/pricing/annual")
+    await vi.waitFor(() => expect(window.confirm).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    expect(composer(shadow, "Comment")).toBeNull()
+  })
+
+  it("lets the Comment button turn comment mode off while the subject of the new page loads", async () => {
+    let answer!: () => void
+    const answered = new Promise<void>((resolve) => { answer = resolve })
+    const session = api.session
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      if (page === "/d/abc") await answered
+      return await session(page)
+    })
+    const { bar, shadow } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    press(document.body, "c")
+    await vi.waitFor(() => expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true"))
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull())
+    // Comment mode waits for the subject, and the button still shows it on.
+    expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true")
+    commentsButton(bar)!.click()
+    await vi.waitFor(() => expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("false"))
+    answer()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull()
+  })
+
+  it("starts no comment and lists no threads until the server names the subject of the new page", async () => {
+    let answer!: () => void
+    const answered = new Promise<void>((resolve) => { answer = resolve })
+    const session = api.session
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      if (page === "/d/abc") await answered
+      return await session(page)
+    })
+    const { shadow, comments, requests } = await site(ada, {
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
+    })
+    press(document.body, "c")
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    history.pushState(null, "", "/d/abc")
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull())
+    press(document.querySelector("h1")!, "Enter")
+    // C turns the waiting comment mode off and on again, and starts nothing.
+    press(document.body, "c")
+    press(document.body, "c")
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(composer(shadow, "Comment")).toBeNull()
+    answer()
+    // Comment mode comes back on the drop, and a comment typed now stays.
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "On abc")
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(composer(shadow, "Comment")!.value).toBe("On abc")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.subject).toEqual({ kind: "drop", id: "abc" })
+    expect(requests.some(request => request.path.includes("subjectId=%2Fd%2Fabc"))).toBe(false)
+  })
+
   it("lists the page's threads in the pill's window with Open and Resolved", async () => {
     const server = await serveComments({ identify: () => ada })
     await server.comments.create({ page: "/pricing", anchor, body: "Open one", author: ada })
@@ -364,8 +594,8 @@ describe("the Comments overlay on the comment parts", () => {
     await server.comments.resolve(done!.id, { by: ada })
     const tools = pageTools()
     const { shadow } = await startOverlay(tools)
-    await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")!.textContent).toBe("1"))
-    tool(tools.bar, "Comments on this page")!.click()
+    await vi.waitFor(() => expect(commentsButton(tools.bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
+    await openList(tools.bar)
     const panel = tools.panel()!
     await vi.waitFor(() => expect(panel.querySelectorAll('[data-slot="comment-panel-item"]')).toHaveLength(1))
     expect(panel.textContent).toContain("Open one")
@@ -375,12 +605,59 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(shadow.querySelectorAll('[data-slot="comment-pin"][data-status="resolved"]')).toHaveLength(1))
   })
 
-  it("shows the Sign in with GitHub prompt to a person who may not read", async () => {
+  it("shows the Sign in with GitHub prompt to a person who may not read, once they open the tool", async () => {
     await serveComments({ identify: () => null, authorize: () => false })
-    const tools = pageTools()
+    const tools = pageTools({ open: true })
     const { shadow } = await startOverlay(tools)
     await vi.waitFor(() => expect(shadow.querySelector(".toast")).not.toBeNull())
     expect(tools.bar.hidden).toBe(true)
     expect(shadow.querySelector(".toast")!.textContent).toContain("Comments are only for the site's team")
+  })
+})
+
+describe("the Comments segment, as in Drop", () => {
+  it("resumes a guest's Whole page action after they give their name", async () => {
+    const { bar, shadow, comments } = await site(null, { authorize: () => true })
+    commentsButton(bar)!.click()
+    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).not.toBeNull())
+    tool(bar, "Comment on the whole page")!.click()
+    const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
+    await type(name, "Ana García")
+    name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "About the whole page")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    const thread = (await comments.list())[1]![0]!
+    expect(thread.anchor.kind).toBe("page")
+    expect(thread.author).toEqual({ id: `guest:${readGuest()!.id}`, name: "Ana García", guest: true })
+  })
+
+  it("turns comment mode on and grows Whole page, All comments, and × beside it", async () => {
+    const { bar, shadow } = await site(ada, {}, comments => comments.create({ page: "/pricing", anchor, body: "Open one", author: ada }))
+    await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
+    expect(commentsButton(bar)!.textContent).toBe("Comments1")
+    expect(tool(bar, "Comment on the whole page")).toBeNull()
+
+    commentsButton(bar)!.click()
+    await vi.waitFor(() => expect(commentsButton(bar)!.textContent).toBe("Click anywhere"))
+    expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true")
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
+    expect(tool(bar, "All comments on this page")!.textContent).toBe("All comments1")
+
+    tool(bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
+    tool(bar, "Stop commenting (Esc)")!.click()
+    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).toBeNull())
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
+    expect(commentsButton(bar)!.textContent).toBe("Comments1")
+  })
+
+  it("opens the list from Comments for a person who may only read", async () => {
+    const { bar } = await site(ada, { authorize: ({ action }) => action === "read" }, comments => comments.create({ page: "/pricing", anchor, body: "Open one", author: grace }))
+    await vi.waitFor(() => expect(tool(bar, "Show comments")).not.toBeNull())
+    expect(tool(bar, "Comment on the page (C)")).toBeNull()
+    expect(tool(bar, "Highlight the page and comment (B)")).toBeNull()
+    expect(commentsButton(bar)!.getAttribute("aria-expanded")).toBe("false")
   })
 })

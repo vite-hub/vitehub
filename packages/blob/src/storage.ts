@@ -16,11 +16,13 @@ import type { Result } from "@vite-hub/runtime"
 import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
 import { assertValidPathname, pathnameIssue } from "./internal/pathname.ts"
+import { blobSizeToBytes } from "./internal/size.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
 
@@ -266,7 +268,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     normalizePathname: pathname => normalizePathname(pathname, { prefix: true }),
     // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
     storage: {
-      del: pathnames => storage.del(pathnames),
+      delete: pathnames => storage.delete(pathnames),
       list: listOptions => storage.list(listOptions),
       put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
     },
@@ -296,9 +298,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         store,
       ))
     },
-    async del(pathnames: string | string[]) {
+    async delete(pathnames: string | string[]) {
       const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
-      return blobResult("del", store, async () => {
+      return blobResult("delete", store, async () => {
         await driver.delete(normalizedPathnames)
         await Promise.all(normalizedPathnames.map(clearDerived))
       })
@@ -331,12 +333,15 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
         throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
       }
+      if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
+        throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
+      }
       if (!driver.sign) {
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
       const normalizedPathname = normalizePathname(pathname)
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
-      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
     },
     async serve(request, pathname, options = {}) {
       const decodedPath = decodePathname(pathname)
@@ -363,10 +368,21 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     return serveObject(request, normalizedPath, options)
   }
   // Starts from the `headers` option, so the headers that `serve()` sets replace it.
-  function responseHeaders(options: BlobServeResponseOptions): Headers {
+  function responseHeaders(options: BlobServeResponseOptions, normalizedPath: string): Headers {
     const headers = new Headers(options.headers)
     headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
+    if (options.download !== undefined && options.download !== false) {
+      headers.set("Content-Disposition", attachmentDisposition(options.download === true ? normalizedPath : options.download))
+    }
     return headers
+  }
+  // A stored file can have any type that the uploader sent. Serve a type that a browser opens as a page in a CSP
+  // sandbox, so it cannot run script on the app origin. The sandbox is added to a policy from the `headers` option.
+  // Without a type, for example before a transform runs, the response always gets the sandbox.
+  function sandboxActiveContent(headers: Headers, options: BlobServeResponseOptions, contentType?: string) {
+    if (contentType !== undefined && !isActiveContentType(contentType)) return
+    const policy = new Headers(options.headers).get("Content-Security-Policy")
+    headers.set("Content-Security-Policy", policy ? `${policy}, sandbox` : "sandbox")
   }
   async function serveObject(request: Request, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<Response, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -382,9 +398,12 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
             return
           }
           const { object } = read
+          const contentType = object.contentType || guessContentType(normalizedPath)
           const etag = object.httpEtag ? `"${await hashCacheKey([object.httpEtag, object.contentType])}"` : undefined
-          const headers = responseHeaders(options)
+          const headers = responseHeaders(options, normalizedPath)
           if (etag) headers.set("ETag", etag)
+          // A 304 updates the headers that a cache stored, so it carries the sandbox too.
+          sandboxActiveContent(headers, options, contentType)
           if (matchesETag(request.headers.get("if-none-match"), etag)) {
             await read.body.cancel()
             return notModified(headers)
@@ -402,7 +421,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
             }
           }
           headers.set("Accept-Ranges", "bytes")
-          headers.set("Content-Type", object.contentType || guessContentType(normalizedPath))
+          headers.set("Content-Type", contentType)
           headers.set("X-Content-Type-Options", "nosniff")
           if (range === "unsatisfiable") {
             await read.body.cancel()
@@ -443,9 +462,13 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
           cachePath = `${await derivedCachePrefix(sourcePath)}${await hashCacheKey(options.transform.key)}`
         }
 
-        const headers = responseHeaders(options)
+        const headers = responseHeaders(options, normalizedPath)
         if (etag) headers.set("ETag", etag)
+        if (!options.transform) sandboxActiveContent(headers, options, meta.contentType || guessContentType(normalizedPath))
         if (["GET", "HEAD"].includes(request.method) && matchesETag(request.headers.get("if-none-match"), etag)) {
+          // A 304 replaces the headers that a cache stored. The transform result type is not known here, so a 304 for a
+          // transform always carries the sandbox. The sandbox does not change how an `<img>` shows an image.
+          if (options.transform) sandboxActiveContent(headers, options)
           return notModified(headers)
         }
 
@@ -530,11 +553,13 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
             status = 206
           }
         }
+        const contentType = transform
+          ? body.type || "application/octet-stream"
+          : meta.contentType || body.type || guessContentType(normalizedPath)
         headers.set("X-Content-Type-Options", "nosniff")
         headers.set("Content-Length", String(body.size))
-        headers.set("Content-Type", transform
-          ? body.type || "application/octet-stream"
-          : meta.contentType || body.type || guessContentType(normalizedPath))
+        headers.set("Content-Type", contentType)
+        sandboxActiveContent(headers, options, contentType)
         // A HEAD response has the headers of the GET response and no body.
         return new Response(request.method === "HEAD" ? null : body.stream(), { headers, status })
       })
@@ -545,6 +570,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
+      // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
       throw new Error("Blob changed repeatedly while preparing its response.")
     })
   }

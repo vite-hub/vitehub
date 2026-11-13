@@ -24,18 +24,23 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/drain.js"
-  ],
-  "bin": {
-    "vitehub-drain": "./dist/drain.js"
-  },
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
+    "./internal/drain": {
+      "types": "./dist/internal/drain.d.ts",
+      "import": "./dist/internal/drain.js",
+      "default": "./dist/internal/drain.js"
     },
     "./internal/execution-budget": {
       "types": "./dist/internal/execution-budget.d.ts",
@@ -93,7 +98,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/runtime#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/runtime#build && vp test"
+    "test": "vp run --cache -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
@@ -104,8 +109,10 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

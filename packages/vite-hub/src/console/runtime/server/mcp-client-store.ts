@@ -1,6 +1,7 @@
 import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { importSealKey, seal, unseal } from "@vite-hub/env/seal"
+import { importSealKey, sealWithKey, unsealWithKey } from "@vite-hub/env/seal"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { isRecord } from "@vite-hub/internal/object"
 import * as v from "valibot"
 
 import { consoleRequestError } from "./request.ts"
@@ -72,7 +73,7 @@ export interface ConsoleMcpRecords {
 
 /** The part of the ViteHub KV store that the records use. Each call returns `[error, value]`. */
 export interface ConsoleMcpKV {
-  del: (key: string) => Promise<readonly [unknown, unknown]>
+  delete: (key: string) => Promise<readonly [unknown, unknown]>
   get: (key: string) => Promise<readonly [unknown, unknown]>
   keys: (base?: string) => Promise<readonly [unknown, string[] | undefined]>
   set: (key: string, value: unknown) => Promise<readonly [unknown, unknown]>
@@ -102,10 +103,6 @@ function memoryRecords(): ConsoleMcpRecords {
     save: async (connection) => { state.connections.set(connection.id, connection) },
     saveClient: async (key, client) => { state.clients.set(key, client) },
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 const optionalText = v.optional(v.string())
@@ -181,7 +178,7 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
     if (!sealed) return undefined
     let value: unknown
     try {
-      value = JSON.parse(await unseal(key, encoder.encode(name), sealed))
+      value = JSON.parse(await unsealWithKey(key, encoder.encode(name), sealed))
     }
     catch {
       // A record sealed with another key, such as before a key rotation, reads as missing.
@@ -191,7 +188,7 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
     return parsed.success ? parsed.output : undefined
   }
   async function write(name: string, value: unknown): Promise<void> {
-    unwrap(await kv.set(name, { sealed: await seal(key, encoder.encode(name), JSON.stringify(value)) }))
+    unwrap(await kv.set(name, { sealed: await sealWithKey(key, encoder.encode(name), JSON.stringify(value)) }))
   }
   const connectionKey = async (owner: string, id: string) => `${prefix}:connections:${await hashed(owner)}:${id}`
   const clientKey = async (name: string) => `${prefix}:clients:${await hashed(name)}`
@@ -208,8 +205,8 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
       const connections = await Promise.all(names.map(name => read(name, connectionSchema)))
       return connections.filter((connection): connection is StoredConnection => connection?.owner === owner)
     },
-    remove: async (connection) => { unwrap(await kv.del(await connectionKey(connection.owner, connection.id))) },
-    removeClient: async (name) => { unwrap(await kv.del(await clientKey(name))) },
+    remove: async (connection) => { unwrap(await kv.delete(await connectionKey(connection.owner, connection.id))) },
+    removeClient: async (name) => { unwrap(await kv.delete(await clientKey(name))) },
     save: async connection => write(await connectionKey(connection.owner, connection.id), connection),
     saveClient: async (name, client) => write(await clientKey(name), client),
   }

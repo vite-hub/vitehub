@@ -6,18 +6,18 @@ export default defineConfig(({ command }) => ({
   environments: { nitro: { resolve: { external: ["@vite-hub/agent", "vite-hub/agent"] } } },
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       console: command === "serve" ? { auth: false, local: true } : false,
-      logs:
-        command === "serve"
-          ? {
-              evlog: {
-                env: { service: "logs-playground" },
-                redact: { paths: ["customer.email"] },
-                exclude: ["/_vitehub/**", "/api/_vitehub/**"],
-              },
-            }
-          : false,
+      observability: command === "serve"
+        ? {
+            logs: true,
+            evlog: {
+              env: { service: "logs-playground" },
+              redact: { paths: ["customer.email"] },
+              exclude: ["/_vitehub/**", "/api/_vitehub/**"],
+            },
+          }
+        : false,
     }),
     nitro({ serverDir: "./server" }),
   ],

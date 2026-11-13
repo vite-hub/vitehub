@@ -7,6 +7,7 @@ import { number, object, optional, parse, record, safeParse, string } from "vali
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
+import { signFsRequest } from "../internal/fs-sign.ts"
 
 interface FsMultipartState {
   contentType?: string
@@ -63,11 +64,14 @@ function encodeCursor(value: number) {
 
 function decodeCursor(cursor: string | undefined) {
   if (cursor === undefined) return 0
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
   const decodedBytes = Buffer.from(cursor, "base64url")
   const decoded = decodedBytes.toString("utf8")
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (decodedBytes.toString("base64url") !== cursor || !/^\d+$/.test(decoded)) throw new TypeError("Invalid Blob cursor.")
   const parsed = Number(decoded)
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!Number.isSafeInteger(parsed) || String(parsed) !== decoded) throw new TypeError("Invalid Blob cursor.")
   return parsed
 }
@@ -369,6 +373,7 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
         uploadedAt: stats.mtime,
       }
     }
+    // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
     throw new Error("Blob changed while reading its filesystem metadata.")
   }
   catch (error) {
@@ -507,6 +512,8 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     name: "fs",
     canonicalPathname: pathname => relative(root, resolveBlobPath(root, pathname)).split(sep).join("/"),
     options,
+    // A file has no URL of its own. ViteHub signs a link to its signed route, which checks it and serves the file.
+    sign: (pathname, signOptions, { store }) => signFsRequest(store, pathname, signOptions, options.urlBaseUrl),
     async createMultipartUpload(pathname: string, multipartOptions: BlobMultipartOptions) {
       resolveBlobPath(root, pathname)
       const uploadId = randomUUID()
@@ -604,6 +611,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           if (fileVersion(before) !== fileVersion(await stat(path, { bigint: true }))) continue
           return new Blob([bytes], { type: meta.contentType || "" })
         }
+        // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
         throw new Error("Blob changed while reading its filesystem contents.")
       }
       catch (error) {

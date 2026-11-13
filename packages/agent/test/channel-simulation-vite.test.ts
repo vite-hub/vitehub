@@ -23,10 +23,10 @@ afterEach(async () => {
   else process.env[channelSimulationEnv] = previous
 })
 
-async function pluginFixture() {
+async function pluginFixture(simulate: boolean) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-channel-simulation-vite-"))
   roots.push(root)
-  const plugin = hubAgent()
+  const plugin = hubAgent({ channels: { simulate } })
   // SAFETY: These fixtures provide the config fields read by the plugin hooks.
   const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
   // SAFETY: closeBundle is an object hook and needs no build context for a serve config.
@@ -35,54 +35,51 @@ async function pluginFixture() {
   closers.push(close)
   return {
     close,
-    resolve: (simulate: boolean, extra: object = {}) => configResolved({
+    resolve: (extra: object = {}) => configResolved({
       root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] },
       server: {}, logger: { info: vi.fn() }, createResolver: () => async () => undefined,
-      agent: { channels: { simulate } }, ...extra,
+      ...extra,
     }),
   }
 }
 
 it("preserves simulation explicitly enabled in the user's environment", async () => {
   process.env[channelSimulationEnv] = "simulate"
-  const plugin = await pluginFixture()
-  await plugin.resolve(true)
-  await plugin.resolve(false)
+  const enabled = await pluginFixture(true)
+  const disabled = await pluginFixture(false)
+  await enabled.resolve()
+  await disabled.resolve()
   expect(process.env[channelSimulationEnv]).toBe("simulate")
-  await plugin.close()
+  await enabled.close()
   expect(process.env[channelSimulationEnv]).toBe("simulate")
 })
 
 it("keeps concurrent servers enabled until the last one releases its environment", async () => {
   process.env[channelSimulationEnv] = "original"
-  const first = await pluginFixture()
-  const second = await pluginFixture()
-  await first.resolve(true)
-  await second.resolve(false)
+  const first = await pluginFixture(true)
+  const second = await pluginFixture(true)
+  await first.resolve()
+  await second.resolve()
   expect(process.env[channelSimulationEnv]).toBe("simulate")
-  await second.resolve(true)
-  await first.resolve(false)
+  await first.close()
   expect(process.env[channelSimulationEnv]).toBe("simulate")
   await second.close()
   expect(process.env[channelSimulationEnv]).toBe("original")
 })
 
-it("ends plugin-owned simulation when a dev server closes or disables the Agent", async () => {
-  const first = await pluginFixture()
-  await first.resolve(true)
+it("ends plugin-owned simulation when a dev server closes", async () => {
+  const first = await pluginFixture(true)
+  await first.resolve()
   await first.close()
   expect(process.env[channelSimulationEnv]).toBeUndefined()
-  const restarted = await pluginFixture()
-  await restarted.resolve(false)
-  expect(process.env[channelSimulationEnv]).toBeUndefined()
-  await restarted.resolve(true)
-  await restarted.resolve(false, { agent: false })
+  const restarted = await pluginFixture(false)
+  await restarted.resolve()
   expect(process.env[channelSimulationEnv]).toBeUndefined()
 })
 
 it("enables simulation in middleware-mode development servers such as Nuxt", async () => {
-  const plugin = await pluginFixture()
-  await plugin.resolve(true, { server: { middlewareMode: true } })
+  const plugin = await pluginFixture(true)
+  await plugin.resolve({ server: { middlewareMode: true } })
   expect(process.env[channelSimulationEnv]).toBe("simulate")
   expect(telegram({ mode: "polling" }).listener).toBeUndefined()
   await plugin.close()
@@ -95,7 +92,7 @@ it.each([
   { vitehubCliDiscovery: true },
   { command: "build" },
 ])("does not enable simulation during CLI discovery or builds: %j", async (config) => {
-  const plugin = await pluginFixture()
-  await plugin.resolve(true, config)
+  const plugin = await pluginFixture(true)
+  await plugin.resolve(config)
   expect(process.env[channelSimulationEnv]).toBeUndefined()
 })

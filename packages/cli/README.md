@@ -9,19 +9,14 @@
 
 ## Choose the package
 
-Install `vite-hub` in an application that uses the framework distribution. It includes the CLI and publishes both `vitehub` and `vite-hub` as binary names.
+Install `vite-hub`. It publishes the one `vitehub` binary, which runs this package.
 
 ```sh
 pnpm add vite-hub
 pnpm vitehub --help
 ```
 
-Install `@vite-hub/cli` directly when a library or custom Vite integration needs the command runner without the framework distribution. The standalone package publishes the `vitehub` binary and requires Vite. Install Nuxt too when the project has a Nuxt config but no Vite config.
-
-```sh
-pnpm add -D @vite-hub/cli vite
-pnpm vitehub --help
-```
+`@vite-hub/cli` has no binary of its own. A custom entry calls `runViteHubCliEntrypoint()`, as the `vitehub` binary of `vite-hub` does. It requires Vite, and Nuxt when the project has a Nuxt config but no Vite config.
 
 `@vite-hub/cli` requires Node.js 22.18 or newer. The current `vite-hub` distribution requires Node.js 22.22 or newer.
 
@@ -56,12 +51,12 @@ Available namespaces:
 
 ## Inspect the project
 
-`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect provider-output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. Both commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
+`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. Both commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
 
 ```sh
 pnpm vitehub inspect definitions --kind queue
 pnpm vitehub inspect definitions --json
-pnpm vitehub inspect provider-output --json
+pnpm vitehub inspect output --json
 pnpm vitehub inspect resources --json
 ```
 

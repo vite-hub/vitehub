@@ -16,7 +16,7 @@ Workflows, Schedule, Sandbox, Auth, other Server Primitives, and Agents.
 - Use ViteHub if your app also needs background work or Agents, or if it is a
   Vite app without Nuxt.
 
-Neither has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.0.x, and its
+Neither has a 1.0 release. NuxtHub is at v0.10. ViteHub is at 0.1.x, and its
 public API still changes.
 
 ## What NuxtHub is today
@@ -44,8 +44,8 @@ published on 27 October 2026.
 | Feature | NuxtHub v0.10 | ViteHub |
 | --- | --- | --- |
 | Frameworks | Nuxt | Vite with Nitro, and Nuxt 5 |
-| Host selection | Detects the host and sets up drivers | You set `preset`. A feature the preset cannot provide fails the build. |
-| Hosts | The announcement names Cloudflare, Vercel, and AWS | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
+| Host selection | Detects the host and sets up drivers | You set `host`. A feature the host cannot provide fails the build. |
+| Hosts | The announcement names Cloudflare, Vercel, and AWS | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` hosts |
 | Database | Drizzle ORM with SQLite, PostgreSQL, or MySQL | Drizzle ORM with SQLite, libSQL, Cloudflare D1, or Postgres |
 | KV | Upstash Redis, Cloudflare KV, Deno KV, Redis, file system, or another unstorage driver | `fs-lite`, Workers KV, Upstash Redis, or Deno KV |
 | Blob | File system, Amazon S3, Vercel Blob, or Cloudflare R2 | File system, R2, Vercel Blob, Netlify Blobs, S3-compatible stores, and other drivers |
@@ -54,7 +54,7 @@ published on 27 October 2026.
 | Queue, Workflows, Schedule | Not in the `hub` config | Available on the hosts in the support matrix |
 | Sandbox, Browser, Email, Auth, Rate Limit, Realtime | Not in the `hub` config | Available on the hosts in the support matrix |
 | AI and Agents | Removed in v0.10 | Agent Definitions, Capabilities, and Channels |
-| Inspection | Nuxt DevTools shows the database. NuxtHub Admin had an end date of 31 December 2025. | Console at `/_vitehub` and the `vitehub` CLI |
+| Inspection | Nuxt DevTools shows the database. NuxtHub Admin had an end date of 31 December 2025. | The hosted Console at console.vitehub.dev and the `vitehub` CLI |
 | License | Apache-2.0 | Apache-2.0 |
 
 The [support matrix](/docs/frameworks-hosts/support-matrix) lists each ViteHub
@@ -67,18 +67,19 @@ Nitro's Vite plugin. A Nuxt app adds the `vite-hub/nuxt` module. Server code use
 
 ## Nuxt support in ViteHub
 
-ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. The
-module takes the same options as `vitehub()`, also from the `vitehub` key in
+ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. Until Nuxt 5 is
+stable, install it as `nuxt@npm:nuxt-nightly@5x`. The module takes the same
+options as `vitehub()`, also from the `vitehub` key in
 `nuxt.config.ts`. It scans the server folder of the app and of each Nuxt
-layer. With Nitro auto-imports on, server code can use `kv`, `blob`, `db`, and
-`schema` without an import, as in NuxtHub. The Console runs as Nuxt pages.
+layer. On Nuxt 5, server code uses `kv`, `blob`, `db`, `schema`, and the
+helpers of every other enabled feature without an import, as in NuxtHub. See
+[Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports).
+The Console runs as Nuxt pages.
 
 Differences from a Vite app:
 
 - The Nuxt module does not support Connections yet. Use the Vite integration
   for them.
-- Postgres traffic with high concurrency on Cloudflare Workers needs Nitro 3.
-  Read [Use Postgres](/docs/database/hosts#use-postgres).
 
 [Nuxt](/docs/frameworks-hosts/nuxt) lists every difference from the Vite
 integration.
@@ -86,10 +87,10 @@ integration.
 ## Hosts
 
 Both run on more than one host, but pick providers in different ways. NuxtHub
-detects the host. ViteHub needs a `preset`, which picks the default provider
-for each feature. If the preset cannot provide a feature you turned on, the
+detects the host. ViteHub needs a `host`, which picks the default provider
+for each feature. If the host cannot provide a feature you turned on, the
 build fails. ViteHub does not fall back to another provider. Read
-[Choose a preset](/docs/frameworks-hosts#choose-a-preset).
+[Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 ## Server Primitives
 
@@ -121,7 +122,7 @@ key.
   Postgres database needs a Postgres server.
 - NuxtHub detects the host, so you write less config.
 - NuxtHub shows the database in Nuxt DevTools. ViteHub has its own
-  [Console](/docs/development/console).
+  [Console](/docs/development/console) at console.vitehub.dev.
 
 ## Move a Nuxt app from NuxtHub
 

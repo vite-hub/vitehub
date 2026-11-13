@@ -10,33 +10,24 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineConnection`, `apiKey`, `oauthLogin` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), with an API key or [OAuth login provider](/docs/connections/configure#oauth-login-connections). |
-| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods. |
-| `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code. The runtime functions are for hosts and tests. |
-| `createConnectionsHandler` from `vite-hub/connections/http` | Management, connect, and callback routes, mounted by the Console. Needs an `actor` access policy. |
+| `defineConnection`, `apiKey` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), with an [OAuth provider object](/docs/connections/configure#oauth-provider-objects) or an API key. |
+| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods for messages, attachments, drafts, labels, threads, history, the profile, and filters. `fetch()` reaches the other Gmail endpoints. |
+| `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code, and runtime access for hosts and tests. |
+| `createConnectionsHandler` from `vite-hub/connections` | Management, connect, and callback routes. `connections.management` mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
 
 ## Management routes
 
 The routes are `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback`, after the Vite `base` if set.
 
-Each route checks access before it reads or changes a Connection. With the Console, it uses the Console access policy and names the manager in activity:
+These routes are an API of your app, not of the Console. The development server mounts them with the `'development'` actor. A production build mounts them only with `connections: { management: { actor: './server/connections-actor.ts' } }`, a module whose default export is the actor policy below. Each route checks it before it reads or changes a Connection, and names the manager in activity.
 
-| Console access | Check | Manager |
-| --- | --- | --- |
-| `auth: { ... }` (Console Auth) | Console Auth session and its `authorize` callback. | The signed-in user. |
-| `auth: 'app'` | App Auth session and the Console access routes. | The signed-in user. |
-| `auth: { provider: 'cloudflare-access' }` | The Cloudflare Access token. | `user:cloudflare-access` |
-| `auth: false` | No sign-in. | `user:open` |
-
-`console.authorize` runs after each check. If it returns `{ sections }`, the routes also need the `connections` section.
-
-A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). `createConnectionsHandler()` returns a handler that takes a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 1 or H3 2 event in a ViteHub app. With `createConnectionsHandler()`, pass `actor`: a function that gets the request and the request event and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
+A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. `createConnectionsHandler()` returns a Fetchable route, `{ fetch(request) }`. Nitro mounts it as a route, and you can call `fetch()` with a Web `Request`. With `createConnectionsHandler()`, pass `actor`: a function that gets the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the [Standard Context](/docs/reference/runtime-context#standard-context) of the event, so `getStandardContext(request)` and the Auth helpers accept it. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
 
 With `createConnectionsHandler()`, pass `actor` as one of these:
 
 - a function that returns `user:<id>` to allow a manager, `undefined` to reject with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject with it
-- `'development'`, which allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere
+- `'development'`, which allows `user:local` only when `NODE_ENV` is `development` and the request comes from this machine. A request from another machine returns `403` with `CONNECTIONS_FORBIDDEN`, and another runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`
 
 The provider redirects to the OAuth callback. It finishes the flow only for the browser that started it (the `state` cookie) and the same manager. The `state` works once and expires after 10 minutes. A `state` from another manager returns `403`.
 
@@ -45,7 +36,7 @@ Add `?return=/path` to the connect route to pick the page to return to, such as 
 - A success returns to that page after two seconds and shows a **Back to Connections** link. Without `return`, it asks the user to close the tab.
 - A failure shows the error code, the fix, a docs link, and the same link, and stays.
 
-The action route takes only `POST`, so `GET /_vitehub/connections` shows the Console Connections page.
+The action route takes only `POST`.
 
 ### Origin checks
 
@@ -78,17 +69,19 @@ Each call checks access, gets a valid token, and sends the request. ViteHub refr
 
 Activity goes to the `vitehub_connection_activity` table. Each entry has the actor, action (`call`, `connect`, `refresh`, `disconnect`), Operation id, effect, outcome, provider status, duration, target host and path, and trace ids. It never holds bodies, headers, or tokens.
 
-Agent tools record every call, reads too. MCP messages record successful, denied, and failed requests. The Console shows activity per Connection.
+Agent tools record every call, reads too. MCP messages record successful, denied, and failed requests. `vitehub connections activity <name>` lists the activity of a Connection.
 
 ## CLI
 
-The CLI calls the management route of a running dev server with the Console on. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so the dev server does not rebuild.
+The CLI calls the management route of a running dev server. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so the dev server does not rebuild.
+
+For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, pass a session cookie that your `actor` accepts with `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. The dev server that the CLI finds by itself gets no credentials.
 
 | Command | Description |
 | --- | --- |
 | `vitehub connections list` | List Connections and their status. |
 | `vitehub connections inspect <name>` | Show one Connection: account, scopes, and actions. |
-| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the Console connect URL. |
+| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, it waits for the browser on `127.0.0.1`. Otherwise it prints the connect URL. |
 | `vitehub connections set-key <name>` | Store the key of an API key Connection from stdin. |
 | `vitehub connections activity <name>` | Show audited calls, refreshes, and denials. |
 | `vitehub connections approvals [approve\|deny <id>]` | List, approve, or deny pending writes. |

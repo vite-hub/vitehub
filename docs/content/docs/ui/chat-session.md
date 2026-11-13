@@ -3,7 +3,7 @@ title: Chat Session
 description: Present an application-owned chat session with a title and the same AI SDK message contract.
 navigation.order: 25
 navigation.group: Chat
-icon: i-ph-chats-circle-light
+icon: i-lucide-messages-square
 ---
 
 `ChatSession` wraps a saved conversation. It shows a title, a `Chat` that fills the space, and an optional footer for the prompt or session actions. AI SDK has no session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your metadata.
@@ -13,7 +13,7 @@ icon: i-ph-chats-circle-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat-session`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { ChatSession } from "@vite-hub/ui";

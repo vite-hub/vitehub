@@ -322,6 +322,162 @@ describe("editor codec guard", () => {
   })
 })
 
+describe("editor versions", () => {
+  function versioned(version: string) {
+    return { ...createStubEditor().editor, version }
+  }
+
+  it("seeds a persisted room fresh when the editor version changed, even with the same digest", async () => {
+    const sql = new FakeSql()
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const first = createTestServer(liveDefinition(memory.adapter, { editor: versioned("1") }), { durable: sql })
+    const client = await first.connect("page", { editor: "1" })
+    await settle()
+    const epoch = client.controls[0]!.epoch
+    client.close()
+    await settle()
+    const key = realtimeRoomKey("docs", "page")
+    expect(sql.documents.get(key)).toMatchObject({ digest: "v1", epoch })
+
+    // The same version restores the persisted room and its seed.
+    const same = await createTestServer(liveDefinition(memory.adapter, { editor: versioned("1") }), { durable: sql }).connect("page", { editor: "1", epoch })
+    expect(same.controls[0]).toEqual({ type: "session", access: "write", epoch })
+    same.close()
+    await settle()
+
+    // A new version cannot trust the Yjs state of the old schema: the room seeds from the Markdown with a new epoch.
+    const upgraded = createTestServer(liveDefinition(memory.adapter, { editor: versioned("2") }), { durable: sql })
+    const stale = await upgraded.connect("page", { editor: "2", epoch })
+    expect(stale.controls).toEqual([{ type: "reset", epoch: expect.not.stringMatching(epoch), reason: "stale" }])
+    const fresh = await upgraded.connect("page", { editor: "2" })
+    await settle()
+    expect(fresh.controls[0]).toEqual({ type: "session", access: "write", epoch: stale.controls[0]!.epoch })
+    expect(paragraphs(fresh.doc)).toEqual(["Start"])
+    expect(sql.documents.get(key)).toMatchObject({ digest: "v1", editor_version: "2", epoch: stale.controls[0]!.epoch })
+    fresh.close()
+  })
+
+  it.each([false, true])("makes another editor version read-only with awareness client ID %s", async (clientId) => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter, { editor: versioned("2") }))
+    const current = await server.connect("page", { editor: "2", clientId })
+    const old = await server.connect("page", { editor: "1", clientId })
+    const unversioned = await server.connect("page")
+    await settle()
+
+    expect(current.controls[0]).toMatchObject({ type: "session", access: "write" })
+    for (const client of [old, unversioned]) {
+      expect(client.controls[0]).toEqual({ type: "session", access: "read", epoch: current.controls[0]!.epoch, reason: "version" })
+      expect(paragraphs(client.doc)).toEqual(["Start"])
+    }
+
+    // An older schema deletes the nodes it does not know when it renders. The room drops those writes.
+    await pace()
+    old.doc.getXmlFragment("body").delete(0, 1)
+    appendParagraph(unversioned.doc, "Vandalism")
+    await vi.advanceTimersByTimeAsync(30_000)
+    await settle()
+    expect(paragraphs(current.doc)).toEqual(["Start"])
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    // The connection stays open, so it keeps receiving the room's updates instead of reconnecting in a loop.
+    expect(old.closed).toBeUndefined()
+    appendParagraph(current.doc, "Live")
+    expect(paragraphs(old.doc)).toEqual(["Live"])
+    current.close()
+    old.close()
+    unversioned.close()
+  })
+})
+
+describe("saves that do not fit the schema", () => {
+  it.each([
+    "[`defineContent`](/docs/content)",
+    "**`bold code`**",
+    "*`italic code`*",
+    "~~`deleted code`~~",
+    "---\n---",
+    "---\ntitle: Page\n---",
+  ])("saves field edits to codec-produced Markdown: %s", async (body) => {
+    const memory = createMemoryAdapter({ page: { body } })
+    const server = createTestServer({ document: memory.adapter, persistence: false })
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    client.doc.getMap("fields").set("title", "Updated")
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(200)
+    await expect(save.json()).resolves.toMatchObject({ document: { body, fields: { title: "Updated" } }, error: null, issues: [] })
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(memory.store.get("page")).toMatchObject({ body, fields: { title: "Updated" } })
+    client.close()
+  })
+
+  it("saves a custom editor's top node and checks its codec read-back", async () => {
+    const base = createStubEditor().editor
+    const editor = defineRealtimeEditor({
+      ...base,
+      extensions: () => base.extensions().map(extension => extension.name === "doc" ? extension.extend({ name: "page" }) : extension),
+      fromMarkdown: async markdown => ({ ...await base.fromMarkdown(markdown), type: "page" }),
+      toMarkdown: vi.fn(base.toMarkdown),
+    })
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter, { editor, persistence: false }))
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    client.doc.getMap("fields").set("title", "Updated")
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(200)
+    await expect(save.json()).resolves.toMatchObject({ document: { body: "Start", fields: { title: "Updated" } }, error: null, issues: [] })
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(editor.toMarkdown).toHaveBeenLastCalledWith({
+      type: "page",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Start" }] }],
+    })
+    client.close()
+  })
+
+  function appendElement(doc: Y.Doc, element: Y.XmlElement): void {
+    doc.getXmlFragment("body").push([element])
+  }
+
+  it.each([
+    ["a node type the schema does not know", () => {
+      const callout = new Y.XmlElement("callout")
+      callout.insert(0, [new Y.XmlText("Keep me")])
+      return callout
+    }],
+    ["content the schema does not allow", () => {
+      const outer = new Y.XmlElement("paragraph")
+      const inner = new Y.XmlElement("paragraph")
+      inner.insert(0, [new Y.XmlText("Nested")])
+      outer.insert(0, [inner])
+      return outer
+    }],
+  ])("refuses to save %s and keeps the room dirty", async (_, element) => {
+    // The built-in kit reads JSON that does not fit its schema as an empty document.
+    const memory = createMemoryAdapter({ page: { body: "Start\n" } })
+    const server = createTestServer({ document: memory.adapter })
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    appendElement(client.doc, element())
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    expect(memory.store.get("page")).toMatchObject({ body: "Start\n", digest: "v1" })
+    expect(readRealtimeStatus(client.doc).error).toBe("The room document does not fit the editor schema, so Realtime did not save it. Undo the last change or reload.")
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(422)
+    await expect(save.json()).resolves.toMatchObject({ data: { code: "REALTIME_INVALID_DOCUMENT" } })
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    client.close()
+  })
+})
+
 describe("server-written status", () => {
   it("closes clients that write the status map and keeps the room status", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
@@ -773,7 +929,7 @@ describe("room authorities", () => {
 
       await expect(response.text()).resolves.toBe("forwarded")
     }
-    // Nitro's cloudflare-durable entry sends every WebSocket upgrade to the instance named "server".
+    // Nitro's Cloudflare entry sends every WebSocket upgrade to the instance named "server".
     expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 

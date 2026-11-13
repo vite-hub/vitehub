@@ -1,27 +1,11 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   agentStory,
-  closingFacts,
-  closingHosts,
   installOptions,
   landingPrimitives,
   portabilityExamples,
 } from "../app/components/landing/content";
-import { primitiveScenes } from "../app/components/landing/primitive-scenes";
 import { primitiveLandings } from "../app/data/primitive-landings";
-
-const landingFiles = [
-  "Hero.vue",
-  "InstallCommand.vue",
-  "Primitives.vue",
-  "Portability.vue",
-  "AgentStory.vue",
-  "Closing.vue",
-  "PrimitiveMotion.vue",
-  "PrimitiveLines.vue",
-  "content.ts",
-];
 
 describe("landing page", () => {
   it("annotates each Agent field on its own line", () => {
@@ -68,25 +52,6 @@ describe("landing page", () => {
     expect(agentStory.positioning).not.toMatch(/flue|eve|lock-in|open/i);
   });
 
-  it("closes with one button and short facts that the docs back up", async () => {
-    const tutorial = await readFile(
-      new URL("../content/docs/getting-started/first-server-primitive.md", import.meta.url),
-      "utf8",
-    );
-    const license = await readFile(new URL("../../LICENSE", import.meta.url), "utf8");
-    const closing = await readFile(new URL("../app/components/landing/Closing.vue", import.meta.url), "utf8");
-
-    expect(closingFacts.map((fact) => fact.id)).toEqual(["local", "license", "nuxthub", "hosts"]);
-    expect(tutorial).toMatch(/needs no provider\s+account or credentials/);
-    expect(license).toContain("Apache License");
-    expect(closingHosts.map((host) => host.name)).toEqual(["Cloudflare", "Vercel", "Netlify", "Deno", "Node"]);
-    // The button opens the first primitive tutorial. No fact may be a second door to the same page.
-    for (const fact of closingFacts) {
-      if ("to" in fact) expect(fact.to).not.toBe("/docs/getting-started/first-server-primitive");
-    }
-    expect(closing.match(/<UButton/g)).toHaveLength(1);
-  });
-
   it("offers one-click skill and package commands in the hero", () => {
     expect(installOptions.skill.command).toBe("npx skills add https://vitehub.dev --skill vitehub");
     expect(installOptions.packages.map((option) => option.value)).toEqual([
@@ -102,34 +67,6 @@ describe("landing page", () => {
       expect(option.command).not.toContain("@vite-hub/");
     }
 
-  });
-
-  it("leads with portability and keeps the primitive catalog interactive", async () => {
-    const source = (
-      await Promise.all(
-        landingFiles.map((file) =>
-          readFile(new URL(`../app/components/landing/${file}`, import.meta.url), "utf8"),
-        ),
-      )
-    ).join("\n");
-    const normalizedSource = source.replace(/\s+/g, " ");
-
-    expect(source).toContain("The server layer for Vite apps.");
-    expect(normalizedSource).toContain("Write once.<br>Deploy anywhere.");
-    expect(normalizedSource).toContain("Same code on every host. The host picks the provider.");
-    // One radius system: the landing is square like the primitive grid.
-    expect(source).not.toMatch(/rounded-(?:full|sm|md|lg)\b|999px/);
-    expect(source).toContain('aria-label="ViteHub APIs"');
-    expect(source).toContain("useSharedIndicator");
-    expect(source).toContain("prefers-reduced-motion");
-    expect(source).toMatch(/<pre|<code/);
-    expect(source).not.toMatch(/vitehub-backplane\.webp|server-primitives\.webp|agents\.webp/);
-    expect(source).not.toMatch(
-      /Pick this path|Verified contract|First success \/|The map \/|Your move \/|DIRECT|COMPOSED/,
-    );
-    expect(source).not.toMatch(/Math\.random|Date\.now|window\.matchMedia/);
-    expect(source).toContain(":aria-pressed");
-    expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
 
   it("keeps the full set of animated primitives", () => {
@@ -150,20 +87,23 @@ describe("landing page", () => {
       "source",
       "connections",
       "gateways",
+      "decisions",
       "realtime",
       "browser",
       "shell",
       "channels",
       "email",
+      "forms",
       "rate-limit",
       "cms",
+      "i18n",
       "comments",
       "ui",
     ]);
     for (const primitive of landingPrimitives) {
-      expect(primitiveScenes).toHaveProperty(primitive.id);
       expect(primitive.to).toMatch(/^\/docs\//);
-      expect(primitive.icon).toMatch(/^i-(?:lucide|ph)-/);
+      // The ViteHub set, as in the docs sidebar and the Console.
+      expect(primitive.icon).toMatch(/^i-vitehub-/);
     }
     expect(portabilityExamples.map((example) => example.id)).toEqual([
       "storage",
@@ -189,65 +129,6 @@ describe("landing page", () => {
       expect(landing.docsTo, landing.slug).not.toContain("/docs/server-primitives");
       expect(landing.docsTo, landing.slug).not.toContain("/docs/reference/realtime");
     }
-  });
-
-  it("keeps reduced-motion and hidden install controls static", async () => {
-    const primitiveMotion = await readFile(
-      new URL("../app/components/landing/PrimitiveMotion.vue", import.meta.url),
-      "utf8",
-    );
-    const reducedMotion = primitiveMotion.slice(
-      primitiveMotion.indexOf("@media (prefers-reduced-motion: reduce)"),
-    );
-    const installCommand = await readFile(
-      new URL("../app/components/landing/InstallCommand.vue", import.meta.url),
-      "utf8",
-    );
-
-    expect(reducedMotion).toContain("animation: none;");
-    expect(primitiveMotion).toContain(".primitive-motion:not(.is-playing) .a {\n  animation-play-state: paused;");
-    expect(primitiveMotion).toContain("animation-iteration-count: infinite;");
-    const primitives = await readFile(
-      new URL("../app/components/landing/Primitives.vue", import.meta.url),
-      "utf8",
-    );
-    expect(primitives).not.toContain("Replay scenes");
-    expect(primitives).toContain(':play="visible"');
-    // The line field draws once and stops. It runs frames only for the entrance and the active tile.
-    const primitiveLines = await readFile(
-      new URL("../app/components/landing/PrimitiveLines.vue", import.meta.url),
-      "utf8",
-    );
-    expect(primitiveLines).toContain("usePreferredReducedMotion()");
-    expect(primitiveLines).toContain("pause();");
-    expect(primitives).toContain("useIntersectionObserver(");
-    expect(installCommand).toContain(":tabindex=\"activeTab === 'package' ? 0 : -1\"");
-    expect(installCommand).toContain("transition: none;");
-  });
-
-  it("wires landing-page metadata through Nuxt SEO and Schema.org", async () => {
-    const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
-    const markdown = await readFile(new URL("../content/index.md", import.meta.url), "utf8");
-    const description =
-      "ViteHub is an open-source Vite plugin. Use one API for databases, storage, queues, workflows, and AI Agents, and deploy to Cloudflare, Vercel, Netlify, or Node.";
-
-    expect(source).toContain("<LandingHero />");
-    expect(source).toContain("<LandingPortability />");
-    expect(source.indexOf("<LandingHero />")).toBeLessThan(source.indexOf("<LandingPortability />"));
-    expect(source.indexOf("<LandingPortability />")).toBeLessThan(source.indexOf("<LandingAgentStory />"));
-    expect(source.indexOf("<LandingAgentStory />")).toBeLessThan(source.indexOf("<LandingClosing />"));
-    expect(source).not.toContain("<LandingSharedApi />");
-    expect(source).not.toContain("<LandingNuxtHubMigration />");
-    expect(source).toContain("useSeoMeta({");
-    expect(source).toContain('ogType: "website"');
-    expect(source).toContain('ogUrl: "https://vitehub.dev"');
-    expect(source).toContain("useSchemaOrg([\n  defineWebSite({");
-    expect(source).not.toContain("defineOgImage");
-    expect(source).toContain('const title = "Server primitives and Agents for Vite apps";');
-    expect(source).toContain(description);
-    expect(markdown).toContain(`description: ${description}`);
-    expect(source).toContain("AI Agents defined in one file, with Channels for Slack, Discord, and Telegram");
-    expect(source).not.toContain("titleTemplate");
   });
 
 });

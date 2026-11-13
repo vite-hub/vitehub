@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Diagnostic } from "nostics";
+
 import { schemaContainsEnum } from "../core/values.ts";
 import { descriptorVariable, env } from "../core/declarations.ts";
 import { invalidEnvDeclaration } from "../core/errors.ts";
@@ -11,7 +13,7 @@ import type {
   EnvRuntimeConfigOptions,
   EnvValueSchema,
   EnvVariableDeclaration,
-  EnvViteConfigOptions,
+  EnvDeclarations,
 } from "../types.ts";
 import type { EnvSchemaField } from "./profile.ts";
 
@@ -106,7 +108,7 @@ function serverConfig(tree: Map<string, Tree>): EnvRuntimeConfigOptions {
 export function envSchema(
   file: string | URL,
   options: EnvSchemaOptions = {},
-): EnvViteConfigOptions {
+): EnvDeclarations {
   const filename = file instanceof URL ? fileURLToPath(file) : resolve(file);
   const prefix = options.prefix ?? "VITEHUB_";
   if (prefix && (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(prefix) || prefix.length > 128))
@@ -121,9 +123,11 @@ export function envSchema(
   try {
     fields = parseEnvSchema(source, filename);
   } catch (error: unknown) {
+    // Keep the ENV_B0006 diagnostic as the cause so its code and fix stay visible.
     throw invalidEnvDeclaration(
       filename,
       error instanceof Error ? error.message : `${filename}: Invalid environment schema file`,
+      error instanceof Diagnostic ? error : undefined,
     );
   }
   const knownKeys = new Set(fields.map((field) => field.key));

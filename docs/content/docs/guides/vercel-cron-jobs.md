@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
-Set `preset: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function per file. Vercel calls that function at the cron time, and it runs your handler. You do not edit `vercel.json`.
+Set `host: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function per file. Vercel calls that function at the cron time, and it runs your handler. You do not edit `vercel.json`.
 
 ## What Vercel Cron Jobs is
 
@@ -17,14 +17,14 @@ You write the cron expression and handler in one file. ViteHub writes the path, 
 
 ## Set up Vercel Cron Jobs
 
-### Enable Schedule with the Vercel preset
+### Enable Schedule with the Vercel host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', schedule: true },
+  vitehub: { host: 'vercel', schedule: true },
 })
 ```
 :::
@@ -36,7 +36,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
 })
 ```
 :::
@@ -47,13 +47,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', schedule: true })],
+  plugins: [vitehub({ host: 'vercel', schedule: true })],
 })
 ```
 :::
 ::
 
-The `vercel` preset writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for all options.
+The `vercel` host writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for all options.
 
 ### Define a schedule
 
@@ -133,7 +133,7 @@ cat .vercel/output/config.json
 
 Vercel deploys Vite and Nitro apps with [zero configuration](https://vercel.com/docs/frameworks/full-stack/vite-with-nitro). Connect the Git repository to a Vercel project, or run `vercel deploy` from the app root. Vercel calls the cron paths on production. The project **Settings** page lists them under **Cron Jobs**, with their logs.
 
-To run a schedule outside its cron time, use `vitehub schedule run daily-report --url https://your-app.vercel.app`. The deployment needs the [Console](/docs/development/console) with `invoke` enabled. If `VITEHUB_DISPATCH_KEY` is set, the CLI sends a [signed dispatch](/docs/development/cli#signed-dispatch) instead of a Console login.
+To run a schedule outside its cron time, use `vitehub schedule run daily-report --url https://your-app.vercel.app`. The deployment needs the [Console](/docs/development/console) with `invoke` enabled. The CLI [signs the call](/docs/development/console#sign-console-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, so it needs no Console login.
 
 ## Vercel Cron Jobs limits
 
@@ -155,9 +155,9 @@ On Hobby, a cron that runs more than once per day fails the deployment.
 
 ## Move the same schedule to another host
 
-The schedule file stays the same. Change the preset, and the build writes the new host's cron config:
+The schedule file stays the same. Change the host, and the build writes the new host's cron config:
 
-| Preset | What runs the schedule |
+| Host | What runs the schedule |
 | --- | --- |
 | `cloudflare` | A Cloudflare Cron Trigger in the generated `wrangler.json`. |
 | `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs after restarts. |

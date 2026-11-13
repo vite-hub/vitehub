@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../../internal/runtime-type.ts"
 import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } from "../../capability-runtime.ts"
 import { publishWorkspaceArtifacts, rewriteDeliveryArtifactMarkdown } from "../../delivery-artifacts.ts"
 import { toAgentRunResult } from "../../agent-output.ts"
@@ -8,7 +7,7 @@ import {
 } from "../../agent-workspace-runtime.ts"
 import { cloneWithPropertyDescriptors } from "../../internal/stream-result.ts"
 import { loadAgentWorkflowBlobPrimitive } from "../../internal/workflow-runtime-loaders.ts"
-import { attachmentStringBytes, blobArrayBuffer, currentInputAttachments, isAttachmentBlob, isAttachmentData, resolveAttachmentData } from "../../messages.ts"
+import { attachmentStringBytes, currentInputAttachments, isAttachmentBlob, isAttachmentData, resolveAttachmentData } from "../../messages.ts"
 import { defineInternalTool, jsonObjectSchema, requirePrimitive } from "../internal.ts"
 import {
   assertString,
@@ -271,7 +270,7 @@ async function readInputAttachment(context: AgentCapabilityContext, id: string) 
   if (!isAttachmentData(body)) {
     throw agentDiagnostics.AGENT_R0208({ message: `[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.` })
   }
-  return { body: hasRuntimeType(body, "string") ? attachmentStringBytes(body, attachment.mediaType) : isAttachmentBlob(body) ? new Uint8Array(await blobArrayBuffer(body)) : body, mediaType: attachment.mediaType }
+  return { body: typeof body === "string" ? attachmentStringBytes(body, attachment.mediaType) : isAttachmentBlob(body) ? new Uint8Array(await body.arrayBuffer()) : body, mediaType: attachment.mediaType }
 }
 
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
@@ -327,7 +326,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
           }
           if (operation === "delete") {
             const path = assertString(pathname, "blob_edit pathname")
-            await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(path))
+            await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "delete")(path))
             return { pathname: path, deleted: true }
           }
           throw agentDiagnostics.AGENT_R0212({ message: `[vitehub] Unsupported blob_edit operation: ${String(operation)}` })

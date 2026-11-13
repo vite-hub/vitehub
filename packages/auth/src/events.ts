@@ -92,6 +92,7 @@ const listSchema = v.object({
 export function parseAuthEventList(input: unknown): { query: AuthEventListInput, before: [string, string] | undefined } {
   const query = v.parse(listSchema, input)
   const before = query.cursor ? v.parse(cursorSchema, JSON.parse(decodeURIComponent(query.cursor))) : undefined
+  // Internal invariant: the events route turns this into a 400. A catalog code would change the TypeError class.
   if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw new TypeError("Auth event from must be before to.")
   return { query, before }
 }
@@ -99,6 +100,7 @@ export function parseAuthEventList(input: unknown): { query: AuthEventListInput,
 export function parseAuthEventWindow(window: { from: string, to: string }): { from: string, to: string } {
   const from = new Date(v.parse(timestamp, window.from)).toISOString()
   const to = new Date(v.parse(timestamp, window.to)).toISOString()
+  // Internal invariant: the events route turns this into a 400. A catalog code would change the TypeError class.
   if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new TypeError("Auth event windows must be positive and at most 366 days.")
   return { from, to }
 }
@@ -113,6 +115,7 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
   const { db } = options
   const retention = options.retention === false ? false : { ...defaultAuthEventRetention, ...options.retention }
   if (retention && Object.values(retention).some(value => !Number.isSafeInteger(value) || value < 1)) {
+    // Internal invariant: a published TypeError. A catalog code would change its class.
     throw new TypeError("Auth event retention limits must be positive integers.")
   }
   let ready: Promise<void> | undefined

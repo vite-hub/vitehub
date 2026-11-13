@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import { useCollection } from "vite-hub/source/client";
 import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -11,13 +12,13 @@ import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
-import { openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session"
+import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
 import { consoleProjectHost, consoleProjectName } from "../client/projects"
 import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
 import type { ConsoleNavigation } from "../client/sections"
-import { recentTimestamp } from "../client/time"
+import { recentTimestamp } from "../client/format"
 import { useConsoleToast } from "../client/toast"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { parseConsoleSectionContent } from "../definitions"
@@ -339,9 +340,9 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
     ]
   : [])
 
-// A hosted Console switches between the projects that this browser linked.
+// An `account` Console switches between the projects of the team.
 const projects = useConsoleProjects()
-const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "hosted"
+const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "embedded"
   ? [{
       children: [
         ...projects.projects.value.map(project => ({
@@ -353,18 +354,12 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "h
             if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
           },
         })),
-        { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
         { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
       ],
       icon: "i-lucide-arrow-left-right",
       keywords: ["project", "projects", "app", "link", "change"],
       label: "Switch project…",
       placeholder: "Choose a project…",
-    }, {
-      icon: "i-lucide-plus",
-      keywords: ["create", "init", "start", "stack", "app"],
-      label: "New project",
-      onSelect: openConsoleNewProject,
     }]
   : [])
 
@@ -599,7 +594,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   const definitionSections = installed.flatMap((section) => {
     const details = resolveConsoleSectionDetails(installedNavigation.value, section)
     const catalog = section === "databases"
-      || installedNavigation.value?.contributions[section]?.view.kind === "definition-catalog"
+      || ["definition-catalog", "workspace-browser"].includes(installedNavigation.value?.contributions[section]?.view.kind ?? "")
     return details && catalog ? [{ details, section }] : []
   })
   const catalogs = await Promise.all(definitionSections.map(async ({ details, section }) => ({
@@ -805,18 +800,14 @@ onBeforeUnmount(() => {
     :ui="{ root: 'flex-1', content: 'flex-1', footer: 'px-3 py-2', itemLeadingIcon: 'size-4' }"
   >
     <template #empty="{ searchTerm: value }">
-      <div class="grid justify-items-center gap-2 px-6 py-10 text-center">
-        <UIcon
-          name="i-lucide-search-x"
-          class="size-6 text-dimmed"
-        />
-        <p class="text-sm font-medium text-highlighted">
-          No matches
-        </p>
-        <p class="text-xs text-muted">
-          {{ value.trim() ? "Try a page, document, Agent, definition, key, or session." : "No Console results are available yet." }}
-        </p>
-      </div>
+      <UEmpty
+        variant="naked"
+        size="sm"
+        icon="i-lucide-search-x"
+        title="No matches"
+        :description="value.trim() ? 'Try a page, document, Agent, definition, key, or session.' : 'No Console results are available yet.'"
+        class="py-10"
+      />
     </template>
     <!-- Items with the `section` slot show the same section icon as the rail and the Overview. -->
     <template #section-leading="{ item, ui }">
@@ -825,16 +816,7 @@ onBeforeUnmount(() => {
     <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
     <template #document-leading="{ item }">
       <span class="flex size-5 shrink-0 items-center justify-center">
-        <span
-          class="size-2 rounded-full"
-          :class="{
-            success: 'bg-success',
-            warning: 'bg-warning',
-            error: 'bg-error',
-            neutral: 'ring-1 ring-(--ui-text-dimmed) ring-inset',
-          }[consoleDocumentStateColor(item.state ?? 'draft')]"
-          aria-hidden="true"
-        />
+        <Status :tone="consoleDocumentStateColor(item.state ?? 'draft')" />
         <span v-if="item.stateLabel" class="sr-only">{{ item.stateLabel }}</span>
       </span>
     </template>

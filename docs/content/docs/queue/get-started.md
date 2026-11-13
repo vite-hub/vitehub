@@ -20,14 +20,14 @@ In this tutorial, you send a welcome job from an API route, and the handler writ
 ::tutorial-step{title="Enable Queue for Cloudflare"}
 ## Enable Queue for Cloudflare
 
-In `vite.config.ts`, change the `vitehub()` options to use Cloudflare and turn on Queue. Keep the other options of your app.
+In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloudflare and turn on Queue. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare', queue: true },
 })
 ```
 ::::
@@ -40,7 +40,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
 })
 ```
 ::::
@@ -52,16 +52,16 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare', queue: true })],
 })
 ```
 ::::
 :::
 
-- `preset: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
+- `host: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
 - `queue: true` turns on Queue.
 
-Did you choose Nuxt in Installation? Then set the same options in the `vite-hub/nuxt` module. For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
+For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
 
 Install the Queue package and Wrangler, the Cloudflare CLI. You use Wrangler later to read the logs of the deployed app:
 
@@ -158,7 +158,7 @@ Build the app, and see what ViteHub found and wrote:
 ```bash [commands/inspect]
 pnpm build
 pnpm vitehub inspect definitions --kind queue
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 - The list of definitions shows `welcome-email`.

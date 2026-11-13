@@ -3,6 +3,7 @@ import { join } from "node:path"
 
 import { bundleReportDir, readEnvironmentReportFolder } from "./files.ts"
 import { createBundleReport } from "./report.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { BundleComparison, BundleGroup, BundleGroupChange, BundleGroupSize, BundleReport, BundleSide, BundleSideComparison, BundleTotals } from "./types.ts"
 
@@ -49,10 +50,6 @@ export function compareBundleReports(before: BundleReport, after: BundleReport):
   const client = compareSide(before.client, after.client)
   const server = compareSide(before.server, after.server)
   return { schemaVersion: 1, builds: { before: before.build, after: after.build }, ...(client ? { client } : {}), ...(server ? { server } : {}) }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isSize(value: unknown): value is number {

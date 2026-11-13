@@ -10,6 +10,29 @@ async function data<T>(operation: Promise<Result<T>>): Promise<T> {
 }
 
 describe("Auth Console with real Better Auth plugins", () => {
+  it("binds bearer Auth changes to their user's live session and keeps impersonation session-only", async () => {
+    const { auth, db, operator, member } = await fixture();
+    const session = db.session.find((session) => session.userId === operator.id)!;
+    const bearer = { user: { id: operator.id }, sessionId: String(session.id) };
+    const api = createAuthConsole(auth, {}, undefined, { bearer, impersonation: true });
+    const request = new Request(operator.request.url);
+    expect((await data(api.describe(request))).actions.ban.enabled).toBe(true);
+    expect((await data(api.describe(request))).actions.impersonate.enabled).toBe(false);
+    expect((await api.execute({ action: "impersonate", userId: member.id }, request))[0]?.code).toBe("AUTH_CONSOLE_FORBIDDEN");
+    expect((await api.stopImpersonating(operator.request))[0]?.code).toBe("AUTH_CONSOLE_FORBIDDEN");
+    for (const invalid of [
+      { user: bearer.user },
+      { user: { id: member.id }, sessionId: bearer.sessionId },
+    ]) {
+      const denied = createAuthConsole(auth, {}, undefined, { bearer: invalid });
+      const [error] = await denied.execute({ action: "ban", userId: member.id }, operator.request);
+      expect(error?.code).toBe("AUTH_CONSOLE_FORBIDDEN");
+    }
+    session.expiresAt = new Date(0);
+    expect((await api.execute({ action: "ban", userId: member.id }, operator.request))[0]?.code).toBe("AUTH_CONSOLE_FORBIDDEN");
+    expect(db.user.find((user) => user.id === member.id)?.banned).toBeFalsy();
+  });
+
   it("lists safe fields, linked providers, active sessions, organizations and consents", async () => {
     const { api, auth, db, operator, member, read } = await fixture();
     const ctx = await auth.$context;

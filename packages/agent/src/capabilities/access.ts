@@ -1,17 +1,16 @@
 import { isTrustedSourceFreeInspection, grantWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 
 import type {
   AgentCallbackContext,
   AgentAccessInvocationContextValue,
   AgentAccessWorkspaceScopeContext,
-  AgentActor,
+  AgentInvoker,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
-  AgentInvoker,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentWebhookRegistrationDefinition,
@@ -180,12 +179,11 @@ export type AccessWorkspaceResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
-> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "actor" | "input" | "invoker"> & {
+> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input" | "invoker"> & {
   readonly [accessWorkspaceOptionsType]?: {
     readonly inputContext: TInputContext
     readonly name: Name
   }
-  actor: AccessInputContextInvoker<TInputContext>
   invoker: AccessInputContextInvoker<TInputContext>
   input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
     get: () => AgentRunInput<unknown, TInputContext>
@@ -218,7 +216,6 @@ export interface AccessWorkspaceOptions<
 
 export interface AccessChatContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
-  actor?: AgentActor
   invoker?: AgentInvoker
   input?: unknown
   provider: string
@@ -373,7 +370,7 @@ export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName>
 export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
-  if (!options || !hasRuntimeType(options, "object")) {
+  if (!options || typeof options !== "object") {
     throw agentDiagnostics.AGENT_R0015({ message: "[vitehub] access() requires options." })
   }
   if (!options.chat && !options.workspace) {
@@ -524,7 +521,7 @@ function overridePrototypeMethods<T extends object>(target: T, overrides: Partia
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return hasRuntimeType(value, "object") && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function toWorkspaceSelectedScope(scope: ResolvedWorkspaceScope) {
@@ -606,7 +603,7 @@ async function resolveSelection<
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
 ): Promise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined> {
   if (options.resolve !== undefined) {
-    const resolved = hasRuntimeType(options.resolve, "function")
+    const resolved = typeof options.resolve === "function"
       // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
       ? await options.resolve(context as AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>)
       : options.resolve
@@ -616,7 +613,7 @@ async function resolveSelection<
 }
 
 function hasNonEmptyString(value: unknown): boolean {
-  return hasRuntimeType(value, "string") && value.trim().length > 0
+  return typeof value === "string" && value.trim().length > 0
 }
 
 function hasNonEmptyStringList(value: unknown): boolean {
@@ -638,18 +635,18 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
 }
 
 function normalizeSelection(value: unknown): NormalizedWorkspaceScopeSelection | undefined {
-  if (hasRuntimeType(value, "string") && value.trim()) return { scope: value }
-  if (!value || !hasRuntimeType(value, "object")) return undefined
+  if (typeof value === "string" && value.trim()) return { scope: value }
+  if (!value || typeof value !== "object") return undefined
   // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
   const candidate = value as { role?: unknown, scope?: unknown }
-  if (!hasRuntimeType(candidate.scope, "string") || !candidate.scope.trim()) return undefined
+  if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
   return {
     // SAFETY: Object normalization establishes the inline access scope definition contract.
     ...(hasInlineScopeDefinition(value as Record<string, unknown>)
       // SAFETY: The inline scope guard establishes the asserted access scope definition.
       ? { definition: value as AccessWorkspaceScopeDefinition }
       : {}),
-    ...(hasRuntimeType(candidate.role, "string") && candidate.role.trim() ? { role: candidate.role } : {}),
+    ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,
   }
 }
@@ -719,7 +716,7 @@ function normalizeStringList(single: string | undefined, multiple: readonly stri
   return [
     ...(single ? [single] : []),
     ...(multiple || []),
-  ].filter((value): value is string => hasRuntimeType(value, "string") && value.trim().length > 0)
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0)
 }
 
 function sourcePaths(
@@ -876,7 +873,7 @@ function scopedSearchQuery(scope: ResolvedWorkspaceScope, query: WorkspaceSearch
 }
 
 function workspaceSessionStarter(input: unknown): WorkspaceSessionStarter | undefined {
-  if (!isRuntimeRecord(input) || !hasRuntimeType(input.startSession, "function")) return
+  if (!isRuntimeRecord(input) || typeof input.startSession !== "function") return
   // SAFETY: The runtime guard establishes the only Workspace session member used by this facade.
   return input as WorkspaceSessionStarter
 }
@@ -1046,10 +1043,10 @@ async function readSourceRequestDescriptor(
 ): Promise<WorkspaceSourceRequestDescriptor | undefined> {
   try {
     const value = JSON.parse(await fs.readFile(path))
-    if (!value || !hasRuntimeType(value, "object")) return undefined
+    if (!value || typeof value !== "object") return undefined
     // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
     const descriptor = value as Partial<WorkspaceSourceRequestDescriptor>
-    if (!hasRuntimeType(descriptor.method, "string") || !hasRuntimeType(descriptor.url, "string")) return undefined
+    if (typeof descriptor.method !== "string" || typeof descriptor.url !== "string") return undefined
     // SAFETY: Access scope normalization establishes the asserted Workspace facade contract.
     return descriptor as WorkspaceSourceRequestDescriptor
   }

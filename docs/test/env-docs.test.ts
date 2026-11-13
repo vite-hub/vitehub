@@ -49,9 +49,13 @@ function declarationSection(call: CallExpression) {
     const envProperty = sections.parent;
     if (
       isObjectLiteralExpression(sections) &&
-      isPropertyAssignment(envProperty) &&
-      propertyName(envProperty.name) === "env" &&
-      envProperty.initializer === sections
+      ((isPropertyAssignment(envProperty) &&
+        propertyName(envProperty.name) === "env" &&
+        envProperty.initializer === sections) ||
+        (isCallExpression(envProperty) &&
+          isIdentifier(envProperty.expression) &&
+          envProperty.expression.text === "hubEnv" &&
+          envProperty.arguments[0] === sections))
     ) {
       return name;
     }
@@ -118,7 +122,8 @@ describe("canonical Env documentation", () => {
   it("keeps every Public Env and Define Env declaration in build mode", async () => {
     const declarations = await canonicalBuildDeclarations();
 
-    expect(declarations).toHaveLength(4);
+    // The standalone hero code tree adds one Vite declaration to the canonical examples.
+    expect(declarations).toHaveLength(6);
     for (const declaration of declarations) {
       const options = declaration.arguments[0];
       expect(isObjectLiteralExpression(options) && optionsHaveBuildMode(options)).toBe(true);
@@ -127,14 +132,14 @@ describe("canonical Env documentation", () => {
 
   it("recognizes only direct canonical build-backed declarations", () => {
     const source = `
-      defineConfig({ env: {
+      hubEnv({
         public: {
           valid: env({ mode: "build" }),
           invalid: env.variable({ mode: "runtime" }),
           server: env({ mode: "runtime" }),
         },
         server: { token: env({ mode: "runtime" }) },
-      } })
+      })
     `;
     const declarations = directEnvDeclarations(source).filter((call) => {
       const section = declarationSection(call);

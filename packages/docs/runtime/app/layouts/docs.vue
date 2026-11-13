@@ -3,9 +3,9 @@ const { banner } = useDocsConfig()
 const found = useDocsPage()
 // A tutorial with a code panel uses the whole page column, half for prose and half for files.
 const hasCodePanel = computed(() => found.value?.page.codePanel === true)
-const tutorialNavigation = useTutorialNavigation()
-// Other docs pages show the navigation unless they set `sidebar: false`. A tutorial shows it only when the reader opens it.
-const showsNavigation = useDocsSidebarShown()
+// Pages show the sidebar unless they set `sidebar: false`. A page with `sidebar: "collapsed"`, and a code panel tutorial,
+// shows a narrow strip until the reader opens the sidebar.
+const sidebar = useDocsSidebar()
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {
@@ -16,42 +16,31 @@ const docsShellUi = {
 </script>
 
 <template>
-  <!-- On wide screens the sidebar carries the brand, search, and the site links, so the site header hides beside it. -->
-  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel, 'has-sidebar': showsNavigation }">
-    <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
-    <a href="#docs-content" class="vh-skip-link">Skip to content</a>
-    <UPage :ui="docsShellUi">
-      <template v-if="showsNavigation" #left>
-        <UPageAside class="vh-docs-aside hidden lg:flex">
-          <!-- Phones hide this column and open the sidebar from the header menu, so it hydrates only once it shows. -->
-          <LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" panel head />
-        </UPageAside>
-      </template>
+  <DocsAppShell layout>
+    <!-- On wide screens the sidebar carries the brand, search, and the site links, so the site header hides beside it. -->
+    <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel, 'has-sidebar': sidebar.state !== 'hidden', 'is-collapsed': sidebar.state === 'collapsed' }">
+      <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
+      <a href="#docs-content" class="vh-skip-link">Skip to content</a>
+      <UPage :ui="withDocsTheme('page', docsShellUi)">
+        <template v-if="sidebar.state !== 'hidden'" #left>
+          <UPageAside class="vh-docs-aside hidden lg:flex">
+            <!-- Phones hide this column and open the sidebar from the header menu, so it hydrates only once it shows. -->
+            <LazyDocsSidebars hydrate-on-visible class="vh-docs-aside-sidebars" :panel="sidebar.state === 'open'" head :collapsible="sidebar.collapsible" />
+          </UPageAside>
+        </template>
 
-      <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-      <div id="docs-content" tabindex="-1" class="relative">
-        <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
-        <!-- A toggle keeps one name, and `aria-pressed` says whether the navigation shows. -->
-        <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
-          <button
-            type="button"
-            class="vh-tutorial-toggle"
-            :class="{ 'beside-navigation': showsNavigation }"
-            aria-label="Show navigation"
-            :aria-pressed="tutorialNavigation"
-            @click="tutorialNavigation = !tutorialNavigation"
-          >
-            <UIcon name="i-lucide-panel-left" class="size-4" />
-          </button>
-        </UTooltip>
-        <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
-        <div v-if="banner" class="flex min-h-10 items-center justify-center border-b border-[var(--ui-border)] bg-default px-4 py-2 text-center text-sm/5">
-          <span class="text-muted">{{ banner }}</span>
+        <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
+        <div id="docs-content" tabindex="-1" class="relative">
+          <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
+          <!-- A page with a collapsible sidebar, such as a playground, fills the viewport, so it has no banner. -->
+          <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
+            <span class="text-muted">{{ banner }}</span>
+          </div>
         </div>
-      </div>
-      <slot />
-    </UPage>
-  </UMain>
+        <slot />
+      </UPage>
+    </UMain>
+  </DocsAppShell>
 </template>
 
 <style scoped>
@@ -62,6 +51,7 @@ const docsShellUi = {
   z-index: 60;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--ui-border);
+  border-radius: calc(var(--ui-radius) * 1.5);
   background: var(--ui-bg);
   color: var(--ui-text-highlighted);
   font-size: 0.875rem;
@@ -73,52 +63,17 @@ const docsShellUi = {
   transform: none;
 }
 
-.vh-tutorial-toggle {
-  display: none;
-}
-
 @media (min-width: 64rem) {
-  /* The button stays in the top left corner of the page column while the tutorial scrolls. At the top it is the first cell of the banner row. */
-  .vh-tutorial-toggle {
-    position: fixed;
-    z-index: 10;
-    top: var(--ui-header-height);
-    left: 0;
-    display: flex;
-    width: 2.5rem;
-    height: 2.5rem;
-    align-items: center;
-    justify-content: center;
-    border-right: 1px solid var(--ui-border);
-    border-bottom: 1px solid var(--ui-border);
-    background: var(--ui-bg);
-    color: var(--ui-text-dimmed);
-    transition: color 150ms ease, background-color 150ms ease;
-  }
-
-  .vh-tutorial-toggle.beside-navigation {
-    left: var(--vh-sidebar-width);
-  }
-
-  .vh-tutorial-toggle[aria-pressed="true"] {
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text-highlighted);
-  }
-
-  .vh-tutorial-toggle:hover {
-    color: var(--ui-text-highlighted);
-  }
-
-  .vh-tutorial-toggle:focus-visible {
-    outline: 2px solid var(--ui-text-highlighted);
-    outline-offset: -2px;
-  }
-
   /* Beside a tutorial the navigation is a short page list, so its panel is narrower and the prose and code keep the width. */
   /* The sum is set again here, because a custom property resolves its calc() where it is declared. */
   .vh-docs-shell.is-tutorial {
     --vh-panel-width: 12rem;
     --vh-sidebar-width: calc(var(--vh-rail-width) + var(--vh-panel-width));
+  }
+
+  /* A collapsed sidebar is a strip as wide as the rail. */
+  .vh-docs-shell.is-collapsed {
+    --vh-sidebar-width: var(--vh-rail-width);
   }
 
   /* AppHeader hides beside the sidebar. Sticky offsets and full-height columns read this variable. */

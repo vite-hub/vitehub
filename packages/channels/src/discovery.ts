@@ -57,7 +57,12 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
  * that cannot be read statically stays a Channel, so the runtime reports its problems.
  */
 function isChannelModule(file: string): boolean {
-  const module = scanModule(readFileSync(file, "utf8"), file)
+  return isOutboundChannelSource(readFileSync(file, "utf8"), file)
+}
+
+/** Classifies a Channel's source without running it or requiring a file on disk. */
+export function isOutboundChannelSource(source: string, file: string): boolean {
+  const module = scanModule(source, file)
   if (module.errors.length) return true
 
   const bindings = new Map<string, Node>()

@@ -3,7 +3,7 @@ title: Marker
 description: "Show an inline status, a note, or a labeled separator between conversation turns."
 navigation.order: 12
 navigation.group: Parts
-icon: i-ph-flag-light
+icon: i-lucide-flag
 ---
 
 `Marker` is a quiet line between turns: a date separator, a branch switch, or a note that the context was compacted. Use it with [Message](/docs/ui/message). The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Marker](https://ui.shadcn.com/docs/components/marker).
@@ -13,7 +13,7 @@ icon: i-ph-flag-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/marker`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";
@@ -28,7 +28,7 @@ import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";
 ```vue
 <template>
   <Marker>
-    <MarkerIcon><UIcon name="i-ph-magnifying-glass-light" /></MarkerIcon>
+    <MarkerIcon><UIcon name="i-lucide-search" /></MarkerIcon>
     <MarkerContent>Explored 4 files</MarkerContent>
   </Marker>
 </template>
@@ -117,7 +117,7 @@ For work in progress, such as "Thinking" or a running tool, set `role="status"` 
 
 ```vue
 <Marker role="status">
-  <MarkerIcon><UIcon name="i-ph-circle-dashed-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-circle-dashed" /></MarkerIcon>
   <MarkerContent>Compacting the conversation</MarkerContent>
 </Marker>
 ```
@@ -134,7 +134,7 @@ Do not add `role="separator"` to a labeled divider. A separator takes its name f
 
 ```vue
 <Marker aria-label="Synced">
-  <MarkerIcon><UIcon name="i-ph-check-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-check" /></MarkerIcon>
 </Marker>
 ```
 

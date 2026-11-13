@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -81,7 +82,7 @@ describe("viteHubTaskPlugin", () => {
     const without = await runConfigHook(await project({}))
 
     const [contribution] = await collectOperationContributions([withTasks.plugin])
-    expect(contribution).toMatchObject({ export: "taskOperations", module: "vite-hub/_internal/task/operations" })
+    expect(contribution).toMatchObject({ export: "taskOperations", module: ownModule(import.meta.url, "task/operations") })
     expect(operationsOf(await contribution?.load?.()).map(operation => operation.name)).toEqual(["task.list", "task.run"])
     await expect(collectOperationContributions([without.plugin])).resolves.toEqual([])
   })

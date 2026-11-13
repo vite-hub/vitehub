@@ -1,14 +1,18 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
+import frameworkPackageManifest from "../../../package.json" with { type: "json" }
 import { moduleSpecifier, vitehubModule } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
+import { dependsOn } from "./integrations.ts"
 
 const generatedFile = /(?:^|\/)\.vitehub\//
 const generatedImport = /(?:^|\/)(?:\.vitehub|\.nuxt\/vitehub)(?:\/|$)/
 const internalImport = /^(?:vite-hub\/_internal|@vite-hub\/internal|@vite-hub\/[^/]+\/_?internal)(?:\/|$)/
 /** The `#vitehub/*` aliases that the import paths reference documents. Packages resolve others for generated code. */
-const publicAliases = /^#vitehub\/(?:env\/public|env\/server|auth\/server|schedule\/registry|emails\/.+)$/
+const publicAliases = /^#vitehub\/(?:auth\/server|emails\/.+|env\/public|schedule\/registry)$/
+/** Aliases whose exports moved to a primitive root. `vitehub/no-removed-apis` reports them. */
+const movedAliases = /^#vitehub\/env\/server$/
 
 export const noInternalImports: DoctorRule = createRule({
   meta: {
@@ -37,10 +41,10 @@ export const noInternalImports: DoctorRule = createRule({
             fix: "Import the public `vite-hub/*` path for this feature. The ViteHub import paths reference lists each one.",
           }), { range: ctx.range(node) })
         }
-        else if (specifier.startsWith("#vitehub/") && !publicAliases.test(specifier)) {
+        else if (specifier.startsWith("#vitehub/") && !publicAliases.test(specifier) && !movedAliases.test(specifier)) {
           ctx.report(diagnostics.VHUB0001({
             why: `\`${specifier}\` is a module that ViteHub generates for its own runtime code. Its exports can change in any release.`,
-            fix: "Import the public `vite-hub/*` path for this feature. The public aliases are `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry`.",
+            fix: "Import the public `vite-hub/*` path for this feature. The public aliases are `#vitehub/env/public` for browser code, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry`.",
           }), { range: ctx.range(node) })
         }
       },
@@ -55,12 +59,12 @@ const serverOnlyAliases = new Set(["#vitehub/env/server", "#vitehub/auth/server"
  */
 const serverOnlyModules = new Set([
   "agent", "agent/capabilities", "agent/channels", "agent/mcp",
-  "blob", "browser", "browser/actions", "channels", "comments", "content",
-  "database/drizzle", "decisions", "forms", "forms/database", "forms/runtime",
-  "env", "env/auth", "env/bridge", "env/database", "env/http", "env/provider", "env/seal", "env/secret",
+  "blob", "browser", "channels", "comments", "content",
+  "database", "decisions", "email", "forms", "forms/database", "forms/operations", "forms/runtime",
+  "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
-  "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
+  "schedule", "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
   "workflow", "workspace", "workspace/runtime",
 ])
 const clientAppDirs = ["components", "composables", "layouts", "middleware", "pages", "plugins", "stores", "utils"]
@@ -102,4 +106,38 @@ export const noServerImportsInClient: DoctorRule = createRule({
   },
 })
 
-export const rules: DoctorRule[] = [noInternalImports, noServerImportsInClient]
+const ownerPackages = new Set(Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies }))
+/** Paths after `vite-hub/` that re-export the owner path after `@vite-hub/`, such as `blob` and `rate-limit/drivers/memory`. */
+const facadePaths = new Set(Object.keys(frameworkPackageManifest.exports).flatMap((subpath) => {
+  const path = subpath.replace(/^\.\/?/, "")
+  return path && !path.startsWith("_internal/") && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
+}))
+/** The `vite-hub` package and the owner packages import each other through `@vite-hub/*`. */
+const viteHubPackage = /^(?:vite-hub|@vite-hub\/.+)$/
+
+export const preferViteHubImports: DoctorRule = createRule({
+  meta: {
+    id: "vitehub/prefer-vite-hub-imports",
+    title: "Import ViteHub features from vite-hub/*",
+    category: "imports",
+    severity: "warn",
+    requires: { script: true },
+  },
+  create(ctx) {
+    if (generatedFile.test(ctx.file.relativePath)) return
+    if (viteHubPackage.test(ctx.project.packageName ?? "") || !dependsOn(ctx, "vite-hub")) return
+    return {
+      ScriptNode(node) {
+        const specifier = moduleSpecifier(node)?.specifier
+        const path = specifier?.startsWith("@vite-hub/") ? vitehubModule(specifier) : undefined
+        if (!path || !facadePaths.has(path)) return
+        ctx.report(diagnostics.VHUB0036({
+          why: `This app uses \`vite-hub\`, but imports \`${specifier}\` from the owner package. Apps import ViteHub features from \`vite-hub/*\`, and \`vite-hub/${path}\` re-exports \`${specifier}\`.`,
+          fix: `Import \`vite-hub/${path}\` instead of \`${specifier}\`.`,
+        }), { range: ctx.range(node) })
+      },
+    }
+  },
+})
+
+export const rules: DoctorRule[] = [noInternalImports, noServerImportsInClient, preferViteHubImports]

@@ -49,7 +49,7 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     COMMENTS_R0012: {
       why: "Writing a comment needs a signed-in user.",
-      fix: "Sign in, then try again. In `vite dev` without sign-in, set console.auth so comments know who writes.",
+      fix: "Sign in, then try again. Without ViteHub Auth or `identify`, sign in with GitHub so comments know who writes.",
     },
     COMMENTS_R0013: {
       why: "The comments request did not get an answer from the server.",
@@ -78,8 +78,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
           ? `The vitehub_comment_threads table misses columns of this version: ${missing.join(", ")}.`
           : "The Database has no comment tables.",
       fix: ({ state }: { state: "empty" | "live" | "outdated" }) => state === "live"
-        ? "Move the tables once in a custom migration: run vitehub db generate --custom --schema-snapshot --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
-        : "Run vitehub db generate and vitehub db migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
+        ? "Move the tables once in a custom migration: run vitehub database generate --custom --schema-snapshot --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub database migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
+        : "Run vitehub database generate and vitehub database migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
     },
     COMMENTS_R0020: {
       why: ({ key }: { key: string }) => `No comment that you may read has the attachment ${JSON.stringify(key)}, or its file is gone.`,
@@ -88,6 +88,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_R0021: {
       why: "Comments stores attachments with storeAttachment, but has no readAttachment to read them back.",
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
+    },
+    COMMENTS_R0022: {
+      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
+      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,

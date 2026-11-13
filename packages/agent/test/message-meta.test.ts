@@ -4,7 +4,7 @@ import { createChatMessageTriggerInput, markDerivedChatTriggerInvoker } from "..
 import { defineAgent, portableAgentWorkflowInput } from "../src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
 import { resolveAgentChannelChatOptions } from "../src/internal/channels.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { hasResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -22,7 +22,7 @@ const metaSchema = {
   "~standard": {
     validate(input: unknown) {
       const meta = isRuntimeRecord(input) && !Array.isArray(input) ? input : undefined
-      if (!meta || ![undefined, "support", "technical"].includes(hasRuntimeType(meta.audience, "string") ? meta.audience : undefined)) {
+      if (!meta || ![undefined, "support", "technical"].includes(typeof meta.audience === "string" ? meta.audience : undefined)) {
         return { issues: [{ message: "audience must be support or technical" }] }
       }
       return { value: { audience: meta.audience ?? "support" } }
@@ -438,7 +438,7 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com", id: "chat:user-1" },
     })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("preserves metadata owned by an explicit chat Invoker", async () => {
@@ -477,7 +477,7 @@ describe("Agent message metadata", () => {
     await parseAgentMessageMeta(agent, context)
 
     expect(context.get("invoker")).toEqual({ id: "chat:user-1", kind: "chat", meta: { audience: "support", id: "chat:user-1" } })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("removes derived Invoker identity stripped by the metadata schema", async () => {
@@ -496,7 +496,7 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", id: "chat:user-1" },
     })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("retains user identity metadata when the schema strips the matching raw field", async () => {
@@ -516,7 +516,7 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com" },
     })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("preserves explicit programmatic Invokers while parsing Channel metadata", async () => {

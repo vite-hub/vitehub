@@ -1,7 +1,6 @@
 import type { StateAdapter } from "chat"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../internal/runtime-value.ts"
 
 /** A webhook gets an answer within this many milliseconds of its arrival, once its request is stored. */
 export const defaultWebhookAckTimeoutMs = 5_000
@@ -72,7 +71,7 @@ export interface DrainDeferredWebhookAdmissionsResult {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return isRuntimeObject(value) && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 /** Resolves the `ackTimeoutMs` of a webhook registration. `undefined` means the route waits for admission. */
@@ -123,14 +122,14 @@ function logWebhookInbox(event: string, fields: Record<string, unknown>): void {
 
 function isStoredWebhookInboxEntry(value: unknown): value is StoredWebhookInboxEntry {
   return isRecord(value)
-    && isRuntimeString(value.id)
-    && isRuntimeString(value.receivedAt)
-    && isRuntimeString(value.webhookId)
-    && isRuntimeNumber(value.attempts)
+    && typeof value.id === "string"
+    && typeof value.receivedAt === "string"
+    && typeof value.webhookId === "string"
+    && typeof value.attempts === "number"
     && isRecord(value.request)
-    && isRuntimeString(value.request.url)
-    && isRuntimeString(value.request.method)
-    && isRuntimeString(value.request.body)
+    && typeof value.request.url === "string"
+    && typeof value.request.method === "string"
+    && typeof value.request.body === "string"
     && isRecord(value.request.headers)
 }
 
@@ -310,7 +309,7 @@ export async function replayWebhookInbox(
   for (const [keyPrefix, state] of states) {
     const indexedEntries = new Map<string, { entry?: StoredWebhookInboxEntry, attempts: number }>()
     for (const indexed of await state.getList(webhookInboxIndexKey(keyPrefix))) {
-      if (!isRecord(indexed) || !isRuntimeString(indexed.id)) continue
+      if (!isRecord(indexed) || typeof indexed.id !== "string") continue
       const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
       const previous = indexedEntries.get(indexed.id)
       indexedEntries.set(indexed.id, {
@@ -345,7 +344,7 @@ export async function replayWebhookInbox(
         // at the route boundary. If this process does not own it, take over once and retry.
         const currentOwner = await state.get(`${key}:owner`)
         const ownerIsStale = isRecord(currentOwner)
-          && isRuntimeNumber(currentOwner.heartbeatAt)
+          && typeof currentOwner.heartbeatAt === "number"
           && Date.now() - currentOwner.heartbeatAt > webhookInboxOwnerTtlMs / 3
         if (response.headers.get("x-vitehub-webhook-duplicate") === "1" && !activeWebhookInboxLocks.has(key) && (!(isRecord(currentOwner) && currentOwner.settled === true)) && (!currentOwner || ownerIsStale)) {
           const forceReleaseLock = (state as StateAdapter & { forceReleaseLock?: (threadId: string) => Promise<void> }).forceReleaseLock

@@ -94,7 +94,6 @@ const descriptionCount = computed(() => text(values.value.description).length);
 const titleLong = computed(() => titleCount.value > props.hint.title.recommended);
 const descriptionOff = computed(() => descriptionCount.value > props.hint.description.recommended || (descriptionCount.value > 0 && descriptionCount.value < props.hint.description.min));
 
-// Ghost controls, as in the other property rows: no fill, a border on hover and focus.
 // Autoresize measures the value, not the placeholder. An empty description gets as many rows as its fallback needs at
 // the current width, so the placeholder is never cut off.
 const descriptionBox = ref<HTMLElement>();
@@ -117,23 +116,22 @@ const placeholderRows = computed(() => {
   const perRow = Math.max(12, Math.floor((descriptionWidth.value - 84) / (descriptionFont.value * 0.54)));
   return Math.min(6, Math.ceil(fallback.length / perRow));
 });
-const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
 </script>
 
 <template>
   <section class="mt-1 grid gap-px" :aria-label="`${name} settings`">
-    <button
-      type="button"
-      class="flex h-8 w-fit max-w-full items-center gap-2 rounded-md px-1.5 text-[13px] text-muted hover:text-highlighted focus-visible:outline-2"
+    <UButton
+      variant="ghost"
+      class="w-fit max-w-full"
+      :icon="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
       :aria-expanded="open"
       :aria-controls="`${controlId('group')}`"
       @click="open = !open"
     >
-      <UIcon :name="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4 shrink-0 opacity-70" aria-hidden="true" />
-      <span class="font-medium text-highlighted">SEO</span>
+      <span class="text-highlighted">SEO</span>
       <span class="truncate text-dimmed">{{ summary }}</span>
       <span v-if="hasIssue && !open" class="size-1.5 shrink-0 rounded-full bg-error" aria-hidden="true" />
-    </button>
+    </UButton>
 
     <div v-show="open" :id="controlId('group')" class="grid gap-px">
       <ConsolePropertyRow icon="i-lucide-heading" label="Title" :control="controlId('title')" :error="error('title')">
@@ -142,7 +140,8 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
           :model-value="text(values.title)"
           class="w-full"
           variant="ghost"
-          :ui="{ base: ghost, trailing: 'pe-2.5' }"
+          :highlight="Boolean(error('title'))"
+          :color="error('title') ? 'error' : undefined"
           :disabled="disabled"
           :placeholder="fallbacks.title"
           :aria-invalid="error('title') ? 'true' : undefined"
@@ -167,7 +166,9 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
             variant="ghost"
             autoresize
             :rows="placeholderRows"
-            :ui="{ base: `${ghost} pe-16` }"
+            :ui="{ base: 'pe-16' }"
+            :highlight="Boolean(error('description'))"
+            :color="error('description') ? 'error' : undefined"
             :disabled="disabled"
             :placeholder="fallbacks.description || 'Search engines pick text from the page'"
             :aria-invalid="error('description') ? 'true' : undefined"
@@ -195,7 +196,6 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
           :model-value="text(values.image)"
           class="w-full"
           variant="ghost"
-          :ui="{ base: ghost }"
           :disabled="disabled"
           placeholder="/og/page.png"
           @update:model-value="update('image', String($event ?? ''))"
@@ -206,9 +206,8 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
         <UInput
           :id="controlId('canonical')"
           :model-value="text(values.canonical)"
-          class="w-full"
+          class="w-full font-mono"
           variant="ghost"
-          :ui="{ base: `${ghost} font-mono text-xs md:text-xs` }"
           :disabled="disabled"
           :placeholder="fallbacks.url ?? 'The document URL'"
           @update:model-value="update('canonical', String($event ?? ''))"
@@ -224,7 +223,7 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
       <div class="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]">
         <figure class="grid content-start gap-1.5">
           <figcaption class="text-xs text-muted">Search result</figcaption>
-          <div class="grid gap-0.5 rounded-md border border-default p-3" :class="noindex ? 'opacity-50' : undefined">
+          <div class="grid gap-0.5 rounded-lg border border-default p-3" :class="noindex ? 'opacity-50' : undefined">
             <p class="truncate text-xs text-dimmed">{{ breadcrumb }}</p>
             <p class="line-clamp-1 text-sm font-medium text-highlighted">{{ title ? consoleTruncate(title, hint.title.recommended) : "Untitled" }}</p>
             <p class="line-clamp-2 text-xs text-muted">{{ description ? consoleTruncate(description, hint.description.recommended) : "No description. Search engines pick text from the page." }}</p>
@@ -234,7 +233,7 @@ const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled
 
         <figure class="grid content-start gap-1.5">
           <figcaption class="text-xs text-muted">Social card</figcaption>
-          <div class="overflow-hidden rounded-md border border-default">
+          <div class="overflow-hidden rounded-lg border border-default">
             <div class="relative aspect-[1.91/1] bg-elevated">
               <img
                 v-if="imageUrl && !imageFailed"

@@ -15,8 +15,8 @@ The package requires Node.js 22.18 or newer.
 
 | Project                              | Install                      | Import from                                                               |
 | ------------------------------------ | ---------------------------- | ------------------------------------------------------------------------- |
-| A ViteHub application                | `pnpm add vite-hub`          | `vite-hub/browser` and `vite-hub/browser/actions`                         |
-| A direct Vite integration or library | `pnpm add @vite-hub/browser` | `@vite-hub/browser`, its `/actions` subpath, and `@vite-hub/browser/vite` |
+| A ViteHub application                | `pnpm add vite-hub`          | `vite-hub/browser`                                                        |
+| A direct Vite integration or library | `pnpm add @vite-hub/browser` | `@vite-hub/browser` and `@vite-hub/browser/vite`                          |
 
 Use `vite-hub` for normal application code. It includes this package and keeps the Browser integration with the rest of the ViteHub deployment.
 
@@ -34,7 +34,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "cloudflare",
+      host: "cloudflare",
       browser: true,
     }),
   ],
@@ -44,7 +44,7 @@ export default defineConfig({
 Call a stateless action from trusted server code:
 
 ```ts
-import { runBrowserContent } from "vite-hub/browser/actions"
+import { runBrowserContent } from "vite-hub/browser"
 
 export async function checkExampleDomain() {
   const html = await runBrowserContent("https://example.com")
@@ -134,7 +134,7 @@ export default defineConfig({
 })
 ```
 
-Use `@vite-hub/browser` and `@vite-hub/browser/actions` in the corresponding server code. `hubBrowser()` discovers Browser Definitions and writes Cloudflare Browser Provider Output. It does not deploy the Worker, authenticate Cloudflare, or select a local browser.
+Use `@vite-hub/browser` in the corresponding server code. `hubBrowser()` discovers Browser Definitions and writes Cloudflare Browser Provider Output. It does not deploy the Worker, authenticate Cloudflare, or select a local browser.
 
 ## Manage a local Chromium process
 

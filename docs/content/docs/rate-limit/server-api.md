@@ -22,7 +22,7 @@ await requireRateLimit(event, 'image-upload', {
 
 The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals, because ViteHub writes the provider config before runtime. `event` and `key` are runtime values, so the identity can change per request.
 
-- `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 1 or H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
+- `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
 - A `Request` has no client address, so pass `key`. On Cloudflare, the guard reads `cf-connecting-ip` and the current request's bindings instead.
 - The same ID with the same normalized policy shares one budget. Conflicting policies fail the build and show both source locations.
@@ -39,9 +39,17 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals,
 
 `checkRateLimit(event, id, options)` takes the same arguments and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
 
-```ts fragment
-const [error, decision] = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
-if (error || !decision.allowed) return genericCard()
+```ts [server/api/og.get.ts]
+import { defineEventHandler } from 'h3'
+import { checkRateLimit } from 'vite-hub/rate-limit'
+
+export default defineEventHandler(async (event) => {
+  const [error, decision] = await checkRateLimit(event, 'og-image', { limit: 20, window: '1m' })
+  if (error) throw error
+  // Over the limit, answer with the generic card instead of rendering one
+  if (!decision.allowed) return { image: '/og/generic.png' }
+  return { image: `/og/render.png?path=${encodeURIComponent(event.url.pathname)}` }
+})
 ```
 
 `reason` is `limited` when the budget is used up, or `unavailable` when the driver failed and `failure` is `deny`. With `failure: 'allow'`, an unavailable driver returns `allowed: true` with `reason: 'unavailable'`. `error` is set when the check cannot run: `RATE_LIMIT_R0013` for a request without a key, and `RATE_LIMIT_R0009` for a missing Cloudflare binding. Invalid options throw. ViteHub discovers `checkRateLimit()` calls like `requireRateLimit()` calls, so the ID and policy must be static, and both share one budget per ID.
@@ -50,12 +58,13 @@ if (error || !decision.allowed) return genericCard()
 
 | Import | Use |
 | --- | --- |
-| `requireRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Enforce a discovered managed Rate Limit inside an H3 handler. |
-| `checkRateLimit` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Consume a discovered managed Rate Limit and return `[error, decision]`. |
-| `createRateLimiter` from `vite-hub/rate-limit` or `@vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
-| `memoryRateLimitDriver` from `@vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
-| `cloudflareRateLimitDriver` from `@vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
-| `hubRateLimit` from `@vite-hub/rate-limit/vite` | Add call discovery, runtime setup, and Provider Output without the framework preset. |
+| `requireRateLimit` from `vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
+| `checkRateLimit` from `vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
+| `createRateLimiter` from `vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
+| `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
+| `kvRateLimitDriver` from `@vite-hub/rate-limit/drivers/kv` | Fixed windows in a KV store that every process shares, with `kv` from `vite-hub/kv`. |
+| `cloudflareRateLimitDriver` from `vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
+| `hubRateLimit` from `@vite-hub/rate-limit/vite` | Add call discovery, runtime setup, and Provider Output without the framework integration. |
 
 `@vite-hub/rate-limit/runtime` is for framework integrations only. Apps call `requireRateLimit()` or build a direct limiter.
 
@@ -95,8 +104,8 @@ pnpm add @vite-hub/rate-limit
 ```
 
 ```ts
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const limiter = createRateLimiter({
   driver: memoryRateLimitDriver(),
@@ -109,5 +118,20 @@ const decision = await limiter.consume({ key: 'demo' })
 ```
 
 Every direct limiter exposes its resolved `policy` and the provider features that affect enforcement and deployment. The memory driver lives in one process. Use it for development, tests, and hosts you know run one process.
+
+`kvRateLimitDriver()` counts in a KV store instead, so every process that uses the store shares the counts. The store needs an atomic `increment`: the `redis`, `database`, and `upstash` KV drivers have one.
+
+```ts
+import { createRateLimiter } from '@vite-hub/rate-limit'
+import { kvRateLimitDriver } from '@vite-hub/rate-limit/drivers/kv'
+import { kv } from 'vite-hub/kv'
+
+const limiter = createRateLimiter({
+  driver: kvRateLimitDriver({ storage: kv.store('limits') }),
+  enforcement: 'strict',
+  limit: 10,
+  window: '1m',
+})
+```
 
 A custom driver returns `[null, result]` after it consumes the counter. It returns `[error, undefined]` only for expected outages that the failure policy handles. Config, provider-contract, and code defects must throw.

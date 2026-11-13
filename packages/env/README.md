@@ -33,18 +33,17 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     public: {
       appName: env({ default: "ViteHub App", mode: "build" }),
     },
-  },
+  })],
 });
 ```
 
 ```ts
 // app/env.ts
-import { usePublicEnv } from "#vitehub/env/public";
+import { usePublicEnv } from "vite-hub/env";
 
 console.log(usePublicEnv().appName); // ViteHub App
 ```
@@ -63,22 +62,21 @@ import { env, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     server: {
       airtableToken: env({
         secret: true,
         source: env.source("AIRTABLE_TOKEN"),
       }),
     },
-  },
+  })],
 });
 ```
 
 ```ts
 // server/sync.ts
-import type { ViteHubContext } from "@vite-hub/env/server";
-import { useServerEnv } from "#vitehub/env/server";
+import type { ViteHubContext } from "@vite-hub/runtime";
+import { useServerEnv } from "vite-hub/env";
 
 export async function sync(event: ViteHubContext) {
   const { airtableToken } = useServerEnv(event);
@@ -91,7 +89,34 @@ export async function sync(event: ViteHubContext) {
 
 ## Derive secrets from one root secret
 
-`deriveSecret(purpose)` from `#vitehub/env/server` derives a 32-byte hex secret from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) with HKDF-SHA256, salt `vitehub`. Console Auth and CLI dispatch derive their secrets the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
+`deriveSecret(purpose)` from `@vite-hub/env` derives a 32-byte hex secret from `VITEHUB_SECRET` with HKDF-SHA256, salt `vitehub`. Auth derives its secret the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
+
+## Seal a value
+
+`seal(purpose, value, { ttl })` from `@vite-hub/env` encrypts and signs a JSON value with AES-GCM. It returns a URL-safe string, so you can put it in a link, a cookie, or a hidden field. `unseal(purpose, sealed)` reads it back. Use it for upload tickets, signed links, OAuth state, and other tokens that the client must carry but must not read or change.
+
+```ts
+// server/uploads.ts
+import { seal, unseal } from "@vite-hub/env";
+import * as v from "valibot";
+
+const Upload = v.object({ userId: v.string() });
+
+export async function uploadUrl(userId: string) {
+  const ticket = await seal("my-app:upload", { userId }, { ttl: 900 });
+  return `/api/uploads/${ticket}`;
+}
+
+export async function readTicket(ticket: string) {
+  const [error, upload] = await unseal("my-app:upload", ticket, { schema: Upload });
+  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, or ENV_SEAL_WRONG_PURPOSE
+  return upload;
+}
+```
+
+Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
+
+A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for short-lived tokens. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. See [App secret](https://vitehub.dev/docs/env/app-secret#seal-a-value).
 
 ## Typed server values
 
@@ -108,7 +133,23 @@ env: {
 }
 ```
 
-`useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included. `env.server` does not accept custom `schema` parsers because the generated runtime must serialize the parser.
+`useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included.
+
+For a pattern, a custom refinement, or a transform, export a Standard Schema from a module and point the declaration at it. The server build imports the module and runs the schema on the raw value:
+
+```ts fragment
+// server/env.schema.ts
+export const apiUrl = z.url().refine(url => url.startsWith("https://"))
+
+// vite.config.ts
+env: {
+  server: {
+    apiUrl: env({ schema: env.schemaFrom("./server/env.schema.ts", "apiUrl") }),
+  },
+}
+```
+
+The generated type is the schema output type. A secret keeps its `SecretEnv` wrapper, and its errors omit the schema messages. Read [Validate Server Env with your own schema](https://vitehub.dev/docs/env/configure#validate-server-env-with-your-own-schema).
 
 ## `.env.example` schemas
 
@@ -119,8 +160,7 @@ import { envSchema, hubEnv } from "@vite-hub/env/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: envSchema(new URL("./.env.example", import.meta.url)),
+  plugins: [hubEnv(envSchema(new URL("./.env.example", import.meta.url)))],
 });
 ```
 
@@ -149,14 +189,14 @@ The [runnable schema lab](./examples/schema-lab/README.md) builds a browser bund
 
 ## Presets
 
-Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
+Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env`.
 
 | Preset | Declares |
 | --- | --- |
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
 | `typesafeEnv({ model? })` | The Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey` (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`, default `jev-latest`). |
 
-The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
+The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })` uses `typesafe()` when it gets no other gateway, and it reads this group:
 
 ```ts fragment
 env: {
@@ -177,8 +217,6 @@ import { env, hubEnv } from "@vite-hub/env/vite"
 export default {
   plugins: [hubEnv({
     providers: { credentials: "./server/env/credentials.ts" },
-  })],
-  env: {
     server: {
       gatewayKey: env({ secret: true }),
       githubToken: env({
@@ -186,14 +224,14 @@ export default {
         source: env.provider("credentials", "github/token"),
       }),
     },
-  },
+  })],
 }
 ```
 
 ```ts
 // server/env/credentials.ts
-import { defineEnvProvider } from "@vite-hub/env/provider"
-import type { SecretEnv } from "@vite-hub/env/secret"
+import { defineEnvProvider } from "@vite-hub/env"
+import type { SecretEnv } from "@vite-hub/env"
 
 export default defineEnvProvider<{ gatewayKey: SecretEnv<string> }>({
   async read({ env, keys, signal }) {
@@ -208,7 +246,7 @@ export default defineEnvProvider<{ gatewayKey: SecretEnv<string> }>({
 ```
 
 ```ts
-import { loadServerEnv } from "#vitehub/env/server"
+import { loadServerEnv } from "vite-hub/env"
 
 const snapshot = await loadServerEnv()
 const githubToken = snapshot.githubToken.unseal()
@@ -218,7 +256,7 @@ Each `loadServerEnv()` call batches requested keys once per provider and returns
 
 `env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true })` skips empty host values. Without `skipEmpty`, a defined empty string remains a value. Generated built-in Channel sources use `skipEmpty` to preserve their host fallback behavior.
 
-The generated `#vitehub/env/server` module is not blocked from client builds. Keep its imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
+The Server Env helpers of `@vite-hub/env` are not blocked from client builds. Keep their imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 
 `SecretEnv` renders as `<redacted>` in string conversion, JSON, and Node inspection. Call `unseal()` only at the provider boundary that needs the raw value. Redaction is type friction, not complete leak prevention: never return, log, trace, or place an unsealed value in Agent input.
 
@@ -249,7 +287,7 @@ Each `EnvErrorCode` owns a fixed public message and a bounded details shape. Sou
 
 ## Generated modules
 
-Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed.
+Use `hubEnv()` in Vite to resolve public/build env, generate the Public Env and Server Env that `usePublicEnv()` and `useServerEnv()` read, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed.
 
 `hubEnv()` writes generated env runtime modules to `.vitehub/env/` and generated env types to `.vitehub/types/env.d.ts`. Add `.vitehub/types/**/*.d.ts` to your `tsconfig.json` include list when TypeScript should see app-specific Public Env and Server Env fields.
 
@@ -275,13 +313,25 @@ export default {
 };
 ```
 
+To type code without running Vite, such as in a test or a docs check, pass the same `env` options to `createEnvTypes()`. It returns the contents of `.vitehub/types/env.d.ts`:
+
+```ts
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createEnvTypes, env } from "@vite-hub/env/vite";
+
+mkdirSync(".vitehub/types", { recursive: true });
+writeFileSync(".vitehub/types/env.d.ts", createEnvTypes({
+  server: { githubToken: env({ secret: true, source: env.source("GITHUB_TOKEN") }) },
+}));
+```
+
 Public Env and `env.define` values are compiled into client bundles. Never put credentials in either section. The host still owns secret storage and injection; Env owns declarations, resolution, generated accessors, validation, and default redaction.
 
 Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
 
 ### Declaration inventory
 
-`describeServerEnv()` from `#vitehub/env/server` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the canonical variable name of env declarations, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, conventional host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
+`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the canonical variable name of env declarations, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, conventional host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
 
 `hubEnv()` contributes two CLI commands:
 
@@ -296,7 +346,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 
 `createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
 
-`@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `seal`, `unseal`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format.
+`@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `sealWithKey`, `unsealWithKey`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format. To seal an app value with a key derived from `VITEHUB_SECRET`, use [`seal()` and `unseal()`](#seal-a-value).
 
 A bridge implements the existing `read()` provider contract. Its `replace()` operation requires the last inspected revision (or `null` to create), preventing lost updates. Existing snapshots remain unchanged; the next load resolves the replacement. A custom store returns its own activation requirement: next resolution, restart, or deployment.
 

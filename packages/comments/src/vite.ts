@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -42,7 +43,7 @@ export function findCommentsEntry(options: string | { projectRoot: string, serve
 export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugin {
   const { operationsImports, ...liveOptions } = options
   const live = liveComments(liveOptions)
-  const module = operationsImports?.operations ?? "@vite-hub/comments/operations"
+  const module = operationsImports?.operations ?? ownModule(import.meta.url, "operations")
   let projectRoot: string | undefined
   let serverDirs: readonly string[] | undefined
   const config = live.config

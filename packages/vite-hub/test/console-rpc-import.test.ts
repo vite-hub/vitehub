@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it, vi } from "vitest"
 
 describe("Console RPC module", () => {
@@ -15,17 +17,12 @@ describe("Console RPC module", () => {
     }
   }, 60_000)
 
-  it.each(["rpc", "mcp", "mcp-metadata", "mcp-authorization-server"])("loads %s on h3 1, because Nuxt 4 bundles every h3 import as its own h3 1", async (name) => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { default: handler } = await import(`../src/console/runtime/server/${name}.ts`)
+  it.each([
+    "logs.get", "rpc", "status.get", "usage.get",
+  ])("serves %s as a Fetchable route that imports nothing from h3", async (name) => {
+    const { default: route } = await import(`../src/console/runtime/server/${name}.ts`)
 
-      expect(handler).toBeTypeOf("function")
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
+    expect(route.fetch).toBeTypeOf("function")
+    expect(await readFile(new URL(`../src/console/runtime/server/${name}.ts`, import.meta.url), "utf8")).not.toMatch(/from "h3"/)
   }, 60_000)
 })

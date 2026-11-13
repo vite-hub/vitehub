@@ -34,8 +34,11 @@ export interface RealtimeUser {
 }
 
 export interface RealtimeDocumentContext {
-  /** Room authority holding the live document: one process (`memory`) or a Durable Object (`cloudflare`). */
-  authority: "cloudflare" | "memory"
+  /**
+   * Room authority holding the live document: one process (`memory`), a Durable Object (`cloudflare`), or rooms that
+   * several Node instances share through Postgres (`postgres`) or Redis (`redis`).
+   */
+  authority: "cloudflare" | "memory" | "postgres" | "redis"
   definition: string
   documentId: string
 }
@@ -109,6 +112,12 @@ export interface RealtimeWorkspaceDocumentOptions {
  */
 export interface RealtimeEditor {
   extensions(): AnyExtension[]
+  /**
+   * Version of the schema and codec. Change it when a new `extensions()` or codec cannot read the Yjs state of the
+   * previous one, such as a node type that was removed or renamed. A room persisted under another version opens fresh
+   * from the stored Markdown, and a browser that connects with another version is read-only until it reloads.
+   */
+  version?: string
   fromMarkdown(markdown: string): Promise<JSONContent> | JSONContent
   toMarkdown(document: JSONContent): Promise<string> | string
   /**
@@ -131,8 +140,11 @@ export interface RealtimeVerifyResult {
   writable: boolean
 }
 
-/** Why a connection is read-only: `access` (authorization denied write) or `document` (the codec cannot edit it losslessly). */
-export type RealtimeReadOnlyReason = "access" | "document"
+/**
+ * Why a connection is read-only: `access` (authorization denied write), `document` (the codec cannot edit it
+ * losslessly), or `version` (the browser runs another editor version than the server, so it must reload to edit).
+ */
+export type RealtimeReadOnlyReason = "access" | "document" | "version"
 
 /**
  * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings
@@ -145,6 +157,11 @@ export interface RealtimeRequestContext {
   /** The request event of the WebSocket upgrade or HTTP request. */
   event: RealtimeRequestEvent
   request: Request
+}
+
+export interface RealtimeOriginContext extends RealtimeRequestContext {
+  /** The `Origin` header of a request from another origin than the app's. */
+  origin: string
 }
 
 export interface RealtimeAuthorizeContext extends RealtimeRequestContext {
@@ -166,6 +183,13 @@ export interface RealtimeDefinition {
   auth?: boolean
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
+  /**
+   * Let a page on another origin connect to a definition with `identify`, such as a script that sites load from the
+   * app. Return `true` to accept `origin`. Without it, only the app's own origin connects. The browser sends cookies
+   * with a cross-site handshake too, so `identify` must then trust only what the page sends on purpose, such as a
+   * ticket in `params`, never the session cookie.
+   */
+  origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
   /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
   authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
@@ -207,8 +231,20 @@ export interface DiscoveredRealtimeDefinition {
   source: "contributed" | "server-realtime"
 }
 
-export interface RealtimeModuleOptions {
-  authority?: "auto" | "cloudflare" | "memory"
+export interface RealtimeOptions {
+  /**
+   * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
+   * picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default Database when it
+   * is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require their connection.
+   * `memory` keeps rooms in one process.
+   */
+  authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
+  /**
+   * Keeps the rooms of this app apart from other apps on the same Redis or Postgres. Defaults to the `name` of
+   * `vitehub()`, else the `name` in the root `package.json`, else the root folder name. `REALTIME_NAMESPACE` replaces
+   * it when the server starts.
+   */
+  namespace?: string
   projectRoot?: string
 }
 
@@ -244,4 +280,4 @@ export type RealtimeRequestErrorCode =
  */
 export type RealtimeAvailability =
   | { available: true }
-  | { available: false, preset?: string, reason: string, fix: string }
+  | { available: false, host?: string, reason: string, fix: string }

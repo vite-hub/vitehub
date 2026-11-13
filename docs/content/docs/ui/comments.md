@@ -4,7 +4,7 @@ seo.title: Comments UI components for Vue
 description: "Figma-style comments for your own running app: pins, threads, a composer, a side list, and a side panel."
 navigation.order: 34
 navigation.group: Collaboration
-icon: i-ph-chat-circle-light
+icon: i-lucide-message-circle
 ---
 
 `CommentLayer` adds Figma-style comments to a page. Press `C`, click a spot, write, and press `Enter`. A numbered pin with your avatar stays there, and the team replies in its thread.
@@ -12,7 +12,8 @@ icon: i-ph-chat-circle-light
 The parts show state and call a transport. They do not store data or check access. The transport talks to the server:
 
 - `createMemoryTransport()` from `@vite-hub/comments/testing` is for tests and examples.
-- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started).
+- `createRestTransport()` from `@vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
+- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
 
 The built-in live-site overlay uses a different thread and anchor format.
 
@@ -24,13 +25,13 @@ The built-in live-site overlay uses a different thread and anchor format.
 Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add the client:
 
 ```bash
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
-`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:
+`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
-import { CommentLayer } from "@vite-hub/ui/comments";
+import { CommentLayer } from "@vite-hub/ui";
 ```
 
 ## Usage
@@ -64,12 +65,15 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - `?comment=<n>` in the URL opens thread `n` when the page loads.
 - Type `@` to mention a person. The client's `users` call finds people. Names that start with your text come first, then names with a later word that starts with it. Accents and case do not count, so `@jose` finds José. People who already wrote in the thread come first. You are never in the list.
 - In the mention menu, arrow keys move, `Enter` or `Tab` picks, and `Esc` closes only the menu. `Shift+Enter` still breaks the line.
+- When `@` and two or more letters find no one, the menu shows one line instead of a list: "No one by that name can be mentioned here.", or "Could not load people." when the lookup fails. The composer logs the error with `console.warn`. The line is not an option, so `Enter` and `Tab` do not pick it. After a space, the menu stays closed, because the text is then more likely a sentence.
 - A posted message shows each mention as a chip. A mention of you has another color.
 - Paste, drop, or pick files when the app gives an `upload` function. See [Attachments](#attachments).
 - Select text, then press `C`: the comment is about that text.
 - A pin drops when the pointer goes up without moving. A touch that scrolls drops nothing.
 - In comment mode, `Enter` starts a comment on the focused element. The toolbar button "Comment on page" comments on the whole page.
 - A draft pin has no number. The server gives it one on send.
+- A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
+- With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
 
@@ -119,6 +123,7 @@ const comments = useComments({ client, subject: { kind: "page", id: "/pricing" }
 comments.pageThreads.value; // The threads of this page, after the filters.
 comments.toggle(); // Comment mode.
 comments.startDraft({ x: 120, y: 80 }); // Start a comment on a point.
+comments.startDraft(element, { area, files: [screenshot] }); // Start one on an area, with a file in its box.
 await comments.create({ body: "Looks good" }); // A comment on the whole page.
 comments.people.value; // The people that the state knows, for mention names.
 ```
@@ -222,7 +227,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
-Transports accept attachment keys by default, including `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
+Transports accept attachment keys by default, including `createRestTransport()` and `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
 
 ```vue
 <script setup lang="ts">
@@ -241,7 +246,10 @@ async function upload(files: File[]): Promise<string[]> {
 `attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
 
 ```ts
-const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: files[key]?.name, type: files[key]?.type });
+// The files that `upload` stored, by key
+const uploads = new Map<string, File>();
+
+const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: uploads.get(key)?.name, type: uploads.get(key)?.type });
 ```
 
 ## Slots
@@ -255,10 +263,11 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: files[
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
 | `CommentComposer` | `extra` | | Above the text field, such as a suggested-change field. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
+| `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
 
-`CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra` and `mention-item` to its page box.
+`CommentThread` passes `body`, `attachments`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 
 ::example{name="CommentThreadSlotsExample" height=8}
 ::
@@ -289,6 +298,8 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+
 ## Anchors
 
 An anchor says where a comment sits. `createAnchor()` makes one from an element, a point, a selection, or `"page"`. `resolveAnchor()` finds it again.
@@ -301,7 +312,7 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 
 - A pin is a button. Its label has the number, author, and start of the comment, such as "Comment 3 by Ana Ruiz: Make this bigger", and says when the thread is resolved. `aria-expanded` shows if its thread is open.
 - An open thread is a `dialog` named "Comment 3". Opening it moves focus into it. Closing it returns focus to its pin, unless the reader moved focus elsewhere.
-- The composer has a label. Its box is a `combobox`. While the mention menu is open, the box has `aria-expanded="true"`, `aria-controls`, and `aria-activedescendant`. The menu is a `listbox`.
+- The composer has a label. Its box is a `combobox`. While the mention menu is open, the box has `aria-expanded="true"`, `aria-controls`, and `aria-activedescendant`. The menu is a `listbox`. A menu with no one to show is a `status` with one line and no options, so the box keeps `aria-expanded="false"`.
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
@@ -330,6 +341,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
+| `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
 
 ### CommentPin
 
@@ -401,7 +413,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 | `anchor` | `{ thread }` | What the thread is about. Replaces the selected-text quote. |
 | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `body`, `attachments` | `{ message }` | Passed on to each `CommentReply`. |
-| `extra`, `mention-item` | | Passed on to the reply box. |
+| `extra`, `mention-item`, `mention-empty` | | Passed on to the reply box. |
 
 ### CommentReply
 
@@ -432,10 +444,11 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | `body` | `{ message }` | Replaces the Markdown body. |
 | `attachments` | `{ message }` | Replaces the default attachment list. |
 | `mention-item` | `{ person, active }` | Passed on to the edit box. |
+| `mention-empty` | `{ query, failed }` | Passed on to the edit box. |
 
 ### CommentComposer
 
-The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prompt-input). At the bottom of a panel or thread, it is one row under a divider: attach, text, and send. Renders a `div` with `data-slot="comment-composer"`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"` and `data-layout`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -457,6 +470,7 @@ The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prom
 | `attachments` | `boolean` | `true` | Take files from paste, drop, and the file button. Edits never take files. |
 | `accept` | `string` | | File types to take, like a file input's `accept`. |
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
+| `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
 
 #### Events
 
@@ -474,6 +488,7 @@ The box for a new comment, reply, or edit. It wraps [Prompt Input](/docs/ui/prom
 | --- | --- | --- |
 | `extra` | | Above the text field, such as a suggested-change field. |
 | `mention-item` | `{ person, active }` | One person of the mention menu. `active` is true for the person the arrow keys are on. |
+| `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. `query` is the text after `@`. `failed` is true when the lookup failed. |
 
 The component exposes `focus()` and `shake()`.
 
@@ -512,7 +527,7 @@ The thread list, one thread, and a page box in one surface. Renders a `section` 
 
 #### Slots
 
-Every slot of [CommentThread](#commentthread). `extra` and `mention-item` also go to the page box.
+Every slot of [CommentThread](#commentthread). `extra`, `mention-item`, and `mention-empty` also go to the page box.
 
 | Slot | Scope | Description |
 | --- | --- | --- |

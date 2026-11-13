@@ -17,8 +17,9 @@ import { EMAIL_DEFINITION_ID, hubEmail, hubEmailOptionalPeerResolver, resolveEma
 const tempDirs: string[] = []
 
 function functionHook(hook: unknown, name: string): Function {
-  if (!(hook instanceof Function)) throw new TypeError(`Expected ${name} to be a function hook`)
-  return hook
+  const handler: unknown = hook instanceof Function ? hook : Reflect.get(Object(hook), "handler")
+  if (!(handler instanceof Function)) throw new TypeError(`Expected ${name} to be a Vite hook`)
+  return handler
 }
 
 async function createTempProject(): Promise<string> {
@@ -77,6 +78,34 @@ describe("hubEmail", () => {
     })
 
     await expect(readFile(declaration, "utf8")).resolves.toBe("owned declarations\n")
+  })
+
+  it("filters the resolveId and load hooks to the ids that Email handles", () => {
+    const plugin = hubEmail({ driver: "resend" })
+    const idFilter = (hook: unknown): RegExp => {
+      const id: unknown = Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id")
+      if (!(id instanceof RegExp)) throw new TypeError("Expected an id filter")
+      return id
+    }
+    const matches = (pattern: RegExp, ids: string[]) => ids.filter(id => pattern.test(id))
+    expect(matches(idFilter(plugin.resolveId), [
+      "#vitehub/email/definition",
+      "#vitehub/emails/welcome",
+      "#vitehub/emails/../secret",
+      "#vitehub/email/definition.mjs",
+      "#vitehub/email",
+      "#vitehub/emails",
+      "@vite-hub/email",
+      "/app/server/emails/welcome.md",
+    ])).toEqual(["#vitehub/email/definition", "#vitehub/emails/welcome", "#vitehub/emails/../secret"])
+    expect(matches(idFilter(plugin.load), [
+      "\0#vitehub/email/definition",
+      "/@fs/app/server/emails/welcome.md?markdown-template",
+      "#vitehub/email/definition",
+      "\0#vitehub/email/definition.mjs",
+      "/app/server/emails/welcome.md",
+      "/app/server/emails/welcome.md?markdown-template&raw",
+    ])).toEqual(["\0#vitehub/email/definition", "/@fs/app/server/emails/welcome.md?markdown-template"])
   })
 
   it("owns generated template module paths", () => {

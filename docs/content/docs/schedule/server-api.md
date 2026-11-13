@@ -10,19 +10,19 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineSchedule` from `@vite-hub/schedule` | Declare a Static Schedule Definition, or a Definition without `cron` that code starts. |
-| `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule` from `@vite-hub/schedule` | Start a Definition without `cron` once or on a cron, and read or cancel what you started. |
-| `runSchedule` from `@vite-hub/schedule/runtime` | Run a Definition that sets `manual: true` now. |
-| `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
-| `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
-| `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
-| `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process` | Run Static Schedule Definitions on their cron inside a long-running process. |
-| `createScheduleKVStorage` from `@vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
-| `installStartedSchedules`, `runStartedSchedules`, `createKVStartedScheduleStore`, `createMemoryStartedScheduleStore` from `@vite-hub/schedule/runtime` | Wire the store and the tick of started Schedules yourself. The generated Nitro plugin does it for you. |
+| `defineSchedule` from `vite-hub/schedule` | Declare a Static Schedule Definition, or a Definition without `cron` that code starts. |
+| `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule` from `vite-hub/schedule` | Start a Definition without `cron` once or on a cron, and read or cancel what you started. |
+| `runSchedule` from `vite-hub/schedule` | Run a Definition that sets `manual: true` now. |
+| `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
+| `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `vite-hub/schedule/runtime` | Configure Schedule Run storage. |
+| `setScheduleRunStore` from `vite-hub/schedule/runtime` | Wire custom runtime state. |
+| `installProcessScheduleRuntime` from `vite-hub/schedule/runtime/process` | Run Static Schedule Definitions on their cron inside a long-running process. |
+| `createScheduleKVStorage` from `vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
+| `installStartedSchedules`, `runStartedSchedules`, `createKVStartedScheduleStore`, `createMemoryStartedScheduleStore` from `vite-hub/schedule/runtime` | Wire the store and the tick of started Schedules yourself. The generated Nitro plugin does it for you. |
 | `discoverScheduleDefinitions`, `discoverStartableScheduleDefinitions` from `@vite-hub/schedule/vite` | Discover Schedule Definitions in a build integration. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
-`@vite-hub/schedule` exports the Definition, Run, and Store types. Framework apps import runtime helpers from `vite-hub/schedule/runtime`. The main entry does not load file discovery or its build dependencies.
+`vite-hub/schedule` exports the Definition, Run, and Store types. Framework apps import runtime helpers from `vite-hub/schedule/runtime`. The main entry does not load file discovery or its build dependencies.
 
 ## Start a Schedule from code
 
@@ -106,20 +106,19 @@ KV failed. `error.cause` has the KV error.
 
 ## Run a Definition now
 
-`runSchedule(name, { registry })` runs one schedule (a Definition) with `manual: true` now. Each call records a Schedule Run with a `srun_manual_` id, so it never collides with a cron run.
+`runSchedule(name)` runs one Static Schedule Definition immediately. It reads the Static Schedule Definitions that ViteHub discovered. The Definition must set `manual: true`. Each call creates a new Schedule Run with a `srun_manual_` id, so a manual run never collides with a cron occurrence.
 
 ```ts [server/api/reports/run.post.ts]
 import { defineEventHandler } from 'h3'
-import registry from '#vitehub/schedule/registry'
-import { runSchedule } from '@vite-hub/schedule/runtime'
+import { runSchedule } from 'vite-hub/schedule'
 
 export default defineEventHandler(async () => {
-  const run = await runSchedule('daily-report', { registry })
+  const run = await runSchedule('daily-report')
   return { id: run.id, status: run.status }
 })
 ```
 
-`scheduledAt` runs it as if the cron fired then: `runSchedule('daily-report', { registry, scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset, and defaults to now. The handler gets it and the run records it.
+Pass `scheduledAt` to run the Definition as if its cron fired at that time: `runSchedule('daily-report', { scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset. The handler gets it as `scheduledAt`, and the run records it. It defaults to now.
 
 When the handler fails, `runSchedule()` resolves with the failed run. It rejects with:
 
@@ -133,11 +132,15 @@ The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it y
 
 ```ts [server/schedule-runtime.ts]
 import registry from '#vitehub/schedule/registry'
-import { createKVScheduleRunStore } from '@vite-hub/schedule/runtime'
-import { scheduleKVStorage } from '@vite-hub/schedule/runtime/kv'
-import { installProcessScheduleRuntime } from '@vite-hub/schedule/runtime/process'
+import { createSqlLeaseStore } from '@vite-hub/runtime'
+import { createKVScheduleRunStore } from 'vite-hub/schedule/runtime'
+import { scheduleKVStorage } from 'vite-hub/schedule/runtime/kv'
+import { installProcessScheduleRuntime } from 'vite-hub/schedule/runtime/process'
+import postgres from 'postgres'
 
+const sql = postgres(process.env.DATABASE_URL!)
 const controller = await installProcessScheduleRuntime({
+  leases: createSqlLeaseStore({ dialect: 'postgresql', query: (text, params) => sql.unsafe(text, params) }),
   onError: error => console.error(error),
   registry,
   scheduleRunStore: createKVScheduleRunStore({ kvStore: scheduleKVStorage }),
@@ -148,12 +151,15 @@ process.once('SIGTERM', () => void controller.close())
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `registry` | `ScheduleDefinitionRegistry` | Required | Definitions that this process runs. |
-| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. After a restart, catch-up reads the newest cron run of each schedule from it. |
-| `onError` | `(error: unknown) => void` | None | Gets handler, store, and `waitUntil` failures. |
-| `intervalMs` | `number` | `60_000` | Milliseconds between checks, from 1 to 60000. |
-| `concurrency` | `number` | `1` | Maximum runs at the same time. |
-| `catchUpMs` | `number` | One hour | How far back to run minutes that no process checked. `0` turns off catch-up. |
+| `registry` | `ScheduleDefinitionRegistry` | Required | Static Schedule Definitions that this process runs. |
+| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. |
+| `onError` | `(error: unknown) => void` | None | Receives handler, store, and `waitUntil` failures. |
+| `intervalMs` | `number` | `60_000` | Milliseconds between two checks, from 1 to 60000. |
+| `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
+| `catchUpMs` | `number` | One hour | How far back the runtime runs minutes that no process checked. `0` disables catch-up. |
+| `leases` | `LeaseStore` | `createMemoryLeaseStore()` | Where processes claim each occurrence, so one process runs it. Give every process the same shared store. The memory store works for one process only. |
+| `prefix` | `string` | `vitehub:schedule` | Namespace for occurrence leases. Use the same prefix as the app's Schedule stores, and a different prefix for each app that shares a Database. |
+| `leaseTtlMs` | `number` | `60_000` | Milliseconds that a process holds an occurrence after it stops renewing it, for example after a crash. Then another process runs it, unless a process finished it. |
 
 Call `controller.close()` on shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
 

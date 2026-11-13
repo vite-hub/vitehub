@@ -102,8 +102,10 @@ function readQuery(query: URLSearchParams | Record<string, unknown>, name: strin
 
 function readInteger(name: string, value: string | undefined, max: number): number | undefined {
   if (value === undefined || value === "") return undefined
+  // Internal invariant: parseImageVariant() documents a TypeError, and the serve route answers 400 for it.
   if (!integerPattern.test(value)) throw new TypeError(`Image variant \`${name}\` must be a positive integer.`)
   const number = Number(value)
+  // Internal invariant: parseImageVariant() documents a TypeError, and the serve route answers 400 for it.
   if (number < 1 || number > max) throw new TypeError(`Image variant \`${name}\` must be from 1 to ${max}.`)
   return number
 }
@@ -124,14 +126,17 @@ export function parseImageVariant(query: URLSearchParams | Record<string, unknow
   if (height !== undefined) variant.height = height
   if (quality !== undefined) variant.quality = quality
   if (fit) {
+    // Internal invariant: parseImageVariant() documents a TypeError, and the serve route answers 400 for it.
     if (!isFit(fit)) throw new TypeError("Image variant `fit` must be cover or inside.")
     variant.fit = fit
   }
   if (format) {
+    // Internal invariant: parseImageVariant() documents a TypeError, and the serve route answers 400 for it.
     if (!isFormat(format)) throw new TypeError(`Image variant \`fmt\` must be one of ${imageFormats.join(", ")}.`)
     variant.format = format
   }
   if (crop) {
+    // Internal invariant: parseImageVariant() documents a TypeError, and the serve route answers 400 for it.
     if (!isMediaCropName(crop)) throw new TypeError("Image variant `crop` must be a crop name.")
     variant.crop = crop
   }

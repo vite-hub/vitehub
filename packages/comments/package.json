@@ -54,11 +54,6 @@
       "import": "./dist/database/postgres.js",
       "default": "./dist/database/postgres.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
@@ -89,11 +84,6 @@
       "import": "./dist/runtime/connect/node.js",
       "default": "./dist/runtime/connect/node.js"
     },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
-    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
@@ -115,7 +105,8 @@
     "build": "vp pack && vp build --config overlay.vite.config.ts",
     "dev": "vp pack && vp build --config overlay.vite.config.ts && vp pack --watch --no-clean",
     "typecheck": "vp run --cache -t @vite-hub/comments#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/comments#build && vp test"
+    "test": "vp run --cache -t @vite-hub/comments#build && vp test",
+    "test:browser": "vp run --cache -t @vite-hub/comments#build && node --test test/browser/overlay.browser.mjs test/browser/presence.browser.mjs"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
@@ -126,16 +117,18 @@
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "confbox": "^0.3.1",
-    "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs",
-    "nitro": "catalog:unjs"
+    "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "marked": "catalog:realtime",
+    "modern-screenshot": "4.7.0",
+    "nitro": "catalog:unjs",
+    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
@@ -143,11 +136,14 @@
     "vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@vite-hub/database": "workspace:*",
-    "vite": "catalog:vite"
+    "vite": "catalog:vite",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
-    "vite": "catalog:vite-compat"
+    "nitro": "catalog:nitro-compat",
+    "vite": "catalog:vite-compat",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {

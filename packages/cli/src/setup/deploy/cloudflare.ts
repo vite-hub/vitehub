@@ -2,11 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
-import { join, resolve } from "pathe"
+import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, listsName, optionalString, parseCommitMessage, splitManifestCommand, withTemporaryOutput } from "./host.ts"
+import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
 
 import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
 
@@ -129,29 +129,6 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
       finally {
         await rm(folder, { force: true, recursive: true })
       }
-    },
-    async setSecret(name, value) {
-      // `wrangler secret put` reads the value from stdin when stdin is not a terminal. On a Worker that does not
-      // exist yet, it creates a draft Worker without a prompt.
-      const result = await run(["secret", "put", name, "--config", command.config, ...target], { stdin: value })
-      if (result.exitCode !== 0) throw hostCliFailed(`wrangler secret put ${name}`, result, context.secrets)
-    },
-    async hasSecret(name) {
-      const result = await run(["secret", "list", "--config", command.config, "--format", "json", ...target])
-      if (result.exitCode !== 0) return false
-      try {
-        return listsName(JSON.parse(result.stdout), ["name"], name)
-      }
-      catch {
-        return false
-      }
-    },
-    // `wrangler secret put` creates a draft Worker, so the secret can go first.
-    projectExists: async () => true,
-    async withTemporaryVar(name, value, deploy) {
-      // A temporary account has no login for `wrangler secret put`, so the hash goes into the generated config as a
-      // plain var. The project config does not change.
-      return await withTemporaryOutput([resolve(context.outputDir, command.config)], "vars", name, value, deploy)
     },
   }
 }

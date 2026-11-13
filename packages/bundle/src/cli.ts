@@ -4,21 +4,23 @@ import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { formatBytes } from "./bytes.ts"
 import { compareBundleReports, readSavedBundleReport } from "./compare.ts"
-import { readEnvironmentReports } from "./files.ts"
-import { createBundleReport, explainBundle } from "./report.ts"
+import { readBundleReportRoot, readEnvironmentReports } from "./files.ts"
+import { createBundleReport, explainBundle, explainBundleRoute } from "./report.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { BundleComparison, BundleFinding, BundleSide, BundleSideComparison } from "./types.ts"
 
 const reportUsage = "vitehub bundle [--against <report>] [--json]"
-const whyUsage = "vitehub bundle why <package|file> [--json]"
+const whyUsage = "vitehub bundle why <package|file|/route> [--json]"
 const missingReport = "No bundle report in .vitehub/bundle/. Set `bundle: true` in vitehub() (vite.config.ts) or in `vitehub` (nuxt.config.ts), then run a production build.\n"
 
 export { formatBytes }
 
-/** The CLI passes the Vite root, which is `app/` in Nuxt. Reports live in the project root. */
+/** A loaded project supplies its Vite root; runtime dispatch uses the last build's location. */
 function projectRoot(context: ViteHubCliContext): string {
-  return resolveViteHubProjectRoot(context.rootDir)
+  const root = resolveViteHubProjectRoot(context.rootDir)
+  if (resolve(context.cwd) !== resolve(context.rootDir)) return root
+  return readBundleReportRoot(context.cwd) ?? readBundleReportRoot(root) ?? root
 }
 
 interface ParsedArgs {
@@ -57,6 +59,40 @@ function sideLines(label: string, side: BundleSide, startupMeaning: string): str
     lines.push(`    ${formatBytes(group.bytes).padStart(width)}  ${formatBytes(group.startupBytes).padStart(width)}  ${group.name} (${group.kind})`)
   }
   if (side.groups.length > 10) lines.push(`    ${side.groups.length - 10} more groups in --json`)
+  if (side.routesUnavailable) lines.push(`  Routes unavailable: ${side.routesUnavailable}`)
+  if (side.routes?.length) {
+    const routes = side.routes.slice(0, 5)
+    const routeWidth = Math.max(...routes.map(route => formatBytes(route.bytes).length))
+    lines.push("  Largest routes (first visit, page files only):")
+    for (const route of routes) lines.push(`    ${formatBytes(route.bytes).padStart(routeWidth)}  ${formatBytes(route.pageBytes).padStart(routeWidth)}  ${route.path}`)
+    if (side.routes.length > 5) lines.push(`    ${side.routes.length - 5} more routes in --json`)
+  }
+  return lines
+}
+
+function fileCount(count: number): string {
+  return `${count} ${count === 1 ? "file" : "files"}`
+}
+
+function routeLines(explanation: NonNullable<ReturnType<typeof explainBundleRoute>>): string[] {
+  const { route } = explanation
+  const js = route.files.filter(file => !file.file.endsWith(".css"))
+  const startup = js.filter(file => file.startup)
+  const lines = [
+    `Route ${route.path}: ${formatBytes(route.bytes)} of JavaScript on a first visit (gzip ${formatBytes(route.gzip)}), ${formatBytes(route.cssBytes)} of CSS.`,
+    `  Startup files: ${formatBytes(route.bytes - route.pageBytes)} in ${fileCount(startup.length)}. Page files: ${formatBytes(route.pageBytes)} in ${fileCount(js.length - startup.length)}.`,
+    `  Components: ${route.components.join(", ") || "none"}`,
+    "  Files (bytes, gzip):",
+  ]
+  const width = Math.max(...route.files.map(file => formatBytes(file.bytes).length))
+  for (const file of route.files) lines.push(`    ${formatBytes(file.bytes).padStart(width)}  ${formatBytes(file.gzip).padStart(width)}  ${file.file}${file.startup ? "  [startup]" : ""}`)
+  if (explanation.modules.length) {
+    lines.push("  Largest modules in the page files:")
+    const modules = explanation.modules.slice(0, 10)
+    const moduleWidth = Math.max(...modules.map(module => formatBytes(module.bytes).length))
+    for (const module of modules) lines.push(`    ${formatBytes(module.bytes).padStart(moduleWidth)}  ${module.id}`)
+  }
+  lines.push("", "Run `vitehub bundle why <module>` on a module to see the import chain that loads it.", "")
   return lines
 }
 
@@ -190,9 +226,13 @@ function runWhy(args: string[], context: ViteHubCliContext): number {
       "Shows why a package, a file, or a group is in the last production build: its size on the client and the server,",
       "whether it loads at startup, and the shortest import chain from the entry to it.",
       "",
+      "For a page route, such as /docs/kv, it shows what the browser loads on a first visit: the startup files, the",
+      "files of the route's layout and pages, and the largest modules that the route adds. Nuxt apps only.",
+      "",
       "Examples:",
       "  vitehub bundle why @libsql/client",
       "  vitehub bundle why server/api/hello.get.ts",
+      "  vitehub bundle why /docs/kv",
       "",
       "Options:",
       "  --json      Print machine-readable JSON.",
@@ -212,13 +252,23 @@ function runWhy(args: string[], context: ViteHubCliContext): number {
     context.stderr.write(missingReport)
     return 1
   }
+  const route = target.startsWith("/") ? explainBundleRoute(reports, target) : undefined
+  if (route) {
+    context.stdout.write(parsed.json ? `${JSON.stringify(route, null, 2)}\n` : routeLines(route).join("\n"))
+    return 0
+  }
   const explanations = explainBundle(reports, target)
+  const unavailable = !explanations.length && target.startsWith("/") ? createBundleReport(reports)?.client?.routesUnavailable : undefined
+  if (unavailable) {
+    context.stdout.write(parsed.json ? `${JSON.stringify({ target, unavailable }, null, 2)}\n` : `Routes unavailable: ${unavailable}\n`)
+    return 1
+  }
   if (parsed.json) {
     context.stdout.write(`${JSON.stringify({ target, explanations }, null, 2)}\n`)
     return 0
   }
   if (!explanations.length) {
-    context.stdout.write(`${target} is not in the last build.\n`)
+    context.stdout.write(target.startsWith("/") ? `No page route of the last build renders ${target}. Routes need a Nuxt app with pages.\n` : `${target} is not in the last build.\n`)
     return 0
   }
   const lines: string[] = []
@@ -236,7 +286,7 @@ function runWhy(args: string[], context: ViteHubCliContext): number {
 
 const features: ViteHubCliFeature[] = [
   { description: "Show client and server size, startup size, and the largest groups.", name: "report", run: runReport, usage: reportUsage },
-  { description: "Show why a package or file is in the output.", name: "why", run: runWhy, usage: whyUsage },
+  { description: "Show why a package or file is in the output, or what a page route loads.", name: "why", run: runWhy, usage: whyUsage },
 ]
 
 /** The `vitehub bundle` commands. They read `.vitehub/bundle/` and need no dev server. */

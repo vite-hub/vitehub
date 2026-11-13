@@ -2,7 +2,7 @@ import { createHtmlRenderer } from "@comark/html"
 import { defineHandler } from "h3"
 import { contentHead } from "vite-hub/content"
 
-import { content } from "../content"
+import content from "../content"
 import { escape, renderHead } from "../html"
 
 const renderMarkdown = createHtmlRenderer()

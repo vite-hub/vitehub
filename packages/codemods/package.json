@@ -40,7 +40,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/codemods#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/codemods#build && vp test"
+    "test": "vp run --cache -t @vite-hub/codemods#build && vp test"
   },
   "dependencies": {
     "@babel/parser": "^7.29.9",

@@ -17,14 +17,14 @@ export const EnvLanding = {
         path: variant.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts",
         language: "typescript",
         content: variant.framework === "nuxt"
-          ? `// Illustrative pseudocode: configure your deployment preset for production.
+          ? `// Illustrative pseudocode: configure your host for production.
 import { env } from '@vite-hub/env/vite'
 import viteHubNuxt from 'vite-hub/nuxt'
 
 export default defineNuxtConfig({
   modules: [viteHubNuxt],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         dryRun: env.boolean({ default: true }),
@@ -40,15 +40,14 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv(), nitro()],
-  nitro: {
-    alias: createEnvImportAliases(),
-  },
-  env: {
+  plugins: [hubEnv({
     server: {
       dryRun: env.boolean({ default: true }),
       apiKey: env({ secret: true, source: env.source('API_KEY') }),
     },
+  }), nitro()],
+  nitro: {
+    alias: createEnvImportAliases(),
   },
 })`
             : `// Illustrative pseudocode: compose this Env configuration with your host setup.
@@ -56,19 +55,18 @@ import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
-  env: {
+  plugins: [hubEnv({
     server: {
       dryRun: env.boolean({ default: true }),
       apiKey: env({ secret: true, source: env.source('API_KEY') }),
     },
-  },
+  })],
 })`,
       },
       {
         path: "server/config.ts",
         language: "typescript",
-        content: `import { useServerEnv } from '#vitehub/env/server'
+        content: `import { useServerEnv } from 'vite-hub/env'
 
 export function isDryRun() {
   const { dryRun } = useServerEnv()

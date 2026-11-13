@@ -2,7 +2,6 @@ import {
   getConsoleInvocations,
   installConsoleInvocations,
 } from "./runtime/server/invocations.ts"
-import { createConsoleFixtureInvocations, installConsoleFixtureInvocations } from "./runtime/server/invocations-fixture.ts"
 import { encodeAgentRouteParam } from "./runtime/console-route.ts"
 import {
   getConsoleAgents,
@@ -27,7 +26,7 @@ export interface ConsoleRuntime {
   invocationUrl: (invocation: ConsoleInvocationLink | Record<string, unknown>) => string
 }
 
-export const console = {
+export const agentConsole = {
   resolve(context: RuntimeHostContext<unknown>): ConsoleRuntime {
     return {
       invocationUrl(invocation) {
@@ -44,7 +43,6 @@ export const console = {
 }
 
 export {
-  createConsoleFixtureInvocations,
   getConsoleBlob,
   getConsoleAgents,
   getConsoleDefinitions,
@@ -54,7 +52,6 @@ export {
   getConsoleProjectName,
   installConsoleAgentDefinitions,
   installConsoleAgents,
-  installConsoleFixtureInvocations,
   installConsoleDefinitions,
   installConsoleDatabase,
   installConsoleInvocations,

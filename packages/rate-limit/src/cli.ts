@@ -1,14 +1,12 @@
-import { createInterface } from "node:readline/promises"
-
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { askOnTerminal, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
 import type { RateLimitWindow } from "./types.ts"
 
@@ -63,7 +61,7 @@ function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout
     "Options:",
     ...(command.name === "reset" ? ["  --yes, -y         Reset without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --json            Print JSON.",
-    "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
+    "  --url <url>       Deployed app URL. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
     "  -h, --help        Show this help.",
     "",
@@ -109,11 +107,6 @@ function parseArgs(args: readonly string[]): ParsedRateLimitArgs {
   return parsed
 }
 
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
-
 function scopeNotice(scope: string): string {
   return scope === "process"
     ? "Scope: process. The counter exists only in this server process."
@@ -142,7 +135,7 @@ function formatReset(result: RateLimitResetInspection): string {
 
 const windowSchema = v.custom<RateLimitWindow>(value => v.is(v.pipe(v.string(), v.regex(/^\d+(?:\.\d+)?(?:ms|s|m|h|d)$/)), value))
 const finiteNumber = v.pipe(v.number(), v.finite())
-const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "cloudflare"]) }
+const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "kv", "cloudflare"]) }
 const scopeSchema = v.picklist(["global", "location", "process"])
 const counterSchema = v.object({
   limit: finiteNumber, remaining: finiteNumber, resetAt: v.optional(v.pipe(finiteNumber, v.minValue(-8.64e15), v.maxValue(8.64e15))),
@@ -167,21 +160,9 @@ function parseInspection(operation: RateLimitCommand["name"], value: unknown): R
   return parsed.success ? { operation, value: parsed.output } : undefined
 }
 
-function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: { code?: string, fix?: string, message: string }): number {
-  const message = redactInspectionText(failure.message)
-  if (parsed.json) context.stdout.write(`${JSON.stringify({ error: { ...failure, message } }, null, 2)}\n`)
-  else context.stderr.write(`${message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
-}
-
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
+/** Writes a failure like the other primitive CLIs, but redacts the message, since it can echo a limited key. */
+function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: ViteHubCliFailure): number {
+  return writeCliFailure(parsed.json, context, { ...failure, message: redactInspectionText(failure.message) })
 }
 
 async function runRateLimitCommand(

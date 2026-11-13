@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { Markdown } from "@vite-hub/ui";
-import { useClipboard } from "@vueuse/core";
+import { CopyButton, Markdown } from "@vite-hub/ui";
 import { computed, defineComponent, h, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { consoleBytes } from "../client/format";
@@ -9,22 +8,17 @@ import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import "./console-session.css";
 
 const props = defineProps<{ file: ConsoleSkillFile; paths: readonly string[] }>();
-const raw = ref(false);
+const views = [
+  { label: "Preview", value: "preview" },
+  { label: "Source", value: "source" },
+];
+const view = ref<string | number>("preview");
+const raw = computed(() => view.value === "source");
 const markdown = computed(() => /\.md$/i.test(props.file.path));
 // A final newline ends the last line. It does not start another one.
 const lines = computed(() => props.file.content ? props.file.content.split("\n").length - (props.file.content.endsWith("\n") ? 1 : 0) : 0);
 const route = useRoute();
-const { copy: copyContent, copied, isSupported: clipboardSupported } = useClipboard({ source: () => props.file.content });
 const copyError = ref(false);
-async function copy() {
-  try {
-    if (!clipboardSupported.value) throw new Error("Clipboard unavailable");
-    await copyContent();
-    copyError.value = false;
-  } catch {
-    copyError.value = true;
-  }
-}
 const SkillLink = defineComponent({
   inheritAttrs: false,
   props: { href: { type: String, default: "" } },
@@ -55,18 +49,15 @@ const SkillLink = defineComponent({
 
 <template>
   <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Skill file preview">
-    <header class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-default px-3 py-2 sm:px-4">
-      <p class="flex min-w-0 flex-1 basis-64 items-start gap-2 font-mono text-xs leading-5 text-highlighted">
+    <!-- No vertical padding: the tabs rest on the bottom border, so the tab line and the border are one line. -->
+    <header class="flex min-h-11 flex-wrap items-center gap-x-3 border-b border-default px-3 sm:px-4">
+      <p class="flex min-w-0 flex-1 basis-64 items-start gap-2 py-3 font-mono text-xs leading-5 text-highlighted">
         <UIcon name="i-lucide-file-text" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
         <span class="min-w-0 [overflow-wrap:anywhere]">{{ file.path }}</span>
       </p>
-      <div v-if="markdown" role="group" aria-label="File view" class="flex items-center gap-1">
-        <UButton label="Preview" :aria-pressed="!raw" size="xs" color="neutral" :variant="raw ? 'ghost' : 'soft'" @click="raw = false" />
-        <UButton label="Source" :aria-pressed="raw" size="xs" color="neutral" :variant="raw ? 'soft' : 'ghost'" @click="raw = true" />
-      </div>
-      <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" aria-label="Copy file contents" size="xs" color="neutral" variant="ghost" @click="copy" />
+      <UTabs v-if="markdown" v-model="view" :items="views" :content="false" class="self-end" aria-label="File view" />
+      <CopyButton :value="file.content" label="Copy" aria-label="Copy file contents" size="xs" @copy="copyError = false" @error="copyError = true" />
     </header>
-    <span role="status" class="sr-only">{{ copied ? 'File contents copied' : '' }}</span>
     <p v-if="copyError" role="alert" class="px-4 pt-2 text-xs text-error">Could not copy. Select the file text to copy it.</p>
     <div class="min-h-0 flex-1 overflow-auto">
       <!-- The typeset grain would draw a box around the text column, so the preview turns it off. -->

@@ -31,7 +31,7 @@ async function enabled(root: string, id: string): Promise<string | undefined> {
 
 describe("vitehub remove", () => {
   it("gives back the original bytes after add with a starter and an install", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     const original = await snapshot(root)
     const pm = fakePackageManager(root)
 
@@ -50,8 +50,66 @@ describe("vitehub remove", () => {
     expect(existsSync(join(root, "server"))).toBe(false)
   })
 
+  it.each([
+    ['rootDir: "app"', "app/server"],
+    ['serverDir: "backend"', "backend"],
+    ['rootDir: "app", serverDir: "backend"', "app/backend"],
+  ])("removes Nuxt starters from the application server directory: %s", async (options, serverDir) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { host: "node" } })`,
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+    const added = await add(["queue", "database", "--name", "jobs"], root, pm.spawn)
+    expect(added.exitCode, JSON.stringify(added.json.error)).toBe(0)
+
+    const { exitCode, json } = await remove(["queue", "database", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.references).toEqual([])
+    expect(json.changes.filter(change => change.kind === "delete").map(change => change.path)).toEqual([
+      `${serverDir}/databases/jobs.ts`,
+      `${serverDir}/queues/jobs.ts`,
+    ])
+    expect(await snapshot(root)).toEqual(original)
+    expect(existsSync(join(root, serverDir))).toBe(false)
+  })
+
+  it.each([
+    ['srcDir: "app"', "app/server/comments.ts", "comments"],
+    ['extends: ["./base"]', "base/server/comments.ts", "comments"],
+    ["", "layers/base/server/comments.ts", "comments"],
+    ["serverDir: process.env.SERVER_DIR", "backend/comments.ts", "comments"],
+    ['srcDir: "app"', "app/server/schedules/nightly.ts", "schedule"],
+  ])("requires --force when Nuxt Definition directories are unresolved: %s (%s)", async (options, path, feature) => {
+    const content = feature === "comments" ? "export const comments = defineComments()\n" : "export default defineSchedule({})\n"
+    const root = await createProject({
+      [path]: content,
+      "package.json": JSON.stringify({ dependencies: { [`@vite-hub/${feature}`]: "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options ? `${options}, ` : ""}vitehub: { host: "node", ${feature}: true } })`,
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove([feature, "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
+    expect(refused.json.error?.fix).toContain("--force")
+    expect(await snapshot(root)).toEqual(original)
+    expect(pm.calls).toEqual([])
+
+    const forced = await remove([feature, "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.changes.map(change => change.kind)).toEqual(["patch"])
+    expect(await readFile(join(root, path), "utf8")).toBe(content)
+    expect(await readFile(join(root, "nuxt.config.ts"), "utf8")).not.toContain(`${feature}: true`)
+  })
+
   it("turns off features that only the removed feature implied and uninstalls their packages", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     const original = await snapshot(root)
     const pm = fakePackageManager(root)
     expect((await add(["comments"], root, pm.spawn)).exitCode).toBe(0)
@@ -66,7 +124,7 @@ describe("vitehub remove", () => {
   })
 
   it.each(["observability.posthog=true", "observability.posthog.apiKey=key"])("round-trips Observability with %s", async (option) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
     const original = await snapshot(root)
     const pm = fakePackageManager(root)
     const added = await add(["observability", "--option", "observability.service=api", "--option", option], root, pm.spawn)
@@ -82,7 +140,7 @@ describe("vitehub remove", () => {
   })
 
   it("keeps PostHog installed when retained source imports it", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
     const pm = fakePackageManager(root)
     expect((await add(["observability", "--option", "observability.service=api", "--option", "observability.posthog.apiKey=key"], root, pm.spawn)).exitCode).toBe(0)
     const source = 'import { PostHog } from "posthog-node"\nexport const client = new PostHog("key")\n'
@@ -113,7 +171,7 @@ describe("vitehub remove", () => {
   ])("removes the starter from the configured Nuxt server directory: $layout", async ({ layout, directory }) => {
     const root = await createProject({
       "package.json": pnpmManifest,
-      "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { preset: "cloudflare" }]] })\n`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { host: "cloudflare" }]] })\n`,
     })
     const original = await snapshot(root)
     const pm = fakePackageManager(root)
@@ -129,10 +187,31 @@ describe("vitehub remove", () => {
     expect(await snapshot(root)).toEqual(original)
   })
 
+  it("keeps files and packages when disabling an unknown feature", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "node" }') })
+    const pm = fakePackageManager(root)
+    expect((await add(["queue", "--name", "welcome"], root, pm.spawn)).exitCode).toBe(0)
+    await writeFile(join(root, "vite.config.ts"), viteConfig('{ ...shared, host: "node" }'))
+    const path = "server/queues/welcome.ts"
+    const content = await readFile(join(root, path), "utf8")
+    const manifest = await readFile(join(root, "package.json"), "utf8")
+    const calls = [...pm.calls]
+    expect(await enabled(root, "queue")).toBe("unknown")
+
+    const { exitCode, json } = await remove(["queue", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(await enabled(root, "queue")).toBe("off")
+    expect(json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(await readFile(join(root, path), "utf8")).toBe(content)
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
+    expect(pm.calls).toEqual(calls)
+  })
+
   it("keeps the packages that another enabled feature declares", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
-      "vite.config.ts": viteConfig(`{ preset: "cloudflare", database: true, connections: true }`),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", database: true, connections: true }`),
     })
 
     const { exitCode, json } = await remove(["connections", "--dry-run"], root)
@@ -142,7 +221,7 @@ describe("vitehub remove", () => {
   })
 
   it("keeps an edited starter and refuses until --force", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     expect((await add(["queue", "--name", "welcome", "--no-install"], root)).exitCode).toBe(0)
     expect((await add(["queue", "--name", "digest", "--no-install"], root)).exitCode).toBe(0)
     const edited = `${await readFile(join(root, "server/queues/welcome.ts"), "utf8")}// sends the welcome email\n`
@@ -168,8 +247,44 @@ describe("vitehub remove", () => {
     expect(forced.json.nextSteps.join("\n")).toContain("server/queues/welcome.ts stayed because it differs from the starter")
   })
 
+  it("keeps an edited starter's imported packages with --force", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["database", "--name", "default"], root, pm.spawn)).exitCode).toBe(0)
+    const path = "server/databases/default.ts"
+    const edited = `${await readFile(join(root, path), "utf8")}// app schema\n`
+    await writeFile(join(root, path), edited)
+
+    const { exitCode, json } = await remove(["database", "--yes", "--force"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.kept).toEqual([{ path, reason: "edited" }])
+    expect(json.references).toEqual([{ feature: "database", file: path }])
+    expect(json.uninstall).toEqual({ command: "pnpm remove drizzle-kit", devPackages: ["drizzle-kit"], packages: [] })
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" } })
+    expect(await readFile(join(root, path), "utf8")).toBe(edited)
+  })
+
+  it("keeps every starter and its facade's owner package with --keep-files", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
+    const path = "server/schedules/nightly.ts"
+    const starter = await readFile(join(root, path), "utf8")
+
+    const { exitCode, json } = await remove(["schedule", "--yes", "--keep-files"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.kept).toEqual([{ path, reason: "keep-files" }])
+    expect(json.changes.map(change => change.kind)).toEqual(["patch"])
+    expect(json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(pm.calls).toHaveLength(1)
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/schedule": "1.0.0" } })
+    expect(await readFile(join(root, path), "utf8")).toBe(starter)
+  })
+
   it("keeps every starter with --keep-files", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     expect((await add(["workflow", "--name", "onboard", "--no-install"], root)).exitCode).toBe(0)
 
     const { exitCode, json } = await remove(["workflow", "--yes", "--keep-files", "--no-uninstall"], root)
@@ -181,7 +296,7 @@ describe("vitehub remove", () => {
   })
 
   it.each(["--force", "--keep-files"])("keeps a retained starter's owner package with %s", async (flag) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     const pm = fakePackageManager(root)
     expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
     const path = join(root, "server/schedules/nightly.ts")
@@ -200,7 +315,7 @@ describe("vitehub remove", () => {
   })
 
   it("refuses a feature that another enabled feature implies, and writes false with --force", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", agent: true, workflow: true }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare", agent: true, workflow: true }`) })
     const before = await readFile(join(root, "vite.config.ts"), "utf8")
 
     const refused = await remove(["workflow", "--yes", "--no-uninstall"], root)
@@ -213,12 +328,12 @@ describe("vitehub remove", () => {
     const forced = await remove(["workflow", "--yes", "--no-uninstall", "--force"], root)
 
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ preset: "cloudflare", agent: true, workflow: false }`))
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ host: "cloudflare", agent: true, workflow: false }`))
     expect(await enabled(root, "workflow")).toBe("off")
   })
 
-  it("names the feature that implies the removed feature", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", comments: true }`) })
+  it("names the feature that implies Database", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare", comments: true }`) })
 
     const { exitCode, json } = await remove(["database", "--dry-run"], root)
 
@@ -227,15 +342,49 @@ describe("vitehub remove", () => {
   })
 
   it.each([
-    { by: "cache", feature: "kv", options: 'preset: "netlify", cache: { driver: "kv" }, kv: { driver: "upstash" }' },
+    {
+      config: '{ host: "netlify", agent: true, console: { auth: false } }',
+      feature: "console",
+      packages: ["@vite-hub/agent", "@libsql/client", "drizzle-orm"],
+      uninstall: ["@libsql/client", "drizzle-orm"],
+    },
+    {
+      config: '{ host: "netlify", agent: true, console: { auth: false } }',
+      feature: "agent",
+      packages: ["@vite-hub/agent", "@libsql/client", "drizzle-orm"],
+      uninstall: ["@libsql/client", "@vite-hub/agent", "drizzle-orm"],
+    },
+    {
+      config: '{ host: "node", database: true, agent: true, console: { auth: false } }',
+      feature: "database",
+      packages: ["@vite-hub/database", "@libsql/client", "drizzle-orm"],
+      uninstall: ["@vite-hub/database"],
+    },
+    {
+      config: '{ host: "node", observability: { service: "app", posthog: true } }',
+      feature: "observability",
+      packages: ["posthog-node"],
+      uninstall: ["posthog-node"],
+    },
+  ])("uninstalls only unused optional packages when removing $feature from $config", async ({ config, feature, packages, uninstall }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: Object.fromEntries(packages.map(name => [name, "1.0.0"])), name: "app" }),
+      "vite.config.ts": viteConfig(config),
+    })
+
+    const { exitCode, json } = await remove([feature, "--dry-run"], root)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect([...json.uninstall.packages].sort()).toEqual([...uninstall].sort())
+  })
+
+  it.each([
+    { by: "cache", feature: "kv", options: 'host: "netlify", cache: { driver: "kv" }, kv: { driver: "upstash" }' },
     { by: "agent", feature: "database", options: 'agent: { invocations: "database" }, database: true' },
     { by: "agent", feature: "database", options: 'agent: { invocations: { store: "database" } }, database: true' },
-    { by: "connections", feature: "console", options: 'connections: { management: true }, console: { auth: false }' },
     { by: "observability", feature: "agent", options: 'observability: { service: "app", papercuts: true }, agent: true, console: { auth: false }' },
     { by: "observability", feature: "console", options: 'observability: { service: "app", papercuts: true }, agent: true, console: { auth: false }' },
     { by: "observability", feature: "env", options: 'observability: { service: "app", posthog: true }, env: {}' },
-    { by: "console", feature: "auth", options: 'auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }' },
-    { by: "console", feature: "auth", options: 'auth: true, console: true' },
   ])("preserves $feature required by $by options ($options)", async ({ by, feature, options }) => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -247,14 +396,14 @@ describe("vitehub remove", () => {
     const refused = await remove([feature, "--yes"], root, pm.spawn)
 
     expect(refused.exitCode, JSON.stringify(refused.json)).toBe(3)
-    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IMPLIED")
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_REQUIRED")
     expect(refused.json.impliedBy).toEqual([by])
     expect(await snapshot(root)).toEqual(before)
     expect(pm.calls).toEqual([])
 
     const forced = await remove([feature, "--force", "--dry-run"], root)
-    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
-    expect(forced.json.turnedOff).toContain(feature)
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(3)
+    expect(forced.json.error?.code).toBe("SETUP_FEATURE_REQUIRED")
 
     const together = await remove([feature, by, "--yes"], root, pm.spawn)
     expect(together.exitCode, JSON.stringify(together.json.error)).toBe(0)
@@ -276,28 +425,10 @@ describe("vitehub remove", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it("refuses to uninstall app Auth while Console uses it", async () => {
-    const root = await createProject({
-      "package.json": JSON.stringify({ dependencies: { "@vite-hub/auth": "1.0.0", "better-auth": "1.0.0", "@better-auth/oauth-provider": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
-      "vite.config.ts": viteConfig('{ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" } }'),
-      "server/auth.ts": "export default {}\n",
-      "server/console-authorize.ts": "export default () => false\n",
-    })
-    const before = await snapshot(root)
-    const pm = fakePackageManager(root)
-
-    const refused = await remove(["auth", "--yes"], root, pm.spawn)
-
-    expect(refused.exitCode).toBe(3)
-    expect(refused.json.impliedBy).toEqual(["console"])
-    expect(await snapshot(root)).toEqual(before)
-    expect(pm.calls).toEqual([])
-  })
-
-  it.each(["false", '"token"', '{ provider: "github", org: "vite-hub" }'])("allows Auth removal with independent Console access: %s", async (auth) => {
+  it.each(["true", "{ auth: false }", '{ authorize: "server/console-authorize.ts" }'])("allows Auth removal with the Console on: %s", async (console) => {
     const root = await createProject({
       "package.json": pnpmManifest,
-      "vite.config.ts": viteConfig(`{ auth: true, console: { auth: ${auth} } }`),
+      "vite.config.ts": viteConfig(`{ auth: true, console: ${console} }`),
     })
 
     const result = await remove(["auth", "--yes"], root)
@@ -310,7 +441,7 @@ describe("vitehub remove", () => {
   it("keeps the Console's Agent packages when removing Database", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@libsql/client": "1.0.0", "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" }, devDependencies: { "drizzle-kit": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
-      "vite.config.ts": viteConfig(`{ preset: "cloudflare", agent: true, console: { auth: false }, database: true }`),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", agent: true, console: { auth: false }, database: true }`),
     })
     const pm = fakePackageManager(root)
 
@@ -326,7 +457,7 @@ describe("vitehub remove", () => {
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
       "server/api/doc.get.ts": `import { defineHandler } from "nitro/h3"\n\nimport { useRealtime } from "vite-hub/realtime"\n\nexport default defineHandler(() => useRealtime("docs"))\n`,
       "src/client.ts": `export const load = () => import("@vite-hub/realtime/client")\n`,
-      "vite.config.ts": viteConfig(`{ preset: "cloudflare", realtime: true }`),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", realtime: true }`),
     })
 
     const refused = await remove(["realtime", "--yes"], root)
@@ -347,6 +478,62 @@ describe("vitehub remove", () => {
   })
 
   it.each([
+    ["types/schedule.d.ts", 'import type { ScheduleDefinition } from "@vite-hub/schedule"\n', "@vite-hub/schedule"],
+    ["types/schedule.d.mts", 'export * from "vite-hub/schedule"\n', "vite-hub/schedule"],
+    ["types/schedule.d.cts", 'declare module "@vite-hub/schedule" {}\nexport {}\n', "@vite-hub/schedule"],
+    ["types/schedule-reference.d.ts", '/// <reference types="@vite-hub/schedule" />\n', "@vite-hub/schedule"],
+    ["types/schedule-reference.d.mts", "/// <reference types='vite-hub/schedule' />\n", "vite-hub/schedule"],
+    ["src/schedule.ts", 'const load = () => import(/* webpackChunkName: "schedule" */ "@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule.cjs", 'const schedule = require(/* schedule */ "@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-line.ts", 'const load = () => import(// schedule\n "vite-hub/schedule")\n', "vite-hub/schedule"],
+    ["src/schedule-before.ts", 'const load = () => import /* retained target */ ("@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-before.cjs", 'const schedule = require /* retained target */ ("@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-before-line.ts", 'const load = () => import // retained target\n ("@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-both.cjs", 'const schedule = require /* before */ (/* inside */ "vite-hub/schedule")\n', "vite-hub/schedule"],
+    ["src/schedule-template.ts", 'const load = () => import(`@vite-hub/schedule/vite`)\n', "@vite-hub/schedule/vite"],
+    ["src/schedule-template-facade.ts", 'const load = () => import(`vite-hub/schedule`)\n', "vite-hub/schedule"],
+  ])("keeps packages used by a source file: %s", async (path, content, module) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/schedule": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      [path]: content,
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", schedule: true }`),
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove(["schedule", "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toEqual([{ feature: "schedule", file: path, line: 1, module }])
+    expect(await snapshot(root)).toEqual(original)
+
+    const forced = await remove(["schedule", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(pm.calls).toEqual([])
+    expect(await readFile(join(root, path), "utf8")).toBe(content)
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(original["package.json"])
+  })
+
+  it("ignores generated declaration files when scanning package uses", async () => {
+    const root = await createProject({
+      ".nuxt/types/schedule.d.ts": 'export * from "@vite-hub/schedule"\n',
+      "node_modules/@vite-hub/schedule/index.d.ts": 'export * from "@vite-hub/schedule"\n',
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/schedule": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", schedule: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const { exitCode, json } = await remove(["schedule", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.references).toEqual([])
+    expect(pm.calls).toEqual([["pnpm", "remove", "@vite-hub/schedule"]])
+  })
+
+  it.each([
     'import(/* @vite-ignore */ "@vite-hub/realtime/client")',
     'import(/* webpackChunkName: "realtime" */ "@vite-hub/realtime/client")',
     'import(// load the client\n "@vite-hub/realtime/client")',
@@ -357,7 +544,7 @@ describe("vitehub remove", () => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
       "src/client.ts": `export const load = () => ${expression}\n`,
-      "vite.config.ts": viteConfig(`{ preset: "cloudflare", realtime: true }`),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", realtime: true }`),
     })
     const before = await snapshot(root)
 
@@ -375,13 +562,13 @@ describe("vitehub remove", () => {
   })
 
   it("writes false for a feature that is on by default", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
 
     const { exitCode, json } = await remove(["env", "--yes"], root)
 
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
     expect(json.turnedOff).toEqual(["env"])
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ preset: "node", env: false }`))
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ host: "node", env: false }`))
     expect((await remove(["env", "--yes"], root)).json.status).toBe("unchanged")
   })
 
@@ -389,7 +576,7 @@ describe("vitehub remove", () => {
     const root = await createProject({
       "package.json": pnpmManifest,
       "server/comments.ts": "export default {}\n",
-      "vite.config.ts": viteConfig(`{ preset: "node", comments: true }`),
+      "vite.config.ts": viteConfig(`{ host: "node", comments: true }`),
     })
 
     const refused = await remove(["comments", "--dry-run"], root)
@@ -399,7 +586,7 @@ describe("vitehub remove", () => {
     const forced = await remove(["comments", "--yes", "--force", "--no-uninstall"], root)
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
     expect(forced.json.kept).toEqual([])
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ preset: "node", comments: false }`))
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ host: "node", comments: false }`))
   })
 
   it.each([
@@ -409,7 +596,7 @@ describe("vitehub remove", () => {
   ])("refuses removal when Nuxt discovery roots need evaluation: %s", async (layout) => {
     const root = await createProject({
       "package.json": pnpmManifest,
-      "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { preset: "node", comments: true }]] })\n`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { host: "node", comments: true }]] })\n`,
       "server/comments.ts": "export default {}\n",
     })
     const before = await snapshot(root)
@@ -417,12 +604,12 @@ describe("vitehub remove", () => {
     const { exitCode, json } = await remove(["comments", "--yes"], root)
 
     expect(exitCode).toBe(3)
-    expect(json.error?.code).toBe("SETUP_CONFIG_MANUAL")
+    expect(json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
     expect(await snapshot(root)).toEqual(before)
   })
 
   it("plans in a dry run and asks for --yes without a terminal, writing nothing", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "vercel", kv: true }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "vercel", kv: true }`) })
     const before = await snapshot(root)
 
     const dry = await remove(["kv", "--dry-run"], root)
@@ -436,7 +623,7 @@ describe("vitehub remove", () => {
     expect(await snapshot(root)).toEqual(before)
 
     const human = await runSetup(["remove", "kv", "--dry-run"], root)
-    expect(human.stdout).toContain("-  plugins: [vitehub({ preset: \"vercel\", kv: true })],")
+    expect(human.stdout).toContain("-  plugins: [vitehub({ host: \"vercel\", kv: true })],")
     expect(await snapshot(root)).toEqual(before)
   })
 
@@ -444,13 +631,13 @@ describe("vitehub remove", () => {
     const root = await createProject({
       ".vitehub/data/kv/key": "value",
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
-      "vite.config.ts": viteConfig(`{ preset: "cloudflare", kv: true, realtime: true }`),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", kv: true, realtime: true }`),
     })
 
     const { exitCode, json } = await remove(["kv", "realtime", "--yes", "--no-uninstall"], root)
 
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ preset: "cloudflare" }`))
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ host: "cloudflare" }`))
     expect(json.nextSteps).toContain("Uninstall the packages: pnpm remove @vite-hub/realtime")
     expect(json.nextSteps.join("\n")).toContain("ViteHub does not delete host resources.")
     expect(json.nextSteps.join("\n")).toContain("Local data in .vitehub/data stays.")
@@ -458,7 +645,7 @@ describe("vitehub remove", () => {
   })
 
   it("is unchanged for a feature that is already off", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", kv: false }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node", kv: false }`) })
 
     const { exitCode, json } = await remove(["kv"], root)
 
@@ -467,7 +654,7 @@ describe("vitehub remove", () => {
   })
 
   it("returns the snippet to paste for an expression", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", kv: process.env.KV ? true : false }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node", kv: process.env.KV ? true : false }`) })
 
     const { exitCode, json } = await remove(["kv", "--yes"], root)
 
@@ -481,5 +668,170 @@ describe("vitehub remove", () => {
     expect((await remove(["kv", "--purge"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await remove(["nope"], root)).json.error?.message).toContain("Unknown feature")
     expect((await remove([], root)).exitCode).toBe(2)
+  })
+
+  it.each([
+    { feature: "kv", dependent: "cache", options: "kv: true", value: '{ driver: "kv" }' },
+    { feature: "env", dependent: "observability", options: "env: true", value: '{ service: "app", posthog: { apiKey: "key" } }' },
+    { feature: "agent", dependent: "observability", options: "agent: true, console: { auth: false }", value: "{ papercuts: true }" },
+    { feature: "console", dependent: "observability", options: "agent: true, console: { auth: false }", value: "{ papercuts: true }" },
+    { feature: "database", dependent: "agent", options: "database: true", value: '{ invocations: "database" }' },
+    { feature: "database", dependent: "agent", options: "database: true", value: '{ invocations: { store: "database" } }' },
+  ])("preserves $feature when dynamic $dependent options may require it ($value)", async ({ feature, dependent, options, value }) => {
+    const config = `const options = ${value}\n${viteConfig(`{ host: "node", ${options}, ${dependent}: options }`)}`
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": config })
+    const before = await snapshot(root)
+    for (const flags of [[], ["--force"]]) {
+      const refused = await remove([feature, "--yes", ...flags], root)
+      expect(refused.exitCode, refused.stdout).toBe(3)
+      expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_REQUIRED" })
+      expect(await snapshot(root)).toEqual(before)
+    }
+  })
+
+  it.each([
+    { file: "vite.config.ts", config: viteConfig('{ host: "node", env: true, observability: { posthog: options } }') },
+    { file: "nuxt.config.ts", config: 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], vitehub: { host: "node", env: true, observability: { posthog: options } } })' },
+    { file: "nuxt.config.ts", config: 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { host: "node", env: true, observability: { posthog: options } }]] })' },
+  ])("preserves prerequisites for nested dynamic options ($config)", async ({ file, config }) => {
+    const root = await createProject({ "package.json": pnpmManifest, [file]: `const options = { apiKey: "key" }\n${config}` })
+    const before = await snapshot(root)
+    const refused = await remove(["env", "--yes"], root)
+    expect(refused.exitCode, refused.stdout).toBe(3)
+    expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_REQUIRED" })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    { feature: "kv", options: 'kv: true, cache: { driver: "memory" }' },
+    { feature: "console", options: 'console: { auth: false }, connections: { management: false }' },
+    { feature: "env", options: 'env: true, observability: { service: "app", posthog: false, papercuts: false }' },
+    { feature: "database", options: 'database: true, agent: { invocations: "filesystem" }' },
+    { feature: "database", options: 'database: true, agent: { invocations: { store: "filesystem" } }' },
+  ])("removes $feature when literal options do not require it ($options)", async ({ feature, options }) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node", ${options} }`) })
+    const removed = await remove([feature, "--yes"], root)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(await enabled(root, feature)).toBe("off")
+  })
+
+  it.each([
+    { feature: "kv", dependent: "cache", options: 'kv: true, cache: { driver: "kv" }' },
+    { feature: "env", dependent: "observability", options: 'env: true, observability: { posthog: true }' },
+    { feature: "agent", dependent: "observability", options: 'agent: true, console: { auth: false }, observability: { papercuts: true }' },
+    { feature: "console", dependent: "observability", options: 'agent: true, console: { auth: false }, observability: { papercuts: true }' },
+    { feature: "database", dependent: "agent", options: 'database: true, agent: { invocations: "database" }' },
+    { feature: "database", dependent: "agent", options: 'database: true, agent: { invocations: { store: "database" } }' },
+  ])("refuses to remove $feature while $dependent requires it ($options)", async ({ feature, dependent, options }) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node", ${options} }`) })
+    const before = await snapshot(root)
+    for (const flags of [[], ["--force"]]) {
+      const refused = await remove([feature, "--yes", ...flags], root)
+      expect(refused.exitCode, refused.stdout).toBe(3)
+      expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_REQUIRED" })
+      expect(await snapshot(root)).toEqual(before)
+    }
+    const together = await remove([feature, dependent, "--dry-run", "--force"], root)
+    expect(together.exitCode, together.stdout).toBe(0)
+  })
+
+  it.each([
+    { config: 'rootDir: "app",', file: "app/server/schedules/hello.ts" },
+    { config: 'serverDir: "backend",', file: "backend/schedules/hello.ts" },
+  ])("removes a starter from the configured Nuxt directory ($config)", async ({ config, file }) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${config} modules: [["vite-hub/nuxt", { host: "node" }]] })\n`,
+    })
+    const pm = fakePackageManager(root)
+    const added = await add(["schedule", "--name", "hello", "--option", "schedule.runtime.driver=process"], root, pm.spawn)
+    expect(added.exitCode, added.stdout).toBe(0)
+    expect(existsSync(join(root, file))).toBe(true)
+    const forced = await remove(["schedule", "--force", "--dry-run"], root)
+    expect(forced.json.changes).toContainEqual(expect.objectContaining({ kind: "delete", path: file }))
+    const removed = await remove(["schedule", "--yes"], root, pm.spawn)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(existsSync(join(root, file))).toBe(false)
+  })
+
+  it("uninstalls an unused runtime package declared in devDependencies", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ devDependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", realtime: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const { exitCode, json } = await remove(["realtime", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.uninstall).toEqual({ command: "pnpm remove @vite-hub/realtime", devPackages: [], packages: ["@vite-hub/realtime"] })
+    expect(pm.calls).toEqual([["pnpm", "remove", "@vite-hub/realtime"]])
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toEqual({ name: "app", packageManager: "pnpm@10.0.0" })
+  })
+
+  it.each([
+    { file: "src/App.svelte", content: '<script>\nimport { connect } from "vite-hub/realtime/client"\n</script>\n' },
+    { file: "src/page.astro", content: '---\nimport { connect } from "vite-hub/realtime/client"\n---\n' },
+    { file: "src/page.mdx", content: 'import { connect } from "vite-hub/realtime/client"\n' },
+    { file: "src/page.md", content: 'import { connect } from "vite-hub/realtime/client"\n' },
+    { file: "index.html", content: '<script type="module">\nimport { connect } from "vite-hub/realtime/client"\n</script>\n' },
+  ])("preserves the feature and owner package used in $file", async ({ file, content }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      [file]: content,
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", realtime: true }`),
+    })
+    const before = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove(["realtime", "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toEqual([{ feature: "realtime", file, line: content.startsWith("import") ? 1 : 2, module: "vite-hub/realtime/client" }])
+    expect(await snapshot(root)).toEqual(before)
+    expect(pm.calls).toEqual([])
+
+    const forced = await remove(["realtime", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(forced.json.references).toEqual(refused.json.references)
+    expect(pm.calls).toEqual([])
+    expect(await readFile(join(root, file), "utf8")).toBe(content)
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/realtime": "1.0.0" } })
+  })
+
+  it.each(["vite-hub/realtime", "vite-hub/realtime/client"])("keeps the owner package when only a retained facade imports it: %s", async (specifier) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "src/client.ts": `export const load = () => import(${JSON.stringify(specifier)})\n`,
+      "vite.config.ts": viteConfig(`{ host: "cloudflare", realtime: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const forced = await remove(["realtime", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(forced.json.references).toEqual([{ feature: "realtime", file: "src/client.ts", line: 1, module: specifier }])
+    expect(pm.calls).toEqual([])
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/realtime": "1.0.0" } })
+  })
+
+  it("keeps the owner package imported by an edited starter after forced removal", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
+    const file = join(root, "server/schedules/nightly.ts")
+    const edited = `${await readFile(file, "utf8")}// Keep this schedule.\n`
+    await writeFile(file, edited)
+
+    const forced = await remove(["schedule", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(pm.calls).toEqual([["pnpm", "add", "@vite-hub/schedule"]])
+    expect(await readFile(file, "utf8")).toBe(edited)
   })
 })

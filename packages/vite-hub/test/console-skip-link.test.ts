@@ -41,23 +41,33 @@ async function mount(page: string | Component) {
 afterEach(() => document.body.replaceChildren())
 
 describe("Console skip link", () => {
-  it("is the first link and moves focus to the main landmark", async () => {
-    const { app, link, root } = await mount(`<main><h1>Overview</h1></main>`)
+  it("is the first link and moves focus to the first control of the main landmark", async () => {
+    const { app, link, root } = await mount(`<main><h1>Overview</h1><button>New agent</button></main>`)
     try {
       expect(link.textContent).toBe("Skip to content")
       expect(root.querySelector("a, button")).toBe(link)
       link.click()
-      expect(document.activeElement?.tagName).toBe("MAIN")
-      expect(document.activeElement?.getAttribute("tabindex")).toBe("-1")
+      expect(document.activeElement?.textContent).toBe("New agent")
+      expect(document.activeElement?.closest("main")).not.toBeNull()
     }
     finally { app.unmount() }
   })
 
-  it("moves focus to the first heading on a page without a main landmark", async () => {
-    const { app, link } = await mount(`<div><h1>Session</h1></div>`)
+  it("moves focus to the first control next to the heading on a page without a main landmark", async () => {
+    const { app, link } = await mount(`<div><h1>Session</h1><a href="#trace">Trace</a></div>`)
     try {
       link.click()
-      expect(document.activeElement?.textContent).toBe("Session")
+      expect(document.activeElement?.textContent).toBe("Trace")
+    }
+    finally { app.unmount() }
+  })
+
+  // Focus never lands on a container, so the focus ring never frames the whole page.
+  it("moves focus to the hidden content target when the page content has no control", async () => {
+    const { app, link } = await mount(`<main><h1>Overview</h1></main>`)
+    try {
+      link.click()
+      expect(document.activeElement?.id).toBe("vitehub-console-content")
     }
     finally { app.unmount() }
   })

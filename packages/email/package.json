@@ -54,20 +54,10 @@
       "import": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
-    },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "default": "./dist/server.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
@@ -85,15 +75,16 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/email#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/email#build && vp test"
+    "test": "vp run --cache -t @vite-hub/email#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@comark/html": "catalog:markdown",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:tooling",
-    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

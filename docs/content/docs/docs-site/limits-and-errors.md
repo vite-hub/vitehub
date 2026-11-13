@@ -2,7 +2,7 @@
 title: Docs site limits and errors
 description: What @vite-hub/docs does not do yet, and the cause and fix of each error that it shows.
 navigation.title: Limits and errors
-navigation.order: 6
+navigation.order: 7
 icon: i-lucide-circle-alert
 ---
 
@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 - **Nuxt only.** `@vite-hub/docs` is a Nuxt module. A Vite app without Nuxt cannot use it.
 - **One design.** There are no themes. Change the design with `app.config.ts`, CSS variables, or your own components. See [Design](/docs/docs-site/configure#design).
-- **One content folder.** The module reads one folder, `dir`. Sections are the folders under `base`. A page belongs to one section.
+- **Only folders are watched.** In development, the module watches `dir` and the folders in `sources`. Restart the app to see a change in another Source, such as `github()`: it gives its branch as it was when the app started or built. Sections are the folders under `base`, and a page belongs to one section.
 - **Pages are read at build time.** The manifest, agent copies, and routes come from the files at build time, so a production site does not see files added later. In development, a body change shows on the next page load. A new page, title, or order restarts the app.
 - **No page at `/docs` by default.** Without `content/docs/index.md`, `/docs` is not found and the Docs links open the first section.
 - **Search runs in the browser.** The dialog loads the whole index when it first opens. Each `h2` and `h3` is one entry. Titles rank first, then headings, then text.

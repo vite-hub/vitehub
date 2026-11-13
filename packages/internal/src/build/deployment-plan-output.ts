@@ -36,7 +36,7 @@ interface ResolvedPlanOutput {
  */
 function resolvePlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: string): ResolvedPlanOutput {
   const nitroOutputRoot = resolve(rootDir, outputDir ?? plan.output.directory)
-  if (plan.preset !== "netlify") return { entry: plan.output.entry, netlifyWrapper: false, root: nitroOutputRoot }
+  if (plan.host !== "netlify") return { entry: plan.output.entry, netlifyWrapper: false, root: nitroOutputRoot }
   if (basename(nitroOutputRoot) === "functions" && basename(dirname(nitroOutputRoot)) === "v1") {
     return { entry: "v1/functions/server/server.mjs", netlifyWrapper: false, nitroFunctions: nitroOutputRoot, root: dirname(dirname(nitroOutputRoot)) }
   }
@@ -45,7 +45,7 @@ function resolvePlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: st
 }
 
 /**
- * Lists the Provider Output that a Deployment Plan writes, for `vitehub inspect provider-output`.
+ * Lists the Provider Output that a Deployment Plan writes, for `vitehub inspect output`.
  * Paths use the resolved Nitro output directory when the host provides one.
  */
 export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: string): ViteHubProviderOutputEntry[] {
@@ -53,10 +53,10 @@ export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: stri
   const entries: ViteHubProviderOutputEntry[] = [
     { description: "Deployment manifest with host, runtime, output, and services", owner: "vite-hub", path: resolve(output.root, "deployment.json") },
   ]
-  if (plan.preset === "cloudflare") {
+  if (plan.host === "cloudflare") {
     entries.push({ description: "Generated Cloudflare Worker config", owner: "vite-hub", path: resolve(output.root, "server/wrangler.json") })
   }
-  if (plan.preset === "vercel") {
+  if (plan.host === "vercel") {
     entries.push({ description: "Vercel Build Output config", owner: "vite-hub", path: resolve(output.root, "config.json") })
   }
   if (output.nitroFunctions) {
@@ -65,7 +65,7 @@ export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: stri
   if (output.netlifyWrapper) {
     entries.push({ description: "Netlify function entrypoint", owner: "vite-hub", path: resolve(output.root, "functions/server.mjs") })
   }
-  if (plan.preset === "netlify") {
+  if (plan.host === "netlify") {
     entries.push({ description: "Netlify function and static config output", owner: "vite-hub", path: resolve(output.root, "v1") })
   }
   return entries
@@ -79,7 +79,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
       await access(entry)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      throw internalErrorDiagnostics.INTERNAL_B0040({ message: "[vitehub] The " + JSON.stringify(options.plan.preset) + " preset did not emit its required entry: " + entry + "." })
+      throw internalErrorDiagnostics.INTERNAL_B0040({ message: "[vitehub] The " + JSON.stringify(options.plan.host) + " host did not emit its required entry: " + entry + "." })
     }
   }
   const manifest = {
@@ -90,14 +90,13 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
       directory: relative(options.rootDir, output.root).replaceAll("\\", "/") || ".",
       ...(output.entry ? { entry: output.entry } : {}),
     },
-    preset: options.plan.preset,
     runtime: options.plan.runtime,
     services: options.services ?? options.plan.services,
   }
   const manifestPath = resolve(output.root, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8")
-  if (options.plan.preset !== "netlify") return
+  if (options.plan.host !== "netlify") return
   const functionEntry = resolve(output.root, "functions/server.mjs")
   if (output.netlifyWrapper) {
     await mkdir(dirname(functionEntry), { recursive: true })

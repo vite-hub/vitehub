@@ -1,36 +1,34 @@
 import { createClient } from "@libsql/client/http"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/sqlite-proxy"
 
 import { parseDatabaseLocation, postgresSchemes } from "./database-location.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { createSqlProxyExecutors, sqliteProxyCodecs, toSqlRow } from "./runtime/sqlite-proxy.ts"
 
 import type { InValue } from "@libsql/client/http"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { DatabaseLocation } from "./database-location.ts"
+import type { SqlQuery, SqlResult } from "./runtime/sqlite-proxy.ts"
+import type { SchemaRelations } from "./types.ts"
 
 export { parseDatabaseLocation } from "./database-location.ts"
 export type { DatabaseLocation } from "./database-location.ts"
 
-export type SqlMethod = "run" | "all" | "values" | "get"
-
-export interface SqlQuery {
-  sql: string
-  params: unknown[]
-  method: SqlMethod
-}
+export type { SqlMethod, SqlQuery, SqlResult, SqlRow, SqlRowMode } from "./runtime/sqlite-proxy.ts"
 
 /**
- * Runs SQL for `connectDatabase()`. Rows are arrays of column values; `get` returns one row, or undefined. A batch
- * is one transaction.
+ * Runs SQL for `connectDatabase()`. A row is an array of column values, or an object by column name when the query
+ * has `rowMode: "object"`. `run` returns `[]`, and `get` returns one row, or undefined. A batch is one transaction.
  */
 export interface SqlDriver {
-  query(query: SqlQuery): Promise<unknown[] | undefined>
-  batch(queries: SqlQuery[]): Promise<Array<unknown[] | undefined>>
+  query(query: SqlQuery): Promise<SqlResult>
+  batch(queries: SqlQuery[]): Promise<SqlResult[]>
 }
 
 export interface ConnectDatabaseOptions<TSchema extends Record<string, unknown>> {
-  /** The Drizzle tables, for `db.query`. */
+  /** The Drizzle tables, for `db.query.<table>`. */
   schema?: TSchema
   /**
    * Statements that create the tables, such as `CREATE TABLE IF NOT EXISTS`. They run once for each database before its
@@ -67,6 +65,7 @@ function serverEnv(name: string): string | undefined {
 }
 
 interface D1Statement {
+  all(): Promise<{ results?: Record<string, unknown>[] }>
   bind(...values: unknown[]): D1Statement
   run(): Promise<unknown>
   raw(): Promise<unknown[][]>
@@ -74,7 +73,7 @@ interface D1Statement {
 
 interface D1Binding {
   prepare(query: string): D1Statement
-  batch(statements: D1Statement[]): Promise<Array<{ results?: unknown[] }>>
+  batch(statements: D1Statement[]): Promise<Array<{ results?: Record<string, unknown>[] }>>
 }
 
 function d1Binding(name: string): D1Binding | undefined {
@@ -138,22 +137,22 @@ function describe(location: DatabaseLocation): string {
 
 function d1Driver(d1: D1Binding): SqlDriver {
   return {
-    async query({ sql, params, method }) {
+    async query({ sql, params, method, rowMode }) {
       const statement = d1.prepare(sql).bind(...params)
       if (method === "run") {
         await statement.run()
         return []
       }
-      const rows = await statement.raw()
+      const rows = rowMode === "object" ? (await statement.all()).results ?? [] : await statement.raw()
       return method === "get" ? rows[0] : rows
     },
     async batch(queries) {
       const results = await d1.batch(queries.map(({ sql, params }) => d1.prepare(sql).bind(...params)))
-      // D1 returns batch rows as objects; Drizzle reads arrays of column values, as its D1 driver does.
+      // D1 returns batch rows as objects. Drizzle reads arrays of column values unless it asks for objects.
       return results.map((result, index) => {
-        const method = queries[index]!.method
+        const { method, rowMode } = queries[index]!
         if (method === "run") return []
-        const rows = (result.results ?? []).map(row => row !== null && typeof row === "object" ? Object.values(row) : [])
+        const rows = (result.results ?? []).map(row => rowMode === "object" ? row : Object.values(row))
         return method === "get" ? rows[0] : rows
       })
     },
@@ -162,16 +161,16 @@ function d1Driver(d1: D1Binding): SqlDriver {
 
 function libsqlDriver(url: string, authToken: string | undefined): SqlDriver {
   const client = createClient({ url, ...(authToken ? { authToken } : {}) })
-  const rowsOf = (result: { columns: string[], rows: ArrayLike<unknown>[] }, method: SqlMethod): unknown[] | undefined => {
+  const rowsOf = (result: { columns: string[], rows: ArrayLike<unknown>[] }, { method, rowMode }: SqlQuery): SqlResult => {
     if (method === "run") return []
-    const rows = result.rows.map(row => Array.from({ length: result.columns.length }, (_, index) => row[index]))
+    const rows = result.rows.map(row => toSqlRow(result.columns, row, rowMode))
     return method === "get" ? rows[0] : rows
   }
   // SAFETY: Drizzle binds only SQLite values: text, numbers, blobs, and null.
   const statement = ({ sql, params }: SqlQuery) => ({ sql, args: params as InValue[] })
   return {
-    query: async query => rowsOf(await client.execute(statement(query)), query.method),
-    batch: async queries => (await client.batch(queries.map(statement), "write")).map((result, index) => rowsOf(result, queries[index]!.method)),
+    query: async query => rowsOf(await client.execute(statement(query)), query),
+    batch: async queries => (await client.batch(queries.map(statement), "write")).map((result, index) => rowsOf(result, queries[index]!)),
   }
 }
 
@@ -181,7 +180,7 @@ function libsqlDriver(url: string, authToken: string | undefined): SqlDriver {
  * a request, and runs `setup` once before the first query of each database. On Workers, import it from
  * `@vite-hub/database/connect`; on Node, from `@vite-hub/database/connect/node`, which opens files too.
  */
-export function connectDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(where: string | undefined, options: ConnectDatabaseOptions<TSchema> = {}): SqliteRemoteDatabase<TSchema> {
+export function connectDatabase<TSchema extends Record<string, unknown> = Record<string, never>>(where: string | undefined, options: ConnectDatabaseOptions<TSchema> = {}): SqliteRemoteDatabase<unknown, SchemaRelations<TSchema>> {
   const name = options.name ?? "default"
   const location = parseDatabaseLocation(where, name)
   const fallback = options.fallback === undefined ? undefined : parseDatabaseLocation(options.fallback, name)
@@ -226,10 +225,10 @@ export function connectDatabase<TSchema extends Record<string, unknown> = Record
     return driver
   }
 
-  // SAFETY: Drizzle's callback types omit undefined, but its get mapper requires it for a missing row.
-  return drizzle<TSchema>(
-    async (sql, params, method) => ({ rows: await (await current()).query({ sql, params, method }) as unknown[] }),
-    async queries => (await (await current()).batch(queries)).map(rows => ({ rows: rows as unknown[] })),
-    options.schema ? { schema: options.schema } : {},
+  const executors = createSqlProxyExecutors(
+    async query => (await current()).query(query),
+    async queries => (await current()).batch(queries),
   )
+  // SAFETY: Without a schema, `TSchema` defaults to an empty record, so its relations are empty too.
+  return drizzle(executors, { codecs: sqliteProxyCodecs, relations: (options.schema ? defineRelations(options.schema) : {}) as SchemaRelations<TSchema> })
 }

@@ -42,7 +42,6 @@ async function run() {
       v-if="isFile"
       class="vh-tutorial-code-action"
       size="xs"
-      color="neutral"
       variant="ghost"
       icon="i-lucide-file-code"
       label="Show in editor"
@@ -51,7 +50,6 @@ async function run() {
     <div v-if="isRequest" class="vh-tutorial-run">
       <UButton
         size="xs"
-        color="neutral"
         variant="outline"
         icon="i-lucide-play"
         :label="pending ? 'Running' : 'Run in workspace'"
@@ -88,7 +86,7 @@ async function run() {
 .vh-tutorial-run-output {
   margin-block: 0 1rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-muted);
   padding: 0.75rem;
   font-size: 0.8125rem;

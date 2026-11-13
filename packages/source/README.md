@@ -17,8 +17,7 @@ pnpm add @vite-hub/source
 ## Open a Source
 
 ```ts
-import { createSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, glob } from "@vite-hub/source"
 
 export const docs = glob({ cwd: "docs", include: "**/*.md" })
 
@@ -85,13 +84,40 @@ content receive file methods too. Record readers use `get()` and `items()`.
 `github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
 callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
-`auth: false` reads without a token.
+`auth: false` reads without a token. `authenticated()` tells whether reads send a
+token. Content serves a `github()` Source from a validated head commit only when
+it does.
+
+`history(key, { sha, page, perPage })` lists the commits that changed one file,
+newest first, from the commit `sha` back. It reads GitHub's commits endpoint with
+`path`, so it does not follow renames. Each commit has `sha`, `date`, `author`,
+the first line of `message`, and `url`. `content.history()` uses it.
+
+`latest(keys, { sha })` returns the latest commit of many files at once, as a
+`Map` from key to commit. It sends one GitHub GraphQL request per 150 files, 4
+at a time, so 2,600 files cost 18 requests. When GitHub stops a request after 10
+seconds (502), it asks again with half the files. `changes(base, head)` returns
+the keys that a commit from one commit to a later one changed, with a file that
+one commit edits and a later one reverts. It sends one compare request, plus one
+commit request per commit when there is more than one. It returns undefined when
+GitHub cannot list them all or more than 20 commits lie between them. The Content sitemap and RSS feed
+use both to date Source pages. `pullChanges(number)` returns the keys that a pull
+request adds or changes, from its file list, with the new key of a renamed file
+and without removed files. GitHub lists at most 3,000 files of a pull request.
+`vitehub content previews comment` uses it.
+
+`resolveRef()` returns the commit that a ref of the repository points to now:
+`{ sha }` for `{ sha }` or `{ branch }`, and `{ sha, pull }` for `{ pull: 12 }`.
+`pull` has the state, the head and base branches, `fork`, and the label names. A
+branch must match its full name, and a SHA must be a full commit SHA. It returns
+undefined when the repository has no such ref. Content uses it for
+`content.sources.at()`.
 
 `glob()` takes a pattern or options. In a pattern, the folders before the first
 wildcard are `cwd`, so keys are the paths below them:
 
 ```ts
-import { glob } from "@vite-hub/source/glob"
+import { glob } from "@vite-hub/source"
 
 export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 ```
@@ -99,7 +125,11 @@ export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 Under `vite dev` it reads the files from disk. A server build with `hubSource()`
 bundles the files of a call whose options are literals, through `files()`, so
 hosts without a runtime file system, such as Cloudflare Workers, serve them.
-`files(entries, { base, prefix })` serves files the server already holds.
+`files(entries, { base, prefix })` serves files the server already holds. An
+entry can be the content or a function that loads it, such as an
+`import.meta.glob()` loader. After removing `base`, a leading `./` is removed
+from each key: `./content/a.md` becomes `content/a.md`, or `a.md` with
+`base: "./content"`.
 
 ## Reuse a definition
 
@@ -109,7 +139,7 @@ refresh, so overlapping loads keep separate revisions:
 ```ts fragment
 import { defineContent } from "@vite-hub/content"
 
-export const content = defineContent({ source: docs })
+export default defineContent({ source: docs })
 ```
 
 Workspace binds the same definition to a persistent file tree:
@@ -130,10 +160,9 @@ retrieval. Content owns parsed documents, navigation, queries, and search.
 ## Optional name lookup
 
 ```ts fragment
-import { defineSources, registerSources, useSource } from "@vite-hub/source"
+import { registerSources, useSource } from "@vite-hub/source"
 
-const sources = defineSources({ docs })
-registerSources(sources)
+registerSources({ docs })
 
 declare global {
   interface ViteHubSourceMap {
@@ -155,8 +184,7 @@ for Collections and Content does not generate `ViteHubSourceMap`.
 sections of a Markdown file. Each part key is `<parent key>#<part key>`:
 
 ```ts
-import { createSource, splitSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, splitSource, glob } from "@vite-hub/source"
 
 const sections = splitSource({
   source: glob({ cwd: "docs", include: "**/*.md" }),
@@ -171,28 +199,7 @@ The result is a Source definition. `get()` reads only the parent item of the
 part, and a part without a `path` keeps the parent's path. Part keys must be
 unique in their parent item and must not contain `#`.
 
-## Combine keyed readers
-
-Use ordinary objects or functions for readers that do not need a loader
-lifecycle. `combineSources()` keeps aliases in each key and result:
-
-```ts
-import { combineSources } from "@vite-hub/source"
-
-const recaps = combineSources({
-  sources: {
-    github: {
-      get: async (month: `${number}-${number}`) => ({ month }),
-      items: async () => [{ key: "2026-07" as const }],
-    },
-  },
-})
-
-await recaps.get(["github", "2026-07"])
-await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github", "2026-07"] }]
-```
-
-A combined reader exposes `items()` only when every input implements it.
+## Cache keyed readers
 
 Use `cachedSource()` to add Nitro caching to a keyed reader. It loads
 `nitro/cache` on the first `get()`, so the app must run on Nitro:
@@ -204,8 +211,7 @@ const cachedDocs = cachedSource(createSource(docs), { name: "docs", maxAge: 60 }
 await cachedDocs.get("intro.md")
 ```
 
-Use a different cache name for each origin and access scope. Cache ordinary
-readers before passing them to `combineSources()`.
+Use a different cache name for each origin and access scope.
 
 ## Collections
 
@@ -217,8 +223,17 @@ paginated client read model:
 import { defineCollection } from "@vite-hub/source"
 import * as v from "valibot"
 
+interface Article { id: string, title: string, createdAt: number }
+
 export const articles = defineCollection(async ({ cursor, limit, query }) => {
-  return db.listArticles({ after: cursor, author: query.author, limit })
+  // A CMS API that pages by the last (createdAt, id) it returned
+  const url = new URL("https://cms.example.com/api/articles")
+  url.searchParams.set("limit", String(limit))
+  if (cursor) url.searchParams.set("after", cursor.join(","))
+  if (query.author) url.searchParams.set("author", query.author)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
+  return await response.json() as Article[]
 }, {
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
@@ -298,11 +313,8 @@ hashes the items for pagination. Keyed lookups do not compute a digest.
 page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
-request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
-exports `table()` too.
-
-`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
-in a Workspace file.
+request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
+`vite-hub/source/drizzle`.
 
 Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
 Cancelled reads reject with the signal's reason, including when a loader or

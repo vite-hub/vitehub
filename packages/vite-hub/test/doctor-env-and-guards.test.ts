@@ -63,18 +63,29 @@ describe("vitehub/no-literal-credentials", () => {
         'import { env, hubEnv } from "@vite-hub/env/vite"',
         'import { hubEmail } from "@vite-hub/email/vite"',
         "export default defineConfig({",
-        "  plugins: [hubEnv(), hubEmail({ driver: 'resend', options: { apiKey: process.env.RESEND_API_KEY } })],",
-        "  env: {",
+        "  plugins: [hubEnv({",
         "    server: {",
         "      apiToken: 'sk-live-123',",
         "      github: { token: env({ secret: true, default: 'ghp_123' }) },",
         "      airtable: process.env.AIRTABLE_TOKEN,",
         "      region: env({ default: import.meta.env.REGION }),",
         "    },",
-        "  },",
+        "  }), hubEmail({ driver: 'resend', options: { apiKey: process.env.RESEND_API_KEY } })],",
         "})",
       ].join("\n"),
     })).toEqual(Array(5).fill("VHUB0005"))
+  })
+
+  it("reports secrets in the Env options of vitehub()", async () => {
+    expect(await codes(noLiteralCredentials, {
+      "vite.config.ts": [
+        'import { defineConfig } from "vite"',
+        'import { vitehub } from "vite-hub"',
+        "export default defineConfig({",
+        "  plugins: [vitehub({ env: { server: { apiToken: 'sk-live-123' } } })],",
+        "})",
+      ].join("\n"),
+    })).toEqual(["VHUB0005"])
   })
 
   it("reports literal credentials in Auth, Connections, and gateway Definitions", async () => {
@@ -91,8 +102,7 @@ describe("vitehub/no-literal-credentials", () => {
         'import { defineConfig } from "vite"',
         'import { env, hubEnv } from "@vite-hub/env/vite"',
         "export default defineConfig({",
-        "  plugins: [hubEnv()],",
-        "  env: { server: { logLevel: 'info', dryRun: env.boolean({ default: true }), apiToken: env({ secret: true, source: env.source('API_TOKEN') }) } },",
+        "  plugins: [hubEnv({ server: { logLevel: 'info', dryRun: env.boolean({ default: true }), apiToken: env({ secret: true, source: env.source('API_TOKEN') }) } })],",
         "})",
       ].join("\n"),
       "server/agents/support.ts": 'import { openai } from "vite-hub/gateways"\nexport const gateway = openai({ apiKey: () => tenant.key, model: "gpt-5" })\n',

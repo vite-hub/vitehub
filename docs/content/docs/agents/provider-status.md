@@ -9,7 +9,7 @@ navigation.kind: Reference
 
 `status(context, { abortSignal })` on an Agent Definition tells you if its provider is signed in and has quota. The built-in Codex and Claude Code Drivers (model runners) reuse T3's account and quota probes. A check starts no Agent Invocation, prompt, or conversation.
 
-The Console shows status on Usage, in its authenticated `status` RPC operation, and at `GET /_vitehub/api/status`. The optional `agent` query picks one Agent Definition. Console access rules protect it in production, also with a custom base path. Status works when `console.invoke` is off. Running tasks still needs that opt-in.
+The Console shows status on Usage, from the `status.get` operation of the Console endpoint. The optional `agent` input picks one Agent Definition. Console access rules protect it in production, also with a custom base path. Status works when `console.invoke` is off. Running tasks still needs that opt-in.
 
 ## Read the result
 
@@ -30,6 +30,6 @@ Readiness holds at `checkedAt` only, not for later requests. A clear incompatibl
 - A failed refresh keeps the previous evidence with `stale: true` and `readiness: "unknown"`.
 - The built-in Drivers also keep each result for 30 seconds per Agent Definition. They group results by credential source when `driver.credentials` is set, else by host account. A preflight in that window reuses it.
 
-A check uses the same Driver credentials, credential profile, environment, and launcher as an invocation. Provider resolvers get `purpose: "inspection"` and no actor, invoker, or mounted Workspace. Resolvers that need those fields must handle their absence. A custom launcher gets a temporary working directory and no tool environment requirements. The probe releases credential and launcher files after the probe exits.
+A check uses the same Driver credentials, credential profile, environment, and launcher as an invocation. Provider resolvers get `purpose: "inspection"` and no invoker or mounted Workspace. Resolvers that need those fields must handle their absence. A custom launcher gets a temporary working directory and no tool environment requirements. The probe releases credential and launcher files after the probe exits.
 
 Console status responses never include raw provider diagnostics, account emails, or credentials. Liveness endpoints belong to your app.

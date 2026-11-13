@@ -11,8 +11,7 @@ icon: i-lucide-circle-alert
 `email.send()` returns `[error, sent]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong and names the driver, `error.fix` says what to do, and `error.docs` links to the code in [Email diagnostics](/docs/email/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/send.ts]
-import { type EmailMessage } from 'vite-hub/email'
-import { email } from 'vite-hub/email/server'
+import { type EmailMessage, email } from 'vite-hub/email'
 
 export async function send(message: EmailMessage) {
   const [error, sent] = await email.send(message)

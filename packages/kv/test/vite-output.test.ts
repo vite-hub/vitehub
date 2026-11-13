@@ -109,7 +109,8 @@ describe("KV Vite output", () => {
     await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
       import assert from "node:assert/strict"
       import { disposeKVStores, kv } from "@vite-hub/kv"
-      import { kvOperations } from "@vite-hub/kv/operations"
+      // Generated code imports the operations by file path. They are not a package export.
+      const { kvOperations } = await import(${JSON.stringify(new URL("../dist/operations.js", import.meta.url).href)})
 
       try {
         const [writeError] = await kv.set("token", "123456")
@@ -147,22 +148,23 @@ describe("KV Vite output", () => {
   })
 
   it("serializes provider output finalization after other post hooks", async () => {
-    const plugin = (await import("../src/vite.ts")).hubKv()
+    const plugin = (await import("../src/vite.ts")).hubKV()
 
     expect(plugin.enforce).toBe("post")
     expect(plugin.closeBundle).toMatchObject({ order: "post", sequential: true })
   })
 
-  it("resolves the Cloudflare runtime from the package entry", async () => {
-    const output = await readFile(new URL(`../${"dist"}/vite.js`, import.meta.url), "utf8")
+  it("resolves its runtime files next to the built package entry", async () => {
+    const { kvNitroCacheDriver } = await import(new URL(`../${"dist"}/vite.js`, import.meta.url).href) as typeof import("../src/vite.ts")
 
-    expect(output).toContain(`new URL("./runtime/cloudflare-kv.js", import.meta.url).href`)
+    expect(kvNitroCacheDriver).toBe(fileURLToPath(new URL("../dist/runtime/nitro-cache.js", import.meta.url)))
+    expect(existsSync(kvNitroCacheDriver)).toBe(true)
   })
 
   it("runs an fs-lite server bundle without the optional Upstash peer", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -189,10 +191,9 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { base: join(rootDir, ".data", "kv"), driver: "fs-lite" },
       logLevel: "silent",
       plugins: [
-        hubKv(),
+        hubKV({ base: join(rootDir, ".data", "kv"), driver: "fs-lite" }),
         {
           name: "missing-upstash-peer",
           resolveId(id) {
@@ -223,13 +224,14 @@ describe("KV Vite output", () => {
   it("bundles the Nitro cache driver over the app's Cloudflare KV store", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
     await writeFile(entry, [
       `import { kv } from "@vite-hub/kv"`,
-      `import createKVCacheDriver from "@vite-hub/kv/runtime/nitro-cache"`,
+      // The built driver, as `kvNitroCacheDriver` from the built `@vite-hub/kv/vite` returns it.
+      `import createKVCacheDriver from ${JSON.stringify(fileURLToPath(new URL("../dist/runtime/nitro-cache.js", import.meta.url)))}`,
       `export default async () => {`,
       `  await createKVCacheDriver().setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
       `  const [error, value] = await kv.get("nitro-cache:nitro:functions:stars.json")`,
@@ -247,9 +249,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -284,7 +285,7 @@ describe("KV Vite output", () => {
   it("bundles selected runtime config into server output", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -300,13 +301,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKV({
         binding: "KV_CUSTOM",
         driver: "cloudflare-kv-binding",
         namespaceId: "namespace-id",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -327,10 +327,49 @@ describe("KV Vite output", () => {
     expect(output).toContain("KV_CUSTOM")
   })
 
+  it("exports driver lookup from the generated Cloudflare runtime without opening a binding", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKV }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, 'export { getKVStoreDriver } from "@vite-hub/kv"\n')
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: { output: { entryFileNames: "worker.js" } },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubKV({ stores: {
+        default: { driver: "cloudflare-kv-binding", namespaceId: "default-id" },
+        sessions: { driver: "cloudflare-kv-binding", namespaceId: "sessions-id" },
+      } })],
+      root: rootDir,
+    })
+
+    // SAFETY: The fixture re-exports this public API from the generated runtime.
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
+      getKVStoreDriver: (name?: string) => Promise<string>
+    }
+    await expect(worker.getKVStoreDriver()).resolves.toBe("cloudflare-kv-binding")
+    await expect(worker.getKVStoreDriver("sessions")).resolves.toBe("cloudflare-kv-binding")
+    for (const name of ["missing", "constructor"]) {
+      await expect(worker.getKVStoreDriver(name)).rejects.toMatchObject({
+        code: "KV_STORE_NOT_FOUND",
+        message: `The KV store "${name}" is not configured.`,
+      })
+    }
+  })
+
   it("rejects inherited store names in the generated Cloudflare runtime", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -353,9 +392,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -372,7 +410,7 @@ describe("KV Vite output", () => {
   it("returns read-only handles from the generated Cloudflare runtime", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -395,9 +433,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -417,7 +454,7 @@ describe("KV Vite output", () => {
   it("bundles generated config into the dev inspection runtime", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -434,9 +471,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { binding: "KV_CUSTOM", driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ binding: "KV_CUSTOM", driver: "cloudflare-kv-binding", namespaceId: "namespace-id" })],
       root: rootDir,
     })
 
@@ -460,7 +496,7 @@ describe("KV Vite output", () => {
       kv_namespaces: [{ binding: "OLD", id: "old-namespace" }],
       triggers: { crons: ["0 0 * * *"] },
     }, null, 2)}\n`, "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -477,13 +513,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKV({
         binding: "SETTINGS",
         driver: "cloudflare-kv-binding",
         namespaceId: "11111111111111111111111111111111",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -511,7 +546,7 @@ describe("KV Vite output", () => {
     await writeFile(join(rootDir, ".vitehub", "provision.json"), `${JSON.stringify({
       cloudflare: { kv: { default: "22222222222222222222222222222222" } },
     })}\n`, "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -528,13 +563,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKV({
         binding: "SETTINGS",
         driver: "cloudflare-kv-binding",
         namespaceName: "app-settings",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -546,7 +580,7 @@ describe("KV Vite output", () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
     const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -562,11 +596,6 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
-        binding: "SETTINGS",
-        driver: "cloudflare-kv-binding",
-        namespaceId: "22222222222222222222222222222222",
-      },
       logLevel: "silent",
       plugins: [
         {
@@ -583,7 +612,11 @@ describe("KV Vite output", () => {
             },
           },
         },
-        hubKv(),
+        hubKV({
+          binding: "SETTINGS",
+          driver: "cloudflare-kv-binding",
+          namespaceId: "22222222222222222222222222222222",
+        }),
       ],
       root: rootDir,
     })
@@ -608,7 +641,7 @@ describe("KV Vite output", () => {
       kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
       triggers: { crons: ["0 0 * * *"] },
     }, null, 2)}\n`, "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -625,9 +658,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "fs-lite" })],
       root: rootDir,
     })
 
@@ -645,7 +677,7 @@ describe("KV Vite output", () => {
     const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
     await mkdir(cloudflareOutputRoot, { recursive: true })
     await writeFile(join(cloudflareOutputRoot, "wrangler.json"), "not-json\n", "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -662,9 +694,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "fs-lite" })],
       root: rootDir,
     })
 
@@ -683,7 +714,7 @@ describe("KV Vite output", () => {
       ],
     }, null, 2)}\n`, "utf8")
     await writeFile(join(cloudflareOutputRoot, kvBindingsFile), `${JSON.stringify(["OLD"], null, 2)}\n`, "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -700,13 +731,12 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: {
+      logLevel: "silent",
+      plugins: [hubKV({
         binding: "NEW",
         driver: "cloudflare-kv-binding",
         namespaceId: "new-namespace",
-      },
-      logLevel: "silent",
-      plugins: [hubKv()],
+      })],
       root: rootDir,
     })
 
@@ -731,7 +761,7 @@ describe("KV Vite output", () => {
       ],
     }, null, 2)}\n`, "utf8")
     await writeFile(join(cloudflareOutputRoot, kvBindingsFile), `${JSON.stringify(["OLD"], null, 2)}\n`, "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -748,9 +778,8 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "fs-lite" })],
       root: rootDir,
     })
 
@@ -769,7 +798,7 @@ describe("KV Vite output", () => {
       kv_namespaces: [{ binding: "KV", id: "manual-namespace" }],
     }, null, 2)}\n`, "utf8")
     await writeFile(join(cloudflareOutputRoot, kvBindingsFile), `${JSON.stringify(["KV"], null, 2)}\n`, "utf8")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -786,7 +815,6 @@ describe("KV Vite output", () => {
         ssr: entry,
       },
       configFile: false,
-      kv: { driver: "fs-lite" },
       logLevel: "silent",
       nitro: {
         cloudflare: {
@@ -798,7 +826,7 @@ describe("KV Vite output", () => {
           },
         },
       },
-      plugins: [hubKv()],
+      plugins: [hubKV({ driver: "fs-lite" })],
       root: rootDir,
     }
     // SAFETY: Vite preserves provider-owned Nitro configuration as an open custom field.

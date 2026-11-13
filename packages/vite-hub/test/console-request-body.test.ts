@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 import { consoleRequestJSON } from "../src/console/runtime/server/request.ts"
-import { nodeResponse, requestEvent } from "./console-event.ts"
+import { requestEvent } from "./console-event.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -18,12 +17,6 @@ function streamEvent(body: ReadableStream<Uint8Array>): ConsoleRequestEvent {
   return { "~standard": { vendor: "test", req: { body } as unknown as Request, res: {} } }
 }
 
-function h3V1(req: Record<PropertyKey, unknown>): ConsoleRequestEvent {
-  const event = { node: { req: { headers: { host: "localhost" }, method: "POST", url: "/", ...req }, res: nodeResponse() } }
-  installStandardContext(event)
-  return event
-}
-
 const adapters = {
   fetch(body: string) {
     const bytes = encoder.encode(body)
@@ -34,27 +27,6 @@ const adapters = {
         controller.close()
       },
     }))
-  },
-  nodeBytes(body: string): ConsoleRequestEvent {
-    return h3V1({
-      async *[Symbol.asyncIterator]() {
-        for (const byte of encoder.encode(body)) yield new Uint8Array([byte])
-      },
-    })
-  },
-  nodeText(body: string): ConsoleRequestEvent {
-    return h3V1({
-      async *[Symbol.asyncIterator]() {
-        for (const character of body) yield character
-      },
-    })
-  },
-  // Nitro 2 on Workers: the Node request shim of H3 1 holds the body, already read.
-  nitro2Bytes(body: string): ConsoleRequestEvent {
-    return h3V1({ body: encoder.encode(body) })
-  },
-  nitro2Text(body: string): ConsoleRequestEvent {
-    return h3V1({ body })
   },
 }
 
@@ -123,43 +95,4 @@ describe("Console request bodies", () => {
     expect(body.locked).toBe(false)
   })
 
-  it("closes an oversized H3 1 iterator without reading another chunk", async () => {
-    let reads = 0
-    let closed = false
-    const event = h3V1({
-      async *[Symbol.asyncIterator]() {
-        try {
-          reads++
-          yield encoder.encode("12345")
-          reads++
-          yield encoder.encode("67890")
-        }
-        finally { closed = true }
-      },
-    })
-
-    await expect(consoleRequestJSON(event, 4)).rejects.toMatchObject({ statusCode: 413 })
-    expect(reads).toBe(1)
-    expect(closed).toBe(true)
-  })
-
-  it("stops reading a 1 MiB H3 1 body at the 64 KiB limit and keeps none of it", async () => {
-    let reads = 0
-    const chunk = new Uint8Array(16 * 1_024)
-    const event = h3V1({
-      async *[Symbol.asyncIterator]() {
-        for (let index = 0; index < 64; index++) {
-          reads++
-          yield chunk
-        }
-      },
-    })
-
-    await expect(consoleRequestJSON(event)).rejects.toMatchObject({ statusCode: 413 })
-    // Five chunks pass the limit. The host reads no more of the body.
-    expect(reads).toBe(5)
-    // H3's body cache does not keep the rejected body.
-    await expect(Promise.resolve(Reflect.get(event, "_requestBody"))).rejects.toThrow("cancelled")
-    expect(reads).toBe(5)
-  })
 })

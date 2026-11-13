@@ -7,8 +7,9 @@ import { normalizeKVOptions } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
+import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvStoreWithMode } from "../store-mode.ts"
 
@@ -37,7 +38,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING")
+  const explicit = readEnv(env, "VITEHUB_HOST")
   if (explicit) {
     return explicit
   }
@@ -59,18 +60,26 @@ function shouldFallbackHostedConfigImport(error: unknown) {
     || code === "ERR_UNSUPPORTED_ESM_URL_SCHEME"
 }
 
-async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
+interface HostedConfig {
+  kv: false | ResolvedKVModuleOptions | undefined
+  /** Present when a store uses the `database` driver. */
+  loadDatabases?: KVDatabasesLoader
+}
+
+async function resolveHostedConfig(): Promise<HostedConfig> {
   try {
     // SAFETY: ViteHub generates this private module from validated KV configuration.
-    const module = await import("#vitehub/kv/config") as { kv: false | ResolvedKVModuleOptions }
-    return module.kv
+    const module = await import("#vitehub/kv/config") as HostedConfig
+    // Config modules from other integrations can omit `loadDatabases`.
+    const loadDatabases = "loadDatabases" in module ? module.loadDatabases : undefined
+    return { kv: module.kv, ...(loadDatabases ? { loadDatabases } : {}) }
   }
   catch (error) {
     if (!shouldFallbackHostedConfigImport(error)) {
       throw error
     }
     const env = typeof process !== "undefined" ? process.env : {}
-    return normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false
+    return { kv: normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false }
   }
 }
 
@@ -78,7 +87,7 @@ async function resolveStorage(name = "default") {
   // In app tests, each store is a fresh fs-lite folder that the next reset deletes.
   const test = getViteHubTestMode()
   if (test) {
-    resolveHostedKVStore(await resolveHostedConfig(), name)
+    resolveHostedKVStore((await resolveHostedConfig()).kv, name)
     return await test.backend(`kv:${name}`, async () => createHostedKVStorage({
       store: { base: await test.directory(`kv-${name}`), driver: "fs-lite" },
     }, "default"), storage => storage.dispose())
@@ -86,12 +95,23 @@ async function resolveStorage(name = "default") {
   if (disposal) await disposal
   const existing = storagePromises.get(name)
   if (existing) return existing
-  const promise = resolveHostedConfig().then(config => createHostedKVStorage(config, name))
+  const promise = resolveHostedConfig().then(config => createHostedKVStorage(config.kv, name, config.loadDatabases))
   storagePromises.set(name, promise)
   void promise.catch(() => {
     if (storagePromises.get(name) === promise) storagePromises.delete(name)
   })
   return promise
+}
+
+/**
+ * The configured driver that a store uses in this server process. App tests return `fs-lite`.
+ * An unknown store throws. Reading the driver does not open a connection to the store.
+ */
+export async function getKVStoreDriver(name: KVStoreName = "default"): Promise<KVDriver> {
+  const config = await resolveHostedConfig()
+  const store = resolveHostedKVStore(config.kv, name)
+  if (getViteHubTestMode()) return "fs-lite"
+  return store.driver
 }
 
 async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
@@ -108,7 +128,13 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async deleteIfEquals(key, expected) {
+      return runKVOperation("deleteIfEquals", name, async (storage) => {
+        if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })
+        return storage.deleteIfEqualsItem(key, expected)
+      }, ["KV_UNSUPPORTED_OPERATION"])
+    },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options), kvKeyLimitCodes) },
     async getAndDelete(key, options) {
       return runKVOperation("getAndDelete", name, async (storage) => {

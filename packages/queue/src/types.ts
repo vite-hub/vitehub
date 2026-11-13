@@ -1,6 +1,9 @@
 import type { Result } from "@vite-hub/runtime"
 
-export type QueueProvider = "cloudflare" | "local" | "vercel"
+export type QueueProvider = "cloudflare" | "local" | "postgres" | "vercel"
+
+/** The Queue providers that run jobs in a Node server process. */
+export type NodeQueueProvider = "local" | "postgres"
 
 type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
 
@@ -168,17 +171,41 @@ interface LocalQueueModuleProviderOptions extends QueueSharedOptions {
   provider: "local"
 }
 
+/**
+ * The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database. Every server process
+ * that runs the app takes jobs from the table, so the jobs survive a restart and spread over all instances.
+ * It uses the connection of the Default Database. `QUEUE_POSTGRES_URL` overrides it at runtime.
+ */
+export interface PostgresQueueProviderOptions extends QueueSharedOptions {
+  /** The Database whose Postgres connection Queue uses. The build sets `default` when the Default Database is on Postgres. */
+  database?: string
+  provider: "postgres"
+  /** Queue Definition that receives the jobs. `getQueue()` sets it. */
+  queue?: string
+}
+
+interface PostgresQueueModuleProviderOptions extends QueueSharedOptions {
+  provider: "postgres"
+}
+
+/** Postgres options after resolution. The build adds `database` when the Default Database is on Postgres. */
+export interface ResolvedPostgresQueueOptions extends PostgresQueueModuleProviderOptions {
+  database?: string
+}
+
 export type QueueProviderOptions =
   | CloudflareQueueProviderOptions
   | LocalQueueProviderOptions
+  | PostgresQueueProviderOptions
   | VercelQueueProviderOptions
 
 export type QueueModuleProviderOptions =
   | CloudflareQueueModuleProviderOptions
   | LocalQueueModuleProviderOptions
+  | PostgresQueueModuleProviderOptions
   | VercelQueueModuleProviderOptions
 
-export type QueueModuleOptions =
+export type QueueOptions =
   | false
   | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions
@@ -191,6 +218,7 @@ export interface ResolvedLocalQueueOptions extends LocalQueueModuleProviderOptio
 export type ResolvedQueueOptions =
   | CloudflareQueueModuleProviderOptions
   | ResolvedLocalQueueOptions
+  | ResolvedPostgresQueueOptions
   | VercelQueueModuleProviderOptions
 
 export interface QueueJob<TPayload = unknown> {
@@ -247,7 +275,10 @@ export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPOR
 /** Codes that `send()` and `sendBatch()` of a local QueueClient return. */
 export type LocalQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
 
-/** One job in `sendBatch()` of a local QueueClient. */
+/** Codes that `send()` and `sendBatch()` of a postgres QueueClient return. */
+export type PostgresQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+
+/** One job in `sendBatch()` of a local or postgres QueueClient. */
 export interface LocalQueueSendBatchMessage<T = unknown> {
   body: T
   delaySeconds?: number
@@ -298,9 +329,21 @@ export interface LocalQueueClient<TPayload = unknown> extends QueueClientBase<"l
   sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
 }
 
+/**
+ * `send()` inserts the job in the Postgres table and returns when the insert commits. Any server process of the app
+ * then runs the Queue Definition. `send()` and `sendBatch()` return `[error, data]`.
+ */
+export interface PostgresQueueClient<TPayload = unknown> extends QueueClientBase<"postgres"> {
+  readonly queue: string
+  send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, PostgresQueueErrorCode>>
+  /** Inserts all jobs in one transaction. When one insert fails, no job of the batch is stored. */
+  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], PostgresQueueErrorCode>>
+}
+
 interface QueueClientMap<TPayload> {
   cloudflare: CloudflareQueueClient<TPayload>
   local: LocalQueueClient<TPayload>
+  postgres: PostgresQueueClient<TPayload>
   vercel: VercelQueueClient<TPayload>
 }
 
@@ -322,4 +365,112 @@ export interface DiscoveredQueueDefinition {
   handler: string
   name: string
   source?: "server-queues" | "vite-suffix"
+}
+
+/** The last delivery error of a stored job, as `vitehub queue jobs` shows it. */
+export interface QueueDeliveryErrorDetails {
+  code?: string
+  details?: Readonly<Record<string, unknown>>
+  docs?: string
+  fix?: string
+  message: string
+  name: string
+  stack?: string
+}
+
+/** The delivery rules that the local engine applies. */
+export interface LocalQueueDeliveryRules {
+  /** Deliveries before a failing job becomes a dead job. `Infinity` retries until the job expires. */
+  maxAttempts: number
+  /** Largest `delaySeconds` that a send accepts. */
+  maxDelaySeconds?: number
+  /** Largest number of jobs in one `sendBatch()`. */
+  maxBatchJobs?: number
+  /** Largest JSON size in bytes of all payloads of one `sendBatch()`. */
+  maxBatchBytes?: number
+  /** Largest JSON size in bytes of one payload. */
+  maxPayloadBytes?: number
+  /** Accepted `retentionSeconds`. A job expires at the end of its retention, whether it ran or not. */
+  retention?: { defaultSeconds: number, maxSeconds: number, minSeconds: number }
+  /** Milliseconds before the next delivery after `attempts` failed deliveries. */
+  retryDelayMs: (attempts: number) => number
+  /** The provider whose documented rules these are. */
+  rules: LocalQueueRules
+  /** Enqueue options that fail with `QUEUE_UNSUPPORTED_OPTION`. */
+  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retentionSeconds")[]
+}
+
+export interface LocalQueueStatus {
+  /** Absolute directory of the local provider, or the Postgres table and database, without the password. */
+  base: string
+  /** Dead jobs kept per Queue Definition. Older dead jobs are deleted. */
+  deadLimit: number
+  /**
+   * `single-host`: the jobs survive a restart of this host. Another host or a new container does not see them.
+   * `shared`: the postgres provider keeps the jobs in Postgres, and every instance of the app takes jobs from it.
+   */
+  durability: "shared" | "single-host"
+  queues: Record<string, { dead: number, pending: number, running: number }>
+}
+
+/** One stored job, as `vitehub queue jobs list` shows it. Times are ISO strings. */
+export interface LocalQueueJob {
+  attempts: number
+  /** When a pending job runs next. */
+  availableAt: string
+  enqueuedAt: string
+  /** The last delivery error. A pending job has one after a failed attempt. */
+  error?: QueueDeliveryErrorDetails
+  /** When the job expires, for Vercel rules. */
+  expiresAt?: string
+  /** When the job became dead. */
+  failedAt?: string
+  /** The message ID that `runQueue()` returned. */
+  id: string
+  queue: string
+  state: "dead" | "pending" | "running"
+}
+
+/** One stored job with its payload, as `vitehub queue jobs show` shows it. */
+export interface LocalQueueJobDetail extends LocalQueueJob {
+  /** The local provider only: the file of the job. */
+  file?: string
+  idempotencyKey?: string
+  payload?: unknown
+}
+
+/** Which jobs `jobs()` lists. */
+export interface QueueJobsFilter {
+  queue?: string
+  state?: LocalQueueJob["state"]
+}
+
+/** Which jobs `clear()` removes. Running jobs always stay. */
+export interface LocalQueueClearFilter {
+  queue?: string
+  state?: "dead" | "pending"
+}
+
+/**
+ * The stored jobs of a provider that ViteHub can read: the local and the postgres provider. The Queue operations,
+ * so `vitehub queue jobs` and the Console, read jobs through it.
+ */
+export interface QueueJobStore {
+  /** The directory of the local provider, or the Postgres table and database, without the password. */
+  readonly base: string
+  /** Removes the stored jobs that match, except running jobs. Returns how many it removed. */
+  clear: (filter?: LocalQueueClearFilter) => Promise<number>
+  /** The newest stored job with this message ID, with its payload. */
+  job: (id: string) => Promise<LocalQueueJobDetail | undefined>
+  /** The stored jobs, newest first. The postgres provider applies `filter` and returns at most 1,000 jobs. */
+  jobs: (filter?: QueueJobsFilter) => Promise<LocalQueueJob[]>
+  readonly provider: "local" | "postgres"
+  /**
+   * Runs the newest stored job with this message ID now. A dead job gets a new set of attempts. A pending job keeps
+   * its attempts and does not wait for its delay or retry delay. A running job is not changed. `duplicate`: a newer
+   * live job holds the `idempotencyKey` of the dead job.
+   */
+  retry: (id: string) => Promise<LocalQueueJob | "duplicate" | "missing" | "running">
+  readonly rules: LocalQueueDeliveryRules
+  status: () => Promise<LocalQueueStatus>
 }

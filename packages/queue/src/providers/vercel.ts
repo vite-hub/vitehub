@@ -10,11 +10,6 @@ function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDE
   return [queueErrorDiagnostics.QUEUE_PROVIDER_INVALID_RESPONSE({ cause }), undefined]
 }
 
-function isRuntimeFunction(value: unknown): boolean {
-  // Callable HTMLDDA browser values report undefined without being undefined.
-  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
-}
-
 function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   if (value === null || typeof value !== "object") return false
   try {
@@ -39,7 +34,7 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
           let constructor: PropertyDescriptor | undefined
           try {
             constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
-            if (!constructor || !("value" in constructor) || !isRuntimeFunction(constructor.value) || constructor.value.prototype !== owner) {
+            if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) {
               return false
             }
           }
@@ -47,9 +42,9 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
             return false
           }
         }
-        if ("value" in descriptor) return isRuntimeFunction(descriptor.value)
+        if ("value" in descriptor) return typeof descriptor.value === "function"
         try {
-          return isRuntimeFunction(Reflect.get(value, name))
+          return typeof Reflect.get(value, name) === "function"
         }
         catch {
           return false
@@ -129,7 +124,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   }
 
   const { region: resolvedRegion } = resolveVercelQueueRegion(region)
-  if (Object.hasOwn(module, "QueueClient") && isRuntimeFunction(module.QueueClient)) {
+  if (Object.hasOwn(module, "QueueClient") && typeof module.QueueClient === "function") {
     if (!resolvedRegion) {
       throw queueErrorDiagnostics.QUEUE_MISSING_REGION()
     }
@@ -138,11 +133,11 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     return new (module.QueueClient as new (options: { region: string }) => VercelQueueSDK)({ region: resolvedRegion })
   }
 
-  if (Object.hasOwn(module, "send") && Object.hasOwn(module, "handleCallback") && isRuntimeFunction(module.send) && isRuntimeFunction(module.handleCallback)) {
+  if (Object.hasOwn(module, "send") && Object.hasOwn(module, "handleCallback") && typeof module.send === "function" && typeof module.handleCallback === "function") {
     return {
       handleCallback: module.handleCallback as VercelQueueSDK["handleCallback"],
       send: module.send as VercelQueueSDK["send"],
-      ...(Object.hasOwn(module, "sendBatch") && isRuntimeFunction(module.sendBatch) ? { sendBatch: module.sendBatch as VercelQueueSDK["sendBatch"] } : {}),
+      ...(Object.hasOwn(module, "sendBatch") && typeof module.sendBatch === "function" ? { sendBatch: module.sendBatch as VercelQueueSDK["sendBatch"] } : {}),
     }
   }
 
@@ -187,7 +182,7 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
       }))
       const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
-        if (!isRuntimeFunction(client.sendBatch)) throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
+        if (typeof client.sendBatch !== "function") throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
         const results = await client.sendBatch!(topic, messages)
         if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw new VercelQueueBatchFailedError(results)
         return results

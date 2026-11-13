@@ -13,21 +13,30 @@ import type { KVRuntimeDriver } from "./driver.ts"
  */
 export default function createCloudflareKVLocalDriver(store: ResolvedCloudflareKVStoreConfig & { localBase: string }): KVRuntimeDriver {
   const binding = createCloudflareDriver({ binding: store.binding, namespaceId: store.namespaceId })
-  const local = createFsLiteKVDriver({ base: store.localBase, driver: "fs-lite" })
-  installCloudflareKVLimits(local)
-  const pick = () => getActiveCloudflareBinding(store.binding) ? binding : local
+  let localPromise: Promise<KVRuntimeDriver> | undefined
+  const pick = async () => {
+    if (getActiveCloudflareBinding(store.binding)) return binding
+    // Binding-backed requests never need the filesystem. Share fallback initialization and retry failures.
+    return localPromise ??= createFsLiteKVDriver({ base: store.localBase, driver: "fs-lite" }).then((local) => {
+      installCloudflareKVLimits(local)
+      return local
+    }).catch((error: unknown) => {
+      localPromise = undefined
+      throw error
+    })
+  }
   return {
     name: "cloudflare-kv-local",
     options: store,
-    clear: (base, options) => pick().clear?.(base, options),
+    clear: async (base, options) => (await pick()).clear?.(base, options),
     async dispose() {
-      await Promise.all([binding.dispose?.(), local.dispose?.()])
+      await Promise.all([binding.dispose?.(), localPromise?.then(local => local.dispose?.())])
     },
-    getItem: (key, options) => pick().getItem(key, options),
-    getKeys: (base, options) => pick().getKeys(base, options),
-    hasItem: (key, options) => pick().hasItem(key, options),
-    listKeys: options => pick().listKeys(options),
-    removeItem: (key, options) => pick().removeItem?.(key, options),
-    setItem: (key, value, options) => pick().setItem?.(key, value, options),
+    getItem: async (key, options) => (await pick()).getItem(key, options),
+    getKeys: async (base, options) => (await pick()).getKeys(base, options),
+    hasItem: async (key, options) => (await pick()).hasItem(key, options),
+    listKeys: async options => (await pick()).listKeys(options),
+    removeItem: async (key, options) => (await pick()).removeItem?.(key, options),
+    setItem: async (key, value, options) => (await pick()).setItem?.(key, value, options),
   }
 }

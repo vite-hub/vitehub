@@ -9,7 +9,6 @@ import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { parseAgentStateQueueEntry } from "../internal/state-queue.ts"
 import { parseAgentWebhookQueueDelivery } from "../internal/webhook-queue.ts"
-import { isRuntimeBigInt, isRuntimeObject, isRuntimeString } from "../internal/runtime-value.ts"
 
 import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 
@@ -123,7 +122,7 @@ function rows(result: SqliteAgentStateResult | SqliteAgentStateRow[] | void): Sq
 }
 
 function numberValue(value: unknown): number {
-  return isRuntimeBigInt(value) ? Number(value) : Number(value || 0)
+  return typeof value === "bigint" ? Number(value) : Number(value || 0)
 }
 
 async function execute(executor: SqliteAgentStateExecutor, statement: string, args: unknown[] = []): Promise<SqliteAgentStateRow[]> {
@@ -132,7 +131,7 @@ async function execute(executor: SqliteAgentStateExecutor, statement: string, ar
 
 function isSqliteBusy(error: unknown): boolean {
   let current = error
-  while (current && isRuntimeObject(current)) {
+  while (current && typeof current === "object") {
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     if ((current as { code?: unknown }).code === "SQLITE_BUSY") return true
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
@@ -318,7 +317,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             RETURNING value`,
           [leaseToken, now + leaseTtlMs, scope, candidate.delivery_id, now],
         )
-        if (claimed.length === 0 || !isRuntimeString(candidate.value)) continue
+        if (claimed.length === 0 || typeof candidate.value !== "string") continue
         return {
           ...parseAgentWebhookQueueDelivery(candidate.value),
           attempts: numberValue(candidate.attempts) + (candidate.status === "running" || candidate.status === "steering" ? 1 : 0),
@@ -389,7 +388,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const claimed = await retrySqliteBusy(() => this.transaction(async tx => {
       const current = await execute(tx, `SELECT value FROM ${this.tables.webhookQueue}
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?`, [scope, deliveryId, leaseToken])
-      if (current.length === 0 || !isRuntimeString(current[0]?.value)) return []
+      if (current.length === 0 || typeof current[0]?.value !== "string") return []
       const delivery = parseAgentWebhookQueueDelivery(current[0].value)
       if (!delivery.failure || delivery.failure.notificationStarted) return []
       delivery.failure.notificationStarted = true
@@ -409,7 +408,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       return await this.transaction(async tx => {
         const current = await execute(tx, `SELECT value FROM ${this.tables.webhookQueue}
           WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?`, [scope, deliveryId, leaseToken])
-        if (current.length === 0 || !isRuntimeString(current[0]?.value)) return []
+        if (current.length === 0 || typeof current[0]?.value !== "string") return []
         const delivery = parseAgentWebhookQueueDelivery(current[0].value)
         delivery.failure = failure
         return await execute(tx, `UPDATE ${this.tables.webhookQueue}
@@ -466,7 +465,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const row = queueRows[0]
       if (!row) return null
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE id = ?`, [row.id])
-      return isRuntimeString(row.value) ? parseAgentStateQueueEntry(row.value) : null
+      return typeof row.value === "string" ? parseAgentStateQueueEntry(row.value) : null
     })
   }
 
@@ -489,7 +488,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         FROM ${this.tables.webhookQueue}
         WHERE scope = ? AND status = 'completed' AND json_extract(value, '$.channelDeliveryId') IS NOT NULL
         ORDER BY id ASC`, [scope])
-    return rows.flatMap(row => isRuntimeString(row.delivery_id) && isRuntimeString(row.channel_delivery_id)
+    return rows.flatMap(row => typeof row.delivery_id === "string" && typeof row.channel_delivery_id === "string"
       ? [{ channelDeliveryId: row.channel_delivery_id, deliveryId: row.delivery_id }]
       : [])
   }
@@ -542,7 +541,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             WHERE scope = ? AND status = 'queued' AND json_extract(value, '$.debounceKey') = ?`,
           [scope, debounceKey],
         )
-        return cancelled.flatMap(row => isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : [])
+        return cancelled.flatMap(row => typeof row.value === "string" ? [parseAgentWebhookQueueDelivery(row.value)] : [])
       })
     })
   }
@@ -612,7 +611,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, Date.now()])
       const queue = await execute(tx, `SELECT value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC LIMIT 1`, [threadId])
-      return isRuntimeString(queue[0]?.value) ? parseAgentStateQueueEntry(queue[0].value) : null
+      return typeof queue[0]?.value === "string" ? parseAgentStateQueueEntry(queue[0].value) : null
     })
   }
 
@@ -621,9 +620,9 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, Date.now()])
       const queue = await execute(tx, `SELECT id, value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC`, [threadId])
-      const current = isRuntimeString(queue[0]?.value) ? queue[0].value : null
+      const current = typeof queue[0]?.value === "string" ? queue[0].value : null
       if (current !== (expected === null ? null : JSON.stringify(expected))) return false
-      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (isRuntimeString(row.value) ? [parseAgentStateQueueEntry(row.value)] : []))
+      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (typeof row.value === "string" ? [parseAgentStateQueueEntry(row.value)] : []))
       const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ?`, [threadId])
       for (const entry of next) {
@@ -704,7 +703,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       Date.now(),
     ])
     const value = valueRows[0]?.value
-    if (!isRuntimeString(value)) return null
+    if (typeof value !== "string") return null
     const parsed: unknown = JSON.parse(value)
     return parse(parsed)
   }
@@ -796,7 +795,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         ORDER BY id ASC`,
       [scope],
     )
-    return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+    return rows.flatMap((row) => (typeof row.value === "string" ? [parseAgentWebhookQueueDelivery(row.value)] : []))
   }
 
   async queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]> {
@@ -808,7 +807,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         ORDER BY id ASC`,
       [scope],
     )
-    return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+    return rows.flatMap((row) => (typeof row.value === "string" ? [parseAgentWebhookQueueDelivery(row.value)] : []))
   }
 
   async webhookDeliveryScopes(): Promise<string[]> {
@@ -819,7 +818,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         WHERE status != 'completed' OR json_extract(value, '$.channelDeliveryId') IS NOT NULL
         ORDER BY scope ASC`,
     )
-    return scopeRows.flatMap((row) => (isRuntimeString(row.scope) ? [row.scope] : []))
+    return scopeRows.flatMap((row) => (typeof row.scope === "string" ? [row.scope] : []))
   }
 
   async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {

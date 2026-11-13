@@ -10,12 +10,13 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `kv` from `@vite-hub/kv` | Read and write the default store or a named store. |
-| `disposeKVStores` from `@vite-hub/kv` | Close all cached stores in a shutdown hook. |
-| `hubKv` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
+| `kv` from `vite-hub/kv` | Read and write the default store or a named store. |
+| `disposeKVStores` from `vite-hub/kv` | Close all cached stores in a shutdown hook. |
+| `getKVStoreDriver` from `vite-hub/kv` | Name the configured driver that a store uses in this server process. Driver selection occurs at build time; Rate Limit reads it at boot without opening a store connection. App tests return `fs-lite`. |
+| `hubKV` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve the KV config by hand. |
 
-`@vite-hub/kv` also exports all driver, store, module, and storage types.
+`vite-hub/kv` also exports all driver, store, module, and storage types.
 
 ## Use it at runtime
 
@@ -23,7 +24,7 @@ Import `kv` in server code to save and read values.
 
 ```ts [server/api/settings.put.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
   const [error] = await kv.set('settings', await readBody(event))
@@ -34,7 +35,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get('settings')
@@ -46,7 +47,7 @@ export default defineEventHandler(async () => {
 When your config has more than one store, select one by name.
 
 ```ts [server/tenant-preferences.ts]
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 const preferences = kv.store('tenant-preferences')
 
@@ -58,11 +59,11 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `del()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 const flags = kv.store('default', { mode: 'read' })
 
@@ -80,7 +81,7 @@ export default defineEventHandler(async () => {
 The mode limits this API, not the host. The Cloudflare KV binding, the Upstash token, and `fs-lite` files keep full access, and code can still import the full `kv`. It is not a security boundary. Use it to show intent and keep writes out of read-only code.
 ::
 
-Upstash has atomic single-use reads and counters:
+The `redis`, `database`, and `upstash` drivers provide atomic single-use reads and counters:
 
 ```ts [server/verification.ts] fragment
 const [consumeError, token] = await kv.getAndDelete('verification:token')
@@ -102,12 +103,29 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 
 | Driver | `setIfAbsent()` |
 | --- | --- |
+| `redis` | Atomic. One `SET NX` command, with `PX` when you pass `ttl`. |
+| `database` | Atomic. One `INSERT ... ON CONFLICT` statement that also replaces an expired key. Expiry uses the clock of the Database. |
 | `upstash` | Atomic. One `SET NX` command, with `EX` when you pass `ttl`. |
 | `deno-kv` | Atomic. One commit that checks the key is missing. Deno KV deletes expired keys some time after the TTL, so a key can stay longer than `ttl`. |
 | `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys. |
 | `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
-`increment()` sets the TTL only when it creates the counter. Deno KV sets a new expiry on each write, so a fixed window would need a hidden deadline and cleanup. So Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` for `increment()` and `getAndDelete()`. For request budgets, use [Rate Limit](/docs/rate-limit).
+`increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
+
+`deleteIfEquals(key, expected)` deletes the key only when it holds `expected`, in one atomic step, and returns `true` when this call deleted it. Use it to free a token that only its owner may free:
+
+```ts [server/jobs/report.ts] fragment
+const owner = crypto.randomUUID()
+const [claimError, claimed] = await kv.setIfAbsent('jobs:report', owner, { ttl: 60 })
+if (claimError) throw claimError
+if (claimed) {
+  // ... run the job ...
+  const [releaseError] = await kv.deleteIfEquals('jobs:report', owner)
+  if (releaseError) throw releaseError
+}
+```
+
+KV compares the stored text with `expected` serialized as `set()` stores it, so objects with the same fields in another order are not equal. The `redis`, `database`, and `upstash` drivers support it. Other drivers return `KV_UNSUPPORTED_OPERATION`. The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support an operation. Use the [Rate Limit primitive](/docs/rate-limit) when provider-managed request budgets fit the application.
 
 ## Runtime helper
 
@@ -115,17 +133,18 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 
 | Method | Description |
 | --- | --- |
-| `kv.get<T>(key, { type? })` | Reads a value or returns `null`. `type` converts it ([Typed reads](#typed-reads)). |
-| `kv.getAndDelete<T>(key, { type? })` | Returns and deletes a value in one step on Upstash. `{ type: 'text' }` returns the stored text. |
+| `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
+| `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
 | `kv.set<T>(key, value)` | Writes a value. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
-| `kv.increment(key, ttl)` | Adds one to a counter in one step on Upstash. |
-| `kv.del(key)` | Deletes one key. |
-| `kv.keys(base?)` | Lists keys, optionally under a prefix. |
-| `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` for the next page. |
-| `kv.clear(base?)` | Deletes keys, optionally under a prefix. |
-| `kv.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
+| `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
+| `kv.delete(key)` | Deletes one key. |
+| `kv.deleteIfEquals<T>(key, expected)` | Atomically deletes the key when it holds `expected`. Returns `true` when this call deleted it. On `redis`, `database`, and Upstash. |
+| `kv.keys(base?)` | Lists keys under an optional base prefix. |
+| `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
+| `kv.clear(base?)` | Deletes keys under an optional base prefix. |
+| `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Every async method returns `[error, value]`, so you need no `try/catch`. `error.code` is typed per method, and `why`, `fix`, and `docs` explain it. Provider failures are `KV_OPERATION_FAILED`, with the provider error in `cause`. Configuration errors, such as an unknown store, throw. Read [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
@@ -152,7 +171,7 @@ The return type follows `type`: `kv.get(key, { type: 'text' })` is `string | nul
 
 ## Application teardown
 
-After the app stops taking new work, call `disposeKVStores()` in your shutdown hook. It closes cached stores, with open filesystem iterators and Upstash overflow pages.
+After the app stops taking new work, call `disposeKVStores()` in your shutdown hook. It closes cached stores, including Redis connections, open filesystem iterators, and Upstash overflow pages. When a store can use Redis, ViteHub registers it on Nitro's `close` hook for you, so the process can exit after a stop signal.
 
 - Calls at the same time share one cleanup promise.
 - Cleanup failures reject with an `AggregateError`.
@@ -161,7 +180,7 @@ After the app stops taking new work, call `disposeKVStores()` in your shutdown h
 In Nitro, register the hook in a server plugin:
 
 ```ts [server/plugins/kv-cleanup.ts] fragment
-import { disposeKVStores } from '@vite-hub/kv'
+import { disposeKVStores } from 'vite-hub/kv'
 
 export default defineNitroPlugin((nitroApp) => {
   nitroApp.hooks.hook('close', disposeKVStores)

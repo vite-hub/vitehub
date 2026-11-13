@@ -1101,6 +1101,34 @@ describe("agent capability runtime", () => {
     await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
   })
 
+  it("installs the merge conflict Skill for github() pull request runs and keeps it across runs", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { github } = await import("../src/channels.ts")
+    const { mergeConflictSkillContent } = await import("../src/internal/merge-conflict-skill.ts")
+    const skillPath = ".agents/skills/vitehub-resolving-merge-conflicts/SKILL.md"
+    const capability = github({ pullRequest: true }).capabilities?.find(item => item.id === "github-pull-request-skills")
+    if (!capability) throw new Error("Missing github() pull request Skill capability.")
+    expect(github({ pullRequest: { workspace: false } }).capabilities?.some(item => item.id === "github-pull-request-skills")).toBe(false)
+    const workspaceName = `github-pull-request-skills-${crypto.randomUUID()}`
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-github-pull-request-skills-"))
+    onTestFinished(() => Promise.all([
+      rm(workspaceRoot, { force: true, recursive: true }),
+      rm(`${workspaceRoot}.meta.json`, { force: true }),
+    ]).then(() => undefined))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    for (let run = 0; run < 2; run++) {
+      const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      await expect(resolved.workspace?.fs.readFile(skillPath)).resolves.toBe(mergeConflictSkillContent)
+      await resolved.close()
+    }
+    expect(mergeConflictSkillContent).toMatch(/^---\nname: vitehub-resolving-merge-conflicts\ndescription: /)
+  })
+
   it("keeps the Browser Skill invocation-local when the Store lacks conditional writes", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
@@ -2715,7 +2743,7 @@ describe("agent capability runtime", () => {
     }))
 
     try {
-      const { defineAgent, resolveAgent } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const order: string[] = []
       const agent = defineAgent({
@@ -2727,7 +2755,7 @@ describe("agent capability runtime", () => {
         driver: { model: {} as never },
       })
 
-      await resolveAgent(agent, runtime())
+      await agent.resolve(runtime() as never)
       expect(order).toEqual([])
 
       await runAgentWithContext(agent, runtime(), { messages: [createMessage({ role: "user", text: "hello" })] })

@@ -59,7 +59,9 @@ async function runCloudflare() {
   }
   const url = `http://127.0.0.1:${CLOUDFLARE_PORT}`
   log(`starting wrangler dev on ${url}`)
-  const dev = spawn("vp", ["dlx", "wrangler", "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled", "--enable-containers=false"], {
+  // The repository Wrangler, so the local run uses the version that CI deploys with.
+  const wrangler = resolve(repoRoot, "node_modules/wrangler/bin/wrangler.js")
+  const dev = spawn(process.execPath, [wrangler, "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled", "--enable-containers=false"], {
     cwd: distDir,
     detached: process.platform !== "win32",
     env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" },

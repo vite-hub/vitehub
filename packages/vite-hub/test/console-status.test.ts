@@ -7,7 +7,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { getConsoleAgentDefinition, installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import agentInvocationsHandlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
-import statusHandlerRoute from "../src/console/runtime/server/status.get.ts"
+import statusRoute, { readConsoleStatus as statusHandlerRoute } from "../src/console/runtime/server/status.get.ts"
 import { createAgentStatusReader } from "@vite-hub/agent/server"
 import type { AgentInput, AgentProviderStatus } from "@vite-hub/agent"
 import type { H3Config } from "h3"
@@ -52,14 +52,14 @@ describe("Console status", () => {
     const require = createRequire(import.meta.url)
     const nitroRoot = dirname(require.resolve("nitro/package.json"))
     const { default: onError }: { default: NonNullable<H3Config["onError"]> } = await import(pathToFileURL(join(nitroRoot, "dist/runtime/internal/error/prod.mjs")).href)
-    // SAFETY: Mount the direct Nitro handler on H3 with Nitro's production error serializer.
-    const app = new H3({ onError }).get("/_vitehub/api/status", statusHandler as never)
+    // The Fetchable route answers with its own Response, so Nitro's production error serializer does not run.
+    const app = new H3({ onError }).get("/_vitehub/api/status", statusRoute)
     const invalidResponse = await app.request(`/_vitehub/api/status?agent=${invalid}`)
     expect(invalidResponse.status).toBe(400)
-    await expect(invalidResponse.json()).resolves.toMatchObject({ error: true, status: 400, statusText: "Invalid Agent name.", message: "Invalid Agent name." })
+    await expect(invalidResponse.json()).resolves.toMatchObject({ code: "VITE_HUB_R0113", ok: false, status: 400, message: "Invalid Agent name." })
     const unavailableResponse = await app.request("/_vitehub/api/status?agent=missing")
     expect(unavailableResponse.status).toBe(404)
-    await expect(unavailableResponse.json()).resolves.toMatchObject({ error: true, status: 404, statusText: "Agent status is unavailable.", message: "Agent status is unavailable." })
+    await expect(unavailableResponse.json()).resolves.toMatchObject({ code: "VITE_HUB_R0114", ok: false, status: 404, message: "Agent status is unavailable." })
   })
 
   it("reports the observability exporter and papercut backlog", async () => {

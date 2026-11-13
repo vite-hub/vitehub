@@ -38,7 +38,7 @@ function getHttpErrorStatusCode(error: unknown): number | undefined {
   if (code === "AUTHENTICATION_REQUIRED") return 401
   if (code === "RATE_LIMIT_REJECTED") return 429
   if (code === "RATE_LIMIT_UNAVAILABLE") return 503
-  if (code === "LLM_GATE_REJECTED" || code === "CAPABILITY_DENIED") return 403
+  if (code === "CAPABILITY_DENIED") return 403
   if (code === "CAPABILITY_NOT_FOUND") return 404
 }
 

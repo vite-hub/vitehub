@@ -9,13 +9,17 @@ import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache }
 import { createGitHubClient, githubEnvToken, githubErrorStatus } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
-import type { FileSource, SourceContext, SourceRevision } from "../../core/types.ts"
-import type { GitHubFile, GitHubSourceOptions } from "./types.ts"
+import { normalizeGitHubRoot } from "./root.ts"
 
-function normalizeGitHubRoot(path = "") {
-  const root = path.replace(/\\/g, "/").split("/").filter(part => part !== ".").join("/")
-  return normalizeSafeSourcePath(root, { allowEmpty: true, allowReserved: true }).split("/").filter(Boolean).join("/")
-}
+import type { SourceContext, SourceRevision } from "../../core/types.ts"
+import type { GitHubFile, GitHubFileCommit, GitHubPullRequest, GitHubSource, GitHubSourceOptions } from "./types.ts"
+
+/** Files per GraphQL request of `latest()`. GitHub answers 150 in about 4 seconds, and stops a request at 10. */
+const historyBatch = 150
+/** `latest()` splits a request that GitHub stopped down to this many files, then gives up. */
+const historyBatchMin = 20
+/** GraphQL requests of `latest()` that run at once. */
+const historyConcurrency = 4
 
 function dedupeProviderPromise<TResult>(
   promises: Map<string, Promise<TResult>>,
@@ -42,7 +46,7 @@ async function waitForCachedGitHubResult<TResult>(load: () => Promise<TResult>, 
   })
 }
 
-export function github(options: GitHubSourceOptions): FileSource<string> {
+export function github(options: GitHubSourceOptions): GitHubSource {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
@@ -319,6 +323,77 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       root,
     },
     name: "github",
+    async authenticated() {
+      return Boolean(await resolveAuth())
+    },
+    async history(key, historyOptions) {
+      return await client.commits(repoPathForKey(normalizeSafeSourcePath(key)), historyOptions, await resolveAuth())
+    },
+    async latest(keys, latestOptions) {
+      const token = await resolveAuth()
+      const paths = keys.map(key => repoPathForKey(normalizeSafeSourcePath(key)))
+      const found = new Map<string, GitHubFileCommit>()
+      async function read(start: number, end: number): Promise<void> {
+        try {
+          const commits = await client.latestCommits(paths.slice(start, end), latestOptions.sha, token)
+          commits.forEach((commit, index) => commit && found.set(keys[start + index]!, commit))
+        }
+        catch (error) {
+          // GitHub stops a GraphQL request after 10 seconds with 502. Ask again with half the files each time.
+          const status = githubErrorStatus(error)
+          if ((status !== 502 && status !== 504) || end - start <= historyBatchMin) throw error
+          const middle = start + Math.ceil((end - start) / 2)
+          await Promise.all([read(start, middle), read(middle, end)])
+        }
+      }
+      const batches = Array.from({ length: Math.ceil(paths.length / historyBatch) }, (_, index) => index * historyBatch)
+      let next = 0
+      await Promise.all(Array.from({ length: Math.min(historyConcurrency, batches.length) }, async () => {
+        while (next < batches.length) {
+          const start = batches[next++]!
+          await read(start, Math.min(start + historyBatch, paths.length))
+        }
+      }))
+      return found
+    },
+    async changes(base, head) {
+      const paths = await client.changedPaths(base, head, await resolveAuth())
+      if (!paths) return
+      const prefix = root ? `${root}/` : ""
+      return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
+    },
+    async pullChanges(number) {
+      const paths = await client.pullPaths(number, await resolveAuth())
+      if (!paths) return
+      const prefix = root ? `${root}/` : ""
+      return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
+    },
+    async resolveRef(ref, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      if ("pull" in ref) {
+        const pull = await client.pull(ref.pull, token, signal)
+        return pull && { sha: pull.sha, pull: pull.pull }
+      }
+      const sha = "branch" in ref ? await client.branch(ref.branch, token, signal) : await client.commit(ref.sha, token, signal)
+      return sha === undefined ? undefined : { sha }
+    },
+    async contains(sha, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      const base = configuredRef ?? await client.defaultBranch(token, signal)
+      const status = await client.compare(base, sha, token, signal)
+      return status === "identical" || status === "behind"
+    },
+    async pullsAt(sha, refOptions) {
+      const token = await resolveAuth()
+      const signal = refOptions?.signal
+      const at = (entries: Array<{ sha: string, pull: GitHubPullRequest }>) => entries.filter(entry => entry.sha.toLowerCase() === sha.toLowerCase()).map(entry => entry.pull)
+      const pulls = at(await client.commitPulls(sha, token, signal))
+      if (pulls.length) return pulls
+      // The base repository does not list a fork pull request for the commits of the fork. Its open pull requests do.
+      return at(await client.openPulls(token, signal))
+    },
     async resolveRevision(ctx) {
       const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)

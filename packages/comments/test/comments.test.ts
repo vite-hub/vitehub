@@ -142,6 +142,15 @@ describe("defineComments", () => {
     expect((await comments.get(thread!.id))[1]!.messages[0]!.author.guest).toBe(true)
   })
 
+  it("gives a guest's retry with the same requestId the first thread", async () => {
+    const comments = await createComments()
+    const author = { id: "visitor-1", name: "Visitor", guest: true }
+    const [, first] = await comments.create({ page: "/", anchor, body: "Hi", author, requestId: "draft-1" })
+    const [retryError, retry] = await comments.create({ page: "/", anchor, body: "Hi", author, requestId: "draft-1" })
+    expect(retryError).toBeUndefined()
+    expect(retry!.id).toBe(first!.id)
+  })
+
   it("names its schema keys with the vitehub prefix, so they never meet an app's own comments table", () => {
     expect(Object.keys(commentsSchema)).toEqual(["vitehubCommentThreads", "vitehubCommentMessages", "vitehubCommentCounters", "vitehubCommentForge"])
   })

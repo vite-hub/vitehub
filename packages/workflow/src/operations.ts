@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
@@ -20,7 +20,7 @@ function defineWorkflowOperation<Input, Output>(definition: Omit<OperationDefini
 }
 
 const start = defineWorkflowOperation<{ payload?: unknown, workflow: string }, WorkflowRunResult>({
-  cli: { positional: ["workflow"] },
+  cli: { positional: ["workflow", "payload"] },
   description: "Start a Workflow run by name. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), workflow: name }),
   invoke: true,
@@ -49,7 +49,7 @@ const cancel = defineWorkflowOperation<{ runId: string, workflow?: string }, Wor
 })
 
 const resume = defineWorkflowOperation<{ payload?: unknown, token: string }, WorkflowSignalResult>({
-  cli: { positional: ["token"] },
+  cli: { positional: ["token", "payload"] },
   description: "Resume a Workflow signal with its opaque token. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), token: v.pipe(v.string(), v.check(value => value.trim() !== "", "Pass the signal token.")) }),
   invoke: true,
@@ -58,11 +58,6 @@ const resume = defineWorkflowOperation<{ payload?: unknown, token: string }, Wor
   name: "workflow.resume",
   run: async input => (await runtime()).runWorkflowOperation("resume", input),
 })
-
-function table(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
-}
 
 function formatRuns({ runs }: WorkflowRunsListResult): string {
   if (runs.length === 0) return "No runs.\n"

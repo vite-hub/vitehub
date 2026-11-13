@@ -6,7 +6,8 @@ import { collectOperationContributions, operationRpcPath } from "./operations.ts
 import { flattenPluginOptions } from "./contributions.ts"
 import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "./cli.ts"
 
-const owners = new Set(["@vite-hub/kv/operations", "@vite-hub/blob/operations", "@vite-hub/email/operations", "@vite-hub/rate-limit/operations"])
+// The first of these plugins hosts the shared RPC. Its operations module also exports the handler factory.
+const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite", "@vite-hub/forms/vite"])
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
@@ -56,11 +57,13 @@ export async function installStandaloneOperationRpc(config: { root?: string, plu
   const plugins = await flattenPluginOptions(config.plugins)
   if (plugins.some(plugin => Reflect.get(plugin, "name") === "vite-hub/dependencies" || Reflect.get(plugin, "name") === "vite-hub/console")) return
   const contributions = (await collectOperationContributions(plugins)).filter(source => source.runtime !== false)
-  if (contributions.find(source => owners.has(source.module))?.module !== module) return
+  const owner = contributions.find(source => owners.has(source.plugin))
+  if (!owner || !contributions.some(source => source.module === module && owners.has(source.plugin))) return
+  // Refresh after each owner reads its config: a later plugin may discover more operations, such as Forms.
   const root = resolve(config.root ?? process.cwd())
   const handler = resolve(root, ".vitehub/nitro/operations/rpc.mjs")
   const source = [
-    `import { createStandaloneOperationHandler } from ${JSON.stringify(module)}`,
+    `import { createStandaloneOperationHandler } from ${JSON.stringify(owner.module)}`,
     ...contributions.map((entry, index) => `import * as source${index} from ${JSON.stringify(entry.module)}`),
     `export default createStandaloneOperationHandler([${contributions.map((entry, index) => `{ operations: source${index}[${JSON.stringify(entry.export)}], plugin: ${JSON.stringify(entry.plugin)} }`).join(", ")}], ${JSON.stringify(root)})`,
     "",

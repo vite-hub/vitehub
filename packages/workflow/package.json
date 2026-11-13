@@ -36,55 +36,25 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
-    "./runtime/cloudflare-runner": {
-      "types": "./dist/runtime/cloudflare-runner.d.ts",
-      "import": "./dist/runtime/cloudflare-runner.js",
-      "default": "./dist/runtime/cloudflare-runner.js"
-    },
-    "./runtime/cloudflare-shared": {
-      "types": "./dist/runtime/cloudflare-shared.d.ts",
-      "import": "./dist/runtime/cloudflare-shared.js",
-      "default": "./dist/runtime/cloudflare-shared.js"
-    },
-    "./runtime/cloudflare-vite": {
-      "types": "./dist/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/runtime/cloudflare-vite.js",
-      "default": "./dist/runtime/cloudflare-vite.js"
-    },
-    "./runtime/dev-runs": {
-      "types": "./dist/runtime/dev-runs.d.ts",
-      "import": "./dist/runtime/dev-runs.js",
-      "default": "./dist/runtime/dev-runs.js"
-    },
-    "./runtime/execute": {
-      "types": "./dist/runtime/execute.d.ts",
-      "import": "./dist/runtime/execute.js",
-      "default": "./dist/runtime/execute.js"
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./runtime/openworkflow": {
       "types": "./dist/runtime/openworkflow.d.ts",
       "import": "./dist/runtime/openworkflow.js",
       "default": "./dist/runtime/openworkflow.js"
     },
-    "./runtime/openworkflow-worker": {
-      "types": "./dist/runtime/openworkflow-worker.d.ts",
-      "import": "./dist/runtime/openworkflow-worker.js",
-      "default": "./dist/runtime/openworkflow-worker.js"
+    "./openworkflow": {
+      "types": "./dist/openworkflow.d.ts",
+      "import": "./dist/openworkflow.js",
+      "default": "./dist/openworkflow.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/vercel-vite": {
-      "types": "./dist/runtime/vercel-vite.d.ts",
-      "import": "./dist/runtime/vercel-vite.js",
-      "default": "./dist/runtime/vercel-vite.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -97,20 +67,22 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/workflow#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
+    "test": "vp run --cache -t @vite-hub/workflow#build && vp run --cache -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:vercel",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
+    "semver": "^7.8.5",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
@@ -120,6 +92,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
     "@vite-hub/database": "workspace:*",
     "@workflow/builders": "catalog:workflow",
     "openworkflow": "catalog:workflow",
@@ -127,6 +100,9 @@
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },

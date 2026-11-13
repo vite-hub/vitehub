@@ -5,18 +5,19 @@ import { github } from "../src/channels.ts"
 import type { AgentRuntimeContext, WorkspaceAgentWorkspaceConfig } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
-it("infers the selected preset and rejects unknown names", () => {
+it("selects a parent with extends and rejects preset selection", () => {
   const notes = defineAgent({ driver: codexDriver(), workspace: {} })
-  const other = defineAgent({ driver: { run: () => ({ text: "other" }) } })
-  const agent = defineAgent({ preset: "notes", presets: { notes, other }, driver: { model: "custom" } })
+  const agent = defineAgent({ extends: notes, driver: { model: "custom" } })
   expectTypeOf(agent.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
 
-  // @ts-expect-error The selected name must exist in the local registry.
-  defineAgent({ preset: "missing", presets: { notes } })
-  // @ts-expect-error Presets must be Agent Definitions.
-  defineAgent({ preset: "notes", presets: { notes: { driver: codexDriver() } } })
-  // @ts-expect-error The composition has exactly one parent.
-  defineAgent({ preset: "notes", presets: { notes }, extends: notes })
+  // @ts-expect-error `preset` and `presets` are not Agent options. Use `extends`.
+  defineAgent({ preset: "notes", presets: { notes } })
+  // @ts-expect-error A parent must be an Agent Definition.
+  defineAgent({ extends: { driver: codexDriver() } })
+  // @ts-expect-error Legacy selection keys remain reserved as named option blocks.
+  defineAgent({ configKey: "preset", options: {}, configure: () => notes })
+  // @ts-expect-error Legacy selection keys remain reserved as named option blocks.
+  defineAgent({ configKey: "presets", options: {}, configure: () => notes })
 })
 
 it("types preset options, nested overrides and chained definitions", () => {
@@ -27,14 +28,12 @@ it("types preset options, nested overrides and chained definitions", () => {
       return defineAgent({ driver: codexDriver(), workspace: {} })
     },
   })
-  const configured = defineAgent({ preset: "repair", presets: { repair: preset, plain: defineAgent({ driver: codexDriver() }) }, options: { autoMerge: true, filter: { author: { allow: ["me"] } } } })
-  // @ts-expect-error A configured registry still rejects missing names.
-  defineAgent({ preset: "missing", presets: { repair: preset }, options: {} })
+  const configured = defineAgent({ extends: preset, options: { autoMerge: true, filter: { author: { allow: ["me"] } } } })
   expectTypeOf(configured.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const child = defineAgent({ extends: configured, options: { autoMerge: false } })
   expectTypeOf(child.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   // @ts-expect-error Option names come from the preset.
-  defineAgent({ preset: "repair", presets: { repair: preset }, options: { repairs: true } })
+  defineAgent({ extends: preset, options: { repairs: true } })
   // @ts-expect-error Nested options retain the declared types.
   defineAgent({ extends: child, options: { filter: { author: { allow: "me" } } } })
   // @ts-expect-error Callbacks retain their parameter types.
@@ -45,7 +44,7 @@ it("types preset options, nested overrides and chained definitions", () => {
 
 it("preserves workspace overrides on configurable presets", () => {
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
-  const workspace = defineAgent({ preset: "plain", presets: { plain }, workspace: {}, options: { enabled: false } })
+  const workspace = defineAgent({ extends: plain, workspace: {}, options: { enabled: false } })
   expectTypeOf(workspace.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   expectTypeOf(workspace.options.enabled).toEqualTypeOf<boolean>()
   const child = defineAgent({ extends: workspace, workspace: { mode: "read" }, options: { enabled: true } })
@@ -57,7 +56,7 @@ it("does not guarantee Workspace access from optional configured preset override
   const workspaceCapability = defineCapability({ id: "workspace", workspace: {} })
   function checkWorkspace(workspace: WorkspaceAgentWorkspaceConfig | undefined) {
     const extended = defineAgent({ extends: plain, workspace })
-    const selected = defineAgent({ preset: "plain", presets: { plain }, workspace })
+    const selected = defineAgent({ extends: plain, workspace })
     // @ts-expect-error An optional Workspace override may leave the definition without Workspace access.
     void extended.__vitehubWorkspaceAgent
     // @ts-expect-error Named selection preserves the same uncertainty.
@@ -77,7 +76,7 @@ it("does not guarantee Workspace access from optional configured preset override
   void checkWorkspace
   function checkOptionalProperty(settings: { workspace?: WorkspaceAgentWorkspaceConfig }) {
     const extended = defineAgent({ extends: plain, ...settings })
-    const selected = defineAgent({ preset: "plain", presets: { plain }, ...settings })
+    const selected = defineAgent({ extends: plain, ...settings })
     // @ts-expect-error An optional property may be absent.
     void extended.__vitehubWorkspaceAgent
     // @ts-expect-error Named selection also accepts optional properties without promising Workspace access.
@@ -92,7 +91,7 @@ it("rejects unsupported settings in every union spread member", () => {
     // @ts-expect-error A possible spread member contains an unsupported Agent setting.
     defineAgent({ extends: plain, ...settings })
     // @ts-expect-error Named selection validates every possible spread member too.
-    defineAgent({ preset: "plain", presets: { plain }, ...settings })
+    defineAgent({ extends: plain, ...settings })
   }
   void checkSettings
 })
@@ -100,7 +99,7 @@ it("rejects unsupported settings in every union spread member", () => {
 it("preserves structured output from configure through selection and extension", () => {
   const schema = {} as StandardSchemaV1<unknown, { summary: string }>
   const preset = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver({ output: { schema } }) }) })
-  const selected = defineAgent({ preset: "notes", presets: { notes: preset }, options: { enabled: false } })
+  const selected = defineAgent({ extends: preset, options: { enabled: false } })
   const extended = defineAgent({ extends: selected, workspace: {}, hooks: { "agent:finish": event => {
     expectTypeOf(event.result).toEqualTypeOf<{ summary: string } | undefined>()
   } } })
@@ -121,12 +120,12 @@ it("exposes only the outer configuration when configure returns a configured Age
 it("infers Workspace access contributed to configured presets", () => {
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const capability = defineCapability({ id: "workspace", workspace: {} })
-  const selected = defineAgent({ preset: "plain", presets: { plain }, capabilities: [capability] })
+  const selected = defineAgent({ extends: plain, capabilities: [capability] })
   expectTypeOf(selected.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   expectTypeOf(selected.options.enabled).toEqualTypeOf<boolean>()
   const extended = defineAgent({ extends: plain, capabilities: [capability] })
   expectTypeOf(extended.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
-  const channel = defineAgent({ preset: "plain", presets: { plain }, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  const channel = defineAgent({ extends: plain, channels: { custom: { kind: "custom", capabilities: [capability] } } })
   expectTypeOf(channel.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const child = defineAgent({ extends: channel, options: { enabled: false } })
   expectTypeOf(child.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -140,7 +139,7 @@ it("preserves built-in GitHub Workspace contributions through configured extensi
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const extended = defineAgent({ extends: plain, channels: { github: github({ pullRequest: true }) } })
   expectTypeOf(extended.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
-  const selected = defineAgent({ preset: "plain", presets: { plain }, channels: { github: () => github({ pullRequest: {} }) } })
+  const selected = defineAgent({ extends: plain, channels: { github: () => github({ pullRequest: {} }) } })
   expectTypeOf(selected.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const configured = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), channels: { github: github({ pullRequest: { workspace: { mount: "repo" } } }) } }) })
   expectTypeOf(defineAgent({ extends: configured }).__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -251,7 +250,7 @@ it("recomputes contributed Workspace types after channel and capability replacem
   // @ts-expect-error Replacing the only contributing channel removes Workspace access.
   void removedChannel.__vitehubWorkspaceAgent
   const capability = defineAgent({ extends: plain, capabilities: [workspaceCapability] })
-  const removedCapability = defineAgent({ preset: "capability", presets: { capability }, capabilities: [replacementCapability] })
+  const removedCapability = defineAgent({ extends: capability, capabilities: [replacementCapability] })
   // @ts-expect-error Replacing the only contributing capability removes Workspace access.
   void removedCapability.__vitehubWorkspaceAgent
   const retainedChannel = defineAgent({ extends: channel, channels: { other: { kind: "custom" } } })
@@ -300,7 +299,7 @@ it("recomputes Workspace contributions returned directly by configure", () => {
     driver: codexDriver(), channels: { custom: { kind: "custom", capabilities: [capability] } },
   }) })
   expectTypeOf(channelPreset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
-  const replacedChannel = defineAgent({ preset: "channel", presets: { channel: channelPreset }, channels: { custom: { kind: "custom" } } })
+  const replacedChannel = defineAgent({ extends: channelPreset, channels: { custom: { kind: "custom" } } })
   // @ts-expect-error Replacing the callback's only Channel removes Workspace access.
   void replacedChannel.__vitehubWorkspaceAgent
   const retained = defineAgent({ extends: channelPreset, channels: { other: { kind: "custom" } } })
@@ -321,7 +320,7 @@ it("replaces the whole Capability value when either layer uses a resolver", () =
   const replaced = defineAgent({ extends: preset, capabilities: () => [plain] })
   // @ts-expect-error A resolver replaces all inherited Capabilities regardless of ID.
   void replaced.__vitehubWorkspaceAgent
-  const asyncReplaced = defineAgent({ preset: "base", presets: { base: preset }, capabilities: async () => [plain] })
+  const asyncReplaced = defineAgent({ extends: preset, capabilities: async () => [plain] })
   // @ts-expect-error Async resolvers use the same whole-value replacement.
   void asyncReplaced.__vitehubWorkspaceAgent
   const resolver = defineAgent({ extends: preset, capabilities: () => [workspace] })
@@ -356,8 +355,6 @@ it("requires complete method-bearing option values", () => {
   defineAgent({ extends: preset, options: { client: { endpoint: "override" } } })
   // @ts-expect-error Nested class replacements must include their methods.
   defineAgent({ extends: preset, options: { nested: { client: { endpoint: "override" } } } })
-  // @ts-expect-error Named preset selection uses the same complete instance contract.
-  defineAgent({ preset: "client", presets: { client: preset }, options: { client: { endpoint: "override" } } })
 })
 
 it("does not retain Workspace access when widened Capability IDs can overlap", () => {
@@ -369,7 +366,7 @@ it("does not retain Workspace access when widened Capability IDs can overlap", (
   const replaced = defineAgent({ extends: preset, capabilities: [plain] })
   // @ts-expect-error The literal child ID can replace the widened parent ID.
   void replaced.__vitehubWorkspaceAgent
-  const named = defineAgent({ preset: "base", presets: { base: preset }, capabilities: [plain] })
+  const named = defineAgent({ extends: preset, capabilities: [plain] })
   // @ts-expect-error Named selection uses the same conservative replacement rule.
   void named.__vitehubWorkspaceAgent
   const retained = defineAgent({ extends: preset, capabilities: [] })
@@ -451,22 +448,4 @@ it("rejects conflicting preset option selectors", () => {
   defineAgent({ extends: preset, repair: { enabled: true }, options: { enabled: false } })
   // @ts-expect-error Tuple options cannot also use legacy options.
   defineAgent({ extends: [preset, { enabled: true }], options: { enabled: false } })
-})
-
-it("types named blocks selected through preset registries", () => {
-  const preset = defineAgent({ configKey: "repair", options: { enabled: true, steps: ["first"] }, configure: () => defineAgent({ driver: codexDriver() }) })
-  const presets = { selected: preset, other: defineAgent({ driver: codexDriver() }) }
-  const selected = defineAgent({ preset: "selected", presets, repair: { enabled: false } })
-  expectTypeOf(selected.configKey).toEqualTypeOf<"repair">()
-  defineAgent({ extends: selected, repair: { steps: [] } })
-  defineAgent({ preset: "selected", presets, options: { enabled: false } })
-  // @ts-expect-error Named registry options use the selected preset schema.
-  defineAgent({ preset: "selected", presets, repair: { enabled: "yes" } })
-  // @ts-expect-error Unknown named registry options are rejected.
-  defineAgent({ preset: "selected", presets, repair: { typo: true } })
-  // @ts-expect-error Named and legacy option selectors conflict.
-  defineAgent({ preset: "selected", presets, repair: { enabled: false }, options: {} })
-  const invalid = { repair: { enabled: "yes" } }
-  // @ts-expect-error Spread blocks also use the selected preset schema.
-  defineAgent({ preset: "selected", presets, ...invalid })
 })

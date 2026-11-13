@@ -6,7 +6,7 @@ navigation.order: 50
 navigation.kind: Guides
 ---
 
-Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
+Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog. `service` turns on Agent telemetry and installs `useObservability()`; without it, `observability` registers only Evlog and the [Logs](/docs/logs) source in `observability.logs`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -16,7 +16,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     console: { auth: false },
     publicUrl: 'https://agents.example.com',
@@ -44,7 +44,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       console: { auth: false },
       publicUrl: 'https://agents.example.com',
@@ -73,7 +73,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       console: { auth: false },
       publicUrl: 'https://agents.example.com',
@@ -99,7 +99,7 @@ ViteHub then:
 - declares `posthog.apiKey` as Server Env `observability.posthog.apiKey` and reads it at startup, so the Console Env page shows it.
 - generates a Nitro plugin that installs one host instance, sets request IDs, connects the evlog drain and HTTP error hooks, and flushes on shutdown.
 - adds the observability Capability to every Agent, and with `papercuts`, the `report_papercut` tool.
-- reports `status()` as `observability` in `/_vitehub/api/status`.
+- reports `status()` as `observability` in the `status.get` operation.
 
 Remove your own evlog Nitro module and host plugin. Without an API key, events still reach local evlog output, `status().configured` is `false`, and `capture()` rejects.
 
@@ -115,7 +115,7 @@ observability.exception(error, { operation: 'import' })
 observability.status() // { configured, accepted, failed, dropped, pending, closed, papercuts? }
 ```
 
-`useObservability()` throws when `vitehub({ observability })` is not set.
+`useObservability()` throws when `vitehub({ observability })` has no `service`.
 
 The Capability sends one terminal `$ai_trace` event per invocation, also when preparation fails, with duration, invocation identity, known usage and cost, and status. Streaming usage updates add no extra ones. With an exporter set, internal Agent events skip the global drain to avoid duplicates.
 
@@ -143,7 +143,7 @@ Reports need a stored invocation identity, so use a persistent Invocation store 
 
 Delivery is at least once. A crash after the destination accepts but before the confirmation is stored can cause a retry, so the destination must deduplicate by the stable UUID. PostHog delivery needs a positive ingestion response and reuses the UUID and timestamp on retries. One reporter merges concurrent sends. Separate processes rely on destination deduplication.
 
-`eventPrefix` and `uuidNamespace` let existing consumers keep their event names and report identities across deployments, so do not change them. On shutdown the reporter waits up to ten seconds for active work, and does not mark a timed-out report as delivered. `status().papercuts` counts in-flight, delivered, and failed reports since start. Undelivered reports stay in the journal for replay.
+`eventPrefix` and `uuidNamespace` let existing consumers keep their event names and report identities across deployments, so do not change them. On shutdown the reporter waits up to ten seconds for active work, and does not mark a timed-out report as delivered. `status().papercuts` counts in-flight, delivered, and failed reports since start, and `known` and `repeats` for [repeated reports](/docs/agents/capabilities/papercuts#repeated-reports) in the last 7 days. Undelivered reports stay in the journal for replay.
 
 Links in events and reports use `vitehub({ publicUrl })`. Without it, events have no `session_url`. Quota checks, app routing, and deployment revision labels stay in your app configuration.
 

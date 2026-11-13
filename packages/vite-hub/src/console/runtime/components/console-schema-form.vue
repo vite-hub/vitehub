@@ -63,15 +63,14 @@ function update(name: string, value: unknown): void {
       @update:model-value="update(field.name, $event)"
       @submit="emit('submit')"
     />
-    <button
+    <UButton
       v-if="folded.length"
-      type="button"
-      class="flex h-8 w-fit items-center gap-2 rounded-md px-1.5 text-[13px] text-dimmed hover:text-highlighted focus-visible:outline-2"
+      variant="ghost"
+      class="w-fit"
+      :icon="showAll ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+      :label="showAll ? `Hide ${folded.length} empty` : `Show ${folded.length} more`"
       :aria-expanded="showAll"
       @click="showAll = !showAll"
-    >
-      <UIcon :name="showAll ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-4 opacity-70" aria-hidden="true" />
-      {{ showAll ? `Hide ${folded.length} empty` : `Show ${folded.length} more` }}
-    </button>
+    />
   </div>
 </template>

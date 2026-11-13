@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeObject } from "./runtime-type.ts"
+import { isRuntimeObject } from "./runtime-type.ts"
 import type {
   AgentChannelDeliveryEffectIntent,
   AgentChannels,
@@ -73,7 +73,7 @@ export function inspectMessageChannelInstructions(
   channels: Record<string, unknown> | undefined,
 ): string[] {
   return Object.entries(channels || {}).flatMap(([channelId, channel]) => {
-    const instructions = channel && hasRuntimeType(channel, "object") ? channelInstructions(channel) : undefined
+    const instructions = channel && typeof channel === "object" ? channelInstructions(channel) : undefined
     return instructions ? [`Channel "${channelId}" instructions:\n\n${instructions}`] : []
   })
 }
@@ -90,7 +90,7 @@ export function bindMessageChannelInstructions(
 function channelInstructions(channel: object): string | undefined {
   // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
   const value = channel as { [messageChannelInstructions]?: string, instructions?: unknown }
-  const own = hasRuntimeType(value.instructions, "string") ? value.instructions.trim() : ""
+  const own = typeof value.instructions === "string" ? value.instructions.trim() : ""
   return [value[messageChannelInstructions], own].filter(Boolean).join("\n\n") || undefined
 }
 

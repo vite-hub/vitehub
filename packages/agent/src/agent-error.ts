@@ -3,7 +3,7 @@ import {
   getViteHubErrorShape,
 } from "@vite-hub/runtime"
 
-import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+import { isRuntimeObject } from "./internal/runtime-type.ts"
 
 interface NormalizedAgentError {
   message: string
@@ -11,7 +11,7 @@ interface NormalizedAgentError {
 }
 
 export function readAgentErrorProperty(error: unknown, key: PropertyKey): unknown {
-  if (!hasRuntimeType(error, "object") || error === null) return
+  if (typeof error !== "object" || error === null) return
   try {
     return Reflect.get(error, key)
   }
@@ -21,7 +21,7 @@ export function readAgentErrorProperty(error: unknown, key: PropertyKey): unknow
 }
 
 export function isError(error: unknown): error is Error {
-  if (!hasRuntimeType(error, "object") || error === null) return false
+  if (typeof error !== "object" || error === null) return false
   try {
     return error instanceof Error
   }
@@ -34,9 +34,9 @@ function stringifyErrorValue(value: unknown): string | undefined {
   const seen = new WeakSet<object>()
   try {
     return JSON.stringify(value, (_key, item) => {
-      if (hasRuntimeType(item, "bigint")) return `${item}n`
-      if (hasRuntimeType(item, "function")) return `[Function${item.name ? `: ${item.name}` : ""}]`
-      if (hasRuntimeType(item, "symbol")) return String(item)
+      if (typeof item === "bigint") return `${item}n`
+      if (typeof item === "function") return `[Function${item.name ? `: ${item.name}` : ""}]`
+      if (typeof item === "symbol") return String(item)
       if (isRuntimeObject(item)) {
         if (seen.has(item)) return "[Circular]"
         seen.add(item)
@@ -50,12 +50,12 @@ function stringifyErrorValue(value: unknown): string | undefined {
 }
 
 export function formatAgentError(error: unknown, fallback = "Unknown error."): string {
-  if (hasRuntimeType(readAgentErrorProperty(error, "code"), "string")
-    || hasRuntimeType(readAgentErrorProperty(error, "why"), "string")) {
+  if (typeof readAgentErrorProperty(error, "code") === "string"
+    || typeof readAgentErrorProperty(error, "why") === "string") {
     return formatRuntimeDiagnosticError(error)
   }
   if (error instanceof Error) return error.stack || error.message || error.name || fallback
-  if (hasRuntimeType(error, "string")) return error || fallback
+  if (typeof error === "string") return error || fallback
   const text = stringifyErrorValue(error)
   if (text) return text
   if (error === undefined) return fallback
@@ -69,17 +69,17 @@ export function formatAgentError(error: unknown, fallback = "Unknown error."): s
 }
 
 export function agentErrorDetails(error: unknown, fallback = "Unknown error."): NormalizedAgentError {
-  if (hasRuntimeType(error, "string")) return { message: error || fallback }
-  if (hasRuntimeType(error, "object") && error !== null) {
+  if (typeof error === "string") return { message: error || fallback }
+  if (typeof error === "object" && error !== null) {
     const message = readAgentErrorProperty(error, "message")
     const name = readAgentErrorProperty(error, "name")
-    if (hasRuntimeType(message, "string") && message) {
+    if (typeof message === "string" && message) {
       return {
         message,
-        ...(hasRuntimeType(name, "string") && name ? { name } : {}),
+        ...(typeof name === "string" && name ? { name } : {}),
       }
     }
-    if (isError(error) && hasRuntimeType(name, "string") && name) {
+    if (isError(error) && typeof name === "string" && name) {
       return {
         message: name,
         name,
@@ -110,7 +110,6 @@ export type AgentPublicErrorCode =
   | "CAPABILITY_NOT_FOUND"
   | "HOST_RESTARTED"
   | "INTERNAL"
-  | "LLM_GATE_REJECTED"
   | "PROVIDER_AUTHENTICATION_FAILED"
   | "PROVIDER_QUOTA_EXHAUSTED"
   | "PROVIDER_RATE_LIMITED"
@@ -141,7 +140,6 @@ export interface AgentPublicErrorDetails {
   limits?: AgentPublicErrorBudgetLimits
   exceeded?: readonly AgentPublicErrorBudgetExceeded[]
   capability?: string
-  category?: string
   /** Provider quota reset time as an ISO 8601 timestamp, for a validated reset time. */
   resetAt?: string
   /** Validated provider quota reset time as the provider wrote it, for example `Sep 15th, 2026 1:23 AM`. */
@@ -159,7 +157,7 @@ export interface AgentPublicError {
 export type AgentPublicErrorContext = "http" | "invocation" | "serialization"
 
 function identifier(value: unknown): string | undefined {
-  if (!hasRuntimeType(value, "string") || value.length === 0 || value.length > 128) return
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) return
   return /^[A-Za-z0-9@][A-Za-z0-9@._:/-]*$/.test(value) ? value : undefined
 }
 
@@ -183,7 +181,7 @@ function publicError(
 // Codex and similar providers report "... try again at Sep 15th, 2026 1:23 AM." in the failure text.
 // A date without a zone is read in the server's local time zone, the same clock the provider process used.
 function quotaResetDetails(message: unknown): AgentPublicErrorDetails | undefined {
-  if (!hasRuntimeType(message, "string")) return
+  if (typeof message !== "string") return
   const afterPrompt = message.match(/try again at\s+(.+)/i)?.[1]
   if (!afterPrompt) return
 
@@ -287,21 +285,21 @@ function budgetDetails(details: unknown): Pick<AgentPublicErrorDetails, "limits"
   const tokens = isRuntimeObject(tokensValue)
     ? Object.fromEntries((["input", "output", "total"] as const).flatMap(key => {
         const value = readAgentErrorProperty(tokensValue, key)
-        return hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0 ? [[key, value]] : []
+        return typeof value === "number" && Number.isFinite(value) && value >= 0 ? [[key, value]] : []
       }))
     : undefined
   const usd = readAgentErrorProperty(limitsValue, "usd")
   const limits: AgentPublicErrorBudgetLimits = {
     ...(tokens && Object.keys(tokens).length ? { tokens } : {}),
-    ...(hasRuntimeType(usd, "number") && Number.isFinite(usd) && usd >= 0 || hasRuntimeType(usd, "string") ? { usd } : {}),
+    ...(typeof usd === "number" && Number.isFinite(usd) && usd >= 0 || typeof usd === "string" ? { usd } : {}),
   }
   const exceeded = exceededValue.flatMap(item => {
     if (!isRuntimeObject(item)) return []
     const actual = readAgentErrorProperty(item, "actual")
     const limit = readAgentErrorProperty(item, "limit")
     const metric = readAgentErrorProperty(item, "metric")
-    return (hasRuntimeType(actual, "number") || hasRuntimeType(actual, "string"))
-      && (hasRuntimeType(limit, "number") || hasRuntimeType(limit, "string"))
+    return (typeof actual === "number" || typeof actual === "string")
+      && (typeof limit === "number" || typeof limit === "string")
       && ["inputTokens", "outputTokens", "totalTokens", "usd"].includes(metric as string)
       ? [{ actual, limit, metric: metric as AgentPublicErrorBudgetExceeded["metric"] }]
       : []
@@ -331,8 +329,8 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
     readAgentErrorProperty(nested, "code"),
     readAgentErrorProperty(nested, "type"),
     readAgentErrorProperty(data, "code"),
-  ].find(value => hasRuntimeType(value, "string"))
-  const quota = hasRuntimeType(code, "string") && [
+  ].find(value => typeof value === "string")
+  const quota = typeof code === "string" && [
     "credit_balance_exhausted",
     "insufficient_quota",
     "organization_spend_limit_exceeded",
@@ -349,7 +347,7 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
   if (status === 429) {
     return publicError("PROVIDER_RATE_LIMITED", "AI provider is temporarily rate limited. Try again later.")
   }
-  if (hasRuntimeType(status, "number") && status >= 500) {
+  if (typeof status === "number" && status >= 500) {
     return publicError("PROVIDER_UNAVAILABLE", "AI provider is temporarily unavailable. Try again later.")
   }
 }
@@ -375,7 +373,7 @@ export function diagnosticErrorText(code: string, message: string): string {
 export function chatgptGatewayDiagnostic(error: unknown): string | undefined {
   const code = readAgentErrorProperty(error, "code")
   const message = readAgentErrorProperty(error, "message")
-  if (!hasRuntimeType(code, "string") || !chatgptGatewayDiagnosticCodes.has(code) || !hasRuntimeType(message, "string")) return
+  if (typeof code !== "string" || !chatgptGatewayDiagnosticCodes.has(code) || typeof message !== "string") return
   return diagnosticErrorText(code, message)
 }
 
@@ -390,7 +388,7 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     // Other internal failures can mention quotas without being provider failures.
     if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {
       const message = readAgentErrorProperty(error, "message")
-      if (hasRuntimeType(message, "string")
+      if (typeof message === "string"
         && providerQuotaMessage.test(message)) {
         return quotaExhausted(message)
       }
@@ -398,7 +396,7 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     // Chat and queued webhook timeouts. The same diagnostic also reports a lost inline turn, which is not a timeout.
     if (readAgentErrorProperty(error, "code") === "AGENT_R0820") {
       const message = readAgentErrorProperty(error, "message")
-      if (hasRuntimeType(message, "string") && /\btimed out\b/.test(message)) {
+      if (typeof message === "string" && /\btimed out\b/.test(message)) {
         return publicError("TIMEOUT", "I ran out of time before I could finish this. Please try a narrower request.")
       }
     }
@@ -417,16 +415,12 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     }
     if (viteHubError?.code === "RATE_LIMIT_REJECTED" || viteHubError?.code === "RATE_LIMIT_UNAVAILABLE") {
       const retryAfter = viteHubError.details?.retryAfter
-      const details = publicDetails(error, hasRuntimeType(retryAfter, "number") && Number.isFinite(retryAfter) && retryAfter >= 0
+      const details = publicDetails(error, typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter >= 0
         ? { retryAfter }
         : {})
       return viteHubError.code === "RATE_LIMIT_UNAVAILABLE"
         ? publicError("RATE_LIMIT_UNAVAILABLE", "Rate limiting is unavailable.", details)
         : publicError("RATE_LIMIT_REJECTED", "Rate limit exceeded. Try again later.", details)
-    }
-    if (viteHubError?.code === "LLM_GATE_REJECTED") {
-      const category = identifier(viteHubError.details?.category)
-      return publicError("LLM_GATE_REJECTED", "Agent request was rejected.", publicDetails(error, category ? { category } : {}))
     }
     if (viteHubError?.code === "CAPABILITY_NOT_FOUND") {
       return publicError("CAPABILITY_NOT_FOUND", "Capability was not found.", publicDetails(error))

@@ -1,4 +1,4 @@
-import { allowedConsoleSections, consoleOperationOffered } from "./access.ts"
+import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
 import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
@@ -34,7 +34,9 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
   const operations = consoleOperationRegistry().list()
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
     .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
-    .filter(operation => consoleOperationOffered(access, operation))
+    .filter(operation => consoleOperationGranted(access, operation))
+    // The ViteHub MCP of the Console sees only the operations that MCP clients may call.
+    .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations }

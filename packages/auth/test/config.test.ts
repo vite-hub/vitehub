@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { discoverAuthDefinition, discoverAuthDefinitions } from "../src/discovery.ts"
+import { discoverAuthAbilities, discoverAuthDefinition, discoverAuthDefinitions } from "../src/discovery.ts"
 import { resolveAuthViteConfig } from "../src/config.ts"
 
 const tempDirs: string[] = []
@@ -37,6 +37,54 @@ async function writeAuthSource(rootDir: string, path: string, source: string[]):
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
+})
+
+describe("discoverAuthAbilities", () => {
+  it("finds shared/abilities.ts next to the server directory", async () => {
+    const rootDir = await createTempProject()
+    const file = await writeAuthSource(rootDir, "shared/abilities.ts", ["export default {}"])
+
+    expect(discoverAuthAbilities(rootDir)).toBe(file)
+    // Nuxt passes its server directory. The shared/ folder sits next to it, not in the Vite root (app/).
+    expect(discoverAuthAbilities(join(rootDir, "app"), { serverDirs: [join(rootDir, "server")] })).toBe(file)
+    expect(resolveAuthViteConfig(undefined, rootDir)).toBeUndefined()
+    await writeAuth(rootDir, "server/auth.ts", [])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.abilities).toBe(file)
+  })
+
+  it("uses a layer's rules when the app has none, and lets the app replace them", async () => {
+    const rootDir = await createTempProject()
+    const layer = join(rootDir, "layers/base")
+    const definition = await writeAuth(layer, "server/auth.ts", [])
+    const layerRules = await writeAuthSource(layer, "shared/abilities.mts", ["export default {}"])
+    const options = { serverDirs: [join(rootDir, "server"), join(layer, "server")] }
+
+    expect(resolveAuthViteConfig(undefined, rootDir, options)).toMatchObject({ abilities: layerRules, definition: { handler: definition } })
+    const appRules = await writeAuthSource(rootDir, "shared/abilities.ts", ["export default {}"])
+    expect(resolveAuthViteConfig(undefined, rootDir, options)?.abilities).toBe(appRules)
+  })
+
+  it("rejects rules in two layers unless the app replaces them", async () => {
+    const rootDir = await createTempProject()
+    const layers = ["layers/base", "layers/other"]
+    for (const layer of layers) await writeAuthSource(rootDir, `${layer}/shared/abilities.ts`, ["export default {}"])
+    const options = { serverDirs: [join(rootDir, "server"), ...layers.map(layer => join(rootDir, layer, "server"))] }
+
+    expect(() => discoverAuthAbilities(rootDir, options)).toThrow(/Only one abilities file/)
+    const appRules = await writeAuthSource(rootDir, "shared/abilities.ts", ["export default {}"])
+    expect(discoverAuthAbilities(rootDir, options)).toBe(appRules)
+  })
+
+  it("finds nothing without the file, and rejects two files", async () => {
+    const rootDir = await createTempProject()
+    expect(discoverAuthAbilities(rootDir)).toBeUndefined()
+    await writeAuth(rootDir, "server/auth.ts", [])
+    expect(resolveAuthViteConfig(undefined, rootDir)).not.toHaveProperty("abilities")
+
+    await writeAuthSource(rootDir, "shared/abilities.ts", ["export default {}"])
+    await writeAuthSource(rootDir, "shared/abilities.js", ["export default {}"])
+    expect(() => discoverAuthAbilities(rootDir)).toThrow(/AUTH_C0060|Only one abilities file/)
+  })
 })
 
 describe("discoverAuthDefinition", () => {

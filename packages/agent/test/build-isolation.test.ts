@@ -13,7 +13,7 @@ it('captures and finalizes each concurrent Agent build catalog', async () => {
   const configs = await Promise.all(['first', 'second'].map(async name => {
     const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${name}-`))
     roots.push(root)
-    return { root, command: 'build', agent: false, plugins: [], build: { outDir: 'dist' }, resolve: { alias: [] } }
+    return { root, command: 'build', plugins: [], build: { outDir: 'dist' }, resolve: { alias: [] } }
   }))
   const writes = configs.map(() => vi.fn(async () => {}))
   configs.forEach((config, index) => contributeProviderDeploymentOutput(useProviderOutputCatalog(config), {

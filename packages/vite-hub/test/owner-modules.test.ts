@@ -19,8 +19,8 @@ it.each(["cts", "cjs"])("checks Content and all implicit CMS owners through a re
   const root = await mkdtemp(join(tmpdir(), "vitehub-optional-cms-"))
   try {
     await mkdir(join(root, "server"))
-    await writeFile(join(root, `server/content.${extension}`), 'export { content } from "./definition"\n')
-    await writeFile(join(root, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport const content = { extends: cms }\n')
+    await writeFile(join(root, `server/content.${extension}`), 'export { default } from "./definition"\n')
+    await writeFile(join(root, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport default { extends: cms }\n')
     await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["content", "cms", "database", "workspace"])
   }
@@ -64,19 +64,20 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
   }
   for (const [source, feature] of [
     ["vite-hub/ui", "ui"],
-    ["vite-hub/ui/avatar-stack", "ui"],
+    ["vite-hub/ui/headless", "ui"],
     ["vite-hub/ui/styles.css", "ui"],
     ["vite-hub/presets/babysitter/server", "presets"],
     ["vite-hub/shell", "shell"],
     ["vite-hub/shell/workspace", "shell"],
+    ["vite-hub/forge", "forge"],
     ["vite-hub/console/ui", "console ui"],
     ["vite-hub/blob", "blob"],
     ["vite-hub/blob/vue", "blob"],
-    ["vite-hub/browser/actions", "browser"],
+    ["vite-hub/browser", "browser"],
     ["vite-hub/channels", "channels"],
     ["vite-hub/connections/google", "connections"],
     ["vite-hub/decisions/vue", "decisions"],
-    ["vite-hub/email/server", "email"],
+    ["vite-hub/email", "email"],
     ["vite-hub/gateways/ai-sdk", "gateways"],
     ["vite-hub/kv", "kv"],
     ["vite-hub/markdown-template", "markdown-template"],
@@ -91,6 +92,6 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     expect(assertFeaturePackages, source).toHaveBeenCalledExactlyOnceWith([feature])
   }
   vi.mocked(assertFeaturePackages).mockClear()
-  for (const source of ["vite-hub", "vite-hub/blobs", "vite-hub/env", "vite-hub/runtime", "vite-hub/source", "vite-hub/uikit", "vite-hub/shells", "vite-hub/console", "vite-hub/console/uikit", "@vite-hub/ui", "@vite-hub/kv", "./ui", "./notes.md", "/app/welcome.template.md?raw"]) resolve(source)
+  for (const source of ["vite-hub", "vite-hub/blobs", "vite-hub/env", "vite-hub/runtime", "vite-hub/source", "vite-hub/uikit", "vite-hub/shells", "vite-hub/forges", "vite-hub/console", "vite-hub/console/uikit", "@vite-hub/forge", "@vite-hub/ui", "@vite-hub/kv", "./ui", "./notes.md", "/app/welcome.template.md?raw"]) resolve(source)
   expect(assertFeaturePackages).not.toHaveBeenCalled()
 })

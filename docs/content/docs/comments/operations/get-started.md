@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Comments let people talk about something in your app, such as a page, an order, or a design. Each conversation is a thread. Your server decides who may read, write, and delete.
 
-In this tutorial, you write the rule for who may comment, create the database tables, and read threads from the terminal and the Console. The Console is the ViteHub admin page of your app.
+In this tutorial, you write the rule for who may comment, create the database tables, and read threads from the terminal and the Console. The [Console](/docs/development/console) is the ViteHub admin app at console.vitehub.dev. It calls your app.
 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Comments are saved in your app's Database.
@@ -19,7 +19,7 @@ In this tutorial, you write the rule for who may comment, create the database ta
 Install Comments and the Database packages:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/comments @vite-hub/database drizzle-orm
+pnpm add @vite-hub/comments @vite-hub/database drizzle-orm@1.0.0-rc.5
 pnpm add -D drizzle-kit
 ```
 
@@ -30,7 +30,7 @@ Add the Console to the ViteHub options of your app:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', console: { auth: false } },
+  vitehub: { host: 'node', console: { auth: false } },
 })
 ```
 ::::
@@ -42,7 +42,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+  plugins: [vitehub({ host: 'node', console: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -53,14 +53,14 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } })],
+  plugins: [vitehub({ host: 'node', console: { auth: false } })],
 })
 ```
 ::::
 :::
 
 - You do not turn on the Database yourself. When `server/comments.ts` exists, `vitehub()` turns it on and adds a default Database.
-- `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, set up [Console sign-in](/docs/development/console).
+- `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, [link the app in the Console](/docs/development/console#in-production).
 
 If you set `database: false`, the build fails with `COMMENTS_B0001`.
 
@@ -87,8 +87,8 @@ Here, every signed-in user reads and writes. Only an admin deletes the comments 
 Create the tables that hold the threads:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ## Read a thread
@@ -112,7 +112,7 @@ pnpm vitehub comments list --json
 pnpm vitehub comments get --input '{"id":"<id>"}'
 ```
 
-You can also open the Console at `http://localhost:3000/_vitehub` and choose **Comments**. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
+On a deployed app, the Comments section of the [Console](/docs/development/console) shows the same threads. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
 
 ::details{summary="What the Comments section of the Console does"}
 The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.
@@ -131,17 +131,16 @@ A production build never does this. There, a call without sign-in has no user. T
 Create a client to read and write comments from your pages:
 
 ```ts [app/comments.ts]
-import { createCommentsClient } from 'vite-hub/comments/client'
-import { createRpcTransport } from 'vite-hub/comments/rpc'
+import { createCommentsClient, createRestTransport } from 'vite-hub/comments/client'
 
 export const comments = createCommentsClient({
-  transport: createRpcTransport(),
+  transport: createRestTransport(),
   user: { id: 'ana', name: 'Ana Ruiz' },
   query: { page: location.pathname },
 })
 ```
 
-- `createRpcTransport()` sends each call to your server with the sign-in of the user. `authorize` decides each call. The user needs Console access.
+- `createRestTransport()` sends each call to the [Comments API](/docs/comments/server-api#rest-transport) of your app, with the sign-in of the user. `authorize` decides each call.
 - `query` picks the threads to load. Here, the threads of the current page.
 
 ## The overlay
@@ -171,7 +170,7 @@ Your app also needs a page, such as an `index.html` with a heading. Restart the 
 
 The overlay uses the [Comments API](/docs/comments/server-api#http-routes). It runs the same actions and the same `authorize` for the user of the request. To leave the overlay out, set `vitehub({ comments: { overlay: false } })`. The API and the CLI still work. See [Turn comment mode on and off](/docs/comments/configure#turn-comment-mode-on-and-off).
 
-Do people without Console access, such as guests or share-link readers, use your own comment UI? Then use `createRestTransport()` instead of `createRpcTransport()`. See [REST transport](/docs/comments/server-api#rest-transport).
+Guests and share-link readers use the same `createRestTransport()`. See [REST transport](/docs/comments/server-api#rest-transport).
 
 ## Next steps
 

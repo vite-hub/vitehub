@@ -4,9 +4,12 @@ import { collectContributions, describeContribution, flattenPluginOptions } from
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveDefaultDatabase } from "./default-database-name.ts"
 
 import type { CollectedContribution, Contribution, ContributionContext } from "@vite-hub/internal/contributions"
 import type { DatabaseDialect } from "./types.ts"
+
+export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./default-database-name.ts"
 
 const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
 
@@ -25,11 +28,17 @@ interface DatabaseTableContributionFields extends DatabaseContributionFields {
    * schema still imports the module. A key that is missing here is missing from the generated schema.
    */
   tables?: Readonly<Record<string, string>>
+  /**
+   * Named export of `definition.module` that holds the relations of the contributed tables, from Drizzle's
+   * `defineRelationsPart(schema, r => ({ ... }))`. The target Database merges them with the relations of its
+   * Definition, so `db.query.<table>.findMany({ with })` follows them.
+   */
+  relations?: string
 }
 
 /**
  * Drizzle tables that another package adds to a Database Definition from its Vite plugin. The Database plugin merges
- * them into the generated Drizzle schema, so `vitehub db generate` writes their migrations and
+ * them into the generated Drizzle schema, so `vitehub database generate` writes their migrations and
  * `useDatabase(name).schema` holds them, without the application editing its Definition. `name` names the group of
  * tables, and `definition.export` names an export that holds an object of Drizzle tables.
  */
@@ -37,7 +46,7 @@ export type DatabaseContribution = Contribution & DatabaseTableContributionField
 
 /**
  * A Database Definition that another package adds from its Vite plugin, for example because the application has no
- * Database the package can use. It behaves like a discovered Definition: `vitehub db generate`, the runtime,
+ * Database the package can use. It behaves like a discovered Definition: `vitehub database generate`, the runtime,
  * provisioning, and inspection see it. Its migrations go where an application Definition with the same name keeps
  * them, so adding that Definition later continues the same history.
  */
@@ -123,29 +132,12 @@ export interface ResolvedDatabaseUse extends CollectedDatabaseUse {
   database: string
 }
 
-/** How `resolveDefaultDatabase()` picked a Database, or why it could not. */
-export type DefaultDatabaseResolution =
-  | { status: "resolved", name: string, reason: "default" | "only" }
-  | { status: "ambiguous", names: string[] }
-  | { status: "none" }
-
-/**
- * Resolves "the default or only Database": the Definition named `default`, else the only Definition. Several
- * Definitions without a `default` are ambiguous; no Definitions resolve to `none`.
- */
-export function resolveDefaultDatabase(databaseNames: readonly string[]): DefaultDatabaseResolution {
-  if (databaseNames.includes("default")) return { name: "default", reason: "default", status: "resolved" }
-  if (databaseNames.length === 1) return { name: databaseNames[0]!, reason: "only", status: "resolved" }
-  if (databaseNames.length) return { names: [...databaseNames].sort(), status: "ambiguous" }
-  return { status: "none" }
-}
-
 function isDatabaseDialect(value: unknown): value is DatabaseDialect {
   return databaseDialects.some(dialect => dialect === value)
 }
 
 function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseTableContributionFields {
-  const { database, dialect, tables } = entry
+  const { database, dialect, relations, tables } = entry
   const fields: DatabaseTableContributionFields = {}
   if (tables !== undefined) {
     if (!isPlainObject(tables) || !Object.keys(tables).length || Object.values(tables).some(name => String(name) !== name || !name)) {
@@ -153,6 +145,10 @@ function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (rea
     }
     // SAFETY: the check above makes every value a non-empty string.
     fields.tables = { ...tables as Record<string, string> }
+  }
+  if (relations !== undefined) {
+    if (String(relations) !== relations || !relations) fail(`\`relations\` of ${JSON.stringify(entry.name)} must name an export of \`definition.module\`.`)
+    fields.relations = String(relations)
   }
   if (database !== undefined) {
     if (String(database) !== database || !database || database.trim() !== database) {

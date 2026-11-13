@@ -31,7 +31,7 @@ Add `workflow: true` to the ViteHub options of your app. Keep the other options 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', workflow: true },
+  vitehub: { host: 'node', workflow: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true }), nitro()],
+  plugins: [vitehub({ host: 'node', workflow: true }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true })],
+  plugins: [vitehub({ host: 'node', workflow: true })],
 })
 ```
 ::::
@@ -73,14 +73,17 @@ First, create `index.ts`. It gets the input and calls the steps in order:
 ```ts [server/workflows/onboard-user/index.ts]
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
   const user = await steps.createUser(payload)
   return await steps.sendWelcome(user)
 })
 ```
 
+- The first argument is the Workflow name, the same as the folder name.
 - `payload` is the input that starts the run. Here, it is an email.
 - `steps.createUser` runs the file `01.create-user.ts`, and `steps.sendWelcome` runs `02.send-welcome.ts`. ViteHub makes these names from the file names.
+
+ViteHub writes the step types to `.vitehub/workflow.d.ts`. Each step takes the input type of its file and returns its result, so `user` is typed and a misspelled step is a type error. The step runner works with each Workflow provider.
 
 Then create the two steps:
 
@@ -155,7 +158,7 @@ Local inline execution keeps the final result of the run. The run returned by `g
 You can also start a run without a route. Keep the dev server running, and run:
 
 ```bash [commands/cli-start]
-pnpm vitehub workflow start onboard-user --payload '{"email":"ada@example.com"}'
+pnpm vitehub workflow start onboard-user '{"email":"ada@example.com"}'
 ```
 
 Then read the run back with its id:

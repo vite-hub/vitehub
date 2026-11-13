@@ -67,12 +67,10 @@ export default defineWorkspace({
     vitehubDocs: github({
       repo: "vite-hub/vitehub",
       root: "docs/content/docs",
-      instructions: "Use this source for public ViteHub documentation.",
     }),
     guide: file({
       workspacePath: "guide.md",
       content: "# Guide\n",
-      instructions: "Use this source for local guide notes.",
     }),
   },
 })
@@ -292,68 +290,13 @@ in Markdown frontmatter (`.md`, `.markdown`, `.mdx`), YAML, or JSON. `vitehub st
 also prints the source digest to write back as `derivedFrom.digest`. `@vite-hub/workspace/lineage` has the same checks.
 See [Derived files](https://vitehub.dev/docs/workspace/server-api#derived-files).
 
-## JSON Collections
-
-Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
-
-```ts
-// server/collections/articles.ts
-import { defineCollection } from "@vite-hub/source"
-import { workspaceFile } from "@vite-hub/workspace"
-import * as v from "valibot"
-
-export const articles = defineCollection({
-  source: workspaceFile({
-    facets: ["category"],
-    filters: ["category", "authors.name"],
-    key: "slug",
-    maxLimit: 100,
-    path: "data/articles.json",
-    schema: v.object({ category: v.string(), slug: v.string(), title: v.string() }),
-    search: ["title", "summary"],
-    sort: { field: "title", direction: "asc" },
-    workspace: "content",
-  }),
-  transform: article => ({ category: article.category, slug: article.slug, title: article.title }),
-})
-```
-
-ViteHub generates `GET /api/articles`, and `useCollection("articles")` from `@vite-hub/source/client` reads it with typed filters:
-
-```ts fragment
-const { items, total, facets, loadMore } = useCollection("articles", {
-  limit: 25,
-  filter: computed(() => ({ category: selectedCategory.value, search: search.value })),
-})
-```
-
-Use `?empty=<field>` to match records without a scalar value at a declared filter. The file's Workspace digest binds every cursor, so a write to the file makes older cursors stale (`409`). Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full array in memory.
-
-```ts
-// nitro.config.ts
-import { createWorkspaceNitroConfig } from "@vite-hub/workspace/nitro"
-
-export default createWorkspaceNitroConfig()
-```
-
-```ts
-// vite.config.ts
-import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
-})
-```
-
 ## Reuse a Source definition
 
 Bind a standalone Source definition when direct reads, Content, and Workspace
 need the same origin:
 
 ```ts
-import { createSource } from "@vite-hub/source"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, glob } from "@vite-hub/source"
 import { defineWorkspace } from "@vite-hub/workspace"
 
 const docs = glob({ cwd: "docs", include: "**/*.md" })
@@ -393,7 +336,7 @@ navigation, query, cache, and ranked full-text search.
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
-GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
+GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API. A hosted Session exposes that initial retained revision as `session.revision` when its Store provides one. Stores with retained history but no revision materializer, such as Blob Database, expose the retained head only when its file manifest matches the files copied to the host. Draft changes or unavailable history leave the revision unset and do not prevent the Session from opening.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 
@@ -404,41 +347,6 @@ Use `startSession({ disposableTarget: true, host, target })` only when the calle
 Basic Sessions started without a host also honor `writeBack: false`. Their private overlay remains writable, while `diff()` and `commit()` are unavailable.
 
 Custom `WorkspaceSessionHost` implementations copy Workspace files serially by default. A host can set `materializationConcurrency` to a positive integer when it supports that many independent file reads and writes safely. ViteHub's local Node host uses `8`.
-
-## MountX projection
-
-Use the `@vite-hub/workspace/mountx` integration when an Agent, editor, CLI, or VM needs a real filesystem instead of Workspace methods. The adapter keeps Workspace Session diff and commit semantics in ViteHub while MountX owns the host transport.
-
-Install MountX directly before importing its transport entry points:
-
-```bash
-pnpm add mountx@0.0.2
-```
-
-```ts fragment
-import { createWorkspaceDriver } from "@vite-hub/workspace/mountx"
-import { mount } from "mountx/auto"
-
-const session = await workspace.startSession()
-
-try {
-  const mounted = await mount(createWorkspaceDriver(session), "/tmp/vitehub-docs")
-
-  try {
-    // Programs can now use /tmp/vitehub-docs as an ordinary directory.
-  }
-  finally {
-    await mounted.unmount()
-  }
-
-  await session.commit({ message: "accept projected changes" })
-}
-finally {
-  await session.close()
-}
-```
-
-The same driver works with MountX's 9P and NFSv4.1 servers for Linux guests, or its S3 gateway for S3-compatible clients. Use `{ readOnly: true }` when the consumer only needs inspection. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is still alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
 Built-in coding Agent Drivers use Workspace Sessions to materialize the selected Workspace Scope into their provider working directory. Workspace owns source materialization and write-mode sync through Workspace rules; the Agent Package owns provider execution and lifecycle events.
 
@@ -501,18 +409,17 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkspace()],
-  workspace: {
+  plugins: [hubWorkspace({
     store: {
       provider: "cloudflare-artifacts",
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
     },
-  },
+  })],
 })
 ```
 
-The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
+The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. It reads a definition's `store` by loading the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`; set the store in the `workspace` config then. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
@@ -546,7 +453,7 @@ export default defineWorkspace({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, and `history.open(id).preload(paths)` reads many files from one archive. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
 GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 

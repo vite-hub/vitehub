@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   commentsEntry,
-  defineAgentFromViteHub,
   forgeErrorImports,
   markdownFilePath,
   noNuxtHubLeftovers,
@@ -147,26 +146,6 @@ describe("vitehub/sandbox-runtime-options", () => {
   })
 })
 
-describe("vitehub/define-agent-from-vite-hub", () => {
-  it("reports the owner-package defineAgent in a vite-hub app", async () => {
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "vite-hub": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual(["VHUB0028"])
-  })
-
-  it("accepts vite-hub/agent, type imports, and apps without vite-hub", async () => {
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "vite-hub": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"vite-hub/agent\"\nimport type { AgentDefinition } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual([])
-    expect(await codes(defineAgentFromViteHub, {
-      "package.json": manifest({ "@vite-hub/agent": "*" }),
-      "server/agents/support.ts": "import { defineAgent } from \"@vite-hub/agent\"\nexport default defineAgent({})\n",
-    })).toEqual([])
-  })
-})
-
 describe("vitehub/rate-limit-capability-limiter", () => {
   it("reports rateLimit without a limiter", async () => {
     expect(await codes(rateLimitCapabilityLimiter, {
@@ -194,7 +173,7 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
     expect(await codes(noViteHubPluginInNuxt, {
       "nuxt.config.ts": lines(
         "import { vitehub } from \"vite-hub\"",
-        "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vite: { plugins: [vitehub({ preset: \"node\" })] } })",
+        "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vite: { plugins: [vitehub({ host: \"node\" })] } })",
       ),
     }, "nuxt")).toEqual(["VHUB0030"])
   })
@@ -202,8 +181,8 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
   it("accepts module options and contributed plugins", async () => {
     expect(await codes(noViteHubPluginInNuxt, {
       "nuxt.config.ts": lines(
-        "import { hubDb } from \"@vite-hub/database/vite\"",
-        "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { preset: \"node\" }]], vite: { plugins: [hubDb()] } })",
+        "import { hubDatabase } from \"@vite-hub/database/vite\"",
+        "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { host: \"node\" }]], vite: { plugins: [hubDatabase()] } })",
       ),
     }, "nuxt")).toEqual([])
   })
@@ -215,9 +194,9 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, queue: { provider: \"vercel\" }, env: { server: { token: 1 } } })] })",
+        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, logs: true, contentImportBase: \"vite-hub/content\" })] })",
       ),
-    })).toEqual(Array(5).fill("VHUB0031"))
+    })).toEqual(Array(8).fill("VHUB0031"))
   })
 
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
@@ -225,7 +204,7 @@ describe("vitehub/valid-vitehub-options", () => {
       "nuxt.config.ts": lines(
         "export default defineNuxtConfig({",
         "  modules: [[\"vite-hub/nuxt\", { connections: true }]],",
-        "  vitehub: { preset: \"node\", connections: { management: true } },",
+        "  vitehub: { host: \"node\", connections: { management: true } },",
         "})",
       ),
     }, "nuxt")).toEqual([])
@@ -236,9 +215,9 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: true, connections: true, env: { prefix: \"APP_\" } })] })",
+        "export default defineConfig({ plugins: [vitehub({ host: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, observability: { logs: true }, env: { prefix: \"APP_\", server: {} } })] })",
       ),
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", env: { server: {} }, connections: false } })\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", env: { server: {} }, connections: false, queue: { provider: \"postgres\" } } })\n",
     }, "nuxt")).toEqual([])
   })
 })
@@ -252,29 +231,28 @@ describe("vitehub/no-nuxthub-leftovers", () => {
     }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
   })
 
-  it("reports schema imports, NuxtHub helper calls, and blob.delete()", async () => {
+  it("reports schema imports and NuxtHub helper calls", async () => {
     expect(await codes(noNuxtHubLeftovers, {
       "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
       "shared/types/db.ts": "import type { chats } from \"hub:db:schema\"\nexport type Chat = typeof chats.$inferSelect\n",
       "server/routes/assets/[...pathname].get.ts": "export default defineEventHandler(event => hubBlob().serve(event, \"a\"))\n",
       "server/api/pages.ts": "export default defineEventHandler(() => hubKV().keys())\n",
-      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
-      "server/api/auto.delete.ts": "export default defineEventHandler(() => blob.delete(\"a.png\"))\n",
-    }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
+    }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032"])
   })
 
-  it("accepts local helpers named like NuxtHub ones and blob.del()", async () => {
+  it("accepts local helpers named like NuxtHub ones, the ViteHub plugins, and blob.delete()", async () => {
     expect(await codes(noNuxtHubLeftovers, {
       "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
       "server/utils/storage.ts": "function hubKV() { return {} }\nexport const store = hubKV()\n",
-      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.del(\"a.png\"))\n",
+      "vite.config.ts": "import { hubDatabase } from \"@vite-hub/database/vite\"\nimport { hubKV } from \"@vite-hub/kv/vite\"\nexport default { plugins: [hubDatabase(), hubKV()] }\n",
+      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
       "server/api/other.ts": "const files = { delete: (key: string) => key }\nexport default defineEventHandler(() => files.delete(\"a\"))\n",
     }, "nuxt")).toEqual([])
   })
 
   it("accepts ViteHub config and apps that still use only NuxtHub", async () => {
     expect(await codes(noNuxtHubLeftovers, {
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", kv: true } })\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", kv: true } })\n",
       "server/api/a.ts": "import { kv } from \"vite-hub/kv\"\nexport { kv }\n",
     }, "nuxt")).toEqual([])
     expect(await codes(noNuxtHubLeftovers, {

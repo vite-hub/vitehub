@@ -12,7 +12,7 @@ import { createOperationRegistry, runOperation } from "@vite-hub/internal/operat
 import { useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { pullWorkspaces, pushWorkspaces } from "@vite-hub/workspace/checkout"
-import { workspaceOperations } from "@vite-hub/workspace/operations"
+import { workspaceOperations } from "../../workspace/src/operations.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
@@ -39,7 +39,7 @@ async function setup(options: { table?: boolean, lease?: boolean } = {}) {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
+  const database = drizzle({ client })
   await migrate(database, history)
   if (options.table !== false) await migrate(database, sessionsTable)
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))

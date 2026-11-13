@@ -1,4 +1,4 @@
-import { installStandardContext } from "@vite-hub/runtime/internal/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { installCommentsRuntime } from "./operations-core/server.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
@@ -70,10 +70,10 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     ...(identify
       ? {
           identify: async (event: unknown) => {
-            // SAFETY: The operation surfaces pass the request event of the call: an H3 event or an event with Standard Context.
+            // SAFETY: The operation surfaces pass the request of the call: a Request, an H3 event, or an event with Standard Context.
             const requestEvent = event as CommentsRequestEvent
-            // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for an H3 app without the ViteHub plugin.
-            installStandardContext(requestEvent)
+            // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
+            getStandardContext(requestEvent)
             return await identify({ event: requestEvent }) ?? null
           },
         }

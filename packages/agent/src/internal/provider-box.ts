@@ -9,7 +9,7 @@ import type { SandboxDefinition, SandboxFile, SandboxPlan, SandboxProcess, Sandb
 import type { AgentInvocationContextStore } from "../types.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 const activeSandboxes = new WeakMap<AgentInvocationContextStore, ProviderSandboxSession>()
 
@@ -89,8 +89,8 @@ export async function openProviderSandbox<Context>(options: {
   }
   const environment: Record<string, string> = {}
   const env = Object.fromEntries(Object.entries(options.definition.env ?? {}).map(([name, value]) => [name, async (context: Context) => {
-    const resolved = hasRuntimeType(value, "function") ? await value(context) : value
-    if (hasRuntimeType(resolved, "string")) environment[name] = resolved
+    const resolved = typeof value === "function" ? await value(context) : value
+    if (typeof resolved === "string") environment[name] = resolved
     return resolved
   }]))
   const sandbox = await resolveSandbox({
@@ -102,7 +102,7 @@ export async function openProviderSandbox<Context>(options: {
   try {
     const spawn = session.spawn
     if (!spawn) {
-      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host or crabbox.` })
+      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host, crabbox, or container.` })
     }
     const home = await session.exec("sh", ["-c", "printf %s \"$HOME\""], { signal: options.signal })
     if (!home.ok || !home.stdout.startsWith("/")) {
@@ -363,11 +363,11 @@ async function readRelayHeader(socket: Socket, token: string) {
   const received = Reflect.get(header, "token")
   const args = Reflect.get(header, "args")
   const env = Reflect.get(header, "env")
-  if (!hasRuntimeType(received, "string") || !sameToken(received, token)) throw invalidRelayConnection()
-  if (!Array.isArray(args) || !args.every(arg => hasRuntimeType(arg, "string"))) throw invalidRelayConnection()
+  if (typeof received !== "string" || !sameToken(received, token)) throw invalidRelayConnection()
+  if (!Array.isArray(args) || !args.every(arg => typeof arg === "string")) throw invalidRelayConnection()
   if (!isRuntimeRecord(env)) throw invalidRelayConnection()
   const environment: Record<string, string> = {}
-  for (const [name, value] of Object.entries(env)) if (hasRuntimeType(value, "string")) environment[name] = value
+  for (const [name, value] of Object.entries(env)) if (typeof value === "string") environment[name] = value
   return { args: args.map(String), env: environment, input }
 }
 

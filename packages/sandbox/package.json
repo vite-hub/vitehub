@@ -112,11 +112,10 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/sandbox#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/sandbox#build && vp test"
+    "test": "vp run --cache -t @vite-hub/sandbox#build && vp test"
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "catalog:tooling",
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
@@ -134,6 +133,7 @@
     "@types/ssh2": "^1.15.6",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/internal": "workspace:*",
+    "esbuild": "catalog:tooling",
     "miniflare": "4.20260730.0",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

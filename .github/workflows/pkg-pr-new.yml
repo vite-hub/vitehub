@@ -41,4 +41,4 @@ jobs:
       - name: Publish preview packages
         run: |
           corepack enable pnpm
-          ./.github/ci-tools/node_modules/.bin/pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm
+          ./node_modules/.bin/pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm

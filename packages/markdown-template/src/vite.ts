@@ -35,6 +35,9 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   await writeFile(path, contents, "utf8")
 }
 
+// The ids that parseMarkdownTemplateRequest() accepts. Rolldown and Vite skip the hooks for every other id.
+const MARKDOWN_TEMPLATE_ID_PATTERN = /^[^#?]*(?:\.template\.md|\?markdown-template)$/
+
 function isFileId(id: string): boolean {
   return !id.includes("\0") && (isAbsolute(id) || win32.isAbsolute(id))
 }
@@ -54,34 +57,40 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
         },
       }
     },
-    async resolveId(source, importer) {
-      const request = parseMarkdownTemplateRequest(source)
-      if (!request) return
-      const resolved = await this.resolve(request.path, importer, { skipSelf: true })
-      if (!resolved || resolved.external) {
-        this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
-      }
-      // Resolver queries and fragments identify plugin-owned modules, even on absolute paths.
-      if (!isFileId(resolved.id) || /[?#]/.test(resolved.id)) return resolved
-      return { ...resolved, id: `${resolved.id}?${markdownTemplateModuleQuery}` }
+    resolveId: {
+      filter: { id: MARKDOWN_TEMPLATE_ID_PATTERN },
+      async handler(source, importer) {
+        const request = parseMarkdownTemplateRequest(source)
+        if (!request) return
+        const resolved = await this.resolve(request.path, importer, { skipSelf: true })
+        if (!resolved || resolved.external) {
+          this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
+        }
+        // Resolver queries and fragments identify plugin-owned modules, even on absolute paths.
+        if (!isFileId(resolved.id) || /[?#]/.test(resolved.id)) return resolved
+        return { ...resolved, id: `${resolved.id}?${markdownTemplateModuleQuery}` }
+      },
     },
-    async load(id) {
-      if (!isFileId(id)) return
-      const request = parseMarkdownTemplateRequest(id)
-      if (!request) return
-      let path = request.path
-      if (path.startsWith("/@fs/")) {
-        path = path.slice("/@fs".length)
-        // Vite prefixes Windows drive-letter paths with a separator (`/@fs/C:\\...`).
-        // Remove that separator so Node receives the native absolute path.
-        if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1)
-      }
-      const template = await readFile(path, "utf8")
-      this.addWatchFile(path)
-      return {
-        code: renderMarkdownTemplateModule(template, runtimeImport),
-        map: null,
-      }
+    load: {
+      filter: { id: MARKDOWN_TEMPLATE_ID_PATTERN },
+      async handler(id) {
+        if (!isFileId(id)) return
+        const request = parseMarkdownTemplateRequest(id)
+        if (!request) return
+        let path = request.path
+        if (path.startsWith("/@fs/")) {
+          path = path.slice("/@fs".length)
+          // Vite prefixes Windows drive-letter paths with a separator (`/@fs/C:\\...`).
+          // Remove that separator so Node receives the native absolute path.
+          if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1)
+        }
+        const template = await readFile(path, "utf8")
+        this.addWatchFile(path)
+        return {
+          code: renderMarkdownTemplateModule(template, runtimeImport),
+          map: null,
+        }
+      },
     },
     async configResolved(config) {
       const root = resolveViteHubProjectRoot(config.root)

@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 /** A size limit in bytes, or a share of the capacity of the volume that holds the store. */
 export type RetentionSizeLimit = { bytes: number } | { fraction: number }
@@ -88,9 +88,9 @@ export function normalizeRetention(input: unknown, options: NormalizeRetentionOp
 function normalizeMaxAge(value: unknown, { defaults, error, label }: NormalizeRetentionOptions): false | number {
   if (value === undefined) return defaults.maxAgeMs
   if (value === false) return false
-  const result = hasRuntimeType(value, "string")
+  const result = typeof value === "string"
     ? parseRetentionDuration(value)
-    : hasRuntimeType(value, "number") && Number.isSafeInteger(value) && value >= 1 ? value : undefined
+    : typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : undefined
   if (result === undefined || result > maximumAgeMs) throw error(`${label} maxAge must be a positive duration such as 14d, a number of milliseconds, or false.`)
   return result
 }
@@ -98,7 +98,7 @@ function normalizeMaxAge(value: unknown, { defaults, error, label }: NormalizeRe
 function normalizeMaxRecords(value: unknown, { defaults, error, label }: NormalizeRetentionOptions): false | number {
   if (value === undefined) return defaults.maxRecords
   if (value === false) return false
-  if (!hasRuntimeType(value, "number") || !Number.isSafeInteger(value) || value < 1) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
     throw error(`${label} maxRecords must be a positive safe integer or false.`)
   }
   return value
@@ -108,9 +108,9 @@ function normalizeMaxSize(value: unknown, { defaults, error, label, size }: Norm
   if (value === undefined) return defaults.maxSize
   if (value === false) return false
   if (size === "none") throw error(`${label} stores do not support maxSize. Use maxRecords or maxAge.`)
-  const result = hasRuntimeType(value, "string")
+  const result = typeof value === "string"
     ? parseRetentionSize(value)
-    : hasRuntimeType(value, "number") && Number.isSafeInteger(value) && value >= 1 ? { bytes: value } : undefined
+    : typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? { bytes: value } : undefined
   if (result === undefined) {
     throw error(`${label} maxSize must be a positive size such as 500MB, a number of bytes, a percent such as 45%, or false.`)
   }

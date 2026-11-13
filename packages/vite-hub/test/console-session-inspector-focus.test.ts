@@ -20,10 +20,11 @@ const { document } = globalThis as unknown as Pick<Window, "document">
 
 const UButton = defineComponent({
   inheritAttrs: false,
-  setup: (_props, { attrs }) => () => h("button", { ...attrs, type: "button" }),
+  setup: (_props, { attrs, slots }) => () => h("button", { ...attrs, type: "button" }, slots.default?.() ?? String(attrs.label ?? "")),
 })
 const Slot = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() })
 const Empty = defineComponent({ render: () => null })
+const UEmpty = defineComponent({ setup: (_props, { slots }) => () => h("div", slots.body?.()) })
 
 async function mount(initial: { activeSurface: string; openViews: string[]; tab: string } = { activeSurface: "", openViews: [], tab: "details" }) {
   const root = document.createElement("div")
@@ -46,7 +47,8 @@ async function mount(initial: { activeSurface: string; openViews: string[]; tab:
   })
   const app = createApp(host)
   app.component("UButton", UButton).component("UTooltip", Slot).component("UDropdownMenu", Slot)
-  for (const name of ["UIcon", "UKbd", "UEmpty"]) app.component(name, Empty)
+  app.component("UEmpty", UEmpty)
+  for (const name of ["UIcon", "UKbd", "UTabs"]) app.component(name, Empty)
   app.mount(root)
   await nextTick()
   return { app, root }
@@ -57,16 +59,13 @@ const settle = async () => {
 }
 
 describe("Console inspector focus", () => {
-  it("moves focus to the tab that a launcher card opens", async () => {
+  it("opens the Details tab when the panel has no open tab", async () => {
     const { app, root } = await mount()
     try {
-      const card = [...root.querySelectorAll("button")]
-        .find(button => button.closest(".session-inspector__surface-launcher") && button.textContent.includes("Trace"))
-      card!.focus()
-      card!.click()
       await settle()
-      expect(document.activeElement?.getAttribute("role")).toBe("tab")
-      expect(document.activeElement?.textContent).toContain("Trace")
+      const tabs = [...root.querySelectorAll("[role='tab']")].map(tab => tab.textContent)
+      expect(tabs).toEqual([expect.stringContaining("Details")])
+      expect(root.textContent).not.toContain("Open a tab")
     }
     finally {
       app.unmount()
@@ -83,7 +82,7 @@ describe("Console inspector focus", () => {
       await settle()
       expect(root.querySelector("[aria-label='Close Trace']")).toBeNull()
       expect(document.activeElement?.getAttribute("role")).toBe("tab")
-      expect(document.activeElement?.textContent).toContain("Invocation")
+      expect(document.activeElement?.textContent).toContain("Details")
     }
     finally {
       app.unmount()

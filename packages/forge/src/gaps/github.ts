@@ -2,6 +2,7 @@ import type { ForgeProvider, RepoRef } from "forges"
 import type { GitHubProvider } from "forges/github"
 
 import { forgeDiagnostics } from "../error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 /** Narrow a provider to GitHub, or throw `FORGE_R0006` for a GitHub-only helper. */
 export function requireGitHub(provider: ForgeProvider, operation: string): GitHubProvider {
@@ -17,6 +18,4 @@ export function repositoryPath(repo: RepoRef): string {
   return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
+export { isRecord }

@@ -37,3 +37,18 @@ it("replaces a catalog's definitions while retaining application and other catal
     resetWorkspaceRegistry()
   }
 })
+
+it("reads a registry that the startup plugin set through the light registry module", async () => {
+  const light = await import("../src/runtime/registry.ts")
+  try {
+    light.setWorkspaceRuntimeRegistry({ startup: async () => ({ default: { rootDir: "/application/startup" } }) })
+    expect((await resolveRegisteredWorkspaceDefinition("startup")).rootDir).toBe("/application/startup")
+
+    // A new registry drops what the core loaded from the old one.
+    light.setWorkspaceRuntimeRegistry({ startup: async () => ({ default: { rootDir: "/application/replaced" } }) })
+    expect((await resolveRegisteredWorkspaceDefinition("startup")).rootDir).toBe("/application/replaced")
+  }
+  finally {
+    resetWorkspaceRegistry()
+  }
+})

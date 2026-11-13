@@ -5,7 +5,8 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { createKVCliContributor, runKVCli } from "../src/cli.ts"
-import { hubKv } from "../src/vite.ts"
+import { hubKV } from "../src/vite.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const rootDir = "/app"
 
@@ -34,17 +35,17 @@ function context(cwd = rootDir) {
  * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
  */
 function devServer(result: unknown, init: { status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
-    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    if (status < 400) return operationRpcResponse(request?.body, { ok: true, value: result }, { status })
     const error = (result as { error: { code?: string, message: string } }).error
-    return Response.json({ ok: false, code: error.code ?? "KV_FAILED", message: error.message, status }, { status })
+    return operationRpcResponse(request?.body, { ok: false, code: error.code ?? "KV_FAILED", message: error.message, status })
   })
 }
 
 /** The operation and input that a command sent, with the operation name as `operation`. */
 function sentBody(fetch: ReturnType<typeof devServer>): Record<string, unknown> {
-  const { input, operation } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { input: Record<string, unknown>, operation: string }
+  const { input, operation } = operationRpcRequest(fetch.mock.calls[0]?.[1]?.body) as { input: Record<string, unknown>, operation: string }
   return { ...input, operation: operation.replace(/^kv\./, "") }
 }
 
@@ -52,7 +53,7 @@ describe("KV delete confirmation", () => {
   it.each([{ target: [] }, { target: ["--url", "https://app.example/base/"] }])("refuses an unconfirmed deletion: $target", async ({ target }) => {
     const output = context()
     const fetch = devServer({ deleted: true, key: "a", store: "default" })
-    await expect(runKVCli(["del", "a", ...target], output.context, { fetch })).resolves.toBe(1)
+    await expect(runKVCli(["delete", "a", ...target], output.context, { fetch })).resolves.toBe(1)
     expect(output.stderr.output()).toContain("was not confirmed")
     expect(output.stderr.output()).toContain("--yes")
     expect(fetch).not.toHaveBeenCalled()
@@ -61,7 +62,7 @@ describe("KV delete confirmation", () => {
   it("reports a declined confirmation as JSON without sending a request", async () => {
     const output = context()
     const fetch = vi.fn()
-    await expect(runKVCli(["del", "a", "--json", "--url", "https://app.example"], output.context, { confirm: () => false, fetch })).resolves.toBe(1)
+    await expect(runKVCli(["delete", "a", "--json", "--url", "https://app.example"], output.context, { confirm: () => false, fetch })).resolves.toBe(1)
     expect(JSON.parse(output.stdout.output())).toMatchObject({ error: { code: "KV_NOT_CONFIRMED" } })
     expect(output.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
@@ -71,20 +72,20 @@ describe("KV delete confirmation", () => {
     const output = context()
     const fetch = devServer({ deleted: true, key: "a", store: "archive" })
     const confirm = vi.fn(async (_question: string) => true)
-    await expect(runKVCli(["del", "a", "--store", "archive", "--url", "https://app.example/base/"], output.context, { confirm, fetch })).resolves.toBe(0)
+    await expect(runKVCli(["delete", "a", "--store", "archive", "--url", "https://app.example/base/"], output.context, { confirm, fetch })).resolves.toBe(0)
     expect(confirm).toHaveBeenCalledOnce()
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("a"))
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("archive"))
     expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("https://app.example/base/"))
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
-    expect(sentBody(fetch)).toEqual({ operation: "del", key: "a", store: "archive" })
+    expect(sentBody(fetch)).toEqual({ operation: "delete", key: "a", store: "archive" })
   })
 
   it.each(["--yes", "-y"])("deletes with %s without prompting", async flag => {
     const output = context()
     const fetch = devServer({ deleted: true, key: "a", store: "default" })
     const confirm = vi.fn(() => false)
-    await expect(runKVCli(["del", "a", flag, "--url", "https://app.example"], output.context, { confirm, fetch })).resolves.toBe(0)
+    await expect(runKVCli(["delete", "a", flag, "--url", "https://app.example"], output.context, { confirm, fetch })).resolves.toBe(0)
     expect(confirm).not.toHaveBeenCalled()
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
   })
@@ -92,7 +93,7 @@ describe("KV delete confirmation", () => {
   it("does not treat a literal --yes after -- as confirmation", async () => {
     const output = context()
     const fetch = vi.fn()
-    await expect(runKVCli(["del", "--", "--yes"], output.context, { fetch })).resolves.toBe(1)
+    await expect(runKVCli(["delete", "--", "--yes"], output.context, { fetch })).resolves.toBe(1)
     expect(output.stderr.output()).toContain("was not confirmed")
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -103,17 +104,17 @@ describe("KV review regressions", () => {
     { operation: "get", result: { found: true, type: "string", value: "empty key" } },
     { operation: "has", result: { exists: true } },
     { operation: "set", result: { created: true, type: "string" } },
-    { operation: "del", result: { deleted: true } },
+    { operation: "delete", result: { deleted: true } },
   ])("passes an empty key to $operation", async ({ operation, result }) => {
     const output = context()
     const fetch = devServer({ ...result, key: "", store: "default" })
-    await expect(runKVCli([operation, "", ...(operation === "set" ? ["empty key"] : []), ...(operation === "del" ? ["--yes"] : []), "--json"], output.context, { fetch })).resolves.toBe(0)
+    await expect(runKVCli([operation, "", ...(operation === "set" ? ["empty key"] : []), ...(operation === "delete" ? ["--yes"] : []), "--json"], output.context, { fetch })).resolves.toBe(0)
     expect(sentBody(fetch)).toMatchObject({ key: "", operation })
     expect(JSON.parse(output.stdout.output())).toMatchObject({ key: "" })
     expect(output.stderr.output()).toBe("")
   })
 
-  it.each(["get", "has", "set", "del"])("still rejects a missing key for %s", async operation => {
+  it.each(["get", "has", "set", "delete"])("still rejects a missing key for %s", async operation => {
     const output = context()
     const fetch = vi.fn()
     await expect(runKVCli([operation, "--json"], output.context, { fetch })).resolves.toBe(1)
@@ -258,10 +259,10 @@ describe("KV review regressions", () => {
   it.each([
     ["has", { key: "a", store: "default", exists: "yes" }],
     ["set", { key: "a", store: "default", created: true, type: 1 }],
-    ["del", { key: "a", store: "default", deleted: "yes" }],
+    ["delete", { key: "a", store: "default", deleted: "yes" }],
   ] as const)("rejects malformed %s responses", async (operation, result) => {
     const output = context()
-    await expect(runKVCli([operation, "a", ...(operation === "set" ? ["value"] : []), ...(operation === "del" ? ["--yes"] : []), "--json"], output.context, { fetch: devServer(result) })).resolves.toBe(1)
+    await expect(runKVCli([operation, "a", ...(operation === "set" ? ["value"] : []), ...(operation === "delete" ? ["--yes"] : []), "--json"], output.context, { fetch: devServer(result) })).resolves.toBe(1)
     expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: "The kv operation answered with an invalid result shape." } })
   })
 
@@ -291,11 +292,9 @@ describe("vitehub kv", () => {
     expect(human.stdout.output()).toBe("users:1\nusers:2\n")
     expect(human.stderr.output()).toBe("More keys exist. Next page: --cursor next\n")
     const [call] = fetch.mock.calls
-    expect(String(call?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
-    expect(call?.[1]).toMatchObject({
-      body: JSON.stringify({ operation: "kv.list", input: { limit: 2, prefix: "users:" } }),
-      method: "POST",
-    })
+    expect(String(call?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc")
+    expect(call?.[1]).toMatchObject({ method: "POST" })
+    expect(operationRpcRequest(call?.[1]?.body)).toEqual({ operation: "kv.list", input: { limit: 2, prefix: "users:" } })
     expect(new Headers(call?.[1]?.headers).get("x-vitehub-console")).toBe("1")
 
     const json = context()
@@ -343,7 +342,7 @@ describe("vitehub kv", () => {
     expect(JSON.parse(absent.stdout.output())).toEqual({ exists: false, key: "a", store: "default" })
   })
 
-  it("prints what set and del changed", async () => {
+  it("prints what set and delete changed", async () => {
     const created = context()
     const fetch = devServer({ created: true, key: "greeting", notice: "The fs-lite driver ignores TTL. The value does not expire.", store: "default", ttl: 60, type: "string" })
     await expect(runKVCli(["set", "greeting", "hello", "--ttl", "60"], created.context, { fetch })).resolves.toBe(0)
@@ -357,15 +356,15 @@ describe("vitehub kv", () => {
     expect(updated.stdout.output()).toBe("Updated key settings in store cache (object).\n")
 
     const deleted = context()
-    await expect(runKVCli(["del", "greeting", "--yes"], deleted.context, { fetch: devServer({ deleted: true, key: "greeting", store: "default" }) })).resolves.toBe(0)
+    await expect(runKVCli(["delete", "greeting", "--yes"], deleted.context, { fetch: devServer({ deleted: true, key: "greeting", store: "default" }) })).resolves.toBe(0)
     expect(deleted.stdout.output()).toBe("Deleted key greeting from store default.\n")
 
     const unchanged = context()
-    await expect(runKVCli(["del", "greeting", "--yes"], unchanged.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
+    await expect(runKVCli(["delete", "greeting", "--yes"], unchanged.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
     expect(unchanged.stdout.output()).toBe("Key greeting was not found in store default. Deletion completed.\n")
 
     const json = context()
-    await expect(runKVCli(["del", "greeting", "--json", "--yes"], json.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
+    await expect(runKVCli(["delete", "greeting", "--json", "--yes"], json.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
     expect(JSON.parse(json.stdout.output())).toEqual({ deleted: false, key: "greeting", store: "default" })
   })
 
@@ -426,7 +425,7 @@ describe("vitehub kv", () => {
       [["list", "--ttl", "5"], "Unknown option: --ttl."],
       [["get", "a", "--prefix", "x"], "Unknown option: --prefix."],
       [["list", "--store"], "--store needs a value."],
-      [["del", "a", "--store="], "--store needs a nonempty name."],
+      [["delete", "a", "--store="], "--store needs a nonempty name."],
     ]
     for (const [args, message] of cases) {
       const invalid = context()
@@ -436,26 +435,26 @@ describe("vitehub kv", () => {
     }
     const unknown = context()
     await expect(runKVCli(["clear"], unknown.context, { fetch })).resolves.toBe(1)
-    expect(unknown.stderr.output()).toBe("Unknown kv command: clear\nCommands: list, get, has, set, del\n")
+    expect(unknown.stderr.output()).toBe("Unknown kv command: clear\nCommands: list, get, has, set, delete\n")
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it("contributes one feature per command and no clear command", () => {
     const [namespace] = createKVCliContributor().namespaces
     expect(namespace?.name).toBe("kv")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "get", "has", "set", "del"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "get", "has", "set", "delete"])
     expect(namespace?.features.find(feature => feature.name === "set")?.usage).toBe(
       "vitehub kv set <key> <value|@file> [--ttl <seconds>] [--json-value] [--store <name>] [--json] [--url <url>]",
     )
   })
 })
 
-describe("hubKv", () => {
+describe("hubKV", () => {
   it("contributes the kv operations and the CLI namespace", async () => {
-    const plugin = hubKv()
+    const plugin = hubKV()
     expect(plugin.vitehub.cli).toEqual(expect.any(Function))
-    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "kvOperations", module: "@vite-hub/kv/operations" })])
+    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "kvOperations", module: join(import.meta.dirname, "../dist/operations.js") })])
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
-    expect(operations.map(operation => operation.name)).toEqual(["kv.list", "kv.get", "kv.has", "kv.set", "kv.del"])
+    expect(operations.map(operation => operation.name)).toEqual(["kv.list", "kv.get", "kv.has", "kv.set", "kv.delete"])
   })
 })

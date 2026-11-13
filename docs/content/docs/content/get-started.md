@@ -24,7 +24,7 @@ Add Content to your app:
 pnpm add @vite-hub/content
 ```
 
-You do not change `vite.config.ts`. `vitehub()` finds the `server/content.ts` file that you write in the next step, and turns on Content.
+You do not change `nuxt.config.ts` or `vite.config.ts`. ViteHub finds the `server/content.ts` file that you write in the next step, and turns on Content.
 
 ::
 
@@ -35,9 +35,9 @@ Create `server/content.ts`. It tells Content where your Markdown files are:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob({ cwd: 'docs', include: '**/*.md' }),
   },
@@ -58,7 +58,7 @@ Create an API route that reads it:
 
 ```ts [server/api/guide.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   return await content.get('/intro')

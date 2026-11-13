@@ -1,0 +1,137 @@
+import type { TranscriptionTranscript } from "vite-hub/agent/capabilities"
+import { renderTemplate } from "#vitehub/templates"
+import {
+  advanceAgentStage,
+  completeAgentRun,
+} from "../../databases/jobs"
+import { outputLanguages, requireGatewayCredential } from "../../databases/settings"
+import { generateGatewayObject } from "../../providers/gateway"
+
+export interface SummaryOutput {
+  summary: string
+  title: string
+  translation: string
+}
+
+export interface SummaryRunContext {
+  attemptNonce: string
+  jobId: string
+  modelId: string
+  outputLanguage: string
+  sourceKey: string
+  userId: string
+}
+
+export interface RunSummaryInput extends SummaryRunContext {
+  transcript: string
+}
+
+export async function runSummaryAgent(input: RunSummaryInput): Promise<void> {
+  const credential = await requireGatewayCredential(input.userId)
+  const language = outputLanguages.find(option => option.code === input.outputLanguage)?.label
+  if (!language) throw new Error("The job has an unsupported output language.")
+  const system = await renderTemplate("summary", { OUTPUT_LANGUAGE: language })
+
+  const { translation } = await generateGatewayObject({
+    apiKey: credential.apiKey,
+    model: input.modelId,
+    prompt: input.transcript,
+    schema: {
+      additionalProperties: false,
+      properties: { translation: { minLength: 1, type: "string" } },
+      required: ["translation"],
+      type: "object",
+    },
+    schemaName: "recording_translation",
+    system: `${system}\n\nPerform only the translation task and return the structured translation result.`,
+    validate(value) {
+      const result = asRecord(value)
+      if (typeof result.translation !== "string" || !result.translation.trim())
+        throw new Error("Translation is missing.")
+      return { translation: result.translation }
+    },
+  })
+  await advanceAgentStage(input.jobId, input.attemptNonce, "summarize")
+
+  const result = await generateGatewayObject({
+    apiKey: credential.apiKey,
+    model: input.modelId,
+    prompt: translation,
+    schema: {
+      additionalProperties: false,
+      properties: {
+        summary: { minLength: 1, type: "string" },
+        title: { minLength: 1, type: "string" },
+      },
+      required: ["title", "summary"],
+      type: "object",
+    },
+    schemaName: "recording_summary",
+    system: `${system}\n\nPerform only the summary and title task and return the structured summary result.`,
+    validate(value) {
+      const output = asRecord(value)
+      if (typeof output.title !== "string" || !output.title.trim())
+        throw new Error("Title is missing.")
+      if (typeof output.summary !== "string" || !output.summary.trim())
+        throw new Error("Summary is missing.")
+      return { summary: output.summary, title: output.title }
+    },
+  })
+  await advanceAgentStage(input.jobId, input.attemptNonce, "finalize")
+  await completeAgentRun({
+    attemptNonce: input.attemptNonce,
+    jobId: input.jobId,
+    output: { ...result, translation },
+    sourceKey: input.sourceKey,
+    userId: input.userId,
+  })
+}
+
+export function formatTranscript(transcript: TranscriptionTranscript): string {
+  const words = transcript.words || []
+  const header = [
+    "# Transcript",
+    transcript.language
+      ? `Detected language: ${transcript.language.toUpperCase()}${typeof transcript.languageConfidence === "number" ? ` (${Math.round(transcript.languageConfidence * 100)}% confidence)` : ""}`
+      : undefined,
+  ].filter(Boolean).join("\n\n")
+
+  if (!words.length) return `${header}\n\n${transcript.text.trim()}\n`
+
+  const turns: Array<{ speaker: string, start: number, text: string }> = []
+  for (const word of words) {
+    const speaker = word.speaker || (word.channel === undefined ? "Speaker" : `Channel ${word.channel + 1}`)
+    let turn = turns.at(-1)
+    if (!turn || turn.speaker !== speaker) {
+      turn = { speaker, start: word.start || 0, text: "" }
+      turns.push(turn)
+    }
+    turn.text += word.text
+  }
+
+  const body = turns
+    .map(turn => `**${speakerLabel(turn.speaker)}** · ${timestamp(turn.start)}\n\n${turn.text.trim()}`)
+    .join("\n\n")
+  return `${header}\n\n${body}\n`
+}
+
+function speakerLabel(value: string): string {
+  const match = value.match(/^speaker_(\d+)$/i)
+  return match ? `Speaker ${Number(match[1]) + 1}` : value
+}
+
+function timestamp(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const remainder = total % 60
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Structured result must be an object.")
+  return value as Record<string, unknown>
+}

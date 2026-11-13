@@ -1,5 +1,4 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -141,63 +140,6 @@ describe("managed Rate Limit guard", () => {
     expect(limit).toHaveBeenCalledWith({ key: "198.51.100.9" })
   })
 
-  it("limits H3 1 events, because Nuxt 4 bundles every h3 import as its own h3 1", async () => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
-      const { setRateLimitRuntimeConfig: configure } = await import("../src/runtime.ts")
-      const { createApp, eventHandler, toWebHandler } = await import("h3-v1")
-      const limit = vi.fn(async ({ key }: { key: string }) => ({ success: key !== "198.51.100.10" }))
-      const app = createApp().use(eventHandler(async (event) => {
-        event.context.cloudflare = { env: { [getCloudflareRateLimitBindingName("nuxt4-uploads")]: { limit } } }
-        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
-        installStandardContext(event)
-        await requireOnH3V1(event, "nuxt4-uploads", { limit: 1, window: "1m" })
-        return "accepted"
-      }))
-      const handle = toWebHandler(app)
-
-      configure({ provider: "cloudflare" })
-      const allowed = await handle(new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "198.51.100.9" } }))
-      const limited = await handle(new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "198.51.100.10" } }))
-
-      expect(allowed.status).toBe(200)
-      expect(limited.status).toBe(429)
-      expect(limit).toHaveBeenCalledWith({ key: "198.51.100.9" })
-      expect(limit).toHaveBeenCalledWith({ key: "198.51.100.10" })
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
-  })
-
-  it("sends Retry-After from an H3 1 event", async () => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
-      const { createApp, eventHandler, toWebHandler } = await import("h3-v1")
-      const handle = toWebHandler(createApp().use(eventHandler(async (event) => {
-        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
-        installStandardContext(event)
-        await requireOnH3V1(event, "nuxt4-retry", { key: "user", limit: 1, window: "1m" })
-        return "accepted"
-      })))
-
-      expect((await handle(new Request("https://example.com/upload"))).status).toBe(200)
-      const limited = await handle(new Request("https://example.com/upload"))
-
-      expect(limited.status).toBe(429)
-      expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0)
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
-  })
-
   it("reads only the Standard Context that the host set", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
@@ -272,24 +214,6 @@ describe("managed Rate Limit guard", () => {
       requireRateLimit(request, "request-metadata-cloudflare", { limit: 1, window: "1m" }))
 
     expect(limit).toHaveBeenCalledWith({ key: "203.0.113.10" })
-  })
-
-  it("keeps the H3 1 rate-limit error for request-shaped inputs with event-named metadata", async () => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
-      const request = { headers: new Headers(), req: {}, node: {}, "~standard": {} }
-      const options = { key: "user", limit: 1, window: "1m" } as const
-
-      await requireOnH3V1(request, "request-metadata-h3-v1", options)
-      await expect(requireOnH3V1(request, "request-metadata-h3-v1", options))
-        .rejects.toMatchObject({ statusCode: 429, statusMessage: "Too Many Requests" })
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
   })
 
   it("counts by the Standard Context client address", async () => {

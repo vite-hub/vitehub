@@ -5,10 +5,12 @@ import { join, relative, resolve } from "node:path"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import { formsDiagnostics } from "./errors.ts"
 import { formsTableNames } from "./table-names.ts"
 
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { Plugin, UserConfig } from "vite"
 
 export const FORMS_VITE_PLUGIN_NAME = "@vite-hub/forms/vite"
@@ -56,6 +58,7 @@ export function usesForms(options: { projectRoot: string, serverDirs?: readonly 
 /** The module specifiers that the generated handler imports. `vite-hub` passes its own subpaths. */
 export interface FormsImports {
   runtime: string
+  operations: string
   database: string
   databases?: string
   email?: string
@@ -75,9 +78,10 @@ export interface HubFormsOptions {
 
 const defaultImports: FormsImports = {
   runtime: "@vite-hub/forms/runtime",
+  operations: "@vite-hub/forms/operations",
   database: "@vite-hub/forms/database",
-  databases: "@vite-hub/database/drizzle",
-  email: "@vite-hub/email/server",
+  databases: "@vite-hub/database/runtime/registry",
+  email: "@vite-hub/email",
   auth: "@vite-hub/auth/server",
   standard: "@vite-hub/runtime",
 }
@@ -90,7 +94,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     ...imports.standard ? [`import { getStandardContext } from ${JSON.stringify(imports.standard)}`] : [],
     ...options.database && imports.databases ? [`import { databases } from ${JSON.stringify(imports.databases)}`] : [],
     ...options.email && imports.email ? [`import { email } from ${JSON.stringify(imports.email)}`] : [],
-    ...options.auth && imports.auth ? [`import { getAuthForRequest } from ${JSON.stringify(imports.auth)}`] : [],
+    ...options.auth && imports.auth ? [`import { useAuth } from ${JSON.stringify(imports.auth)}`] : [],
     ...forms.map((form, index) => `import form${index} from ${JSON.stringify(form.file)}`),
     "",
     "export default createFormsHandler({",
@@ -100,7 +104,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     ...options.auth && imports.auth
       ? [
           "  session: async (request) => {",
-          "    const session = await getAuthForRequest(request).api.getSession({ headers: request.headers })",
+          "    const session = await useAuth(request).api.getSession({ headers: request.headers })",
           "    const user = session?.user",
           "    return user && typeof user.id === \"string\" ? { id: user.id, ...(user.name ? { name: user.name } : {}), ...(user.email ? { email: user.email } : {}) } : null",
           "  },",
@@ -118,7 +122,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
  * `POST <base>api/_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
  * default Database.
  */
-export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[] } } {
+export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[], operations: OperationContributions } } {
   const imports: FormsImports = { ...defaultImports, ...options.imports }
   let projectRoot: string | undefined
   let serverDirs: readonly string[] | undefined
@@ -126,6 +130,10 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
     name: FORMS_VITE_PLUGIN_NAME,
     enforce: "pre",
     vitehub: {
+      // The Console, `vitehub forms`, and MCP read the inbox through these operations.
+      operations: () => usesForms({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
+        ? [{ export: "formsOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).formsOperations, module: imports.operations }]
+        : [],
       databases(context) {
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         if (!options.database || !usesForms({ projectRoot: root, ...(serverDirs ? { serverDirs } : {}) })) return []
@@ -139,7 +147,7 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
       },
     },
     config: {
-      async handler(config: UserConfig) {
+      async handler(config: UserConfig, env) {
         const configuredRoot: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         projectRoot = typeof configuredRoot === "string" ? resolve(configuredRoot) : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
         const dirs: unknown = Reflect.get(config, VITEHUB_SERVER_DIRS)
@@ -158,7 +166,12 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
         // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.
         kit.addHandler({ handler, lazy: false, route: `${mount}${formsRoute}/**` })
         Reflect.set(config, "nitro", kit.config)
+        await installStandaloneOperationRpc(config, env?.command ?? "build", imports.operations)
       },
+    },
+    configureServer(server) {
+      publishStandaloneOperationServer(server)
     },
   }
 }
+export { formsConsoleSection } from "./console.ts"

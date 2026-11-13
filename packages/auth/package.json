@@ -30,6 +30,10 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "imports": {
+    "#vitehub/auth/abilities": {
+      "types": "./dist/runtime/empty-abilities.d.ts",
+      "default": "./dist/runtime/empty-abilities.js"
+    },
     "#vitehub/auth/definition": {
       "types": "./dist/runtime/empty-definition.d.ts",
       "default": "./dist/runtime/empty-definition.js"
@@ -40,6 +44,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./abilities": {
+      "types": "./dist/abilities.d.ts",
+      "import": "./dist/abilities.js",
+      "default": "./dist/abilities.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
@@ -122,28 +131,31 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/auth#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/auth#build && vp test"
+    "test": "vp run --cache -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^5.20261016.1",
     "@noble/hashes": "catalog:auth",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "better-auth": "catalog:auth",
-    "bun-types": "^1.4.3",
-    "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
+    "rou3": "^1.0.0",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
+    "@better-auth/passkey": "catalog:auth",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "bun-types": "^1.4.3",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
@@ -153,7 +165,7 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "@better-auth/oauth-provider": "catalog:auth"
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@better-auth/oauth-provider": "catalog:auth",
@@ -162,7 +174,8 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "@better-auth/oauth-provider": {

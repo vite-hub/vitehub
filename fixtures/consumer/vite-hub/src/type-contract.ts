@@ -9,7 +9,7 @@ import type {
 import * as agentCloudflare from "vite-hub/agent/cloudflare"
 import * as agentEval from "vite-hub/agent/eval"
 import * as agentServer from "vite-hub/agent/server"
-import * as agentSqliteState from "vite-hub/agent/state/sqlite"
+import * as agentSqliteState from "vite-hub/agent/state"
 import * as authAgent from "vite-hub/auth/agent"
 import { resolveSandbox } from "vite-hub/sandbox"
 import { env } from "vite-hub/env"
@@ -51,10 +51,10 @@ export const contract = {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
     },
-    preset: "node",
+    host: "node",
   }),
   rateLimit: requireRateLimit,
-  workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),
+  workflow: defineWorkflow("contract", async (payload: { marker: string }) => payload.marker),
   workspace: defineWorkspace({ store: { provider: "memory" } }),
 }
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -59,11 +59,11 @@ const broken: ServerEnvInspection = {
 }
 
 describe("env CLI", () => {
-  it("registers inspect and check under env, and generate and derive under secret", () => {
+  it("registers inspect and check under env, and generate, derive, and console-key under secret", () => {
     const contributor = hubEnv().vitehub.cli()
     expect(contributor.namespaces.map(namespace => namespace.name)).toEqual(["env", "secret"])
     expect(contributor.namespaces[0]?.features.map(item => item.name)).toEqual(["inspect", "check"])
-    expect(contributor.namespaces[1]?.features.map(item => item.name)).toEqual(["generate", "derive"])
+    expect(contributor.namespaces[1]?.features.map(item => item.name)).toEqual(["generate", "derive", "console-key"])
   })
 
   it("treats only failing loadServerEnv() conditions as blocking", () => {
@@ -153,7 +153,7 @@ async function createStageFixture(): Promise<string> {
   await mkdir(join(root, "server"), { recursive: true })
   // The provider reveals which region value won without printing it.
   await writeFile(join(root, "server", "region-provider.mjs"), [
-    "import { defineEnvProvider } from \"@vite-hub/env/provider\"",
+    "import { defineEnvProvider } from \"@vite-hub/env\"",
     "export default defineEnvProvider({",
     "  read: ({ env }) => ({ regionToken: env.region === \"process-region\" ? \"process-won\" : undefined }),",
     "})",
@@ -162,15 +162,16 @@ async function createStageFixture(): Promise<string> {
   await writeFile(join(root, "vite.config.mjs"), [
     "import { env, hubEnv } from \"@vite-hub/env/vite\"",
     "export default {",
-    "  plugins: [hubEnv({ diagnostics: \"off\", providers: { region: \"./server/region-provider.mjs\" } })],",
-    "  env: {",
+    "  plugins: [hubEnv({",
+    "    diagnostics: \"off\",",
+    "    providers: { region: \"./server/region-provider.mjs\" },",
     "    server: {",
     "      apiToken: env({ secret: true, source: env.source(\"ENV_CLI_API_TOKEN\") }),",
     "      label: env({ optional: true, source: env.source(\"ENV_CLI_LABEL\") }),",
     "      region: env({ source: env.source(\"ENV_CLI_REGION\") }),",
     "      regionToken: env({ secret: true, source: env.provider(\"region\", \"regionToken\") }),",
     "    },",
-    "  },",
+    "  })],",
     "}",
     "",
   ].join("\n"), "utf8")
@@ -196,7 +197,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       'export async function loadNuxt(options) {',
       `  if (options.cwd !== ${JSON.stringify(root)}) throw new Error("Incorrect application root")`,
       '  if (process.env.ENV_CLI_REGION !== "stage-region") throw new Error("Application env file not loaded")',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ projectRoot: "packages/config", diagnostics: "off" })], env: { server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ projectRoot: "packages/config", diagnostics: "off", server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     const { context, output } = captureContext(root, {})
@@ -216,7 +217,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await writeFile(join(kitRoot, "kit.mjs"), [
       'import { hubEnv, env } from "@vite-hub/env/vite"',
       'export async function loadNuxt() {',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off" })], env: { server: { [process.env.ENV_CLI_REGION]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off", server: { [process.env.ENV_CLI_REGION]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     const previous = process.env.ENV_CLI_REGION
@@ -243,7 +244,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       'import { hubEnv, env } from "@vite-hub/env/vite"',
       'export async function loadNuxt(options) {',
       '  if (!options.overrides.vitehubCliDiscovery || options.overrides.vite.mode !== options.envName) throw new Error("Incorrect Nuxt stage")',
-      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off" })], env: { server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } } } }',
+      '  return { close: async () => {}, options: { vite: { plugins: [hubEnv({ diagnostics: "off", server: { [options.envName]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] } } }',
       '}',
     ].join("\n"))
     for (const stage of ["development", "production"]) {
@@ -255,11 +256,12 @@ describe("Env CLI stage regeneration for Nuxt", () => {
   }, 60_000)
   it.each(["check", "inspect"] as const)("runs %s with provider aliases and plugins when Nuxt gives the ssr environment to Nitro", async (command) => {
     const root = await createStageFixture()
+    const events = join(root, "runtime.log")
     await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
     await mkdir(join(root, "server", "utils"), { recursive: true })
     await writeFile(join(root, "server", "utils", "token.mjs"), 'export const token = "untransformed"\n')
     await writeFile(join(root, "server", "token-provider.mjs"), [
-      'import { defineEnvProvider } from "@vite-hub/env/provider"',
+      'import { defineEnvProvider } from "@vite-hub/env"',
       'import { token } from "#server/utils/token.mjs"',
       'import { stage } from "virtual:env-stage"',
       `export default defineEnvProvider({ read: () => ({ token: stage === "production" && token === ${JSON.stringify(secretValue)} ? token : undefined }) })`,
@@ -270,20 +272,32 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
     // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
     await writeFile(join(kitRoot, "kit.mjs"), [
+      'import { appendFileSync } from "node:fs"',
       'import { DevEnvironment } from "vite"',
       'import { hubEnv, env } from "@vite-hub/env/vite"',
+      `const record = event => appendFileSync(${JSON.stringify(events)}, event + "\\n")`,
+      'const unused = { dev: { createEnvironment() { throw new Error("Unrelated environment started") } } }',
       'export async function loadNuxt() {',
-      '  return { close: async () => {}, options: { vite: {',
-      '    environments: { ssr: { dev: { moduleRunnerTransform: false, createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } } },',
+      '  return { close: async () => { record("nuxt close") }, options: { vite: {',
+      '    environments: { client: unused, worker: unused, ssr: { dev: { moduleRunnerTransform: false, createEnvironment(name, config) {',
+      '      record("ssr create")',
+      '      const environment = new DevEnvironment(name, config, { hot: false })',
+      '      const close = environment.close.bind(environment)',
+      '      environment.close = async () => { record("ssr close"); await close() }',
+      '      return environment',
+      '    } } } },',
       `    resolve: { alias: { "#server": ${JSON.stringify(join(root, "server"))} } },`,
-      '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" } }), {',
+      '    plugins: [hubEnv({ diagnostics: "off", providers: { vault: "./server/token-provider.mjs" }, server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } }), {',
       '      name: "env-provider-transforms",',
       '      applyToEnvironment: environment => environment.name === "ssr",',
+      '      closeBundle: () => { record("plugins close") },',
       '      resolveId: id => id === "virtual:env-stage" ? "\\0virtual:env-stage" : undefined,',
-      '      load: id => id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined,',
+      '      load(id) {',
+      '        if (process.env.ENV_CLI_FAIL_IMPORT && id.endsWith("/env/server.mjs")) throw new Error("Fallback import failed")',
+      '        return id === "\\0virtual:env-stage" ? "export const stage = import.meta.env.MODE" : undefined',
+      '      },',
       `      transform: (code, id) => id.endsWith("/utils/token.mjs") ? code.replace('"untransformed"', ${JSON.stringify(JSON.stringify(secretValue))}) : undefined,`,
       '    }],',
-      '    env: { server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }), label: env({ source: env.source("ENV_CLI_LABEL") }), remote: env({ secret: true, source: env.provider("vault", "token") }) } },',
       '  } } }',
       '}',
     ].join("\n"))
@@ -294,15 +308,96 @@ describe("Env CLI stage regeneration for Nuxt", () => {
       ok: false,
     })
     expect(output.stdout).not.toContain(secretValue)
+    expect((await readFile(events, "utf8")).trim().split("\n")).toEqual([
+      "ssr create", "plugins close", "ssr close", "plugins close", "nuxt close",
+    ])
+    await writeFile(events, "")
+    const failure = captureContext(root, { ENV_CLI_FAIL_IMPORT: "1" })
+    await expect(realFeature(command).run(["--stage", "production"], failure.context)).rejects.toThrow("Fallback import failed")
+    expect((await readFile(events, "utf8")).trim().split("\n")).toEqual([
+      "ssr create", "plugins close", "ssr close", "plugins close", "nuxt close",
+    ])
   }, 60_000)
 })
 
 describe("env CLI with Vite stage files", () => {
+  it.each([false, true])("closes an unsupported SSR environment (initialization failure: %s)", async (failInit) => {
+    const root = await createStageFixture()
+    const events = join(root, "runtime.log")
+    await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+    await writeFile(join(root, "vite.config.mjs"), [
+      'import { appendFileSync } from "node:fs"',
+      'import { DevEnvironment } from "vite"',
+      'import { env, hubEnv } from "@vite-hub/env/vite"',
+      'export default {',
+      '  plugins: [hubEnv({ diagnostics: "off", server: { apiToken: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })],',
+      '  environments: { ssr: { dev: { createEnvironment(name, config) {',
+      '    const environment = new DevEnvironment(name, config, { hot: false })',
+      `    if (${failInit}) environment.init = async () => { throw new Error("Runtime initialization failed") }`,
+      '    const close = environment.close.bind(environment)',
+      `    environment.close = async () => { appendFileSync(${JSON.stringify(events)}, "close\\n"); await close() }`,
+      '    return environment',
+      '  } } } },',
+      '}',
+    ].join("\n"))
+    const { context } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+    await expect(realFeature("check").run(["--json"], context)).rejects.toThrow(failInit ? "Runtime initialization failed" : "The SSR environment does not support runnable imports.")
+    expect(await readFile(events, "utf8")).toBe("close\n")
+  }, 60_000)
+
+  it.each(["check", "inspect"] as const)("uses the configured SSR runtime for %s without starting other environments", async (command) => {
+    for (const host of ["vite", "nuxt"]) {
+      const root = await createStageFixture()
+      const events = join(root, "runtime.log")
+      await writeFile(events, "")
+      await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+      await writeFile(join(root, "stage.config.mjs"), [
+        'import { appendFileSync } from "node:fs"',
+        'import { createRunnableDevEnvironment, createServerModuleRunner } from "vite"',
+        'import { env, hubEnv } from "@vite-hub/env/vite"',
+        `const record = event => appendFileSync(${JSON.stringify(events)}, event + "\\n")`,
+        'const unused = { dev: { createEnvironment() { throw new Error("Unrelated environment started") } } }',
+        'export default {',
+        '  plugins: [hubEnv({ diagnostics: "off", server: { apiToken: env({ secret: true, source: env.source("ENV_CLI_API_TOKEN") }) } })],',
+        '  environments: { client: unused, worker: unused, ssr: { dev: {',
+        '    async createEnvironment(name, config, { ws }) {',
+        '      if (name !== "ssr" || ws.clients.size !== 0) throw new Error("Incorrect runtime context")',
+        '      record("create")',
+        '      const environment = createRunnableDevEnvironment(name, config, { hot: false, runner(environment, options) {',
+        '        record("runner")',
+        '        return createServerModuleRunner(environment, options)',
+        '      } })',
+        '      const close = environment.close.bind(environment)',
+        '      environment.close = async () => { record("close"); await close() }',
+        '      return environment',
+        '    },',
+        '  } } },',
+        '}',
+      ].join("\n"))
+      await writeFile(join(root, "vite.config.mjs"), 'export { default } from "./stage.config.mjs"\n')
+      if (host === "nuxt") {
+        await writeFile(join(root, "nuxt.config.mjs"), "export default {}\n")
+        const kitRoot = join(root, "node_modules", "nuxt")
+        await mkdir(kitRoot, { recursive: true })
+        await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
+        await writeFile(join(kitRoot, "kit.mjs"), [
+          'import config from "../../stage.config.mjs"',
+          'export async function loadNuxt() { return { close: async () => {}, options: { vite: config } } }',
+        ].join("\n"))
+      }
+      const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+      expect(await realFeature(command).run(["--stage", "staging", "--json"], context)).toBe(0)
+      expect(JSON.parse(output.stdout)).toMatchObject({ entries: [{ path: "env.server.apiToken", status: "available" }], ok: true, stage: "staging" })
+      expect(await readFile(events, "utf8")).toBe("create\nrunner\nclose\n")
+      expect(output.stdout).not.toContain(secretValue)
+    }
+  }, 60_000)
+
   it("loads the module generated by a stage-specific Env project root", async () => {
     const root = await createStageFixture()
     await writeFile(join(root, "vite.config.mjs"), [
       'import { env, hubEnv } from "@vite-hub/env/vite"',
-      'export default ({ mode }) => ({ plugins: [hubEnv({ projectRoot: mode === "production" ? "prod" : "dev", diagnostics: "off" })], env: { server: { [mode]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } } })',
+      'export default ({ mode }) => ({ plugins: [hubEnv({ projectRoot: mode === "production" ? "prod" : "dev", diagnostics: "off", server: { [mode]: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })] })',
     ].join("\n"))
     const { context, output } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
     expect(await realFeature("inspect").run(["--stage", "production", "--json"], context)).toBe(0)

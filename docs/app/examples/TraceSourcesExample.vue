@@ -11,7 +11,7 @@ const sources = [
     <TraceCollapsible default-open>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-globe-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-globe" /></TraceIcon>
           <TraceTitle>Used {{ sources.length }} sources</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -19,12 +19,12 @@ const sources = [
         <Trace>
           <a v-for="source in sources" :key="source.href" :href="source.href" target="_blank" rel="noreferrer">
             <TraceLine>
-              <TraceIcon><UIcon name="i-ph-globe-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-globe" /></TraceIcon>
               <TraceTitle>
                 {{ source.title }}
                 <span class="sr-only"> (opens in a new tab)</span>
               </TraceTitle>
-              <TraceIcon><UIcon name="i-ph-arrow-up-right-light" /></TraceIcon>
+              <TraceIcon><UIcon name="i-lucide-arrow-up-right" /></TraceIcon>
             </TraceLine>
           </a>
         </Trace>

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 
 import { bundleCliContributor } from "../src/cli.ts"
 import { collectEnvironmentReport } from "../src/collect.ts"
-import { readEnvironmentReports, writeEnvironmentReport } from "../src/files.ts"
+import { readEnvironmentReports, writeBundleReportRoot, writeEnvironmentReport } from "../src/files.ts"
 import { moduleGroup, moduleId } from "../src/groups.ts"
 import { createBundleReport, explainBundle } from "../src/report.ts"
 
@@ -284,15 +284,31 @@ describe("why", () => {
 })
 
 describe("files and CLI", () => {
-  function run(root: string, args: string[]): { code: number | void, stdout: string, stderr: string } {
+  function run(root: string, args: string[], cwd = root): { code: number | void, stdout: string, stderr: string } {
     let stdout = ""
     let stderr = ""
-    const context = { cwd: root, env: {}, rootDir: root, spawn: async () => ({ exitCode: 0 }), stdout: { write: (text: string | Uint8Array) => { stdout += String(text) } }, stderr: { write: (text: string | Uint8Array) => { stderr += String(text) } } } as ViteHubCliContext
+    const context = { cwd, env: {}, rootDir: root, spawn: async () => ({ exitCode: 0 }), stdout: { write: (text: string | Uint8Array) => { stdout += String(text) } }, stderr: { write: (text: string | Uint8Array) => { stderr += String(text) } } } as ViteHubCliContext
     const [namespace] = bundleCliContributor.namespaces
     const feature = namespace!.features.find(candidate => candidate.name === (args[0] === "why" ? "why" : "report"))!
     const code = feature.run(args[0] === "why" ? args.slice(1) : args, context) as number
     return { code, stdout, stderr }
   }
+
+  it("keeps the root supplied by a CLI that loaded the project", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vitehub-bundle-loaded-root-"))
+    const app = join(dir, "web")
+    try {
+      mkdirSync(app)
+      writeFileSync(join(app, "package.json"), '{"type":"module"}')
+      for (const report of nuxtBuild("workspace-build")) writeEnvironmentReport(dir, report)
+      for (const report of nuxtBuild("app-build")) writeEnvironmentReport(app, report)
+      writeBundleReportRoot(app, dir)
+      expect(JSON.parse(run(app, ["--json"], dir).stdout).build).toBe("app-build")
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
   it("writes one file per environment, removes older builds, and prints the report", () => {
     const dir = mkdtempSync(join(tmpdir(), "vitehub-bundle-"))

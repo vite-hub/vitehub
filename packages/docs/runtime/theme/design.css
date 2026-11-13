@@ -1,10 +1,10 @@
 /*
- * The docs design, after the comark-ui site: Geist, neutral grays in OKLCH, hairline rings, small radii, and a faint
- * grain on the page. Every color is a Nuxt UI variable, so comark-ui's blocks, which read them, follow along.
+ * The docs design, after the comark-ui site: column widths, a faint grain on the page, prose, highlighted code, and the
+ * search modal. Colors, radii, fonts, and focus come from the ViteHub design system (`@vite-hub/ui/theme.css`), which
+ * the module scopes to `.vh-docs` before this file, so comark-ui's blocks, which read the Nuxt UI variables, follow along.
  */
 
-:root {
-  --ui-radius: 0.25rem;
+:root:where(.vh-docs) {
   --ui-header-height: 3.5rem;
   --ui-container: 90rem;
   /* The rail is 3.5rem wide. The page panel sits next to it. The page uses the rest of the viewport. */
@@ -14,64 +14,20 @@
   --vh-toc-width: 10rem;
   /* The reading measure of prose. Code, tables, and examples are wider. */
   --vh-content-width: 48rem;
-  /* @nuxt/fonts serves both families. */
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   /* T3 Code's surface grain, as comark-ui's typeset paints it: fractal noise at 3.5% opacity in a 256px tile. */
   --vh-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   --vh-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-/* Light. Text steps pass 4.5:1 on the page and on the muted surface. */
-:root,
-:root.light {
-  color-scheme: light;
-  --ui-bg: #fff;
-  --ui-bg-muted: oklch(0.975 0 0);
-  --ui-bg-elevated: oklch(0.965 0 0);
-  --ui-bg-accented: oklch(0.92 0 0);
-  --ui-bg-inverted: oklch(0.205 0 0);
-  --ui-border: oklch(0.92 0 0);
-  --ui-border-muted: oklch(0.95 0 0);
-  --ui-border-accented: oklch(0.87 0 0);
-  --ui-border-inverted: oklch(0.205 0 0);
-  --ui-text-dimmed: oklch(0.54 0 0);
-  --ui-text-muted: oklch(0.48 0 0);
-  --ui-text-toned: oklch(0.4 0 0);
-  --ui-text: oklch(0.37 0 0);
-  --ui-text-highlighted: oklch(0.205 0 0);
-  --ui-text-inverted: #fff;
   /* A raised control on a muted track, such as the thumb of a segmented switch. */
-  --vh-raised: #fff;
+  --vh-raised: var(--ui-bg);
 }
 
-:root.dark {
-  color-scheme: dark;
-  --ui-bg: oklch(0.145 0 0);
-  --ui-bg-muted: oklch(0.185 0 0);
-  --ui-bg-elevated: oklch(0.22 0 0);
-  --ui-bg-accented: oklch(0.26 0 0);
-  --ui-bg-inverted: oklch(0.96 0 0);
-  --ui-border: oklch(0.26 0 0);
-  --ui-border-muted: oklch(0.205 0 0);
-  --ui-border-accented: oklch(0.32 0 0);
-  --ui-border-inverted: oklch(0.96 0 0);
-  --ui-text-dimmed: oklch(0.62 0 0);
-  --ui-text-muted: oklch(0.7 0 0);
-  --ui-text-toned: oklch(0.8 0 0);
-  --ui-text: oklch(0.87 0 0);
-  --ui-text-highlighted: oklch(0.96 0 0);
-  --ui-text-inverted: oklch(0.145 0 0);
-  --vh-raised: oklch(0.285 0 0);
-}
-
-html {
-  background-color: var(--ui-bg);
+:root:where(.vh-docs).dark {
+  --vh-raised: var(--ui-bg-accented);
 }
 
 /* The grain sits on the page, and on the sticky surfaces that cover it. It scrolls with them: a `fixed` background
    would line the tiles up, but makes the browser repaint the whole page on every scrolled frame. */
-body,
+:where(.vh-docs) body,
 .vh-grain-surface {
   background-color: var(--ui-bg);
   background-image: var(--vh-grain);
@@ -79,48 +35,14 @@ body,
   background-size: 256px 256px;
 }
 
-body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/*
- * One focus ring for every control. Nuxt UI draws a 3px outline at 25% alpha, about 2:1 against the page. The
- * design is unlayered, so this rule wins over the outline utilities of Nuxt UI.
- */
-:where(a, button, input[type="checkbox"], input[type="radio"], select, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
-
-/* Menu items and tabs fill a box that clips its overflow, so their ring sits inside. */
-:where([role="menuitem"], [role="option"], [role="tab"]):focus-visible {
-  outline-offset: -2px;
-}
-
-/*
- * Nuxt UI also rings the `::before` of a focused link, the code in it, or the card and list around it. The ring
- * above is enough, so those second rings go.
- */
-:where([class*="focus-visible:before:outline"]):focus-visible::before,
-:where(a:focus-visible > code),
-:where([class*="has-focus-visible:outline"]):has(:is(a, button, [role="menuitem"], [role="option"], [role="tab"]):focus-visible) {
-  outline: none;
-}
-
-::selection {
-  background: var(--ui-text-highlighted);
-  color: var(--ui-bg);
-}
-
 /* Highlighted code carries the light colors inline and the dark colors in variables. */
-html .shiki span {
+html:where(.vh-docs) .shiki span {
   font-style: var(--shiki-light-font-style);
   font-weight: var(--shiki-light-font-weight);
   text-decoration: var(--shiki-light-text-decoration);
 }
 
-html.dark .shiki span {
+html:where(.vh-docs).dark .shiki span {
   color: var(--shiki-dark) !important;
   background-color: var(--shiki-dark-bg) !important;
   font-style: var(--shiki-dark-font-style) !important;
@@ -152,14 +74,15 @@ html.dark .shiki span {
 
 /*
  * comark-ui draws the headings, and wraps one with an anchor in `.cl-heading`, so the space and the rule above a
- * section go on the wrapper when there is one, and the type on the heading.
+ * section go on the wrapper when there is one, and the type on the heading. A component marked `.not-prose`, such as
+ * a catalog of cards, styles its own headings.
  */
 .docs-content :where(h2, h3, h4) {
   color: var(--ui-text-highlighted);
   scroll-margin-top: calc(var(--ui-header-height) + 1rem);
 }
 
-.docs-content h2 {
+.docs-content h2:not(.not-prose *) {
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
@@ -167,14 +90,14 @@ html.dark .shiki span {
   line-height: 1.3;
 }
 
-.docs-content :is(h2:not(.cl-heading > h2), .cl-heading:has(> h2)) {
+.docs-content :is(h2:not(.cl-heading > h2), .cl-heading:has(> h2)):not(.not-prose *) {
   margin-top: 3.5rem;
   margin-bottom: 1rem;
   border-top: 1px solid var(--ui-border);
   padding-top: 1.25rem;
 }
 
-.docs-content h3 {
+.docs-content h3:not(.not-prose *) {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -182,12 +105,12 @@ html.dark .shiki span {
   line-height: 1.5;
 }
 
-.docs-content :is(h3:not(.cl-heading > h3), .cl-heading:has(> h3)) {
+.docs-content :is(h3:not(.cl-heading > h3), .cl-heading:has(> h3)):not(.not-prose *) {
   margin-top: 2.25rem;
   margin-bottom: 0.5rem;
 }
 
-.docs-content h4 {
+.docs-content h4:not(.not-prose *) {
   margin: 1.5rem 0 0.5rem;
   font-size: 0.9375rem;
   font-weight: 600;
@@ -209,7 +132,7 @@ html.dark .shiki span {
 .docs-content .ck {
   margin-block: 1.25rem;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-muted);
   box-shadow: inset 0 0 0 1px var(--ui-border);
 }
@@ -251,13 +174,14 @@ html.dark .shiki span {
   overflow-wrap: anywhere;
 }
 
+/* A lone identifier in a table cell, such as a tool name, stays on one line. The table scrolls sideways instead. */
+.docs-content td > code:only-child {
+  white-space: nowrap;
+}
+
 .docs-content th {
   color: var(--ui-text-highlighted);
   font-weight: 600;
-}
-
-.docs-content .code-block-wrapper {
-  border-radius: 10px;
 }
 
 /* The tabs frame the panel, so a code block inside it drops its own border and margin. */
@@ -339,14 +263,13 @@ html.dark .shiki span {
   width: min(640px, calc(100vw - 1rem)) !important;
   margin: 0 !important;
   overflow: hidden;
-  box-shadow: none !important;
 }
 
 .vh-docs-search-modal button[aria-label="Close"] {
   width: 2.5rem;
   height: 2rem;
   border: 1px solid var(--ui-border);
-  border-radius: 4px;
+  border-radius: calc(var(--ui-radius) * 1.5);
   color: var(--ui-text-muted);
   font-size: 0;
 }
@@ -409,7 +332,7 @@ html.dark .shiki span {
 }
 
 .vh-docs-search-modal mark {
-  border-radius: 2px;
+  border-radius: var(--ui-radius);
   background: color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
   color: inherit;
 }
@@ -504,7 +427,7 @@ html.dark .shiki span {
   }
 }
 
-.code-block-wrapper pre {
+:where(.vh-docs) .code-block-wrapper pre {
   margin: 0 !important;
   overflow-x: auto;
   border: none !important;
@@ -513,13 +436,13 @@ html.dark .shiki span {
   font-size: 0.8125rem;
 }
 
-.code-block-wrapper .shiki {
+:where(.vh-docs) .code-block-wrapper .shiki {
   min-height: 100%;
   background-color: transparent !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :where(.vh-docs) *, :where(.vh-docs) *::before, :where(.vh-docs) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

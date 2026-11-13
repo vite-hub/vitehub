@@ -27,16 +27,21 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/env/public": {
+      "types": "./dist/runtime/public-env.d.ts",
+      "default": "./dist/runtime/public-env.js"
+    },
+    "#vitehub/env/server": {
+      "types": "./dist/runtime/server-env.d.ts",
+      "default": "./dist/runtime/server-env.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./auth": {
-      "types": "./dist/auth.d.ts",
-      "import": "./dist/auth.js",
-      "default": "./dist/auth.js"
     },
     "./bridge": {
       "types": "./dist/bridge.d.ts",
@@ -53,11 +58,6 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
-    "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.js",
-      "default": "./dist/http.js"
-    },
     "./internal/agent": {
       "types": "./dist/internal/agent.d.ts",
       "import": "./dist/internal/agent.js",
@@ -68,30 +68,15 @@
       "import": "./dist/internal/connections.js",
       "default": "./dist/internal/connections.js"
     },
-    "./presets": {
-      "types": "./dist/presets.d.ts",
-      "import": "./dist/presets.js",
-      "default": "./dist/presets.js"
-    },
-    "./provider": {
-      "types": "./dist/provider.d.ts",
-      "import": "./dist/provider.js",
-      "default": "./dist/provider.js"
-    },
-    "./schema": {
-      "types": "./dist/schema.d.ts",
-      "import": "./dist/schema.js",
-      "default": "./dist/schema.js"
+    "./internal/server": {
+      "types": "./dist/internal/server.d.ts",
+      "import": "./dist/internal/server.js",
+      "default": "./dist/internal/server.js"
     },
     "./seal": {
       "types": "./dist/seal.d.ts",
       "import": "./dist/seal.js",
       "default": "./dist/seal.js"
-    },
-    "./secret": {
-      "types": "./dist/secret.d.ts",
-      "import": "./dist/secret.js",
-      "default": "./dist/secret.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -114,7 +99,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/env#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/env#build && vp test"
+    "test": "vp run --cache -t @vite-hub/env#build && vp test"
   },
   "dependencies": {
     "@env-spec/parser": "0.6.2",
@@ -132,11 +117,12 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "drizzle-orm": "catalog:database",
-    "@libsql/client": "catalog:database"
+    "@libsql/client": "catalog:database",
+    "miniflare": "4.20260730.0"
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "@vite-hub/agent": "^0.1.0"
   },
   "peerDependenciesMeta": {

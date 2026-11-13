@@ -7,7 +7,9 @@ import { runAgentInline, runAgentWithContext, streamAgentInline } from "../src/i
 import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { replayChannel } from "../src/channel-replay.ts"
 import { channelDelivery, inputCommands } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAgentInspectionMetadata, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createMessage, getMessageText } from "../src/messages.ts"
 

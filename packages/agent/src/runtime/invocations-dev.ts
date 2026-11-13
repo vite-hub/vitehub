@@ -9,7 +9,7 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 
 import * as v from "valibot"
 
-import { getAgentFromRegistry } from "../index.ts"
+import { loadAgent } from "../index.ts"
 import { agentInvocationsDevGuard, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { isAgentInvocations } from "../invocations.ts"
 
@@ -42,7 +42,7 @@ async function registeredInvocationJournals(): Promise<AgentInvocations[]> {
   const journals = new Set<AgentInvocations>()
   for (const name of Object.keys(agentRegistry)) {
     try {
-      const journal: unknown = (await getAgentFromRegistry(name)).invocations
+      const journal: unknown = (await loadAgent(name)).invocations
       if (isAgentInvocations(journal)) journals.add(journal)
     }
     catch {
@@ -78,7 +78,7 @@ async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant,
  * The Vite endpoint forwards the request here, so the cancel reaches the application's own journals and abort
  * registry. The handler exists only in `vite dev`. The request must carry the Workspace dev token of `serverId`.
  * Without a `serverId`, every request is rejected. `input` is a Request, or a request event with Standard Context
- * properties, such as an H3 1 event on Nitro 2 (Nuxt 4) or an H3 2 event.
+ * properties, such as the H3 event of Nitro.
  */
 export async function handleAgentInvocationsDevRequest(input: Request | ViteHubContext, options: { rootDir?: string, serverId?: string } = {}): Promise<Response> {
   const request = input instanceof Request ? input : getStandardContext(input).req

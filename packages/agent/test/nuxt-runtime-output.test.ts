@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { execFile, spawn } from "node:child_process"
 import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
@@ -31,8 +30,8 @@ const packedPackages = await packedWorkspacePackages(workspaceRoot, [
 
 async function runPnpm(args: string[], cwd: string, timeout = childProcessTimeout): Promise<void> {
   const npmExecPath = process.env.npm_execpath
-  const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
-  const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
+  const command = npmExecPath?.includes("pnpm") ? npmExecPath : "corepack"
+  const commandArgs = npmExecPath?.includes("pnpm") ? args : ["pnpm", ...args]
   try {
     await execFileAsync(command, commandArgs, {
       cwd,
@@ -53,7 +52,7 @@ async function availablePort(): Promise<number> {
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const address = server.address()
-  if (!address || hasRuntimeType(address, "string")) throw new Error("Could not allocate a test port")
+  if (!address || typeof address === "string") throw new Error("Could not allocate a test port")
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
   return address.port
 }
@@ -87,16 +86,18 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
     await writeFile(join(root, "package.json"), `${JSON.stringify({
       dependencies: {
         "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz",
-        nuxt: "4.5.2",
+        "drizzle-orm": "1.0.0-rc.5",
+        nuxt: "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
         vite: "8.2.2",
       },
-      packageManager: "pnpm@10.33.0",
+      packageManager: "pnpm@12.16.1",
       private: true,
       type: "module",
     }, null, 2)}\n`, "utf8")
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
+import { defineHandler } from "nitro/h3"
 import { codexDriver, defineAgent, runAgent } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
@@ -110,7 +111,7 @@ const capability = mcp({
   },
 })
 
-export default defineEventHandler(async () => {
+export default defineHandler(async () => {
   let mcp = "loaded"
   let provider = "loaded"
   try {

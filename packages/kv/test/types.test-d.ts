@@ -1,12 +1,11 @@
-import type { UserConfig } from "vite"
 import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "#vitehub/kv/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import { kv, type KVErrorCode, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVModuleOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
-import { hubKv } from "../src/vite.ts"
+import { kv, type KVErrorCode, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { hubKV } from "../src/vite.ts"
 
 describe("types", () => {
   it("narrows kv store configs by driver", () => {
@@ -38,14 +37,12 @@ describe("types", () => {
     expectTypeOf(config.store.binding).toEqualTypeOf<string>()
   })
 
-  it("augments vite user config with kv options", () => {
-    const config: UserConfig = {
-      kv: {
-        driver: "fs-lite",
-      },
+  it("types kv options", () => {
+    const options: KVOptions = {
+      driver: "fs-lite",
     }
 
-    expectTypeOf(config.kv).toMatchTypeOf<KVModuleOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<KVOptions>()
   })
 
   it("types kv.get() and kv.getAndDelete() by their type option", () => {
@@ -59,7 +56,7 @@ describe("types", () => {
 
   it("exposes the intended kv runtime surface", () => {
     expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
-    expectTypeOf(kv.del).returns.toEqualTypeOf<Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.delete).returns.toEqualTypeOf<Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.getAndDelete<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
     expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
@@ -100,7 +97,7 @@ describe("types", () => {
   })
 
   it("returns a vite plugin with runtime config access", () => {
-    const plugin = hubKv()
+    const plugin = hubKV()
 
     expectTypeOf(plugin.api.getConfig().kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()
   })
@@ -122,8 +119,8 @@ describe("types", () => {
 
     // @ts-expect-error A read-only handle has no set().
     void reader.set("settings", 1)
-    // @ts-expect-error A read-only handle has no del().
-    void reader.del("settings")
+    // @ts-expect-error A read-only handle has no delete().
+    void reader.delete("settings")
     // @ts-expect-error A read-only handle has no clear().
     void reader.clear
     // @ts-expect-error getAndDelete() deletes the key.

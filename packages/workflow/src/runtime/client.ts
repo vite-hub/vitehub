@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
@@ -40,7 +39,7 @@ function normalizeWorkflowRunIdValue(value: WorkflowRunIdValue): unknown {
   if (value === undefined) {
     return null
   }
-  if (value === null || !hasRuntimeType(value, "object")) {
+  if (value === null || typeof value !== "object") {
     return value
   }
   if (Array.isArray(value)) {
@@ -110,12 +109,12 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   let handler: WorkflowHandler<TPayload, TResult> | undefined
   let createOptions: WorkflowCreateOptions<TPayload, TResult> | undefined
 
-  if (hasRuntimeType(nameOrOptions, "object") && nameOrOptions !== null) {
+  if (typeof nameOrOptions === "object" && nameOrOptions !== null) {
     createOptions = nameOrOptions
-    if (!createOptions.name || !hasRuntimeType(createOptions.name, "string")) {
+    if (!createOptions.name || typeof createOptions.name !== "string") {
       throw workflowErrorDiagnostics.WORKFLOW_R0009({ message: "`createWorkflow()` requires a workflow name." })
     }
-    if (!hasRuntimeType(createOptions.handler, "function")) {
+    if (typeof createOptions.handler !== "function") {
       throw workflowErrorDiagnostics.WORKFLOW_R0010({ message: "`createWorkflow()` requires a workflow handler." })
     }
     name = createOptions.name
@@ -123,19 +122,19 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
   }
   else {
     name = nameOrOptions
-    if (!name || !hasRuntimeType(name, "string")) {
+    if (!name || typeof name !== "string") {
       throw workflowErrorDiagnostics.WORKFLOW_R0011({ message: "`createWorkflow()` requires a workflow name." })
     }
-    handler = hasRuntimeType(handlerOrOptions, "function")
+    handler = typeof handlerOrOptions === "function"
       ? handlerOrOptions
-      : hasRuntimeType(handlerOrOptions, "object") && handlerOrOptions !== null
+      : typeof handlerOrOptions === "object" && handlerOrOptions !== null
         ? handlerOrOptions.handler
         : undefined
-    createOptions = hasRuntimeType(handlerOrOptions, "function") ? options : handlerOrOptions
-    if (handler !== undefined && !hasRuntimeType(handler, "function")) {
+    createOptions = typeof handlerOrOptions === "function" ? options : handlerOrOptions
+    if (handler !== undefined && typeof handler !== "function") {
       throw workflowErrorDiagnostics.WORKFLOW_R0012({ message: "`createWorkflow()` requires a workflow handler." })
     }
-    if (handler === undefined && handlerOrOptions !== undefined && (!hasRuntimeType(handlerOrOptions, "object") || handlerOrOptions === null)) {
+    if (handler === undefined && handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
       throw workflowErrorDiagnostics.WORKFLOW_R0013({ message: "`createWorkflow()` options must be an object." })
     }
   }
@@ -234,7 +233,7 @@ export async function cancelWorkflow(name: string, id: string): Promise<Workflow
 
 /** Resumes a run that waits for a signal. `token` is the opaque token that the provider gave the waiting step. */
 export async function resumeWorkflow<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult> {
-  if (!token || !hasRuntimeType(token, "string")) {
+  if (!token || typeof token !== "string") {
     throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflow()` requires an opaque signal token." })
   }
   const config = getActiveWorkflowConfig()

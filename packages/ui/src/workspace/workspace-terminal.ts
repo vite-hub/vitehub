@@ -5,16 +5,38 @@ type Terminal = import("@xterm/xterm").Terminal;
 /** Output chunks, optionally carrying the number of characters evicted from the start of a stream. */
 export type WorkspaceTerminalOutput = readonly string[] & { readonly offset?: number };
 
-function cssVariable(element: HTMLElement, name: string, fallback: string) {
-  return getComputedStyle(element).getPropertyValue(name).trim() || fallback;
+let colorProbe: CanvasRenderingContext2D | null | undefined;
+
+/**
+ * A CSS color as `#rrggbbaa`. xterm parses only hex and `rgb()` itself, and it refuses translucent colors in other
+ * formats, but the tokens are `oklch()` and `color-mix()`. A canvas reads any CSS color as RGBA bytes. Without a canvas,
+ * as on the server or in a test DOM, the color stays as it is.
+ */
+function toHex(color: string) {
+  colorProbe ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  if (!colorProbe) return color;
+  colorProbe.clearRect(0, 0, 1, 1);
+  // A color that the canvas cannot read leaves the fill transparent, so the color stays as it is.
+  colorProbe.fillStyle = "transparent";
+  colorProbe.fillStyle = color;
+  colorProbe.fillRect(0, 0, 1, 1);
+  const bytes = colorProbe.getImageData(0, 0, 1, 1).data;
+  if (bytes[3] === 0) return color;
+  return `#${Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
+function cssColor(element: HTMLElement, name: string) {
+  const value = getComputedStyle(element).getPropertyValue(name).trim();
+  return value ? toHex(value) : undefined;
+}
+
+/** The colors of the terminal, from the `--vh-ws-*` tokens of styles.css, which follow the theme and the color mode. */
 function terminalTheme(element: HTMLElement) {
   return {
-    background: cssVariable(element, "--vh-ws-terminal-bg", "#ffffff"),
-    cursor: cssVariable(element, "--vh-ws-terminal-fg", "#525252"),
-    foreground: cssVariable(element, "--vh-ws-terminal-fg", "#525252"),
-    selectionBackground: cssVariable(element, "--vh-ws-code-selection", "#009fff2e"),
+    background: cssColor(element, "--vh-ws-terminal-bg"),
+    cursor: cssColor(element, "--vh-ws-terminal-fg"),
+    foreground: cssColor(element, "--vh-ws-terminal-fg"),
+    selectionBackground: cssColor(element, "--vh-ws-code-selection"),
   };
 }
 
@@ -76,7 +98,7 @@ export const WorkspaceTerminal = defineComponent({
         convertEol: true,
         cursorBlink: false,
         disableStdin: false,
-        fontFamily: cssVariable(element, "--vh-ws-font-mono", "\"Geist Mono\", ui-monospace, monospace"),
+        fontFamily: getComputedStyle(element).getPropertyValue("--vh-ws-font-mono").trim() || "ui-monospace, monospace",
         fontSize: 12,
         lineHeight: 1.4,
         scrollback: 5000,

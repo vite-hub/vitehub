@@ -1,4 +1,4 @@
-import generatedRegistry, { activityRetention as generatedActivityRetention, database as generatedDatabase } from "#vitehub/connections/registry"
+import generatedRegistry, { activityRetention as generatedActivityRetention, database as generatedDatabase, docs as generatedDocs } from "#vitehub/connections/registry"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
@@ -15,6 +15,7 @@ import type { ConnectionClient, ConnectionFetchInit, ConnectionStatus, UseConnec
 let discoveredRegistry = generatedRegistry
 let activityRetention = generatedActivityRetention
 let database = generatedDatabase
+let docs = generatedDocs
 let runtime: ConnectionsRuntime | undefined
 let defaultRuntime: ConnectionsRuntime | undefined
 
@@ -33,6 +34,7 @@ export function installConnectionsRegistry(module: typeof import("#vitehub/conne
   discoveredRegistry = module.default
   activityRetention = module.activityRetention
   database = module.database
+  docs = module.docs
   defaultRuntime = undefined
 }
 
@@ -68,7 +70,7 @@ async function defaultStore(): Promise<ConnectionStore> {
 
 /** The active Connections runtime. */
 export function getConnectionsRuntime(): ConnectionsRuntime {
-  return runtime ?? (defaultRuntime ??= createConnectionsRuntime({ definitions: discoveredRegistry, store: defaultStore }))
+  return runtime ?? (defaultRuntime ??= createConnectionsRuntime({ definitions: discoveredRegistry, docs, store: defaultStore }))
 }
 
 function methodProxy(client: Pick<ConnectionRuntimeClient, "call">, path: string): unknown {

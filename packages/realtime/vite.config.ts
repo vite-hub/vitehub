@@ -1,10 +1,10 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import { packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       // Editor dependencies must share their ProseMirror and Yjs constructors.
       alwaysBundle: [/^@tiptap\/(?:extension-collaboration|y-tiptap)/, /^@vite-hub\/internal/],
@@ -12,21 +12,14 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/bus.ts",
       "src/client.ts",
+      "src/durability.ts",
       "src/index.ts",
       "src/internal/runtime/unavailable.ts",
       "src/server.ts",
       "src/vite.ts",
       "src/vue.ts",
     ],
-    exports: {
-      customExports: normalizePackageExports,
-      inlinedDependencies: false,
-    },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
   },
 })

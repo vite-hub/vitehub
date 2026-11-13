@@ -2,10 +2,14 @@ import { effectScope, nextTick, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 // Better Auth's client, recorded: which options it was created with, and every call it answered.
-const betterAuth = vi.hoisted(() => ({ created: [] as unknown[], calls: [] as unknown[][], session: undefined as unknown }))
+const betterAuth = vi.hoisted(() => ({ created: [] as unknown[], calls: [] as unknown[][], failures: 0, session: undefined as unknown }))
 
 vi.mock("better-auth/vue", () => ({
   createAuthClient(options: unknown) {
+    if (betterAuth.failures > 0) {
+      betterAuth.failures--
+      throw new Error("transient Better Auth load failure")
+    }
     betterAuth.created.push(options)
     return {
       signIn: { social: async (input: unknown) => { betterAuth.calls.push(["signIn.social", input]); return { data: input } } },
@@ -16,9 +20,10 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
-const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useSignIn, useSignUp, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 afterEach(() => {
+  setNuxtAppResolver(undefined)
   setSessionSeedResolver(undefined)
   betterAuth.created.length = 0
   betterAuth.calls.length = 0
@@ -29,8 +34,23 @@ describe("Vue Auth composables", () => {
   it("projects the shared client", () => {
     expect(useAuthClient() === authClient).toBe(true)
     expect(useSession()).toBeDefined()
-    expect(typeof useSignIn()).toBe("function")
-    expect(typeof useSignUp()).toBe("function")
+  })
+
+  it("uses Nuxt's configured client in both default session composables", async () => {
+    vi.stubGlobal("window", {})
+    const client = createAuthClient({ basePath: "/custom-auth" })
+    setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: client }))
+    const real = ref({ data: null, error: null, isPending: true, isRefetching: false, refetch: async () => {} })
+    betterAuth.session = real
+    const state = useSession()
+    const session = useUserSession()
+
+    expect(useAuthClient()).toBe(client)
+    await vi.waitFor(() => expect(betterAuth.created).toEqual([{ basePath: "/custom-auth" }]))
+    real.value = { ...real.value, isPending: false, data: { session: { id: "s" }, user: { id: "u" } } as never }
+    await nextTick()
+    expect(state.value.data?.user.id).toBe("u")
+    expect(session.user.value?.id).toBe("u")
   })
 
   it("creates Better Auth's client on the first call, not before", async () => {
@@ -42,6 +62,15 @@ describe("Vue Auth composables", () => {
     await client.signOut()
     expect(betterAuth.created).toEqual([{ basePath: "/auth" }])
     expect(betterAuth.calls).toEqual([["signIn.social", { provider: "github" }], ["signOut"]])
+  })
+
+  it("loads Better Auth's client again on the next call after a failed load", async () => {
+    betterAuth.failures = 1
+    const client = createAuthClient()
+
+    await expect(client.signOut()).rejects.toThrow("transient Better Auth load failure")
+    await expect(client.signOut()).resolves.toEqual({ data: true })
+    expect(betterAuth.created).toHaveLength(1)
   })
 
   it("is not a thenable, so awaiting it gives the client back", async () => {

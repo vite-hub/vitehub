@@ -312,7 +312,7 @@ describe("contributed Schedules on every host", () => {
     await (plugin.config as ConfigHook)({ plugins, root }, { command: "serve", mode: "development" })
     await resolvePlugin(plugin, root, plugins)
 
-    const load = plugin.load as (id: string) => string
+    const load = Reflect.get(Object(plugin.load), "handler") as (id: string) => string
     expect(load("\0#vitehub/schedule/registry")).toContain(`["content/publish"]: async () => import(${JSON.stringify(definition)})`)
     expect(load("\0#vitehub/schedule/targets")).toBeUndefined()
   })
@@ -382,5 +382,19 @@ describe("contributed Schedule inspection", () => {
     expect(record("dynamic").fields).toContainEqual({ label: "Time zone", value: "Not a static string" })
     expect(record("utc").cells.timing).toBe("0 9 * * *")
     expect(record("utc").fields).toContainEqual({ label: "Time zone", value: "UTC" })
+  })
+
+  it("names manual runs with the word of the detail panel", async () => {
+    const { root } = await createRoot({ file: false })
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "manual.ts"), "export default defineSchedule({ cron: '0 9 * * *', manual: true, handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "server", "schedules", "hosted.ts"), "export default defineSchedule({ cron: '0 9 * * *', handler: () => {} })\n", "utf8")
+
+    const records = await inspectScheduleConsoleRecords({ projectRoot: root, rootDir: root, serverRootDir: root })
+    const record = (name: string) => records.find(entry => entry.id === `definition:${name}`)!
+
+    expect(record("manual").cells.manual).toBe("Enabled")
+    expect(record("manual").fields).toContainEqual({ label: "Manual", value: "Enabled" })
+    expect(record("hosted").cells.manual).toBe("Disabled")
   })
 })

@@ -3,9 +3,10 @@ import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { build as bundle, type Plugin } from "esbuild"
+import type { Plugin } from "esbuild"
 
 import { isPlainObject } from "../object.ts"
+import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
@@ -24,14 +25,10 @@ interface BundleEsmEntryOptions {
   plugins?: Plugin[]
   preserveSymlinks?: boolean
   rootDir?: string
+  /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
+  resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
   workingDir?: string
-}
-
-export interface ViteAlias {
-  customResolver?: boolean
-  find: string | RegExp
-  replacement: string
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
@@ -40,31 +37,7 @@ const markdownTemplateFileSuffix = ".template.md"
 const markdownTemplateModuleQuery = "markdown-template"
 const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const skipResolvedAlias = "vitehubSkipResolvedAlias"
-const encodedAliasPrefixMarker = "\0vitehub-prefix:"
-const encodedAliasExactMarker = "\0vitehub-exact:"
 const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
-
-interface StringAlias {
-  find: string | RegExp
-  replacement: string
-}
-
-export function encodeProviderOutputAliases(configAliases: readonly StringAlias[]): Record<string, string> {
-  const aliases: Record<string, string> = Object.create(null)
-  for (const [index, alias] of configAliases.entries()) {
-    if (alias.find instanceof RegExp) continue
-    const exactSpecifier = Object.hasOwn(aliases, alias.find) ? `${alias.find}${encodedAliasExactMarker}${index}` : alias.find
-    aliases[exactSpecifier] = alias.replacement
-    if (alias.find.endsWith("/")) {
-      const prefixSpecifier = `${alias.find}/${encodedAliasPrefixMarker}${index}`
-      aliases[prefixSpecifier] = `${alias.replacement.replace(/\/$/, "")}/`
-    }
-    else {
-      aliases[`${alias.find}/${encodedAliasPrefixMarker}${index}`] = `${alias.replacement.replace(/\/$/, "")}/`
-    }
-  }
-  return aliases
-}
 
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
@@ -119,7 +92,7 @@ interface ResolvedBareAliasPaths {
   publicSpecifier?: string
 }
 
-function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string, resolveEntryPackageAliases = true): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
   const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
@@ -181,7 +154,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             ? canonicalSpecifier.startsWith(canonicalAlias)
             : canonicalSpecifier === canonicalAlias)
         }
-        if (!match && isAbsolute(args.path)) {
+        if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) {
           // Start every alias resolution at once. Awaiting them one by one costs one esbuild round trip per alias.
           const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
           for (const alias of aliases) {
@@ -402,7 +375,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
     setup(build) {
       build.onResolve({ filter: /^@vite-hub\/markdown-template$/, namespace: viteMarkdownTemplateNamespace }, async (args) => {
         if (!frameworkRuntime) return { path: fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier)) }
-        return build.resolve("vite-hub/_internal/markdown-template", {
+        return build.resolve("vite-hub/markdown-template", {
           importer: args.importer,
           kind: args.kind,
           resolveDir: args.resolveDir,
@@ -472,16 +445,6 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
   }
 }
 
-/** Select the runtime constants from one resolved Vite configuration. */
-export function resolveViteHubBundleDefines(config: { define?: Record<string, unknown> }): Record<string, string> {
-  const defines: Record<string, string> = {}
-  for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__"]) {
-    const value = config.define?.[name]
-    if (typeof value === "string") defines[name] = value
-  }
-  return defines
-}
-
 function createFileUrlPlugin(): Plugin {
   return {
     name: "vitehub-file-url",
@@ -517,6 +480,8 @@ export async function bundleEsmEntry(
   outfile: string,
   options: BundleEsmEntryOptions = {},
 ): Promise<void> {
+  // Load esbuild when an entry is bundled, so code that only imports these helpers does not load it.
+  const { build: bundle } = await import("esbuild")
   options.signal?.throwIfAborted()
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
@@ -529,6 +494,7 @@ export async function bundleEsmEntry(
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
     options.workingDir ?? options.rootDir ?? process.cwd(),
+    options.resolveEntryPackageAliases,
   )
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())

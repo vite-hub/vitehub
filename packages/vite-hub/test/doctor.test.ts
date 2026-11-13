@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
 import { runProjectFixture, runRuleFixture } from "vite-doctor/testkit"
+import { createRule } from "vite-doctor/extension"
 import type { PluginOption } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 
 import vitehubDoctorExtension, { destructureResultTuples, noInternalImports, noServerImportsInClient } from "../src/doctor.ts"
 import { vitehub } from "../src/index.ts"
 import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
+import { resolver, type ViteHubReference } from "../src/doctor/ast.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
@@ -36,7 +38,7 @@ describe("vitehub/no-internal-imports", () => {
     expect(await codes(noInternalImports, {
       "server/api/a.ts": [
         "import { kv } from \"vite-hub/kv\"",
-        "import { useServerEnv } from \"#vitehub/env/server\"",
+        "import { useServerEnv } from \"vite-hub/env\"",
         "import { defineQueue } from \"@vite-hub/queue\"",
         "import internal from \"./internal/helper.ts\"",
         "export { kv, useServerEnv, defineQueue, internal }",
@@ -69,11 +71,10 @@ describe("vitehub/no-internal-imports generated aliases", () => {
     expect(await codes(noInternalImports, {
       "server/api/a.ts": [
         'import { usePublicEnv } from "#vitehub/env/public"',
-        'import { useServerEnv } from "#vitehub/env/server"',
         'import auth from "#vitehub/auth/server"',
         'import welcome from "#vitehub/emails/welcome"',
         'import { schedules } from "#vitehub/schedule/registry"',
-        "export { usePublicEnv, useServerEnv, auth, welcome, schedules }",
+        "export { usePublicEnv, auth, welcome, schedules }",
       ].join("\n"),
     })).toEqual([])
   })
@@ -85,8 +86,8 @@ describe("vitehub/no-server-imports-in-client", () => {
       "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"#vitehub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
     })).toEqual(["VHUB0002"])
     expect(await codes(noServerImportsInClient, {
-      "app/composables/useMail.ts": "import { email } from \"vite-hub/email/server\"\nexport const useMail = () => email\n",
-      "app/pages/index.vue": "<script setup lang=\"ts\">\nimport { useDatabase } from \"vite-hub/database/drizzle\"\nconst db = useDatabase()\n</script>\n<template><div>{{ db }}</div></template>\n",
+      "app/composables/useMail.ts": "import { email } from \"vite-hub/email\"\nexport const useMail = () => email\n",
+      "app/pages/index.vue": "<script setup lang=\"ts\">\nimport { useDatabase } from \"vite-hub/database\"\nconst db = useDatabase()\n</script>\n<template><div>{{ db }}</div></template>\n",
     }, "nuxt")).toEqual(["VHUB0002", "VHUB0002"])
   })
 
@@ -100,16 +101,16 @@ describe("vitehub/no-server-imports-in-client", () => {
   it("accepts inline type specifiers but reports mixed and side-effect declarations", async () => {
     expect(await codes(noServerImportsInClient, {
       "app/utils/types.ts": [
-        'import { type Email } from "vite-hub/email/server"',
-        'export { type Email as Mail } from "vite-hub/email/server"',
-        'export type * from "vite-hub/email/server"',
+        'import { type EnvAccessContext } from "vite-hub/env/server"',
+        'export { type EnvAccessContext as Access } from "vite-hub/env/server"',
+        'export type * from "vite-hub/env/server"',
       ].join("\n"),
     }, "nuxt")).toEqual([])
     for (const source of [
-      'import { type Email, email } from "vite-hub/email/server"',
-      'export { type Email, email } from "vite-hub/email/server"',
-      'import "vite-hub/email/server"',
-      'export * from "vite-hub/email/server"',
+      'import { type EnvAccessContext, resolveServerEnv } from "vite-hub/env/server"',
+      'export { type EnvAccessContext, resolveServerEnv } from "vite-hub/env/server"',
+      'import "vite-hub/env/server"',
+      'export * from "vite-hub/env/server"',
     ]) {
       expect(await codes(noServerImportsInClient, { "app/utils/mail.ts": source }, "nuxt")).toEqual(["VHUB0002"])
     }
@@ -135,7 +136,7 @@ describe("vitehub/no-server-imports-in-client", () => {
         'import { useAgent } from "vite-hub/agent/vue"',
         'import { useUpload } from "vite-hub/blob/vue"',
         'import { useRealtimeTiptap } from "vite-hub/realtime/vue"',
-        'import { defineSchedule } from "vite-hub/schedule"',
+        'import { useUpload as useBlobUpload } from "vite-hub/blob/client"',
         "</script>",
       ].join("\n"),
     }, "nuxt")).toEqual([])
@@ -144,7 +145,7 @@ describe("vitehub/no-server-imports-in-client", () => {
   it("accepts server files, type imports, and client paths", async () => {
     expect(await codes(noServerImportsInClient, {
       "server/api/env.get.ts": "import { useServerEnv } from \"#vitehub/env/server\"\nexport default () => useServerEnv()\n",
-      "src/App.vue": "<script setup lang=\"ts\">\nimport type { Email } from \"vite-hub/email/server\"\nimport { useUpload } from \"vite-hub/blob/vue\"\nimport { usePublicEnv } from \"#vitehub/env/public\"\ndefineProps<{ email?: Email }>()\nconst upload = useUpload()\nconst env = usePublicEnv()\n</script>\n<template><div>{{ upload }} {{ env }}</div></template>\n",
+      "src/App.vue": "<script setup lang=\"ts\">\nimport type { EmailMessage } from \"vite-hub/email\"\nimport { useUpload } from \"vite-hub/blob/vue\"\nimport { usePublicEnv } from \"#vitehub/env/public\"\ndefineProps<{ email?: EmailMessage }>()\nconst upload = useUpload()\nconst env = usePublicEnv()\n</script>\n<template><div>{{ upload }} {{ env }}</div></template>\n",
     })).toEqual([])
     expect(await codes(noServerImportsInClient, {
       "app/plugins/env.server.ts": "import { useServerEnv } from \"#vitehub/env/server\"\nexport default () => useServerEnv()\n",
@@ -173,6 +174,37 @@ describe("vitehub/destructure-result-tuples", () => {
     expect(await codes(destructureResultTuples, {
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
     }, "nuxt")).toEqual(["VHUB0003"])
+  })
+
+  it("follows every ViteHub server auto-import in Nuxt server files", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/welcome.post.ts": "export default async () => {\n  const sent = await sendQueue(\"welcome\", { id: \"1\" })\n  return sent\n}\n",
+    }, "nuxt")).toEqual(["VHUB0003"])
+  })
+
+  it("resolves I18n server auto-imports to their public exports", async () => {
+    const references: ViteHubReference[] = []
+    const rule = createRule({
+      meta: { id: "test/i18n-auto-imports", title: "Resolve I18n helpers", category: "correctness", severity: "warn", requires: { script: true } },
+      create(ctx) {
+        const r = resolver(ctx)
+        return {
+          ScriptNode(node) {
+            const reference = r.callee(node)
+            if (reference) references.push(reference)
+          },
+        }
+      },
+    })
+    await runRuleFixture({
+      rule,
+      framework: "nuxt",
+      files: { "server/api/translations.get.ts": "export default event => ({ i18n: getRequestI18n(event), translations: useTranslations() })" },
+    })
+    expect(references).toEqual([
+      { module: "i18n/server", name: "getRequestI18n", path: [] },
+      { module: "i18n/server", name: "useTranslations", path: [] },
+    ])
   })
 
   it.each([
@@ -329,7 +361,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
     expect(await codes(destructureResultTuples, {
       "server/api/send.post.ts": [
         'import { blob } from "vite-hub/blob"',
-        'import { email } from "vite-hub/email/server"',
+        'import { email } from "vite-hub/email"',
         'import { sendQueue, useQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
@@ -378,7 +410,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "  return { settings: result[1], other, error }",
         "})",
         "export async function clear() {",
-        '  const [error] = await kv.del("settings")',
+        '  const [error] = await kv.delete("settings")',
         "  if (error) throw error",
         "}",
         "export async function readSettings() {",
@@ -398,7 +430,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
       "server/utils/dispatch.ts": [
         'import { kv } from "vite-hub/kv"',
         'import { blob } from "vite-hub/blob"',
-        'import { email } from "vite-hub/email/server"',
+        'import { email } from "vite-hub/email"',
         'import { sendQueue, useQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
@@ -412,7 +444,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         '  await callMcpTool({ connection: "crm" }, "search", {})',
         '  await enqueueChannelTask("airtable", "close", { data: {} })',
         '  await cancelChannelTask("airtable", "close", { key: "pair" })',
-        '  kv.del("state")',
+        '  kv.delete("state")',
         "}",
       ].join("\n"),
       // Doctor keeps one diagnostic per message in a file, so each other `send()` goes in its own file.
@@ -457,7 +489,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
     })).toEqual(["VHUB0003", "VHUB0003"])
     expect(await codes(destructureResultTuples, {
       "server/utils/learner-emails.ts": [
-        "import { email } from 'vite-hub/email/server'",
+        "import { email } from 'vite-hub/email'",
         "async function send(to: string, subject: string, html: string, idempotencyKey?: string) {",
         "  await email.send({ from: sender, to, subject, html, idempotencyKey })",
         "}",
@@ -642,7 +674,7 @@ describe("ViteHub Doctor Extension", () => {
       extensions: [vitehubDoctorExtension],
       dependencies: { "vite-hub": "*" },
       files: {
-        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
+        "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"vite-hub/env\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
         "server/api/a.ts": "import { kv } from \"vite-hub/_internal/kv\"\nexport default async () => (await kv.get(\"a\")).value\n",
       },
     })
@@ -657,7 +689,7 @@ describe("ViteHub Doctor Extension", () => {
   })
 
   it("is exposed by the Vite plugin as a lazy Doctor Extension", async () => {
-    const api = doctorPluginApi(vitehub({ preset: "node" }))
+    const api = doctorPluginApi(vitehub({ host: "node" }))
     expect(api?.extensions).toHaveLength(1)
     const [load] = api?.extensions ?? []
     if (typeof load !== "function") throw new TypeError("Expected a lazy Doctor Extension loader.")

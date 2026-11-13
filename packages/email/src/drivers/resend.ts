@@ -10,6 +10,7 @@ import {
   validateAddresses,
   validateAttachments,
 } from "./shared.ts";
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object";
 
 import type {
   EmailAttachment,
@@ -33,10 +34,6 @@ function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
     isRecord(cause)
     && cause.name === "AbortError"
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string {

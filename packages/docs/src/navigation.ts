@@ -12,7 +12,7 @@ export interface DocsLink {
  * in its sidebar while pages keep the icons that their authors chose.
  */
 export interface DocsIcons {
-  /** Rail icon per section id: a `@vite-hub/ui/primitive-rail` icon name or an Iconify name. */
+  /** Rail icon per section id: a `@vite-hub/docs/primitive-rail` icon name or an Iconify name. */
   rail: Record<string, string>
   /** Sidebar icon per section id. It replaces the section's own icon. */
   sections: Record<string, string>
@@ -21,14 +21,20 @@ export interface DocsIcons {
   /** Replacement per icon name. */
   aliases: Record<string, string>
   /**
-   * Icon prefix of the sidebar, such as `i-ph-`, or several prefixes, such as `["i-ph-", "i-vitehub-"]`. An icon outside
-   * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows every icon.
+   * Icon prefix of the sidebar, such as `i-lucide-`, or several prefixes, such as `["i-lucide-", "i-vitehub-"]`. An icon
+   * outside them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows
+   * every icon.
    */
   family: string | string[]
   /** Icon of a page without one. */
   page: string
   /** Icon of a section without one. */
   section: string
+  /**
+   * Stroke width of line icons that Iconify draws 2px wide, such as Lucide. The default `1.5` matches the ViteHub icon
+   * set. `false` keeps each icon as its set draws it.
+   */
+  stroke: number | false
 }
 
 /** One catalog row: the sections of one category, in rail order. */
@@ -374,6 +380,16 @@ export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection<DocsApp
   return icons.rail[section.id] ?? docsSectionIcon(icons, section)
 }
 
+/**
+ * Draws a 2px line icon with `stroke` instead. @nuxt/icon passes only the icon body in its CSS mode, so the icon is
+ * recognized by its body: Lucide draws `stroke-width="2"` with round joins. Filled icons, such as brand logos, have no
+ * stroke and stay as they are.
+ */
+export function docsIconStroke(body: string, stroke: number): string {
+  if (!body.includes('stroke-linejoin="round"')) return body
+  return body.replaceAll('stroke-width="2"', `stroke-width="${stroke}"`)
+}
+
 /** URL of the raw Markdown twin of a page path, such as `/raw/docs/kv.md`. `/` has `/raw/index.md`. */
 export function docsRawPath(path: string): string {
   const normalized = normalizeDocsPath(path)
@@ -417,8 +433,16 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
   return `${docsRawSectionLinksMarker}${blocks.join("\n\n")}\n`
 }
 
-/** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */
+/**
+ * Cookie that keeps a collapsed sidebar open after the reader opens it, on every page that starts collapsed. A host
+ * that serves prerendered HTML reads it.
+ */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
+
+/** Whether a docs page starts with its sidebar collapsed: `sidebar: "collapsed"`, or a code panel tutorial that keeps it. */
+export function docsSidebarCollapses(page: Pick<DocsPage, "sidebar" | "codePanel">): boolean {
+  return page.sidebar === "collapsed" || (page.codePanel === true && page.sidebar !== false)
+}
 
 /** Links of the page actions: the Markdown twin and chat tools that read it. */
 export interface DocsMarkdownLinks {

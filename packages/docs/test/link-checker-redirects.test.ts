@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { build, loadNuxt } from "nuxt"
 import { expect, it } from "vitest"
 
-import type { NitroConfig } from "nitropack"
+import type { NitroConfig } from "nitro/types"
 import type { Nuxt, NuxtConfig } from "nuxt/schema"
 
 interface LinkReport { route: string, reports: Array<{ link: string, error: Array<{ name: string }>, warning: Array<{ name: string }> }> }

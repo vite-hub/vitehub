@@ -233,6 +233,14 @@ describe("PromptInput", () => {
     expect(nextPromptFiles([oldFile], [newFile], false)).toEqual([newFile]);
   });
 
+  it("softens the send button until there is something to send", async () => {
+    const wrapper = mount(PromptInput, { global });
+    expect(wrapper.get(submitButton).attributes("variant")).toBe("soft");
+
+    await wrapper.setProps({ modelValue: "Ship it" });
+    expect(wrapper.get(submitButton).attributes("variant")).toBe("solid");
+  });
+
   it("keeps empty prompts without attachments inert", async () => {
     const wrapper = mount(PromptInput, { global });
 

@@ -1,0 +1,7 @@
+{
+  "name": "one-entry-imports-fixture",
+  "private": true,
+  "dependencies": {
+    "vite-hub": "0.0.4"
+  }
+}

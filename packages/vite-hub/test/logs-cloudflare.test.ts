@@ -4,14 +4,14 @@ import { vitehub } from "../src/index.ts";
 async function configure(
   logs: boolean,
   wrangler: Record<string, unknown> = {},
-  preset: "cloudflare" | "node" = "cloudflare",
+  host: "cloudflare" | "node" = "cloudflare",
 ) {
-  const plugin = vitehub({ preset, logs }).find(
+  const plugin = vitehub({ host, observability: { logs } }).find(
     (candidate) =>
       candidate &&
       typeof candidate === "object" &&
       "name" in candidate &&
-      candidate.name === "vite-hub/deployment-preset",
+      candidate.name === "vite-hub/deployment-host",
   );
   if (
     !plugin ||

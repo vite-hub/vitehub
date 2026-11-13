@@ -27,7 +27,7 @@ function notCompiled(name: string): never {
 
 /**
  * Translate a message in the active locale: ``t`Payment received` `` or ``t`Hello ${name}` ``.
- * Write the message in the source language. `vitehub i18n extract` collects it for translators.
+ * Write the message in the source language. `vitehub i18n status` lists the messages that a locale does not translate yet.
  */
 export function t(literals: TemplateStringsArray, ...values: MessageValue[]): string
 /** Translate a message with a comment or a context for translators: `t({ message: "Save", context: "button" })`. */

@@ -2,9 +2,9 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { createAgentInspectionMetadata, resolveAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
-import { cliproxy } from "@vite-hub/gateways";
 
 describe("built-in Agent Driver selection", () => {
   it("preserves and validates static provider exit callbacks", () => {
@@ -253,39 +253,6 @@ describe("built-in Agent Driver selection", () => {
     } as never)).toMatchObject({ execution: { attachments: { maxBytes: 1024 } } });
   });
 
-  it("normalizes Codex home retention and rejects it where it cannot apply", () => {
-    expect(normalizeAgentDriver({ driver: codexDriver({ retention: { maxAge: "14d", maxSize: "45%" } }) })).toMatchObject({
-      retention: { maxAgeMs: 14 * 86_400_000, maxRecords: false, maxSize: { fraction: 0.45 } },
-    })
-    expect(normalizeAgentDriver({ driver: codexDriver() })).toMatchObject({ retention: undefined })
-    expect(normalizeAgentDriver({
-      driver: codexDriver({ credentialProfile: "support", credentials: () => "{}", retention: { maxRecords: 200 } }),
-    })).toMatchObject({ retention: { maxRecords: 200 } })
-    // A gateway replaces credentials, so the Codex home is not temporary.
-    expect(normalizeAgentDriver({
-      driver: codexDriver({ credentials: () => "{}", gateway: cliproxy({ url: "https://proxy.example/v1" }), retention: { maxSize: "2GB" } }),
-    })).toMatchObject({ retention: { maxSize: { bytes: 2 * 1024 ** 3 } } })
-    expect(() => defineAgent({
-      driver: codexDriver({ credentials: () => "{}", retention: { maxSize: "45%" } }),
-    })).toThrow("driver.retention requires a persistent Codex home. Set driver.credentialProfile, or use a gateway or CODEX_HOME.")
-    expect(() => defineAgent({
-      // SAFETY: This fixture supplies an invalid limit to test runtime validation.
-      driver: codexDriver({ retention: { maxSize: "lots" } } as never),
-    })).toThrow("defineAgent({ driver.retention }) maxSize must be a positive size")
-    expect(() => defineAgent({
-      // SAFETY: This fixture uses the old key to test the rename message.
-      driver: codexDriver({ retention: { maxAgeMs: 1000 } } as never),
-    })).toThrow("Rename it to maxAge.")
-    expect(() => defineAgent({
-      // SAFETY: This fixture deliberately supplies a Codex-only option to Claude Code.
-      driver: claudeCodeDriver({ retention: { maxSize: "45%" } } as never),
-    })).toThrow("does not support Codex option: retention")
-    const agent = defineAgent({ driver: codexDriver({ retention: { maxAge: "14d", maxRecords: 500, maxSize: "45%" } }) })
-    expect(createAgentInspectionMetadata(agent).config?.driver.provider?.retention).toEqual({ maxAge: 14 * 86_400_000, maxRecords: 500, maxSize: "45%" })
-    const preciseAgent = defineAgent({ driver: codexDriver({ retention: { maxSize: "99.99999%" } }) })
-    expect(createAgentInspectionMetadata(preciseAgent).config?.driver.provider?.retention?.maxSize).toBe("99.99999%")
-  })
-
   it("normalizes Codex credentials, reasoning, and provider settings", () => {
     const credentials = { unseal: () => "{}" };
     const providerSettings = { launchArgs: "--enable responses_websockets_v2" };
@@ -349,6 +316,11 @@ describe("built-in Agent Driver selection", () => {
     expect(createAgentInspectionMetadata(defineAgent({ driver: codexDriver({ cwd: "/srv/checkout" }) })).config?.driver.provider).toMatchObject({ cwd: "static" });
   });
 
+  it("keeps Codex workspace-write access", () => {
+    expect(normalizeAgentDriver({ driver: codexDriver({ workspaceWrite: { network: true, packageCaches: true } }) }))
+      .toMatchObject({ kind: "provider", workspaceWrite: { network: true, packageCaches: true } });
+  });
+
   it("accepts sealed Codex credentials implemented by a class instance", () => {
     class SecretEnv {
       unseal() {
@@ -376,6 +348,9 @@ describe("built-in Agent Driver selection", () => {
     [codexDriver({ cwd: "" }), "driver.cwd }) must be a non-empty directory path or resolver"],
     [claudeCodeDriver({ cwd: "  " }), "driver.cwd }) must be a non-empty directory path or resolver"],
     [codexDriver({ cwd: 1 } as never), "driver.cwd }) must be a non-empty directory path or resolver"],
+    [claudeCodeDriver({ workspaceWrite: { network: true } } as never), "does not support Codex option: workspaceWrite"],
+    [codexDriver({ workspaceWrite: { network: "yes" } } as never), "driver.workspaceWrite }) must be an object with boolean network or packageCaches"],
+    [codexDriver({ workspaceWrite: { writableRoots: ["/tmp"] } } as never), "driver.workspaceWrite }) must be an object with boolean network or packageCaches"],
   ])("rejects invalid provider options %#", (driver, message) => {
     // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);

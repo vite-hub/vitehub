@@ -42,7 +42,6 @@ describe("hubChannels", () => {
       logLevel: "silent" as const,
       nitro: {
         cloudflare: { wrangler: { secrets: { required: ["VITEHUB_TOKEN"] } } },
-        externals: { inline: ["existing-package"], trace: false },
         plugins: ["/app/plugin.ts"],
       },
       plugins: [plugin],
@@ -52,10 +51,9 @@ describe("hubChannels", () => {
     }
     const resolved = await resolveConfig(inlineConfig, "build")
     // SAFETY: Vite keeps the open `nitro` key of the inline config on its resolved config.
-    const nitro = (resolved as typeof resolved & { nitro: { alias: Record<string, string>, cloudflare: { wrangler: { secrets: { required: string[] } } }, externals: { inline: string[], trace: boolean }, plugins: string[] } }).nitro
+    const nitro = (resolved as typeof resolved & { nitro: { alias: Record<string, string>, cloudflare: { wrangler: { secrets: { required: string[] } } }, plugins: string[] } }).nitro
     const registryFile = nitro.alias["#vitehub/channels/registry"]!
 
-    expect(nitro.externals).toEqual({ inline: ["existing-package", "vite-hub", "@vite-hub/channels"], trace: false })
     expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
     expect(nitro.plugins).toEqual(["/app/plugin.ts"])
     expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/channels"])
@@ -103,8 +101,13 @@ describe("hubChannels", () => {
 
     await resolvePlugin(plugin, root)
 
-    expect((plugin.resolveId as (id: string) => string | undefined)(CHANNELS_REGISTRY_ID)).toBe(`\0${CHANNELS_REGISTRY_ID}`)
-    expect((plugin.load as (id: string) => string | undefined)(`\0${CHANNELS_REGISTRY_ID}`)).toContain(JSON.stringify(definition))
+    const resolveId = plugin.resolveId as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+    const load = plugin.load as { filter: { id: RegExp }, handler: (id: string) => string | undefined }
+
+    expect([CHANNELS_REGISTRY_ID, `${CHANNELS_REGISTRY_ID}.ts`, "@vite-hub/channels"].map(id => resolveId.filter.id.test(id))).toEqual([true, false, false])
+    expect([`\0${CHANNELS_REGISTRY_ID}`, CHANNELS_REGISTRY_ID].map(id => load.filter.id.test(id))).toEqual([true, false])
+    expect(resolveId.handler(CHANNELS_REGISTRY_ID)).toBe(`\0${CHANNELS_REGISTRY_ID}`)
+    expect(load.handler(`\0${CHANNELS_REGISTRY_ID}`)).toContain(JSON.stringify(definition))
     expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ name: "alerts" })])
     await expect(readFile(join(root, ".vitehub/types/channels.d.ts"), "utf8")).resolves.toContain(
       `"alerts": typeof import(${JSON.stringify(definition)})`,
@@ -118,7 +121,7 @@ describe("hubChannels", () => {
 
     await resolvePlugin(plugin, root)
 
-    const registry = (plugin.load as (id: string) => string)(`\0${CHANNELS_REGISTRY_ID}`)
+    const registry = (plugin.load as { handler: (id: string) => string }).handler(`\0${CHANNELS_REGISTRY_ID}`)
     expect(registry).toContain("const registry = Object.create(null)")
     expect(registry).toContain('registry["__proto__"] =')
   })

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { github } from "../../src/github.ts"
-import { createSource } from "../../src/index.ts"
+import { github, createSource } from "../../src/index.ts"
 import { requestAuthorization, stubGitHubSource } from "./fixtures/github.ts"
 
 afterEach(() => vi.unstubAllGlobals())

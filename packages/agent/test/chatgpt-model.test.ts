@@ -15,6 +15,12 @@ import { progressSummary, title } from "../src/capabilities.ts"
 import type { AgentCapabilityDefinition } from "../src/types.ts"
 import { chatgptPlanRequest, collectStream } from "../src/internal/chatgpt-model.ts"
 
+const createOpenAI = vi.hoisted(() => ({ calls: 0 }))
+vi.mock("@ai-sdk/openai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@ai-sdk/openai")>()
+  return { ...actual, createOpenAI: (...args: Parameters<typeof actual.createOpenAI>) => (createOpenAI.calls++, actual.createOpenAI(...args)) }
+})
+
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 
@@ -40,7 +46,7 @@ async function fixture(capabilities: AgentCapabilityDefinition[] = []) {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
     capabilities: { connections: { runtime: () => runtime, useChatGPTCredential: useChatGPTCredential(runtime) } },
   }
-  return { calls, fake, finish, host, run: () => runAgentWithContext(agent, host, { prompt: "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
+  return { agent, calls, fake, finish, host, run: () => runAgentWithContext(agent, host, { prompt: "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
 }
 
 it("answers on the ChatGPT plan over HTTP with the request that plan usage accepts", async () => {
@@ -153,6 +159,16 @@ it("maps plan errors to the ChatGPT diagnostics", async () => {
   const unauthorized = await fixture()
   unauthorized.fake.state.responseError = { code: "invalid_token", status: 401 }
   await expect(unauthorized.run()).rejects.toMatchObject({ code: "AGENT_R1016" })
+})
+
+it("stops with AGENT_R1016 when the host gives the Agent no Connections", async () => {
+  // Builds without Connections replace @ai-sdk/openai with a stub, so the model must stop before it uses the package.
+  const test = await fixture()
+  const { capabilities: _capabilities, ...host } = test.host
+  const calls = createOpenAI.calls
+  await expect(runAgentWithContext(test.agent, host, { prompt: "Hello", timeout: 30_000 })).rejects.toMatchObject({ code: "AGENT_R1016" })
+  expect(createOpenAI.calls).toBe(calls)
+  expect(test.fake.state.requests).toHaveLength(0)
 })
 
 it("rejects fields and tools that plan usage does not accept", () => {

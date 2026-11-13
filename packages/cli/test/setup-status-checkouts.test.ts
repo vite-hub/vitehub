@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
+import { createProject, isolateProjectPackages, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
 const lock = JSON.stringify({ version: 1, workspaces: { site: { dir: "content", files: {}, head: "r1", ref: "draft" } } })
 
@@ -19,7 +19,7 @@ describe("vitehub status with vitehub.lock", () => {
     const root = await createProject({
       "package.json": pnpmManifest,
       "README.md": `<!-- vitehub:stack -->\n${command}\n<!-- /vitehub:stack -->\n`,
-      "vite.config.ts": viteConfig('{ preset: "deno", workspace: true }'),
+      "vite.config.ts": viteConfig('{ host: "deno", workspace: true }'),
       "vitehub.lock": lock,
       ...workspacePackage,
     })
@@ -47,10 +47,12 @@ describe("vitehub status with vitehub.lock", () => {
 
   it("says so when no installed package can read the lock file, and adds nothing without one", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{}"), "vitehub.lock": lock })
+    isolateProjectPackages(root)
     expect((await runSetup(["status"], root)).stdout).toContain("vitehub.lock lists checkout folders, but the project does not install vite-hub or @vite-hub/workspace")
     expect((await runSetup<{ checkouts: unknown }>(["status", "--json"], root)).json.checkouts).toEqual({ error: expect.stringContaining("does not install") })
 
     const plain = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{}") })
+    isolateProjectPackages(plain)
     expect((await runSetup(["status"], plain)).stdout).not.toContain("Checkouts")
     expect((await runSetup<Record<string, unknown>>(["status", "--json"], plain)).json).not.toHaveProperty("checkouts")
   })

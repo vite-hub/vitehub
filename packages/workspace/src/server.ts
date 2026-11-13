@@ -1,6 +1,5 @@
 import { lookup } from "mrmime"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
@@ -112,14 +111,14 @@ function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?:
   // Headers brand on its own. A genuine cross-realm Headers instance exposes
   // its own constructor on the prototype; use that signal before invoking any
   // inherited getter.
-  const constructorSource = hasRuntimeType(constructor, "function")
+  const constructorSource = typeof constructor === "function"
     ? Function.prototype.toString.call(constructor)
     : ""
   const prototypeGet = prototype
     ? Object.getOwnPropertyDescriptor(prototype, "get")?.value
     : undefined
   const realmHeaders: unknown = typeof Headers === "function" ? Headers : undefined
-  const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
+  const isCrossRealmHeaders = typeof constructor === "function"
     && Reflect.get(constructor, "name") === "Headers"
     && (constructor === realmHeaders
       || (/^class\s+Headers\b/.test(constructorSource) && constructorSource.includes("#"))
@@ -135,28 +134,28 @@ function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?:
         return false
       }
     })()
-    && hasRuntimeType(prototypeGet, "function")
+    && typeof prototypeGet === "function"
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
     for (const getter of [get, prototypeGet]) {
-      if (!hasRuntimeType(getter, "function")) continue
+      if (typeof getter !== "function") continue
       try {
         const value = Reflect.apply(getter, headers, [name])
-        return hasRuntimeType(value, "string") && value ? value : undefined
+        return typeof value === "string" && value ? value : undefined
       }
       catch {}
     }
   }
   try {
     const ownGet = Object.hasOwn(headers, "get") ? Reflect.get(headers, "get") : undefined
-    if (hasRuntimeType(ownGet, "function")) {
+    if (typeof ownGet === "function") {
       const value = Reflect.apply(ownGet, headers, [name])
-      return hasRuntimeType(value, "string") && value ? value : undefined
+      return typeof value === "string" && value ? value : undefined
     }
     if (!Object.hasOwn(headers, name)) return undefined
     const value: unknown = Reflect.get(headers, name)
-    if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
-    return hasRuntimeType(value, "string") ? value : undefined
+    if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : undefined
+    return typeof value === "string" ? value : undefined
   }
   catch {
     return undefined

@@ -3,7 +3,7 @@ title: Attachment
 description: "Show a file with its upload state as a row or a tile, with an image preview, actions, sizes, and attachment groups."
 navigation.order: 13
 navigation.group: Parts
-icon: i-ph-paperclip-light
+icon: i-lucide-paperclip
 ---
 
 `Attachment` shows one file: an icon or image, a title, a description, and actions. The `state` prop shows if the file is waiting, uploading, processing, done, or failed. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
@@ -13,7 +13,7 @@ icon: i-ph-paperclip-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/attachment`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Attachment, AttachmentMedia, AttachmentContent, AttachmentTitle } from "@vite-hub/ui";
@@ -41,14 +41,14 @@ const open = ref(false);
 <template>
   <Attachment>
     <AttachmentMedia>
-      <UIcon name="i-ph-file-text-light" />
+      <UIcon name="i-lucide-file-text" />
     </AttachmentMedia>
     <AttachmentContent>
       <AttachmentTitle>sales-dashboard.pdf</AttachmentTitle>
       <AttachmentDescription>PDF · 2.4 MB</AttachmentDescription>
     </AttachmentContent>
     <AttachmentActions>
-      <AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
+      <AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
     </AttachmentActions>
   </Attachment>
 </template>
@@ -146,7 +146,7 @@ const open = ref(false);
 `AttachmentAction` usually shows only an icon. Give each one an `aria-label` that names the action and file.
 
 ```vue
-<AttachmentAction icon="i-ph-x-light" aria-label="Remove sales-dashboard.pdf" />
+<AttachmentAction icon="i-lucide-x" aria-label="Remove sales-dashboard.pdf" />
 ```
 
 ### Label the trigger

@@ -1,4 +1,5 @@
 import { browserProviderError } from "../errors.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { BrowserController } from "../types.ts"
 import type { PlaywrightBrowserConnection } from "../internal/connections.ts"
@@ -24,10 +25,6 @@ const CDP_SOCKET_SETUP_TIMEOUT_MS = 30_000
 type CDPMessage =
   | { kind: "event", method: string, params?: unknown, sessionId?: string }
   | { kind: "response", error?: { message: string }, id: number, result?: unknown, sessionId?: string }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 function isString(value: unknown): value is string {
   return typeof value === "string"

@@ -1,9 +1,9 @@
 // `authDatabase()` connects Better Auth to a ViteHub Database. The Auth Vite plugin finds the call in the Auth
-// Definition and adds the Better Auth tables to that Database, so `vitehub db generate` writes their migration.
+// Definition and adds the Better Auth tables to that Database, so `vitehub database generate` writes their migration.
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { databases } from "@vite-hub/database/drizzle"
+import { databases } from "@vite-hub/database/runtime/registry"
 import { is } from "drizzle-orm"
-import { PgDatabase } from "drizzle-orm/pg-core"
+import { PgAsyncDatabase } from "drizzle-orm/pg-core"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy } from "./database-options.ts"
@@ -26,9 +26,9 @@ export function authDatabase(name: string = "default"): AuthAppDatabase {
     assertAuthDatabaseSchema(options)
     const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
     if (!entry || !Object.hasOwn(entry.schema, "user")) {
-      throw authErrorDiagnostics.AUTH_R0019({ message: `[vitehub] \`authDatabase(${JSON.stringify(name)})\` found no Better Auth tables in the ${JSON.stringify(name)} Database. Pass \`authDatabase()\` inline as the \`database\` of \`defineAuth()\` so that Auth adds them, enable the Database integration, and run \`vitehub db generate\`. \`vitehub inspect definitions --kind database\` lists the tables of each Database.` })
+      throw authErrorDiagnostics.AUTH_R0019({ message: `[vitehub] \`authDatabase(${JSON.stringify(name)})\` found no Better Auth tables in the ${JSON.stringify(name)} Database. Pass \`authDatabase()\` inline as the \`database\` of \`defineAuth()\` so that Auth adds them, enable the Database integration, and run \`vitehub database generate\`. \`vitehub inspect definitions --kind database\` lists the tables of each Database.` })
     }
-    return drizzleAdapter(entry.db, { provider: is(entry.db, PgDatabase) ? "pg" : "sqlite", schema: entry.schema })(options)
+    return drizzleAdapter(entry.db, { provider: is(entry.db, PgAsyncDatabase) ? "pg" : "sqlite", schema: entry.schema })(options)
   }
   return Object.assign(adapter, { vitehubDatabase: name })
 }

@@ -32,7 +32,7 @@ it("signs in through the browser callback and transfers a protected file without
   let callbackUrl: URL | undefined
   const options = {
     timeout: 5,
-    fetch: async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init)),
+    fetch: async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler.fetch(new Request(input, init)),
     openBrowser: async (url: string) => {
       callbackUrl = await fake.callback(url)
       expect((await fetch(callbackUrl)).status).toBe(200)

@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
-import { projectUrl } from "../client/project";
+import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
+import { projectAppUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleMcpConnect from "./console-mcp-connect.vue";
 import ConsoleMcpConnectionView from "./console-mcp-connection.vue";
@@ -36,7 +37,7 @@ const connectOpen = ref(false);
 const connectPreset = ref<{ another?: boolean, server: string }>();
 let request: AbortController | undefined;
 
-const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectUrl("/"), window.location.href).origin) : []);
+const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectAppUrl("/"), window.location.href).origin) : []);
 const connections = computed(() => overview.value?.connections ?? []);
 
 function queryValue(name: string): string | undefined {
@@ -134,7 +135,7 @@ onBeforeUnmount(() => request?.abort());
       <div v-if="!collapsed" class="vitehub-console__panel-title">
         <span class="min-w-0 flex-1 truncate">MCP client</span>
         <UTooltip text="Connect to a server">
-          <UButton aria-label="Connect to a server" color="neutral" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
+          <UButton aria-label="Connect to a server" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
         </UTooltip>
       </div>
     </template>
@@ -158,7 +159,7 @@ onBeforeUnmount(() => request?.abort());
               :aria-label="collapsed ? `${consoleMcpAccount(connection).primary}, ${consoleMcpStatus[connection.status].label}` : undefined"
               @click="open(connection)"
             >
-              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleMcpInitials(consoleMcpAccount(connection).primary)" size="xs" />
+              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleInitials(consoleMcpAccount(connection).primary)" size="xs" />
               <span v-if="!collapsed" class="grid min-w-0 flex-1 text-start">
                 <span class="truncate">{{ consoleMcpAccount(connection).primary }}</span>
                 <span v-if="consoleMcpAccount(connection).secondary" class="truncate text-xs font-normal text-dimmed">{{ consoleMcpAccount(connection).secondary }}</span>
@@ -183,7 +184,7 @@ onBeforeUnmount(() => request?.abort());
             </button>
           </UTooltip>
         </template>
-        <p v-if="!collapsed && overview && !groups.length" class="px-2 py-1.5 text-xs text-muted">No servers yet.</p>
+        <UEmpty v-if="!collapsed && overview && !groups.length" variant="naked" size="xs" icon="i-lucide-server" title="No servers yet" description="Connect to an MCP server to see its tools here." />
       </nav>
     </template>
   </UDashboardSidebar>
@@ -196,7 +197,7 @@ onBeforeUnmount(() => request?.abort());
     :sections-base="sectionsBase"
   />
 
-  <UDashboardPanel id="mcp-client" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+  <UDashboardPanel id="mcp-client">
     <ConsoleMcpConnectionView
       v-if="selected"
       :key="selected.id"
@@ -211,7 +212,7 @@ onBeforeUnmount(() => request?.abort());
     <template v-else>
       <ConsolePageHeader title="MCP client">
         <template #right>
-          <UButton color="neutral" icon="i-lucide-plus" label="Connect" size="sm" variant="soft" @click="connect()" />
+          <UButton icon="i-lucide-plus" label="Connect" variant="soft" @click="connect()" />
         </template>
       </ConsolePageHeader>
       <main class="min-h-0 flex-1 overflow-auto">

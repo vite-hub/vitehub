@@ -71,7 +71,6 @@ export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, i
 function sha(value: unknown, key: "object" | "tree" | undefined, description: string): string {
   const target: unknown = key && value instanceof Object && key in value ? Reflect.get(value, key) : value
   const result: unknown = target instanceof Object && "sha" in target ? target.sha : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   if (typeof result !== "string" || !result) throw new ForgeResponseError(`GitHub returned a malformed ${description} response.`)
   return result
 }

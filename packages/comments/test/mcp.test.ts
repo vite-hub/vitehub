@@ -1,12 +1,9 @@
-import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
 import { defineCommentSubject } from "../src/index.ts"
-import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
-import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { ada, anchor, createComments } from "./harness.ts"
 
 import type { CommentsIdentifyContext, DefineCommentsOptions } from "../src/types.ts"
@@ -18,12 +15,6 @@ function event(headers: Record<string, string> = {}): H3Event {
   // The Console sets Standard Context before it passes the event to a tool, as the ViteHub Nitro plugin does.
   installStandardContext(event)
   return event as unknown as H3Event
-}
-
-/** An H3 1 event of Nuxt 4, with the Standard Context that the Console sets before it calls a tool. */
-function withStandardContext<T extends object>(event: T) {
-  installStandardContext(event)
-  return event
 }
 
 async function setup(options: DefineCommentsOptions = {}) {
@@ -75,84 +66,36 @@ describe("Comments MCP tools", () => {
     expect((await call("comments_list_threads", { limit: 1 })).structured).toMatchObject({ threads: [{ id: page!.id }] })
   })
 
-  it.each([true, false])("preserves action-aware Console grants after session reconciliation: %s", async (readOnly) => {
-    const authorize = vi.fn(() => true)
-    const comments = await createComments({ authorize })
-    const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
-    const consoleAuthorize = vi.fn(async ({ kind }: { kind?: "read" | "write" }) => !readOnly || kind !== "write")
-    const consoleSession = commentsConsoleSession({ authorize: consoleAuthorize, user: async () => ada, identify: async () => ada })
-    const tools = commentsMcpTools(comments, { consoleSession })
+  it("trusts the Console user without an authorize policy only when the caller passed the Console check", async () => {
+    const comments = await createComments({ authorize: undefined })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Fix this", author: ada })
     const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Fixed" }, { id: thread!.id }]
-    for (const [index, tool] of tools.entries()) {
-      const result = await tool.call(inputs[index]!, { user: ada, event: event() })
-      expect(result.isError).toBe(readOnly && index >= 2 ? true : undefined)
-    }
-    expect(consoleAuthorize.mock.calls.map(([context]) => context.kind)).toEqual(["read", "read", "write", "write"])
-    expect(authorize).toHaveBeenCalledTimes(readOnly ? 3 : 5)
-    const [, after] = await comments.get(thread!.id)
-    expect(after?.messages).toHaveLength(readOnly ? 1 : 2)
-    expect(after?.status).toBe(readOnly ? "open" : "resolved")
-  })
-
-  it("preserves Console denial before Comments policies without custom identify", async () => {
-    const authorize = vi.fn(() => true)
-    const comments = await createComments({ identify: undefined, authorize })
-    const session = commentsConsoleSession({ authorize: async () => false, user: async () => ada, identify: async () => ada })
-    const tools = commentsMcpTools(comments, { consoleSession: session })
-    const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
-    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Denied" }, { id: thread!.id }]
-    for (const [index, tool] of tools.entries()) {
+    for (const [index, tool] of commentsMcpTools(comments).entries()) {
       expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBe(true)
     }
-    expect(authorize).not.toHaveBeenCalled()
+    for (const [index, tool] of commentsMcpTools(comments, { console: true }).entries()) {
+      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBeUndefined()
+      expect((await tool.call(inputs[index]!, { user: null, event: event() })).isError).toBe(true)
+    }
     const [, after] = await comments.get(thread!.id)
-    expect(after?.messages).toHaveLength(1)
-    expect(after?.status).toBe("open")
+    expect(after?.messages.at(-1)?.author).toEqual({ id: "ada", name: "Ada" })
+    expect(after?.status).toBe("resolved")
   })
 
-  it.each(["authorize", "user", "identify"] as const)("lets custom identify and authorize decide when the Console fails in %s", async (source) => {
+  it("lets custom identify and authorize decide for Console callers with a request", async () => {
     const identify = vi.fn(() => ada)
     const authorize = vi.fn(() => true)
     const comments = await createComments({ identify, authorize })
-    const fail = async () => { throw new Error("Console unavailable") }
-    const consoleSession = commentsConsoleSession({
-      authorize: source === "authorize" ? fail : async () => true,
-      user: source === "user" ? fail : async () => null,
-      identify: source === "identify" ? fail : async () => null,
-    })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
-    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Denied" }, { id: thread!.id }]
-    for (const [index, tool] of commentsMcpTools(comments, { consoleSession }).entries()) {
-      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBeUndefined()
+    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Fixed" }, { id: thread!.id }]
+    for (const [index, tool] of commentsMcpTools(comments, { console: true }).entries()) {
+      expect((await tool.call(inputs[index]!, { user: { id: "other" }, event: event() })).isError).toBeUndefined()
     }
     expect(identify).toHaveBeenCalled()
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: ada }))
     const [, after] = await comments.get(thread!.id)
     expect(after?.messages).toHaveLength(2)
     expect(after?.status).toBe("resolved")
-  })
-
-  it.each([ada, null])("skips Auth when custom identify returns %j", async (person) => {
-    const session = vi.fn(async () => { throw new Error("Auth unavailable") })
-    const comments = await createComments({ identify: () => person, authorize: () => true })
-    const tool = commentsMcpTools(comments, { session })[0]!
-    expect((await tool.call({}, { user: ada, event: event() })).isError).toBeUndefined()
-    expect(session).not.toHaveBeenCalled()
-  })
-
-  it("registers MCP tools with the plugin's Console access gate", async () => {
-    const authorize = vi.fn(() => true)
-    const comments = await createComments({ identify: undefined, authorize })
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      defineCommentsPlugin({ comments, database: () => undefined, overlay: "/api/_vitehub/comments/assets/overlay.js", consoleSession: async () => false })(null)
-      const tool = getViteHubMcpTools().find(tool => tool.name === "comments_list_threads")!
-      expect((await tool.call({}, { user: ada, event: event() })).isError).toBe(true)
-      expect(authorize).not.toHaveBeenCalled()
-    }
-    finally {
-      warn.mockRestore()
-    }
   })
 
   it("keeps anonymous callers anonymous for every action", async () => {
@@ -180,7 +123,7 @@ describe("Comments MCP tools", () => {
     const tool = commentsMcpTools(comments)[0]!
     const api = createCommentsHandler({ comments, realtime: false })
     const request = event({ "x-person": "ada" })
-    await api(request)
+    await api.fetch(request.req)
     expect((await tool.call({}, { user: { id: "other" }, event: request })).isError).toBeUndefined()
     // The HTTP session checks read, comment, resolve, and delete; the tool checks read again.
     expect(seen).toEqual([ada, ada, ada, ada, ada])
@@ -190,12 +133,11 @@ describe("Comments MCP tools", () => {
   it("uses the checked custom-server user without a request event", async () => {
     const seen: unknown[] = []
     const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "ada" ? ada : null)
-    const session = vi.fn(async () => ada)
     const comments = await createComments({
       identify,
       authorize: ({ user }) => { seen.push(user); return user?.role === "editor" },
     })
-    const tools = commentsMcpTools(comments, { session })
+    const tools = commentsMcpTools(comments, { console: true })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Fix this", author: ada })
     const user = { id: "ben", name: "Ben", role: "editor" }
     const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Fixed" }, { id: thread!.id }]
@@ -211,29 +153,25 @@ describe("Comments MCP tools", () => {
       expect((await tool.call(inputs[index]!, { user: null })).isError).toBe(true)
     }
     expect(identify).not.toHaveBeenCalled()
-    expect(session).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])("preserves Cloudflare people and author attribution for permitted anonymous guests, with H3 1: %s", async (nodeEvent) => {
+  it("keeps the Console user as author, and names permitted anonymous guests", async () => {
     const seen: unknown[] = []
     const comments = await createComments({ authorize: ({ user }) => { seen.push(user); return user === null || user?.email === "ada@site.test" } })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
     const person = { id: "ada@site.test", name: "Ada", email: "ada@site.test" }
-    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => person })
-    const tools = commentsMcpTools(comments, { consoleSession: session })
-    expect((await tools[2]!.call({ id: thread!.id, body: "Fixed" }, { user: null, event: event() })).isError).toBeUndefined()
-    expect((await tools[3]!.call({ id: thread!.id }, { user: null, event: event() })).isError).toBeUndefined()
+    const tools = commentsMcpTools(comments, { console: true })
+    expect((await tools[2]!.call({ id: thread!.id, body: "Fixed" }, { user: person, event: event() })).isError).toBeUndefined()
+    expect((await tools[3]!.call({ id: thread!.id }, { user: person, event: event() })).isError).toBeUndefined()
     const [, after] = await comments.get(thread!.id)
     expect(after?.messages.at(-1)?.author).toEqual({ id: person.id, name: person.name })
     expect(after?.resolvedBy).toEqual({ id: person.id, name: person.name })
 
-    const guestSession = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => ({ id: "guest-12345678-1234-4123-8123-123456789abc" }) })
-    const guestTools = commentsMcpTools(comments, { consoleSession: guestSession })
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
-    expect((await guestTools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: ada, event: request })).isError).toBeUndefined()
-    expect((await guestTools[3]!.call({ id: thread!.id }, { user: ada, event: request })).isError).toBeUndefined()
+    const request = event(headers)
+    expect((await tools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: null, event: request })).isError).toBeUndefined()
+    expect((await tools[3]!.call({ id: thread!.id }, { user: null, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)
     expect(updated?.messages.at(-1)?.author).toEqual({ id: "guest:ben", name: "Ben", guest: true })
     expect(updated?.resolvedBy).toEqual({ id: "guest:ben", name: "Ben", guest: true })
@@ -241,8 +179,8 @@ describe("Comments MCP tools", () => {
 
     const privateComments = await createComments({ authorize: undefined })
     const [, privateThread] = await privateComments.create({ page: "/", anchor, body: "Private", author: ada })
-    for (const tool of commentsMcpTools(privateComments, { consoleSession: guestSession })) {
-      expect((await tool.call({ id: privateThread!.id, body: "Denied" }, { user: ada, event: request })).isError).toBe(true)
+    for (const tool of commentsMcpTools(privateComments, { console: true })) {
+      expect((await tool.call({ id: privateThread!.id, body: "Denied" }, { user: null, event: request })).isError).toBe(true)
     }
     const [, unchanged] = await privateComments.get(privateThread!.id)
     expect(unchanged?.messages).toHaveLength(1)

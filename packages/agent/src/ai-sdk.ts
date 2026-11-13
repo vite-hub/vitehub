@@ -1,9 +1,9 @@
 import { executionBudgetMiddleware } from "./internal/execution-budget-middleware.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { getMessageText, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -42,7 +42,6 @@ import {
 } from "./trace.ts"
 
 import type {
-  Agent,
   AssistantContent,
   GenerateTextResult,
   ModelMessage,
@@ -180,7 +179,7 @@ function isChatModelTextPart(part: Extract<MessagePart, { type: "data" | `data-$
 /** Chat context parts may carry the exact text for the model in `data.modelText`. */
 function dataPartModelText(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): string {
   const data = part.data
-  return isChatModelTextPart(part) && hasRuntimeType(data, "object") && data !== null && "modelText" in data && hasRuntimeType(data.modelText, "string")
+  return isChatModelTextPart(part) && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
     ? data.modelText
     : JSON.stringify(data)
 }
@@ -208,7 +207,7 @@ function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>)
     return { type: "error-text", value: part.error } as ToolResultPart["output"]
   }
   const output = part.output ?? null
-  if (hasRuntimeType(output, "string")) {
+  if (typeof output === "string") {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { type: "text", value: output } as ToolResultPart["output"]
   }
@@ -350,7 +349,7 @@ export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
 }
 
 function hasModelMessageContent(content: unknown): boolean {
-  if (hasRuntimeType(content, "string")) return content.trim().length > 0
+  if (typeof content === "string") return content.trim().length > 0
   return Array.isArray(content) ? content.length > 0 : content != null
 }
 
@@ -365,15 +364,15 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 }
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
-  if (isAttachmentBlob(data)) return blobSize(data)
+  if (isAttachmentBlob(data)) return data.size
   if (isArrayBufferValue(data)) return data.byteLength
   if (isUint8ArrayValue(data)) return data.byteLength
-  if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
+  if (typeof data === "string") return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
-  if (isAttachmentBlob(data) && blobType(data).startsWith("image/")) return blobType(data)
-  if (hasRuntimeType(data, "string")) {
+  if (isAttachmentBlob(data) && data.type.startsWith("image/")) return data.type
+  if (typeof data === "string") {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length % 4 !== 0) return
@@ -401,13 +400,13 @@ function resolvedImageMediaType(data: AttachmentData): string | undefined {
 }
 
 function assertAttachmentWithinLimit(part: AttachmentPart, byteLength: number | undefined, maxBytes: number): void {
-  if (hasRuntimeType(byteLength, "number") && byteLength > maxBytes) {
+  if (typeof byteLength === "number" && byteLength > maxBytes) {
     throw agentDiagnostics.AGENT_R0007({ message: `[vitehub] ${part.type} attachment is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).` })
   }
 }
 
 async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number): Promise<{ byteLength: number, part?: AttachmentPart }> {
-  const hasFetchData = hasRuntimeType(part.fetchData, "function")
+  const hasFetchData = typeof part.fetchData === "function"
   if (!hasFetchData && !isAttachmentData(part.data)) return { byteLength: 0 }
   assertAttachmentWithinLimit(part, part.size, maxBytes)
   const resolved = await resolveAttachmentData(part)
@@ -417,7 +416,7 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
   if (!resolved) return { byteLength: 0 }
   assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
   const data = isAttachmentBlob(resolved)
-    ? new Uint8Array(await blobArrayBuffer(resolved)).buffer
+    ? new Uint8Array(await resolved.arrayBuffer()).buffer
     : resolved
   const byteLength = attachmentDataByteLength(data) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
@@ -430,16 +429,16 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
 
 function channelCurrentMessageId(context: AgentAdapterRunContext): string | null | undefined {
   const inputContext = context.input.context
-  if (!inputContext || !hasRuntimeType(inputContext, "object")) return
-  const channel = "channel" in inputContext && inputContext.channel && hasRuntimeType(inputContext.channel, "object")
+  if (!inputContext || typeof inputContext !== "object") return
+  const channel = "channel" in inputContext && inputContext.channel && typeof inputContext.channel === "object"
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? inputContext.channel as Record<string, unknown>
     : undefined
-  const message = channel?.message && hasRuntimeType(channel.message, "object")
+  const message = channel?.message && typeof channel.message === "object"
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? channel.message as Record<string, unknown>
     : undefined
-  return hasRuntimeType(message?.id, "string") && message.id ? message.id : null
+  return typeof message?.id === "string" && message.id ? message.id : null
 }
 
 async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<Message[]> {
@@ -619,12 +618,12 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
   tools: TTools,
   capture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ): TTools {
-  if (!capture || !tools || !hasRuntimeType(tools, "object")) return tools
+  if (!capture || !tools || typeof tools !== "object") return tools
 
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    if (!tool || !hasRuntimeType(tool, "object") || !hasRuntimeType((tool as { execute?: unknown }).execute, "function")) {
+    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
       return [name, tool]
     }
 
@@ -647,18 +646,18 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
 }
 
 function streamEventText(event: unknown): string | undefined {
-  if (hasRuntimeType(event, "string")) return event
-  if (!hasRuntimeType(event, "object") || event === null) return undefined
+  if (typeof event === "string") return event
+  if (typeof event !== "object" || event === null) return undefined
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = event as { delta?: unknown, text?: unknown, textDelta?: unknown, type?: unknown }
   if (record.type !== "text-delta" && record.type !== "text") return undefined
   const text = record.text ?? record.textDelta ?? record.delta
-  return hasRuntimeType(text, "string") ? text : undefined
+  return typeof text === "string" ? text : undefined
 }
 
 function recordFrom(value: unknown): Record<string, unknown> | undefined {
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  return hasRuntimeType(value, "object") && value !== null ? value as Record<string, unknown> : undefined
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
 }
 
 function pushDefinedOutput(outputs: unknown[], output: unknown): void {
@@ -668,7 +667,7 @@ function pushDefinedOutput(outputs: unknown[], output: unknown): void {
 function collectToolResultOutputs(value: unknown): unknown[] {
   const record = recordFrom(value)
   if (!record) return []
-  const type = hasRuntimeType(record.type, "string") ? record.type : undefined
+  const type = typeof record.type === "string" ? record.type : undefined
   const outputs: unknown[] = []
 
   if (type === "tool-result" || type === "tool-output-available") {
@@ -699,30 +698,30 @@ function collectToolResultOutputs(value: unknown): unknown[] {
 }
 
 function streamToolResultOutputs(event: unknown): unknown[] {
-  if (!hasRuntimeType(event, "object") || event === null) return []
+  if (typeof event !== "object" || event === null) return []
   return collectToolResultOutputs(event)
 }
 
 function streamEventType(event: unknown): string | undefined {
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  return hasRuntimeType(event, "object") && event !== null && hasRuntimeType((event as { type?: unknown }).type, "string")
+  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? (event as { type: string }).type
     : undefined
 }
 
 function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
-  return hasRuntimeType(finishEvent, "object") && finishEvent !== null
+  return typeof finishEvent === "object" && finishEvent !== null
     ? { ...finishEvent, finishReason: "workspace-fallback", type: "finish" }
     : { finishReason: "workspace-fallback", type: "finish" }
 }
 
 function finishEventReason(event: unknown): string | undefined {
-  if (!hasRuntimeType(event, "object") || event === null) return undefined
+  if (typeof event !== "object" || event === null) return undefined
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = event as { finishReason?: unknown, reason?: unknown }
   const reason = record.finishReason ?? record.reason
-  return hasRuntimeType(reason, "string") ? reason : undefined
+  return typeof reason === "string" ? reason : undefined
 }
 
 function workspaceFallbackTextEvents(text: string): unknown[] {
@@ -767,12 +766,12 @@ function withWorkspaceFallbackFullStream(
       yield event
       if (type === "error") {
         // SAFETY: The object check permits reading the optional error payload of a stream event.
-        const errorRecord = hasRuntimeType(event, "object") && event !== null ? event as { error?: unknown } : undefined
+        const errorRecord = typeof event === "object" && event !== null ? event as { error?: unknown } : undefined
         const streamError = errorRecord?.error
         const budgetReason = context.executionBudget?.signal.reason
         const budgetTimedOut = budgetReason instanceof DOMException && budgetReason.name === "TimeoutError"
         if (streamError instanceof ExecutionBudgetExceededError || budgetReason instanceof ExecutionBudgetExceededError || budgetTimedOut) return
-        if (!hasRuntimeType(event, "object") || (event as { recoverable?: unknown }).recoverable !== true) return
+        if (typeof event !== "object" || (event as { recoverable?: unknown }).recoverable !== true) return
       }
     }
 
@@ -827,7 +826,7 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  return hasRuntimeType(value, "function") ? await (value as (context: AgentAdapterMetadataContext) => MaybePromise<T>)(context) : value
+  return typeof value === "function" ? await (value as (context: AgentAdapterMetadataContext) => MaybePromise<T>)(context) : value
 }
 
 function joinInstructions(...parts: Array<AgentAdapterInstructionsValue | undefined>) {
@@ -876,7 +875,7 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
   if (!tools) return tools
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     const execute = tool?.execute
-    if (!hasRuntimeType(execute, "function")) return [name, tool]
+    if (typeof execute !== "function") return [name, tool]
     return [name, copyToolWithOverrides(tool, {
       async execute(...args: Parameters<typeof execute>) {
         try {
@@ -886,8 +885,8 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
           const name = readAgentErrorProperty(error, "name")
           const code = readAgentErrorProperty(error, "code")
           const why = readAgentErrorProperty(error, "why")
-          if (hasRuntimeType(name, "string")
-            && (hasRuntimeType(why, "string") || hasRuntimeType(code, "string") && name === code)) {
+          if (typeof name === "string"
+            && (typeof why === "string" || typeof code === "string" && name === code)) {
             throw agentDiagnostics.AGENT_R0009({ message: formatRuntimeDiagnosticError(error), cause: error })
           }
           throw error
@@ -904,12 +903,12 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = tool as { inputSchema?: unknown, type?: unknown } | undefined
-    if (!record || !hasRuntimeType(record, "object") || record.type === "provider" || record.type === "provider-defined") {
+    if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined") {
       return [name, tool]
     }
     if (record.inputSchema != null) {
       const inputSchema = record.inputSchema
-      if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || isStandardSchemaInput(inputSchema) || Object.hasOwn(inputSchema, "jsonSchema")) {
+      if (typeof inputSchema !== "object" || inputSchema === null || isStandardSchemaInput(inputSchema) || Object.hasOwn(inputSchema, "jsonSchema")) {
         return [name, tool]
       }
       return [name, copyToolWithOverrides(record, {
@@ -925,11 +924,11 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
 }
 
 function isStandardSchemaInput(value: unknown): boolean {
-  if (!hasRuntimeType(value, "object") || value === null) return false
+  if (typeof value !== "object" || value === null) return false
   if (Object.hasOwn(value, "~standard")) return true
   if (!("~standard" in value)) return false
   const marker = value["~standard"]
-  if (!hasRuntimeType(marker, "object") || marker === null) return false
+  if (typeof marker !== "object" || marker === null) return false
   const versionDescriptor = Object.getOwnPropertyDescriptor(marker, "version")
   const validateDescriptor = Object.getOwnPropertyDescriptor(marker, "validate")
   let version: unknown
@@ -944,14 +943,13 @@ function isStandardSchemaInput(value: unknown): boolean {
   } catch {
     return false
   }
-  return version === 1 && hasRuntimeType(validate, "function")
+  return version === 1 && typeof validate === "function"
 }
 
 function createAiSdkRuntimeContext(context: AgentAdapterRunContext) {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   return {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,
@@ -970,7 +968,7 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
   } = settings
   return {
     ...rest,
-    runtimeContext: existing && hasRuntimeType(existing, "object")
+    runtimeContext: existing && typeof existing === "object"
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ? { ...runtimeContext, ...(existing as Record<string, unknown>) }
       : runtimeContext,
@@ -980,12 +978,12 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
 const MODEL_TOKEN_BYTES_ESTIMATE = 4
 
 function usageTokenCount(usage: unknown, key: "inputTokens" | "outputTokens"): number | undefined {
-  if (!usage || !hasRuntimeType(usage, "object")) return
+  if (!usage || typeof usage !== "object") return
   const value = (usage as Record<string, unknown>)[key]
-  if (hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0) return Math.ceil(value)
-  if (value && hasRuntimeType(value, "object")) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.ceil(value)
+  if (value && typeof value === "object") {
     const total = (value as Record<string, unknown>).total
-    if (hasRuntimeType(total, "number") && Number.isFinite(total) && total >= 0) return Math.ceil(total)
+    if (typeof total === "number" && Number.isFinite(total) && total >= 0) return Math.ceil(total)
   }
 }
 
@@ -1016,7 +1014,7 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
   }
 
   const accountEvent = (event: unknown, usage: unknown, cumulative = false) => {
-    if (event && hasRuntimeType(event, "object")) {
+    if (event && typeof event === "object") {
       if (seenEvents.has(event)) return
       seenEvents.add(event)
     }
@@ -1025,7 +1023,7 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
 
   const capture = (event: unknown) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+    const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
     const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return undefined
     capturedUsage = usage
@@ -1038,7 +1036,7 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
     async onEnd(event: unknown) {
       capture(event)
       // Some AI SDK model adapters only report usage on the final callback.
-      const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+      const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
       if (record?.totalUsage !== undefined) accountEvent(event, record.totalUsage, true)
       else if (!modelCallObserved) accountEvent(event, capturedUsage)
     },
@@ -1067,11 +1065,11 @@ async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapt
   const usages = await Promise.all(captures.flatMap(capture => capture.usage ? [capture.usage] : []))
   if (usages.length < 2) return usages[0]
   const add = (left: unknown, right: unknown): unknown => {
-    if (hasRuntimeType(left, "number") || hasRuntimeType(right, "number")) {
-      return (hasRuntimeType(left, "number") ? left : 0) + (hasRuntimeType(right, "number") ? right : 0)
+    if (typeof left === "number" || typeof right === "number") {
+      return (typeof left === "number" ? left : 0) + (typeof right === "number" ? right : 0)
     }
-    if (!left || !hasRuntimeType(left, "object")) return right
-    if (!right || !hasRuntimeType(right, "object")) return left
+    if (!left || typeof left !== "object") return right
+    if (!right || typeof right !== "object") return left
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const leftRecord = left as Record<string, unknown>
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1085,7 +1083,7 @@ async function combinedCapturedUsage(captures: ReturnType<typeof createUsageCapt
 function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUsageCapture> | ReturnType<typeof createUsageCapture>[]): unknown {
   const captureList = Array.isArray(captures) ? captures : [captures]
   const usage = captureList.some(capture => capture.captured) ? combinedCapturedUsage(captureList) : undefined
-  if (result && hasRuntimeType(result, "object")) {
+  if (result && typeof result === "object") {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = result as Record<string, unknown>
     const resultUsage = record.usage
@@ -1113,7 +1111,7 @@ function withCapturedUsage(result: unknown, captures: ReturnType<typeof createUs
 
   return {
     raw: result,
-    text: hasRuntimeType(result, "string") ? result : undefined,
+    text: typeof result === "string" ? result : undefined,
     usage,
   }
 }
@@ -1146,19 +1144,19 @@ async function combinedUsageRecord(
 }
 
 function readModelString(value: unknown, ...keys: string[]): string | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const record = value as Record<string, unknown>
   for (const key of keys) {
     const item = record[key]
-    if (hasRuntimeType(item, "string") && item) return item
+    if (typeof item === "string" && item) return item
   }
 }
 
 function withResolvedModelMetadata(result: unknown, model: unknown): unknown {
   const modelId = readModelString(model, "modelId", "model")
   const provider = readModelString(model, "provider", "providerId")
-  if ((modelId === undefined && provider === undefined) || !result || !hasRuntimeType(result, "object")) {
+  if ((modelId === undefined && provider === undefined) || !result || typeof result !== "object") {
     return result
   }
 
@@ -1265,10 +1263,10 @@ async function instrumentCallSettings(
 function copyCallSettings(settings: Record<string, unknown> | undefined): Record<string, unknown> {
   const copy = { ...settings }
   const providers = settings?.providerOptions
-  if (!providers || !hasRuntimeType(providers, "object")) return copy
+  if (!providers || typeof providers !== "object") return copy
   copy.providerOptions = Object.fromEntries(Object.entries(providers).map(([name, value]) => [
     name,
-    value && hasRuntimeType(value, "object") ? { ...value } : value,
+    value && typeof value === "object" ? { ...value } : value,
   ]))
   return copy
 }
@@ -1343,7 +1341,6 @@ async function createAgent(
   const metadataContext = {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
-    actor: context.actor,
     context: context.context,
     fs: context.workspace?.fs,
     invoker: context.invoker,
@@ -1360,10 +1357,10 @@ async function createAgent(
     : await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const observedModel = instrumentations.length
-    ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
+    ? await instrumentModel(model, instrumentations, { ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
-  if (context.executionBudgetActive && !hasRuntimeType(wrapLanguageModel, "function")) {
+  if (context.executionBudgetActive && typeof wrapLanguageModel !== "function") {
     throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
   }
   const instructions = await composeInstructions(
@@ -1390,13 +1387,13 @@ async function createAgent(
   const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
+  const telemetryModel = model && typeof model === "object" ? model as { modelId?: unknown, provider?: unknown } : undefined
   if (!isAuxiliaryAgentAdapterContext(context)) {
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {
         model: {
-          ...(hasRuntimeType(telemetryModel?.modelId, "string") ? { id: telemetryModel.modelId } : {}),
-          ...(hasRuntimeType(telemetryModel?.provider, "string") ? { provider: telemetryModel.provider } : {}),
+          ...(typeof telemetryModel?.modelId === "string" ? { id: telemetryModel.modelId } : {}),
+          ...(typeof telemetryModel?.provider === "string" ? { provider: telemetryModel.provider } : {}),
         },
       },
       ...(instructions ? { instructions: [instructions] } : {}),
@@ -1413,7 +1410,6 @@ async function createAgent(
   const baseCallSettings = copyCallSettings(execution?.callSettings)
   const instrumentedCallSettings = await instrumentCallSettings(baseCallSettings, instrumentations, {
     ...runtime,
-    actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,
@@ -1427,7 +1423,7 @@ async function createAgent(
   const instrumentedModel = executionBudget && wrapLanguageModel
     ? wrapLanguageModel({
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
-        middleware: executionBudgetMiddleware(executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
+        middleware: executionBudgetMiddleware(executionBudget, typeof settings.maxRetries === "number" ? settings.maxRetries : undefined),
       })
     : observedModel
   // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
@@ -1438,7 +1434,7 @@ async function createAgent(
   const commonSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
-  const prepareRepairCall = hasRuntimeType(prepareCall, "function")
+  const prepareRepairCall = typeof prepareCall === "function"
     ? async (input: Record<string, unknown>) => ({
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         ...withoutRepairConversationSettings(await prepareCall(input as never) as Record<string, unknown>),
@@ -1447,11 +1443,11 @@ async function createAgent(
     : undefined
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
   let repairBudgetError: ExecutionBudgetExceededError | undefined
-  const guardedModel = hasRuntimeType(observedModel, "object")
+  const guardedModel = typeof observedModel === "object"
     ? new Proxy(instrumentedModel as object, {
         get(target, property, receiver) {
           const value = Reflect.get(target, property, receiver)
-          if (!hasRuntimeType(value, "function") || property !== "doGenerate" && property !== "doStream") return value
+          if (typeof value !== "function" || property !== "doGenerate" && property !== "doStream") return value
           return (...args: unknown[]) => {
             if (repairBudgetError) throw repairBudgetError
             return Reflect.apply(value, target, args)
@@ -1502,7 +1498,7 @@ async function createAgent(
   const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
   const customRepairToolCall = execution?.repairToolCall === false
     ? undefined
-    : hasRuntimeType(execution?.repairToolCall, "function")
+    : typeof execution?.repairToolCall === "function"
       ? execution.repairToolCall
       : configuredRepairToolCall
   // The built-in repair spends its own retry before its model call.
@@ -1535,7 +1531,7 @@ async function createAgent(
     ? async (failure: { error: Error, evidence?: string[], text: string }, callInput: Record<string, unknown> | (() => Record<string, unknown>)): Promise<AgentAdapterResult> => {
         let latestFailure = failure
         for (let attempt = 1; attempt < maxOutputAttempts; attempt += 1) {
-          const resolvedCallInput = hasRuntimeType(callInput, "function") ? callInput() : callInput
+          const resolvedCallInput = typeof callInput === "function" ? callInput() : callInput
           const { messages: _messages, options: _options, prompt: _prompt, ...repairCallInput } = resolvedCallInput
           let repairResult: AgentAdapterResult | undefined
           try {
@@ -1551,7 +1547,7 @@ async function createAgent(
           }
           catch (repairError) {
             const repairedFailure = await nativeAgentOutputValidationFailure(context.output, repairError)
-            const code = repairError !== null && hasRuntimeType(repairError, "object")
+            const code = repairError !== null && typeof repairError === "object"
               ? Reflect.get(repairError, "code")
               : undefined
             if (!repairedFailure && code !== "AGENT_OUTPUT_INVALID_JSON" && code !== "AGENT_OUTPUT_SCHEMA_INVALID") {
@@ -1593,7 +1589,7 @@ async function createAgent(
 }
 
 export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
-  const staticTools = hasRuntimeType(options.tools, "object") && options.tools
+  const staticTools = typeof options.tools === "object" && options.tools
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ? withAgentToolStepReporting(withAgentToolJsonSchemas(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {})))
     : undefined
@@ -1653,7 +1649,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           usageRecord = await combinedUsageRecord(calls, combinedCapturedUsage(captures))
         }
         const raw = withCapturedUsage(original, captures)
-        if (raw && hasRuntimeType(raw, "object") && usageRecord) {
+        if (raw && typeof raw === "object" && usageRecord) {
           Object.defineProperty(raw, "usageRecord", {
             configurable: true,
             enumerable: true,
@@ -1797,18 +1793,4 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },
   })
-}
-
-export function fromAiSdkAgent(agent: Agent): AgentAdapter {
-  return {
-    async generate(context) {
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return await agent.generate(await getCallInput(context) as never)
-    },
-    name: "ai-sdk",
-    async stream(context) {
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return await agent.stream(await getCallInput(context) as never)
-    },
-  }
 }

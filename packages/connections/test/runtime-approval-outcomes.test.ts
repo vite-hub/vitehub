@@ -50,7 +50,7 @@ it.each([
   }
   if (kind === "fetch" && stage === "network") {
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => runtime })
-    const response = await handler(new Request("http://localhost/_vitehub/connections", { body: JSON.stringify({ action: "approve", id }), headers: { origin: "http://localhost", "content-type": "application/json" }, method: "POST" }))
+    const response = await handler.fetch(new Request("http://localhost/_vitehub/connections", { body: JSON.stringify({ action: "approve", id }), headers: { origin: "http://localhost", "content-type": "application/json" }, method: "POST" }))
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_EXECUTION_UNKNOWN", message: expect.stringContaining(`Approval: ${id}.`) } })
   }

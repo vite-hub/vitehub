@@ -2,7 +2,6 @@ import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runt
 import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import type { ViteHubErrorDetail } from "@vite-hub/runtime"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type {
   AgentBudgetExceeded,
@@ -30,7 +29,7 @@ function assertFiniteLimit(value: number | undefined, name: string): void {
 
 function normalizeTokens(value: AgentBudgetOptions["tokens"]): AgentBudgetTokenLimits {
   if (value === undefined) return {}
-  if (hasRuntimeType(value, "number")) {
+  if (typeof value === "number") {
     assertFiniteLimit(value, "tokens")
     return { total: value }
   }
@@ -78,7 +77,7 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
-    if (hasRuntimeType(options.usd, "number")) assertFiniteLimit(options.usd, "usd")
+    if (typeof options.usd === "number") assertFiniteLimit(options.usd, "usd")
     decimalParts(options.usd)
     usd = options.usd
   }
@@ -135,7 +134,7 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (hasRuntimeType(current, "number")) return current <= maxOutputTokens ? undefined : { maxOutputTokens }
+          if (typeof current === "number") return current <= maxOutputTokens ? undefined : { maxOutputTokens }
           return { maxOutputTokens }
         },
       })

@@ -8,9 +8,9 @@ import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { cleanupGmailChannel, gmail, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { gmail, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
-import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
+import { defineAgent, runAgentTrigger, agentWorkflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
@@ -295,7 +295,7 @@ describe("gmail() Channel", () => {
     const chatSet = vi.spyOn(chatState, "set")
     const webhookSet = vi.spyOn(webhookState, "set")
     const driver = vi.fn(() => "ok")
-    const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: driver }, name: "gmail-workflow-state", runtime: workflow("gmail-workflow-state") })
+    const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: driver }, name: "gmail-workflow-state", runtime: agentWorkflow("gmail-workflow-state") })
     const tasks: Promise<unknown>[] = []
     const response = await createChannelWebhookRouteHandler(agent)(new Request(audience, {
       body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: 100 })), messageId: "workflow-state" }, subscription }),
@@ -1673,7 +1673,7 @@ describe("gmail() Channel", () => {
     }
     const status = async () => await agentChannelOperations[4].run({ agent: "labeller", channel: "gmail" }, {
       access: { mode: "open", sections: "all" },
-      request: new Request("http://vitehub.local/_vitehub/rpc/__call"),
+      request: new Request("http://vitehub.local/_vitehub/rpc"),
       surface: "console",
       user: null,
     })
@@ -2289,43 +2289,13 @@ describe("gmail() Channel", () => {
     expect(instructions).not.toContain("Newsletters")
   })
 
-  it("lists cleanup matches including Spam, then trashes them only with apply", async () => {
-    const requests: string[] = []
-    const queries: unknown[] = []
-    const channel = gmail({
-      async client(request) {
-        requests.push(`${request.method} ${request.path}`)
-        if (request.path === "messages") {
-          queries.push(request.query)
-          return { messages: [{ id: "m1" }, { id: "gone" }, ...(request.query?.includeSpamTrash === true ? [{ id: "spam" }] : [])] }
-        }
-        if (request.path === "messages/gone/trash") throw Object.assign(new Error("Not Found"), { status: 404 })
-        return {}
-      },
-    })
-    const rules = { promotions: { label: "Shop/Deals", olderThan: 14 } }
-    const query = 'label:"Shop/Deals" older_than:14d -is:starred -in:trash'
-
-    await expect(cleanupGmailChannel(channel, { rules })).resolves.toEqual({
-      applied: false,
-      rules: [{ messageIds: ["m1", "gone", "spam"], query, rule: "promotions" }],
-    })
-    expect(requests).toEqual(["GET messages"])
-    expect(queries).toEqual([{ includeSpamTrash: true, labelIds: undefined, maxResults: 500, pageToken: undefined, q: query }])
-
-    requests.length = 0
-    await expect(cleanupGmailChannel(channel, { apply: true, rules })).resolves.toMatchObject({ applied: true })
-    expect(requests).toEqual(["GET messages", "POST messages/m1/trash", "POST messages/gone/trash", "POST messages/spam/trash"])
-  })
-
-  it("rejects invalid cleanup rules before calling Gmail", async () => {
-    const client = vi.fn(async () => ({}))
+  it("gives the client of a gmail() Channel and rejects other Channels", async () => {
+    const client = vi.fn(async () => ({ messages: [] }))
     const channel = gmail({ client })
-    await expect(cleanupGmailChannel(channel, { rules: { bad: { label: 'a"b', olderThan: 1 } } })).rejects.toThrow(/without quotes/)
-    await expect(cleanupGmailChannel(channel, { rules: { bad: { label: "Promotions", olderThan: 0 } } })).rejects.toThrow(/positive whole number/)
-    await expect(cleanupGmailChannel(channel, { rules: { bad: { label: "Promotions", olderThan: 1.5 } } })).rejects.toThrow(/positive whole number/)
-    await expect(cleanupGmailChannel(channel, { rules: {} })).resolves.toEqual({ applied: false, rules: [] })
-    expect(client).not.toHaveBeenCalled()
+    const resolved = await gmailClient(channel)
+    await expect(resolved({ method: "GET", path: "messages" })).resolves.toEqual({ messages: [] })
+    expect(client).toHaveBeenCalledWith({ method: "GET", path: "messages" })
+    await expect(gmailClient({ ...channel, kind: "http" })).rejects.toThrow(/expects a Channel from gmail/)
   })
 
   it("runs a received message through a custom Gmail client", async () => {

@@ -7,7 +7,7 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { readDependencies } from "../shared/detect.ts"
-import { bindingResolver } from "../shared/lexical-bindings.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
 
 import type { File, Identifier, ImportDeclaration, StringLiteral } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -38,11 +38,10 @@ const h3Removed = new Map([
   ["installStandardContext", "`installStandardContext` is no longer public. ViteHub sets `event[\"~standard\"]` on each request, and the primitives set it for an event that Nitro did not create. Remove the import and its calls."],
 ])
 const nodeNames = new Set(["nodeRuntimeResources", "NodeRuntimeResourceInspectorOptions"])
-const nodeRemoved = "is no longer public. ViteHub uses it to run Agents and drains on Node. Only `nodeRuntimeResources()` stays, in `vite-hub/agent/capabilities`."
 const logNames = new Set(["createLogBuffer", "LogBuffer", "LogCursorExpiredError", "parseLogQuery", "LogEntry", "LogLevel", "LogPage", "LogQuery", "LogSource", "LogSourceInfo"])
 
 const authSetter = "ViteHub sets it in generated code. Remove the call. To read host bindings, use the request event: `getStandardContext(event).runtime.cloudflare.env` from `vite-hub/runtime`."
-const authFactory = "Read the discovered Better Auth instance with `getAuthForRequest(request)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`."
+const authFactory = "Read the discovered Better Auth instance with `useAuth(event)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`."
 const authAccess = "Configure `access.routes` in `defineAuth()`. The generated middleware checks them on each request."
 const authRemoved = new Map<string, string>([
   ["resetAuth", authSetter],
@@ -53,11 +52,13 @@ const authRemoved = new Map<string, string>([
   ["createAuthRequestRuntimeOptions", authFactory],
   ["createBetterAuthOptions", authFactory],
   ["getAuthForDefinition", authFactory],
+  ["getAuthForRequest", "Read the request instance with `useAuth(event)`."],
+  ["getAuthorization", "Read the checked session with `await requireAuth(event)` inside the handler."],
   ["handleAuthRequest", "Use `handleAuth(input)` for the discovered Definition, or `createAuthHandler(definition)` for another one."],
   ["toAuthRequest", "Read the Request with `getStandardContext(event).req` from `vite-hub/runtime`, or pass the Request itself."],
   ["createAuthAccessHandler", authAccess],
   ["requireAuthAccessRoutes", authAccess],
-  ["assertAuthOrigin", "Check the origin with `getAuthForRequest(request).$context` and its `isTrustedOrigin()`."],
+  ["assertAuthOrigin", "Check the origin with `useAuth(event).$context` and its `isTrustedOrigin()`."],
 ].map(([name, fix]) => [name, `\`${name}\` is no longer public. ${fix}`]))
 const authPrivate = "ViteHub imports it in generated code. Remove the import."
 

@@ -149,6 +149,14 @@ describe("built-in Channel replay public types", () => {
     })
   })
 
+  it("accepts per-Channel transcripts on built-in Channels", () => {
+    telegram({ transcripts: { maxPerUser: 500, retention: "90d" } })
+    telegram({ transcripts: false })
+    slack({ transcripts: false })
+    // @ts-expect-error transcripts takes false or a transcripts config.
+    telegram({ transcripts: true })
+  })
+
   it("infers telegram replay items independently of message data", () => {
     telegram({
       history: { collection, trigger: "received", key(item) {

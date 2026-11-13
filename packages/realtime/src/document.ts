@@ -1,9 +1,11 @@
 import { getSchema } from "@tiptap/core"
 import { prosemirrorJSONToYXmlFragment, updateYFragment, yXmlFragmentToProsemirrorJSON } from "@tiptap/y-tiptap"
 import * as Y from "yjs"
+import { isRecord } from "@vite-hub/internal/object"
 
 export { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 
+import type { JSONContent } from "@tiptap/core"
 import type { Schema } from "@tiptap/pm/model"
 import { realtimeDocumentLayout } from "./layout.ts"
 import type { RealtimeDocumentSnapshot, RealtimeDocumentStatus, RealtimeEditor, RealtimeFieldValue } from "./types.ts"
@@ -17,10 +19,6 @@ function realtimeEditorSchema(editor: RealtimeEditor): Schema {
     schemas.set(editor, schema)
   }
   return schema
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function stableJson(value: unknown): string {
@@ -70,18 +68,32 @@ function readRealtimeFields(document: Y.Doc): Record<string, RealtimeFieldValue>
   return document.getMap(realtimeDocumentLayout.fields).toJSON() as Record<string, RealtimeFieldValue>
 }
 
+function readRealtimeBody(editor: RealtimeEditor, document: Y.Doc): JSONContent {
+  const content = yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body))
+  // Yjs stores the root's children and its JSON converter always wraps them in `doc`.
+  return { ...content, type: realtimeEditorSchema(editor).topNodeType.name }
+}
+
 export async function readRealtimeYDoc(editor: RealtimeEditor, document: Y.Doc): Promise<Required<RealtimeDocumentSnapshot>> {
   // Read both before the codec's first await, so a document that is destroyed meanwhile still reads whole.
-  const content = yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body))
+  const content = readRealtimeBody(editor, document)
   const fields = readRealtimeFields(document)
   return { body: await editor.toMarkdown(content), fields }
+}
+
+/**
+ * Throws when the body of `document` does not fit the editor schema, such as a node type the schema does not know.
+ * A codec that builds an editor from such JSON writes an empty or partial document.
+ */
+export function checkRealtimeBody(editor: RealtimeEditor, document: Y.Doc): void {
+  realtimeEditorSchema(editor).nodeFromJSON(readRealtimeBody(editor, document)).check()
 }
 
 /** Whether `fromMarkdown(body)` gives back the body of `document`, where `body` is what `toMarkdown` wrote for it. */
 export async function realtimeCodecReadsBack(editor: RealtimeEditor, document: Y.Doc, body: string): Promise<boolean> {
   const schema = realtimeEditorSchema(editor)
   try {
-    const written = schema.nodeFromJSON(yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body)))
+    const written = schema.nodeFromJSON(readRealtimeBody(editor, document))
     return written.eq(schema.nodeFromJSON(await editor.fromMarkdown(body)))
   }
   catch {

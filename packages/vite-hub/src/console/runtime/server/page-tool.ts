@@ -1,39 +1,64 @@
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
+import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
-import type { ViteHubPageToolsInstallOptions } from "@vite-hub/internal/runtime/page-tools"
+import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 
-import { getConsoleSections } from "./sections.ts"
+import type { ConsoleUser } from "../../auth-types.ts"
 
-import type { ConsoleSectionId } from "../sections.ts"
+/** The ViteHub Auth user of a page request, and whether they get the Console link without `authorize`. */
+export interface ConsolePageUser {
+  user: ConsoleUser
+  /** An admin of Better Auth's `admin()` plugin, or a user with the `console` role that Site access gives. */
+  console: boolean
+}
 
-/** The access checks load on the first page that asks for the tools, not when the server starts. */
-async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind?: "read" | "write"): Promise<boolean> {
-  return (await import("./access.ts")).consoleAllowsRequest(event, section, kind)
+export interface ConsolePageToolOptions {
+  /** The app base, such as `/portal/`. The page tools use it for the loader tag of Nitro 3 pages. Default: the root. */
+  base?: string
+  /** The path of the segment script below the app base, such as `/_vitehub/console/assets/page-tool.js?v=1`. */
+  script: string
+  /** Reads the ViteHub Auth user of the request. Generated output sets it when the app has Auth. */
+  user?: (request: Request) => Promise<ConsolePageUser | undefined>
 }
 
 /**
- * The Console page tool script, with the Console's hashed assets, below the app base. The package build writes the
- * hashed file name.
+ * Whether a visitor gets the **Console** link in the page tools pill. The link opens the app in the hosted Console,
+ * which checks the person and the team itself, so the link gives no access. This only keeps it away from the app's
+ * end users.
+ * - A development server shows it to every visitor.
+ * - With `console.authorize`, it runs with `via: "page"` and the app's Auth `user`. `true`, or `{ sections }` with at
+ *   least one section, shows the link.
+ * - Without `authorize`, it shows to a ViteHub Auth user that Better Auth's `admin()` plugin counts as an admin, or
+ *   that has the `console` role, which Site access gives to Console members.
  */
-const script = "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__"
+export async function consolePageToolAllowed(request: Request, options: Pick<ConsolePageToolOptions, "user"> = {}): Promise<boolean> {
+  if (isConsoleDevelopmentBuild()) return true
+  const policy = installedConsoleAccessPolicy()
+  if (!policy || policy.mode === "local") return false
+  const person = await options.user?.(request)
+  if (!policy.authorize) return person?.console === true
+  const result: unknown = await policy.authorize(person ? { request, user: person.user, via: "page" } : { request, via: "page" })
+  if (result === true) return true
+  return !isRuntimeResponse(result) && (consoleAuthorizedSections(result)?.length ?? 0) > 0
+}
 
 /**
- * Registers the Console and Content windows in the page tools pill. The Console access policy decides
- * who gets it, so in `local` mode only the development server shows it. Generated Console output calls this with the
- * app base.
+ * Registers the **Console** link in the page tools pill, and installs the page tools, so an app with the Console and no
+ * Comments gets them too. Generated Console output calls this with the app base.
  */
-export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
+export function installConsolePageTool(nitroApp: unknown, options: ConsolePageToolOptions): void {
   registerViteHubPageTool(nitroApp, {
     id: "console",
     label: "Console",
     icon: "i-lucide-square-terminal",
-    script, lazy: true,
-    allowed: ({ event }) => consoleAllowsRequest(event),
+    script: options.script,
+    async allowed({ request }) {
+      // In a ViteHub app, the Request of the session route carries the Standard Context that Auth reads.
+      installRequestStandardContext(request)
+      return await consolePageToolAllowed(request, options)
+    },
   })
-  registerViteHubPageTool(nitroApp, {
-    // Eager, so the segment can offer the draft of the open page before the editor opens. The editor frame still waits.
-    id: "content", label: "Content", icon: "i-lucide-file-pen", script,
-    allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content", "write"),
-  })
-  installViteHubPageTools(nitroApp, options)
+  installViteHubPageTools(nitroApp, { base: options.base })
 }

@@ -42,6 +42,8 @@
       "vitehub-hosted": "./dist/runtime/definition-hosted.js",
       "default": "./dist/runtime/definition-local.js"
     },
+    "#vitehub/database/libsql": "./dist/runtime/libsql.js",
+    "#vitehub/database/migrations": "./dist/runtime/virtual-migrations.js",
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {
@@ -70,50 +72,25 @@
       "import": "./dist/connect/node.js",
       "default": "./dist/connect/node.js"
     },
-    "./drizzle": {
-      "types": "./dist/drizzle.d.ts",
-      "import": "./dist/drizzle.js",
-      "default": "./dist/drizzle.js"
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
-    "./runtime/agent": {
-      "types": "./dist/runtime/agent.d.ts",
-      "import": "./dist/runtime/agent.js",
-      "default": "./dist/runtime/agent.js"
+    "./runtime/libsql-drizzle": {
+      "types": "./dist/runtime/libsql-drizzle.d.ts",
+      "import": "./dist/runtime/libsql-drizzle.js",
+      "default": "./dist/runtime/libsql-drizzle.js"
     },
-    "./runtime/d1": {
-      "types": "./dist/runtime/d1.d.ts",
-      "import": "./dist/runtime/d1.js",
-      "default": "./dist/runtime/d1.js"
-    },
-    "./runtime/default-database": {
-      "types": "./dist/runtime/default-database.d.ts",
-      "import": "./dist/runtime/default-database.js",
-      "default": "./dist/runtime/default-database.js"
-    },
-    "./runtime/default-database-postgresql": {
-      "types": "./dist/runtime/default-database-postgresql.d.ts",
-      "import": "./dist/runtime/default-database-postgresql.js",
-      "default": "./dist/runtime/default-database-postgresql.js"
-    },
-    "./runtime/hosted": {
-      "types": "./dist/runtime/hosted.d.ts",
-      "import": "./dist/runtime/hosted.js",
-      "default": "./dist/runtime/hosted.js"
-    },
-    "./runtime/migrate-on-start": {
-      "types": "./dist/runtime/migrate-on-start.d.ts",
-      "import": "./dist/runtime/migrate-on-start.js",
-      "default": "./dist/runtime/migrate-on-start.js"
-    },
-    "./runtime/postgres": {
-      "types": "./dist/runtime/postgres.d.ts",
-      "import": "./dist/runtime/postgres.js",
-      "default": "./dist/runtime/postgres.js"
+    "./runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
     },
     "./runtime/request-stats": {
       "types": "./dist/runtime/request-stats.d.ts",
@@ -124,16 +101,6 @@
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/virtual-databases": {
-      "types": "./dist/runtime/virtual-databases.d.ts",
-      "import": "./dist/runtime/virtual-databases.js",
-      "default": "./dist/runtime/virtual-databases.js"
-    },
-    "./runtime/virtual-schema": {
-      "types": "./dist/runtime/virtual-schema.d.ts",
-      "import": "./dist/runtime/virtual-schema.js",
-      "default": "./dist/runtime/virtual-schema.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
@@ -156,24 +123,25 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/database#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/database#build && vp test"
+    "test": "vp run --cache -t @vite-hub/database#build && vp test"
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
-    "esbuild": "catalog:tooling",
-    "h3": "catalog:unjs",
     "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
+    "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -182,12 +150,19 @@
     "postgres": "catalog:database"
   },
   "peerDependencies": {
-    "drizzle-kit": "catalog:database",
-    "drizzle-orm": "catalog:database",
+    "@electric-sql/pglite": "catalog:database",
+    "drizzle-kit": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": true
+    },
+    "drizzle-kit": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     },

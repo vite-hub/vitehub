@@ -185,7 +185,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         gmail: {
@@ -212,20 +212,22 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    server: {
-      gmail: {
-        clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
-        refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
-        pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
-        pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
-        pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
-        pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        gmail: {
+          clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
+          refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
+          pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
+          pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
+          pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
+          pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -237,20 +239,22 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    server: {
-      gmail: {
-        clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
-        refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
-        pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
-        pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
-        pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
-        pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        gmail: {
+          clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
+          refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
+          pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
+          pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
+          pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
+          pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
@@ -421,24 +425,20 @@ pnpm vitehub channels replay --agent labeller --channel gmail --query "in:inbox 
 
 See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `replayChannel()`, cursors, and `--force`.
 
-## Clean up old mail
+## Call the Gmail API
 
-`cleanupGmailChannel()` moves labelled mail older than a number of days to Trash, except starred mail. Without `apply: true`, it only returns matching IDs. Each run moves at most 500 messages per rule, so call it from a daily [Schedule](/docs/schedule):
+`gmailClient(channel)` returns the Gmail REST client of a Channel, with the same credentials. Use it for a request that the Channel does not make, such as a search. Paths are relative to `users/me/`:
 
-```ts [server/schedules/cleanup.ts]
-import { defineSchedule } from 'vite-hub/schedule'
-import { cleanupGmailChannel } from 'vite-hub/agent/channels'
+```ts [server/api/old-promotions.get.ts]
+import { defineEventHandler } from 'h3'
+import { gmailClient } from 'vite-hub/agent/channels'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import { inbox } from '../lib/inbox'
 
-export default defineSchedule({
-  cron: '0 4 * * *',
-  async handler() {
-    await cleanupGmailChannel(inbox, {
-      apply: true,
-      rules: { promotions: { label: 'Promotions', olderThan: 14 } },
-    })
-  },
+export default defineEventHandler(async (event) => {
+  const gmail = await gmailClient(inbox, { runtime: getRuntimeContext(event) })
+  return await gmail({ method: 'GET', path: 'messages', query: { q: 'label:Promotions older_than:14d' } })
 })
 ```
 
-The [Labeller preset](/docs/agents/labeller#clean-up-old-mail) declares these rules in its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.

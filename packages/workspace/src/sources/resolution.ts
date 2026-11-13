@@ -19,6 +19,7 @@ import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExec
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView, type WorkspaceSourceWriteGrant } from "./view.ts"
 import { isWorkspaceSourceSyncMetaKey } from "./sync-state.ts"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 
 import type {
   ReadonlyWorkspaceFacade,
@@ -164,13 +165,11 @@ const isWorkspaceSourceProxy: (value: object) => boolean | undefined = (() => {
       process?: { getBuiltinModule?: (name: string) => unknown }
     }).process
     const getBuiltinModule = process?.getBuiltinModule
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
     if (typeof getBuiltinModule !== "function") return (_value: object) => undefined
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
     const util = getBuiltinModule.call(process, "util") as {
       types?: { isProxy?: (value: object) => boolean }
     } | undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
     return typeof util?.types?.isProxy === "function" ? util.types.isProxy : (_value: object) => undefined
   }
   catch {
@@ -945,10 +944,6 @@ function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSo
   }
   if (ownSourceOption(source, "sync")) return source
   return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {

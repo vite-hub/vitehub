@@ -3,7 +3,7 @@ import { defu } from "defu"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"
+import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface WorkflowResolutionInput {
@@ -190,7 +190,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   return defu(shared, { provider: "vercel" as const })
 }
 
-export function normalizeWorkflowOptions(options: WorkflowModuleOptions | undefined, input: WorkflowResolutionInput = {}): ResolvedWorkflowOptions | undefined {
+export function normalizeWorkflowOptions(options: WorkflowOptions | undefined, input: WorkflowResolutionInput = {}): ResolvedWorkflowOptions | undefined {
   if (options === false) return undefined
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw workflowErrorDiagnostics.WORKFLOW_C0013({ message: "`workflow` must be a plain object." })

@@ -22,6 +22,7 @@ import type {
   WorkspaceStore,
 } from "../../core/types.ts"
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 type BlobListItem = {
   key: string
@@ -50,10 +51,6 @@ async function serializeFileMutation(key: string, mutate: () => Promise<void>): 
   finally {
     if (fileMutations.get(key) === pending) fileMutations.delete(key)
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function invalidBlobListResponse(): never {
@@ -200,7 +197,11 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #client() {
-    this.#files ||= createVercelBlobClient(this.#options)
+    // A failed load lets the next call try again.
+    this.#files ||= createVercelBlobClient(this.#options).catch((error: unknown) => {
+      this.#files = undefined
+      throw error
+    })
     return await this.#files
   }
 

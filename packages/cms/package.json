@@ -49,7 +49,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/cms#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/cms#build && vp test"
+    "test": "vp run --cache -t @vite-hub/cms#build && vp test"
   },
   "dependencies": {
     "@vite-hub/content": "workspace:*",
@@ -59,7 +59,6 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@vite-hub/blob": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",

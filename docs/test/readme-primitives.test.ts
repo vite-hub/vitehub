@@ -8,7 +8,7 @@ const repoRoot = resolve(import.meta.dirname, "../..");
 const regenerate = "Run node docs/scripts/primitive-svgs.mjs";
 
 describe("README primitives", () => {
-  it("keeps the exported scenes in sync with the landing page", async () => {
+  it("keeps the exported icons in sync with the landing page", async () => {
     const files = await renderPrimitiveSvgs();
 
     expect(files.size).toBe(landingPrimitives.length);

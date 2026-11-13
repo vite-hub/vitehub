@@ -132,6 +132,7 @@ function candidates(input: ResponsiveImageInput, url: string, crop: string | und
  */
 export function responsiveImage(input: ResponsiveImageInput, options: ResponsiveImageOptions = {}): ResponsiveImage {
   const url = options.url ?? input.url
+  // Internal invariant: @vite-hub/blob/media runs in the browser without nostics, and callers check for TypeError.
   if (!url) throw new TypeError("[vitehub] responsiveImage() needs the served URL of the image. Read the record from the served Blob Store or pass `url`.")
   const sizes = options.sizes ?? "100vw"
   const style = [

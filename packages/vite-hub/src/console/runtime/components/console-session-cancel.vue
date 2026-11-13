@@ -78,7 +78,6 @@ async function cancelInvocation(): Promise<void> {
     <UButton
       data-slot="session-cancel"
       icon="i-lucide-circle-stop"
-      color="neutral"
       variant="ghost"
       size="xs"
       :loading="pending"

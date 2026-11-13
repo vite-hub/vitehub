@@ -54,7 +54,7 @@ const turns = [
         </MessageScrollerContent>
       </MessageScrollerViewport>
       <MessageScrollerButton>
-        <UIcon name="i-ph-arrow-down-light" />
+        <UIcon name="i-lucide-arrow-down" />
       </MessageScrollerButton>
     </MessageScroller>
   </div>

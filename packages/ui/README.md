@@ -7,7 +7,7 @@
 
 Vue primitives for AI chat, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
-`Markdown` accepts a string or a parsed Content page. Comark UI block components and document styles are bundled, so readers do not install Comark packages or assemble a component map. `vite-hub/nuxt` auto-imports the primitive; Vite apps import it from `@vite-hub/ui/markdown`.
+`Markdown` accepts a string or a parsed Content page. Comark UI block components and document styles are bundled, so readers do not install Comark packages or assemble a component map. `vite-hub/nuxt` auto-imports the primitive; Vite apps import it from `@vite-hub/ui`.
 
 Markdown images and image attachments use compact thumbnails with an expanded preview. The preview preserves the full aspect ratio and supports Escape, focus return, and opening the original image. Prompt attachments have a separate Remove button.
 
@@ -15,18 +15,20 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 
 | Import                  | Use it for                                                                                | Application responsibility                                                                     |
 | ----------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `@vite-hub/ui`          | Styled chat, prompt, Markdown, session, trace, diff, and file-tree components | State, transport, persistence, routes, and authorization                                       |
-| `@vite-hub/ui/chat` (and other component entries) | One component or part family, for example `Chat`, `PromptInput`, or the `Trace` parts | State, transport, persistence, routes, and authorization |
+| `@vite-hub/ui`          | Every styled component: chat, prompt, Markdown, session, trace, diff, file tree, comments, and the shadcn/ui part families | State, transport, persistence, routes, and authorization                                       |
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, message jumps, `useComments()`, and the Choices input parts | Markup and styles; Nuxt UI is not required                                                     |
-| `@vite-hub/ui/choices-input` | The text box, clear button, live region, and error of a `useChoices()` input, without styles; `FilterSearch` in `@vite-hub/ui/filter-search` styles them with Nuxt UI | Markup, styles, and applying the selection in `onSelect` |
-| `@vite-hub/ui/workspace` (and the other workspace entries) | A live app in the browser: editor, terminal, preview, boot checklist, and Connect | Files, tokens, and the cross-origin isolated route |
+| `@vite-hub/ui/markdown-editor` | `MarkdownEditor`, with Tiptap | Uploads and where the Markdown is saved |
+| `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `PlaygroundContainer`, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
+| `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
+| `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
+| `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
 
-`@vite-hub/ui/primitive-rail` holds the icon rail and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. ViteHub docs and the Console share both. `vite-hub/nuxt` registers the `vitehub` Iconify collection, so `i-vitehub-kv` also works in `UIcon`. It is internal: it can change in any release and `vite-hub/nuxt` does not auto-import it. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
+Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
 
-The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Each family has one entry, for example `@vite-hub/ui/trace` exports `Trace`, `TraceLine`, and the other Trace parts. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Import them under another name, for example `import { Message as VhMessage } from "@vite-hub/ui/message"`, when the application already has a `Message` or `Trace` component.
+`vite-hub/nuxt` registers the `vitehub` Iconify collection, so `i-vitehub-kv` works in `UIcon`. The icon rail of ViteHub docs and the Console is in `@vite-hub/docs/primitive-rail`. Its styles stay in `@vite-hub/ui/styles.css`.
 
-Component entries use kebab-case and export the same component object as the package root. Use them when a development import should stay out of the root barrel; the root remains the default for applications that use several components.
+The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Import them under another name, for example `import { Message as VhMessage } from "@vite-hub/ui"`, when the application already has a `Message` or `Trace` component.
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
@@ -68,22 +70,11 @@ export default defineEventHandler(async (event) => {
 
 ## Run an app in the browser
 
-The workspace entries render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. They run the app in a WebContainer through [`@vite-hub/web-container`](../web-container/README.md). The page that boots it must be cross-origin isolated, as that README shows.
+The workspace parts render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
 
-| Import | Exports |
-| --- | --- |
-| `@vite-hub/ui/workspace` | `useWorkspace()`, the only module that imports `@vite-hub/web-container` |
-| `@vite-hub/ui/workspace-shell` | `WorkspaceShell` with `layout: "tutorial" \| "playground"` |
-| `@vite-hub/ui/workspace-file-tree` | `WorkspaceFileTree`, a `FileTree` with a dot on modified files |
-| `@vite-hub/ui/workspace-editor` | `WorkspaceEditor`, CodeMirror 6 with the Pierre colors of `FileView` |
-| `@vite-hub/ui/workspace-terminal` | `WorkspaceTerminal`, xterm.js |
-| `@vite-hub/ui/workspace-preview` | `WorkspacePreview`, an iframe with a path bar, Reload, and Open in new tab |
-| `@vite-hub/ui/workspace-boot-status` | `WorkspaceBootStatus`, the boot checklist with live times |
-| `@vite-hub/ui/connect-panel` | `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()` |
-| `@vite-hub/ui/browser-support-notice` | `BrowserSupportNotice` |
-| `@vite-hub/ui/playground` | Share links and zips for any playground: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, `downloadZip()` |
+`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "tutorial" | "playground"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (an iframe with a path bar, Reload, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
 
-None of them is in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
+`PlaygroundRender`, a playground that renders files in the page, is in the root `@vite-hub/ui`. See [Render files in the page](#render-files-in-the-page). `@vite-hub/ui/playground` has the share links and zips: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, and `downloadZip()`.
 
 A share link holds the files in its URL hash, so nothing is stored on a server. Only the changes from the template go into the link, deflated and in base64url. `@vite-hub/ui/playground` has no UI and runs in browsers and in Node, so a build can write links and starter zips too.
 
@@ -101,17 +92,47 @@ const state = await decodePlaygroundLink(readPlaygroundHash(location.hash) ?? ""
 
 A playground without templates, such as one Markdown file, leaves `template` out. Links longer than `playgroundLinkLimit` (16,000 characters) are cut by chat apps, so offer `downloadZip()` instead.
 
+`PlaygroundContainer` is the whole page part: a toolbar with the run state, a template menu, Download, Copy link, and Restart and Discard changes. Under it are the file tree, the editor, the preview, and the dev server console. It marks edited files, asks before it replaces edits, and opens `#code=` links. Desktops boot it on their own, tablets boot it on a tap, and phones get a card with Copy link and Download files. A browser without WebContainer support gets `BrowserSupportNotice`.
+
 ```vue
 <script setup lang="ts">
-import { useWorkspace } from "@vite-hub/ui/workspace";
-import { WorkspaceBootStatus } from "@vite-hub/ui/workspace-boot-status";
-import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
-import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
-import { WorkspaceShell } from "@vite-hub/ui/workspace-shell";
-import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
+import { PlaygroundContainer } from "@vite-hub/ui/workspace";
+import { fetchSnapshot } from "@vite-hub/web-container";
+import { defineConnect } from "@vite-hub/web-container/connect";
+
+const connect = defineConnect({ github: true });
+const files = {
+  "package.json": JSON.stringify({ scripts: { dev: "vite --port 3000" }, devDependencies: { vite: "^8.0.0" } }),
+  "index.html": "<h1>Hello</h1>",
+};
+const templates = [
+  { id: "hello", label: "Hello", files, open: "index.html", snapshot: () => fetchSnapshot(["/snapshots/hello.0.bin"]) },
+  { id: "empty", label: "Empty", files: { ...files, "index.html": "" } },
+];
+</script>
+
+<template>
+  <PlaygroundContainer :templates="templates" label="playground" name="my-app" :port="3000" :connect="connect" :tabs="[{ value: 'messages', label: 'Messages' }]">
+    <template #messages="{ workspace }">
+      <pre>{{ workspace.files.value["index.html"] }}</pre>
+    </template>
+  </PlaygroundContainer>
+</template>
+```
+
+- Props: `templates` (one or more, each `{ id, label, files, description?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"playground"` or `"tutorial"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, and `v-model:open`.
+- Templates with the same `snapshot` function switch in place. Another snapshot, or an edited `package.json`, boots a new workspace.
+- Slots: `#toolbar` adds buttons before Download, `#banner` shows under the toolbar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ workspace, template, edited, show, showTab, guard }`, and `@context` gives the same object to code outside the container. `#intro` and `#fallback` show around the card when the workspace does not show.
+- It emits `update:template` when the reader opens a template or discards the changes to one.
+- A tutorial gives one template with the files of its step, sets `layout="tutorial"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
+
+```vue
+<script setup lang="ts">
+import { WorkspaceBootStatus, WorkspaceEditor, WorkspacePreview, WorkspaceShell, WorkspaceTerminal } from "@vite-hub/ui/workspace";
+import { useWebContainer } from "@vite-hub/web-container/vue";
 import { computed, ref } from "vue";
 
-const workspace = useWorkspace({ files: { "package.json": "...", "server.js": "..." } });
+const workspace = useWebContainer({ files: { "package.json": "...", "server.js": "..." } });
 const tab = ref<"preview" | "terminal">("preview");
 const source = computed({
   get: () => workspace.files.value["server.js"] ?? "",
@@ -140,23 +161,53 @@ const source = computed({
 </template>
 ```
 
-- `useWorkspace({ files, snapshot?, install?, start?, port?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. Pass `port` when the dev server starts other servers first, as `vite dev` with Nitro does. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
-- `setFiles(files, { mode: "merge" | "replace" })` writes to the container. Edits made before the mount ends are written when it ends. `reset()` puts back the original files. `install()` runs the install again, and `restart()` restarts the dev server.
-- `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)`.
-- `logs` retains the latest output, up to 65,536 characters and 1,000 chunks. Older output is dropped. Its array carries an `offset` counting dropped characters; pass it directly to `WorkspaceTerminal` to keep writes incremental across rollover. Ordinary arrays still append by prefix and clear the terminal when replaced.
-- `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the terminal under the editor and the preview at the side. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
+- `useWebContainer()` returns the state that the parts take: `status`, `steps`, `failure`, `files`, `modified`, `previewUrl`, `logs`, and `online`. Its [README](../web-container/README.md#run-it-from-vue) lists the options. Pass `env: useConnectStore().env(connect)` to give the dev server the reader's tokens.
+- `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the preview at the side and the other tabs under the editor. `tabs` sets the tabs and their order, with a label and an optional `badge` each, and each tab shows the slot with its `value`. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
 - The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe.
-- `ConnectPanel` takes the providers of `defineConnect()` and a state for each one. It emits `connect` for pasted tokens and `oauth` with the provider definition (including its `app` or `clientId`) for the application to start authorization. It also emits `disconnect`, `remove-all`, and `copy-command`. It does not store tokens. Without providers it shows `empty`, "No accounts needed." by default. `useConnectStore()` keeps them in sessionStorage by default (`storage: "local" | "memory"` also work), and falls back to memory when storage operations fail.
 - `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations. `description` replaces the text for a tutorial with what the reader of your page can do instead.
 
 The demo page in `test/browser/page` shows every part in the tutorial layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
+
+## Render files in the page
+
+`PlaygroundRender` from `@vite-hub/ui` is a playground for code that renders in the browser, such as Markdown or YAML. It needs no WebContainer. You give it a `render` function, the editor panes, and the examples. It shows the editors, the examples, the issues, and the preview.
+
+```vue
+<script setup lang="ts">
+import { PlaygroundRender, type PlaygroundFiles } from "@vite-hub/ui";
+import { marked } from "marked";
+
+const presets = [
+  { id: "hello", label: "Hello", group: "Basics", files: { "content.md": "# Hello\n" } },
+  { id: "list", label: "A list", group: "Basics", files: { "content.md": "- One\n- Two\n" } },
+];
+const panes = [{ file: "content.md", label: "Markdown", language: "markdown" }];
+const languages = [() => import("shiki/langs/markdown.mjs")];
+
+async function render(files: PlaygroundFiles) {
+  return { html: await marked.parse(files["content.md"] ?? ""), issues: [] };
+}
+</script>
+
+<template>
+  <PlaygroundRender :presets :panes :languages :render class="h-[70vh]" />
+</template>
+```
+
+- The state is a set of files. Each edit renders 200 ms after the last key, and a render that ends after a newer one is dropped. The preview keeps its scroll position.
+- The URL hash holds the files as a share link of `@vite-hub/ui/playground`, with the open example as its template. The playground replaces the hash, so Back leaves the page. It loads the hash again on `hashchange`, and says so when a link cannot be read.
+- `render(files)` returns `{ html, issues? }`. An issue is `{ message, line? }`. A thrown error shows as an issue.
+- `previewDocument(html, files)` wraps the HTML in the preview page, with your stylesheets, body class, and theme. The default is a plain white page. The preview runs scripts in a sandboxed frame with its own origin, so a shared link cannot reach your page.
+- `languages` are Shiki languages for the `language` of each pane. Shiki loads after the first render. Without `languages`, the panes are plain text.
+- `preset` is the id of the example that opens first. Copy link refuses links longer than `playgroundLinkLimit`; Download gives a zip of the files instead. Reset asks first, then goes back to the example.
+- A pane with `slot: "theme"` shows the `#theme` slot in place of the editor, with `{ pane, value, files, setFile }`. The `#toolbar` slot gets `{ files, preset, setFile }`, and the `#preset` slot gets `{ preset, active }` to draw each example.
 
 ## Nuxt
 
 Add the package, ViteHub, and the runtime peers to an existing Nuxt application:
 
 ```bash
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Register Nuxt UI and `vite-hub/nuxt`:
@@ -178,7 +229,7 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide and Phosphor collections must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
+`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide collection must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
 
 `@vite-hub/ui/nuxt` is internal. `vite-hub/nuxt` and `@vite-hub/docs/nuxt` load it, and it can change in any release. Do not add it to Nuxt `modules`.
 

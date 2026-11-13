@@ -22,7 +22,7 @@ const list = defineTaskOperation<Record<string, never>, TaskListResult>({
 })
 
 const run = defineTaskOperation<{ name: string, payload?: Record<string, unknown> }, TaskRunResult>({
-  cli: { positional: ["name"] },
+  cli: { positional: ["name", "payload"] },
   description: "Run one Nitro task, such as a seed or a backfill, with the bindings of the app. `payload` is a JSON object.",
   input: v.strictObject({
     name: v.pipe(v.string(), v.minLength(1)),

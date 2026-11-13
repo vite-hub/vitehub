@@ -9,7 +9,8 @@ import type { AstNode, Resolver, ViteHubReference } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
 
-const serverEnvModule = "#vitehub/env/server"
+/** `vite-hub/env` and the alias that it replaced, so the rules also check apps that `vitehub migrate` did not move yet. */
+const serverEnvModules = ["env", "#vitehub/env/server"]
 
 /** The export name when `reference` is one of `names` from `modules`. */
 function matchExport(reference: ViteHubReference | undefined, modules: readonly string[], names: readonly string[]): string | undefined {
@@ -64,8 +65,8 @@ function envPaths(ctx: RuleContext): (node: unknown) => EnvPath | undefined {
     const target = unwrap(node)
     if (seen.has(target)) return
     seen.add(target)
-    if (isNodeType(target, "CallExpression") && isExport(r.callee(target), [serverEnvModule], "useServerEnv")) return { path: [], sync: true }
-    if (isNodeType(target, "AwaitExpression") && isNodeType(unwrap(target.argument), "CallExpression") && isExport(r.callee(target.argument), [serverEnvModule], "loadServerEnv")) {
+    if (isNodeType(target, "CallExpression") && isExport(r.callee(target), serverEnvModules, "useServerEnv")) return { path: [], sync: true }
+    if (isNodeType(target, "AwaitExpression") && isNodeType(unwrap(target.argument), "CallExpression") && isExport(r.callee(target.argument), serverEnvModules, "loadServerEnv")) {
       return { path: [], sync: false }
     }
     if (isNodeType(target, "MemberExpression")) {
@@ -284,6 +285,11 @@ export const noLiteralCredentials: DoctorRule = createRule({
           emailOptions(callArguments(node)[0])
           return
         }
+        // `hubEnv({ server })` declares Server Env without an `env` key.
+        if (isConfig && isViteHubCall(r, node, ["env/vite"], "hubEnv")) {
+          serverEnvEntries(objectValue(callArguments(node)[0], "server"), "env.server")
+          return
+        }
         const reference = r.callee(node)
         if (isViteHubCall(r, node, ["auth"], "defineAuth")) {
           literalCredentials(callArguments(node)[0], "`defineAuth()`")
@@ -363,7 +369,7 @@ export const awaitAsyncHelpers: DoctorRule = createRule({
           }), { range: ctx.range(node) })
           return
         }
-        const helper = matchExport(reference, [serverEnvModule], ["deriveSecret", "loadServerEnv"])
+        const helper = matchExport(reference, serverEnvModules, ["deriveSecret", "loadServerEnv"])
         if (!helper) return
         let misused = readsPromiseAsValue(parent, child)
         if (parent.type === "VariableDeclarator" && parent.init === child) {

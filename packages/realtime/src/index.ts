@@ -4,6 +4,7 @@ export { createRealtimeEditorExtensions, defineRealtimeEditor, realtimeMarkdownE
 export { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 export type {
   RealtimeAuthorizeContext,
+  RealtimeOriginContext,
   RealtimeCheckpoint,
   RealtimeDefinition,
   RealtimeDocumentAdapter,
@@ -16,7 +17,7 @@ export type {
   RealtimeHoldOptions,
   RealtimeIssue,
   RealtimeLoadedDocument,
-  RealtimeModuleOptions,
+  RealtimeOptions,
   RealtimePerson,
   RealtimePersistenceOptions,
   RealtimeReadOnlyReason,

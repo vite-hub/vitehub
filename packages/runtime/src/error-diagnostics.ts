@@ -18,11 +18,10 @@ type RuntimeErrorCode =
   | "RUNTIME_R0009"
   | "RUNTIME_R0010"
   | "RUNTIME_R0011"
-  | "RUNTIME_R0012"
-  | "RUNTIME_R0013"
-  | "RUNTIME_R0014"
   | "RUNTIME_R0015"
   | "RUNTIME_R0016"
+  | "RUNTIME_R0017"
+  | "RUNTIME_R0018"
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // The closed record also supports isolated declaration output.
@@ -38,11 +37,10 @@ const codes: Record<RuntimeErrorCode, typeof dynamicError> = {
   RUNTIME_R0009: dynamicError,
   RUNTIME_R0010: dynamicError,
   RUNTIME_R0011: dynamicError,
-  RUNTIME_R0012: dynamicError,
-  RUNTIME_R0013: dynamicError,
-  RUNTIME_R0014: dynamicError,
   RUNTIME_R0015: dynamicError,
   RUNTIME_R0016: dynamicError,
+  RUNTIME_R0017: dynamicError,
+  RUNTIME_R0018: dynamicError,
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({

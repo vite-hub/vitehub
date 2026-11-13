@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createSource, defineSource, splitSource } from "../src/index.ts"
-import { file } from "../src/file.ts"
+import { createSource, defineSource, splitSource, file } from "../src/index.ts"
 
 import type { SourceContext } from "../src/index.ts"
 

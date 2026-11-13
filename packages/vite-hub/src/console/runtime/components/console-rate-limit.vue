@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { consoleTimeOfDay } from "../client/format";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { peekConsoleRateLimit, resetConsoleRateLimit } from "../client/rate-limit";
 import type { ConsoleRateLimitPeek } from "../client/rate-limit";
 import { querySelection, useConsoleQuery } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
+import ConsoleConfirm from "./console-confirm.vue";
+import ConsoleSection from "./console-section.vue";
 
 /**
  * Live counters of one Rate Limit. The counter belongs to a key, such as a client IP or a user ID, so the page asks for
@@ -43,7 +46,7 @@ function message(failure: unknown, fallback: string): string {
 }
 
 function expiry(resetAt: number | undefined): string {
-  return resetAt === undefined ? "–" : new Date(resetAt).toLocaleTimeString();
+  return resetAt === undefined ? "–" : consoleTimeOfDay(resetAt, { seconds: true });
 }
 
 async function peek(): Promise<void> {
@@ -117,24 +120,21 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <section class="grid gap-3" aria-label="Live counter">
-    <h3 class="text-xs font-medium text-highlighted">Live counter</h3>
+  <ConsoleSection :level="3" title="Live counter">
     <form class="flex flex-wrap items-center gap-2" @submit.prevent="peek">
       <UInput
         v-model="key"
         class="w-full sm:w-72"
-        size="sm"
         placeholder="Key, for example a client IP or user ID"
         aria-label="Key to read"
         autocomplete="off"
         spellcheck="false"
       />
-      <UButton type="submit" icon="i-lucide-gauge" label="Peek" size="sm" variant="outline" :disabled="key === ''" :loading="loading" />
+      <UButton type="submit" icon="i-lucide-gauge" label="Peek" variant="outline" :disabled="key === ''" :loading="loading" />
       <UButton
         v-if="canReset"
         icon="i-lucide-rotate-ccw"
         label="Reset"
-        size="sm"
         color="error"
         variant="ghost"
         @click="resetOpen = true"
@@ -166,18 +166,10 @@ onBeforeUnmount(() => request?.abort());
       <p class="text-xs text-dimmed">Provider: {{ peeked.provider }}</p>
     </div>
 
-    <UModal v-model:open="resetOpen" title="Reset this counter?" :ui="{ content: 'sm:max-w-[440px]' }">
-      <template #body>
-        <p class="text-[13px] text-muted">
-          The counter of <span class="font-mono text-xs text-highlighted">{{ peeked?.key }}</span> for <span class="font-medium">{{ name }}</span> is deleted, so the next request starts a new window.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton variant="ghost" label="Cancel" @click="resetOpen = false" />
-          <UButton color="error" label="Reset" :loading="resetting" @click="confirmReset" />
-        </div>
-      </template>
-    </UModal>
-  </section>
+    <ConsoleConfirm v-model:open="resetOpen" title="Reset this counter?" confirm-label="Reset" destructive :loading="resetting" @confirm="confirmReset">
+      <p>
+        The counter of <span class="font-mono text-xs text-highlighted">{{ peeked?.key }}</span> for <span class="font-medium">{{ name }}</span> is deleted, so the next request starts a new window.
+      </p>
+    </ConsoleConfirm>
+  </ConsoleSection>
 </template>

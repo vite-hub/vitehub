@@ -59,21 +59,22 @@ describe("CodeBlock", () => {
     expect(wrapper.findAll("[data-slot=code-block-line]").map((line) => line.attributes("data-variant"))).toEqual(["removed", "added"]);
   });
 
-  it("copies the value and announces it", async () => {
+  it("copies the value through CopyButton and announces it", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const wrapper = mount(() => h(CodeBlockCopyButton, { value: "pnpm test" }), {
+      attachTo: document.body,
       global: { components: { UButton: ButtonStub } },
     });
 
     const button = wrapper.get("[data-slot=code-block-copy-button]");
-    expect(button.attributes()).toMatchObject({ "aria-label": "Copy", icon: "i-ph-copy-light" });
+    expect(button.attributes()).toMatchObject({ "aria-label": "Copy", icon: "i-lucide-copy", size: "xs", variant: "ghost" });
     await button.trigger("click");
     await flushPromises();
     expect(writeText).toHaveBeenCalledWith("pnpm test");
-    expect(wrapper.get("[data-slot=code-block-copy-button]").attributes("aria-label")).toBe("Copied");
-    expect(wrapper.get("[data-slot=code-block-copy-status]").attributes("aria-live")).toBe("polite");
-    expect(wrapper.get("[data-slot=code-block-copy-status]").text()).toBe("Copied");
+    expect(wrapper.get("[data-slot=code-block-copy-button]").attributes()).toMatchObject({ "data-copied": "", icon: "i-lucide-check" });
+    await vi.waitFor(() => expect(document.querySelector("[data-slot=live-announcer]")?.textContent).toBe("Copied"));
+    wrapper.unmount();
   });
 });
 

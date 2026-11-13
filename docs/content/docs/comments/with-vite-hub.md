@@ -13,8 +13,8 @@ icon: i-lucide-users
 | --- | --- | --- |
 | Threads, replies, resolve, pins | Yes | Yes |
 | Where threads go | A SQLite file, Turso, or Cloudflare D1 | A ViteHub [Database](/docs/database): SQLite, libSQL, or D1 |
-| Tables | Created when the server starts | Generated and applied with `vitehub db` |
-| Who can comment | Sign in with GitHub, or guests on the dev server | Sign in with GitHub, [ViteHub Auth](/docs/auth), the [Console](/docs/development/console), or your own login |
+| Tables | Created when the server starts | Generated and applied with `vitehub database` |
+| Who can comment | Sign in with GitHub, or guests on the dev server | Sign in with GitHub, [ViteHub Auth](/docs/auth), or your own login |
 | Avatars and cursors of people on a page | No | Yes, with [Realtime](/docs/realtime) |
 | Edit Content text in place | No | Yes, with [Content](/docs/content) |
 | Comments section in the Console, MCP tools for Agents | No | Yes |
@@ -43,7 +43,7 @@ The Database stores threads. Realtime shows who is on each page, with rooms in t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     database: true,
     realtime: { authority: 'memory' },
   },
@@ -62,7 +62,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -82,7 +82,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -108,8 +108,8 @@ export const comments = defineComments({
 Comments adds the tables `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` to the `default` Database. Generate the migration and apply it:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ::
@@ -123,11 +123,11 @@ pnpm vite dev
 
 Open `http://localhost:5173/?vitehub`. `?vitehub` turns on comment mode, and a toolbar shows at the bottom. The `vitehub-tools` cookie keeps comment mode on other pages until you close the toolbar.
 
-1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first. The browser remembers it.
-2. Click a heading. A comment box opens there.
-3. Type a comment and press <kbd>Enter</kbd>. A numbered pin marks the spot.
-4. Select the pin, type `@` in a reply, and pick a person. With [Auth](/docs/auth), the list shows Auth users who may read the thread. Send it. The server checks the mention and passes the person to `onMention`. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people).
-5. Select **Resolve**, the check mark on the thread. The pin goes away. To see it again, open the thread list from the toolbar and select **Resolved**.
+1. Press <kbd>C</kbd>, or select **Comments** in the toolbar. The button says **Click anywhere** while comment mode is on. As a guest, type your name first. The browser keeps it for the next pages.
+2. Click a heading on the page. A comment box opens at that point.
+3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
+4. Select the pin, type `@` in a reply, and pick a person. With [Auth](/docs/auth), the list shows the users of Auth that may read the thread. Send the reply. The server checks the mention, and `onMention` gets the person. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people).
+5. Select **Resolve**, the check mark on the thread. The pin goes away. Select **All comments** in the toolbar and then **Resolved** to see it again.
 
 Resize the window. The pin stays on the heading, because it is stored relative to the element, not the window.
 
@@ -154,11 +154,12 @@ Both browsers share a Realtime room for the page, which holds only presence. Com
 Add a Content singleton (a single document) with one text field. The `cms` preset stores it in a Workspace on the same Database and adds Blob.
 
 ```ts [server/content.ts]
-import { defineContent, singleton } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { singleton } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     about: singleton({ path: 'about.json', fields: { title: z.string().min(1) } }),
@@ -172,7 +173,7 @@ Return the published title from a route:
 
 ```ts [server/api/about.get.ts]
 import { defineEventHandler } from 'h3'
-import { content } from '../content'
+import content from '../content'
 
 export default defineEventHandler(async () => {
   const about = await content.collection('about').get()
@@ -198,7 +199,7 @@ fetch('/api/about')
 <template>
   <main>
     <h1 v-if="title" v-bind="contentField('about', 'title')">{{ title }}</h1>
-    <p v-else>Publish the About title in the Console.</p>
+    <p v-else>Publish the About title with vitehub content.</p>
     <p>Pin comments anywhere on this page.</p>
   </main>
 </template>
@@ -207,11 +208,18 @@ fetch('/api/about')
 Restart the dev server, then run the migrations again for the Content tables:
 
 ```bash [commands/migrate-content]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-The singleton has no document yet. Open `http://localhost:5173/_vitehub/content`, then **Settings**, then **About**. Type a title and select **Publish**.
+The singleton has no document yet. In a second terminal, save a title as its draft and publish it:
+
+```bash [commands/publish-about]
+echo '{ "title": "About us" }' | pnpm vitehub content edit about --file -
+pnpm vitehub content publish --collection about
+```
+
+`publish` lists the draft and asks you to confirm. In production, editors do this in the Content section of the [Console](/docs/development/console).
 
 Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 
@@ -219,7 +227,7 @@ Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 2. Click the heading. It becomes editable and shows the current draft.
 3. Change the text and press <kbd>Enter</kbd>. Comments saves a Content draft, and the heading gets a **Draft** mark.
 4. Reload the page. The heading shows the published title again, because pages read `published`.
-5. Select **Review and publish** in the message, or open `/_vitehub/content`. The About change is under **Needs publishing**. Publish it, then reload the page.
+5. Open **Content** in the Console. The About change is under **Needs publishing**. Publish it, then reload the page.
 
 Pins on the heading now store the field `about#title`, so they follow it through layout changes.
 

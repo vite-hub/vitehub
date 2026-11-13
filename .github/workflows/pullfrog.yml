@@ -1,3 +1,4 @@
+# PULLFROG ACTION — DO NOT EDIT EXCEPT WHERE INDICATED
 name: Pullfrog
 run-name: ${{ inputs.name || github.workflow }}
 on:
@@ -16,6 +17,9 @@ permissions:
 jobs:
   pullfrog:
     runs-on: ubuntu-latest
+    env:
+      OPENAI_COMPATIBLE_BASE_URL: https://ai.onmax.me/v1
+      OPENAI_COMPATIBLE_MODEL: gpt-6.1-sol(medium)
     permissions:
       id-token: write
       contents: read
@@ -25,22 +29,31 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Configure proxy access
+      - name: Verify CLIProxy completion
+        env:
+          OPENAI_COMPATIBLE_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CLIPROXY_CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CLIPROXY_CF_ACCESS_CLIENT_SECRET }}
         run: |
-          cat > "$RUNNER_TEMP/pullfrog-opencode.json" <<'JSON'
-          {"provider":{"openai-compatible":{"options":{"headers":{"CF-Access-Client-Id":"{env:CF_ACCESS_CLIENT_ID}","CF-Access-Client-Secret":"{env:CF_ACCESS_CLIENT_SECRET}"}}}}}
-          JSON
+          response=$(curl --fail --silent --show-error --max-time 45 \
+            --header "Authorization: Bearer $OPENAI_COMPATIBLE_API_KEY" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -nc --arg model "$OPENAI_COMPATIBLE_MODEL" \
+              '{model: $model, messages: [{role: "user", content: "Reply with exactly PROXY_OK."}], max_tokens: 32, stream: false}')" \
+            "$OPENAI_COMPATIBLE_BASE_URL/chat/completions")
+          jq -e '.choices[0].message.content | contains("PROXY_OK")' <<< "$response" > /dev/null
       - name: Run agent
-        uses: pullfrog/pullfrog@ae4145b3d72b3f4aa045e2352dc6b2c7538daeeb # v0.1.101
+        uses: pullfrog/pullfrog@3c58d31073422cc1b9573f58b5dbadb7a4914715 # v0.1.123
         with:
           prompt: ${{ inputs.prompt }}
           model: openai-compatible/byok
+          effort: medium
         env:
-          OPENAI_COMPATIBLE_BASE_URL: https://ai.onmax.me/v1
           OPENAI_COMPATIBLE_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
-          OPENAI_COMPATIBLE_MODEL: gpt-5.6-sol
-          OPENAI_COMPATIBLE_CONTEXT: "921000"
-          OPENAI_COMPATIBLE_MAX_OUTPUT: "128000"
-          OPENCODE_CONFIG: ${{ runner.temp }}/pullfrog-opencode.json
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CLIPROXY_CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CLIPROXY_CF_ACCESS_CLIENT_SECRET }}
+          OPENAI_COMPATIBLE_CONTEXT: 921000
+          OPENAI_COMPATIBLE_MAX_OUTPUT: 128000
+          OPENAI_COMPATIBLE_HEADERS: |
+            CF-Access-Client-Id: ${{ secrets.CLIPROXY_CF_ACCESS_CLIENT_ID }}
+            CF-Access-Client-Secret: ${{ secrets.CLIPROXY_CF_ACCESS_CLIENT_SECRET }}

@@ -38,6 +38,19 @@ async function createRoot() {
   return root
 }
 
+async function createPackageStoreRoot(storeSource: string) {
+  const root = await createRoot()
+  await mkdir(join(root, "node_modules", "content-store"), { recursive: true })
+  await writeFile(join(root, "node_modules", "content-store", "package.json"), JSON.stringify({
+    exports: "./store.mjs",
+    name: "content-store",
+    type: "module",
+  }))
+  await writeFile(join(root, "node_modules", "content-store", "store.mjs"), storeSource)
+  await writeFile(join(root, "node_modules", "content-owner", "workspace.mjs"), `import { store } from "content-store"\nexport const contentWorkspace = { store }\n`)
+  return root
+}
+
 function contributor(workspaces: NonNullable<WorkspaceContributingPlugin["vitehub"]>["workspaces"], name = "content-owner/vite"): WorkspaceContributingPlugin {
   return { name, vitehub: { workspaces } }
 }
@@ -206,6 +219,44 @@ describe("inspectWorkspaceDefinitions contributions", () => {
 })
 
 describe("hubWorkspace contributions", () => {
+  it.each(["vite", "nitro"] as const)("keeps package-imported Artifacts stores in %s dev config", async (host) => {
+    const root = await createPackageStoreRoot(`export const store = { provider: "cloudflare-artifacts", binding: "CONTENT_FILES", namespace: "content" }\n`)
+    const plugins = [contributor([{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }])]
+    let nitro: unknown
+    if (host === "vite") {
+      const plugin = hubWorkspace()
+      const config = hook<(config: Record<string, unknown>, env: { command: "serve", mode: string }) => Promise<unknown>>(plugin.config)
+      const userConfig = { nitro: {}, plugins, root }
+      await config(userConfig, { command: "serve", mode: "development" })
+      nitro = userConfig.nitro
+    }
+    else {
+      nitro = await createWorkspaceNitroConfig({ command: "serve", nitro: {}, plugins, viteRoot: root })
+    }
+    expect(nitro).toMatchObject({
+      cloudflare: { wrangler: { artifacts: [{ binding: "CONTENT_FILES", namespace: "content" }] } },
+    })
+  })
+
+  it("loads contributed Definitions with package-imported memory stores in dev", async () => {
+    const root = await createPackageStoreRoot([
+      `import { writeFileSync } from "node:fs"`,
+      `writeFileSync(new URL("./loaded", import.meta.url), "loaded")`,
+      `export const store = { provider: "memory" }`,
+      ``,
+    ].join("\n"))
+    const nitro = await createWorkspaceNitroConfig({
+      command: "serve",
+      nitro: {},
+      plugins: [contributor([{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }])],
+      viteRoot: root,
+    })
+    expect(nitro).not.toHaveProperty("cloudflare.wrangler.artifacts")
+    await expect(readFile(join(root, "node_modules", "content-store", "loaded"), "utf8")).resolves.toBe("loaded")
+    const registry = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
+    expect(registry).toContain("import(\"content-owner/workspace\")")
+  })
+
   it("adds contributed Workspaces to the Nitro registry, typegen, manifest, and inspection", async () => {
     const root = await createRoot()
     const owner = contributor(({ root: viteRoot }) => [{ definition: { export: "contentWorkspace", module: viteRoot === root ? "content-owner/workspace" : "wrong-root" }, name: "content" }])

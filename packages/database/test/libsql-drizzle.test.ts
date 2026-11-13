@@ -1,31 +1,30 @@
 import { createClient } from "@libsql/client"
-import { eq, relations, sql, TransactionRollbackError } from "drizzle-orm"
+import { defineRelations, eq, sql, TransactionRollbackError } from "drizzle-orm"
 import { Cache } from "drizzle-orm/cache/core"
 import { drizzle } from "drizzle-orm/libsql"
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { integer, snakeCase, text } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createLibsqlDrizzle } from "../src/runtime/libsql-drizzle.ts"
 
 import type { Client } from "@libsql/client"
 import type { DrizzleConfig, Logger } from "drizzle-orm"
+import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { MutationOption } from "drizzle-orm/cache/core"
 
-const users = sqliteTable("users", {
+const users = snakeCase.table("users", {
   fullName: text().notNull(),
   id: integer().primaryKey(),
 })
-const posts = sqliteTable("posts", {
+const posts = snakeCase.table("posts", {
   id: integer().primaryKey(),
   title: text().notNull(),
   userId: integer().notNull(),
 })
-const schema = {
-  posts,
-  postsRelations: relations(posts, ({ one }) => ({ author: one(users, { fields: [posts.userId], references: [users.id] }) })),
-  users,
-  usersRelations: relations(users, ({ many }) => ({ posts: many(posts) })),
-}
+const relations = defineRelations({ posts, users }, r => ({
+  posts: { author: r.one.users({ from: r.posts.userId, to: r.users.id }) },
+  users: { posts: r.many.posts() },
+}))
 
 class RecordingCache extends Cache {
   readonly calls: unknown[] = []
@@ -47,11 +46,11 @@ class RecordingCache extends Cache {
   }
 }
 
-type Make = (client: Client, config: DrizzleConfig<typeof schema>) => ReturnType<typeof createLibsqlDrizzle<typeof schema>>
+type Make = (client: Client, config: DrizzleConfig<typeof relations>) => LibSQLDatabase<typeof relations> & { $client: Client }
 
 const makers: Record<"drizzle" | "createLibsqlDrizzle", Make> = {
   createLibsqlDrizzle: (client, config) => createLibsqlDrizzle(client, config),
-  drizzle: (client, config) => drizzle(client, config),
+  drizzle: (client, config) => drizzle({ client, ...config }),
 }
 
 async function exercise(make: Make) {
@@ -59,7 +58,7 @@ async function exercise(make: Make) {
   const queries: unknown[] = []
   const logger: Logger = { logQuery: (query, params) => queries.push([query, params]) }
   const cache = new RecordingCache()
-  const db = make(client, { cache, casing: "snake_case", logger, schema })
+  const db = make(client, { cache, logger, relations })
   try {
     await db.run(sql`create table users (id integer primary key, full_name text not null)`)
     await db.run(sql`create table posts (id integer primary key, title text not null, user_id integer not null)`)
@@ -76,9 +75,11 @@ async function exercise(make: Make) {
       await tx.insert(posts).values({ id: 3, title: "Third", userId: 1 })
       tx.rollback()
     }).catch((error: unknown) => error instanceof TransactionRollbackError)
-    const nested = await db.query.users.findMany({ with: { posts: { orderBy: posts.id } } })
-    const author = await db.query.posts.findFirst({ where: eq(posts.id, 2), with: { author: true } })
-    await db.$cache.invalidate({ tables: ["users"] })
+    const nested = await db.query.users.findMany({ with: { posts: { orderBy: { id: "asc" } } } })
+    const author = await db.query.posts.findFirst({ where: { id: 2 }, with: { author: true } })
+    const rows = await db.all(sql`select id, full_name from users`)
+    // `$cache` is not in drizzle-orm's types, but `drizzle()` sets it.
+    await (Reflect.get(db, "$cache") as { invalidate: (options: MutationOption) => Promise<void> }).invalidate({ tables: ["users"] })
     return {
       author,
       batch,
@@ -89,6 +90,7 @@ async function exercise(make: Make) {
       nested,
       queries,
       rolledBack,
+      rows,
     }
   }
   finally {
@@ -102,6 +104,8 @@ describe("createLibsqlDrizzle()", () => {
   it("behaves like drizzle() from drizzle-orm/libsql", async () => {
     const expected = await exercise(makers.drizzle)
     expect(expected.nested).toEqual([{ fullName: "Ada", id: 1, posts: [{ id: 1, title: "First", userId: 1 }, { id: 2, title: "Second", userId: 1 }] }])
+    expect(expected.author).toEqual({ author: { fullName: "Ada", id: 1 }, id: 2, title: "Second", userId: 1 })
+    expect(expected.rows).toEqual([{ full_name: "Ada", id: 1 }])
     expect(expected.rolledBack).toBe(true)
     expect(expected.cacheCalls.length).toBeGreaterThan(0)
     expect(await exercise(makers.createLibsqlDrizzle)).toEqual(expected)

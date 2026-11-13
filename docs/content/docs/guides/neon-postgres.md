@@ -21,14 +21,14 @@ pnpm add postgres drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Set `database: true` and `preset: 'node'` in your ViteHub options.
+Set `database: true` and `host: 'node'` in your ViteHub options.
 
 ## Define a Postgres table
 
-Create the Database Definition `server/databases/config.ts`. If it exists,
+Create the Database Definition `server/databases/default.ts`. If it exists,
 change it instead of adding a second one.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 
@@ -56,9 +56,9 @@ Generate a new Postgres migration history. Do not apply SQLite migrations to
 Postgres.
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate --dry-run
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate --dry-run
+pnpm vitehub database migrate
 ```
 
 The notes POST and GET routes from

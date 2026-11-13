@@ -1,10 +1,9 @@
-import type { UserConfig } from "vite"
 import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#vitehub/blob/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
-import { blob, file, image, type BlobModuleOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, file, image, type BlobOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -28,14 +27,12 @@ describe("types", () => {
     expectTypeOf(config.store.binding).toEqualTypeOf<string>()
   })
 
-  it("augments vite user config with blob options", () => {
-    const config: UserConfig = {
-      blob: {
-        driver: "fs",
-      },
+  it("types blob options", () => {
+    const options: BlobOptions = {
+      driver: "fs",
     }
 
-    expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<BlobOptions>()
   })
 
   it("accepts static headers for generated serving routes", () => {
@@ -47,7 +44,7 @@ describe("types", () => {
           "X-Content-Type-Options": "nosniff",
         },
       },
-    } satisfies BlobModuleOptions
+    } satisfies BlobOptions
 
     expectTypeOf(config.serve.headers).toEqualTypeOf<{
       "Cache-Control": string
@@ -59,12 +56,12 @@ describe("types", () => {
     const config = {
       driver: "fs",
       serve: { authorize: true, route: "/photos" },
-    } satisfies BlobModuleOptions
-    expectTypeOf(config).toMatchTypeOf<BlobModuleOptions>()
+    } satisfies BlobOptions
+    expectTypeOf(config).toMatchTypeOf<BlobOptions>()
 
     // @ts-expect-error Vite config cannot carry the callback. Export it from server/blob.ts.
-    const callbackConfig: BlobModuleOptions = { driver: "fs", serve: { authorize: () => true } }
-    expectTypeOf(callbackConfig).toMatchTypeOf<BlobModuleOptions>()
+    const callbackConfig: BlobOptions = { driver: "fs", serve: { authorize: () => true } }
+    expectTypeOf(callbackConfig).toMatchTypeOf<BlobOptions>()
 
     const authorize: BlobServeAuthorize = ({ request, user }) =>
       new URL(request.url).pathname.startsWith(`/photos/${user.id}/`)
@@ -76,8 +73,8 @@ describe("types", () => {
     const config = {
       driver: "fs",
       serve: { anonymous: true, authorize: true, route: "/f" },
-    } satisfies BlobModuleOptions
-    expectTypeOf(config).toMatchTypeOf<BlobModuleOptions>()
+    } satisfies BlobOptions
+    expectTypeOf(config).toMatchTypeOf<BlobOptions>()
 
     // @ts-expect-error A signed-out caller has no user.
     const unchecked: BlobServeAnonymousAuthorize = ({ user }) => user.id === "u1"
@@ -88,13 +85,11 @@ describe("types", () => {
   })
 
   it("allows MinIO to resolve common Docker env defaults", () => {
-    const config: UserConfig = {
-      blob: {
-        driver: "minio",
-      },
+    const options: BlobOptions = {
+      driver: "minio",
     }
 
-    expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<BlobOptions>()
   })
 
   it("exposes the intended Blob runtime surface", () => {
@@ -185,8 +180,8 @@ describe("types", () => {
 
     // @ts-expect-error A read-only handle has no put().
     void reader.put("report.pdf", "text")
-    // @ts-expect-error A read-only handle has no del().
-    void reader.del("report.pdf")
+    // @ts-expect-error A read-only handle has no delete().
+    void reader.delete("report.pdf")
     // @ts-expect-error A read-only handle has no handleUpload().
     void reader.handleUpload
     // @ts-expect-error A read-only handle has no createMultipartUpload().

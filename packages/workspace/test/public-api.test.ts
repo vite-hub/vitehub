@@ -13,7 +13,6 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
 const tempDirs: string[] = []
@@ -139,12 +138,12 @@ describe("workspace public API", () => {
   it("keeps shell as a lazy workspace tools dependency", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const distDir = new URL("../dist/", import.meta.url)
-    const aiFiles = (await readdir(distDir)).filter(file => file === "ai.js" || /^ai-.*\.js$/.test(file))
-    const dependencyLoaderFiles = (await readdir(distDir)).filter(file => file === "dependency-loaders.js" || /^dependency-loaders-.*\.js$/.test(file))
-    const aiDeclarationFiles = (await readdir(distDir)).filter(file => file === "ai.d.ts" || /^ai-.*\.d\.ts$/.test(file))
-    const builtAi = (await Promise.all(aiFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const builtDependencyLoaders = (await Promise.all(dependencyLoaderFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const builtAiDeclarations = (await Promise.all(aiDeclarationFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+    const builtAi = await readBuiltSourceModule("src/ai.ts")
+    const builtDependencyLoaders = await readBuiltSourceModule("src/runtime/dependency-loaders.ts")
+    const declarationFiles = (await readdir(distDir)).filter(file => file.endsWith(".d.ts"))
+    const builtAiDeclarations = (await Promise.all(declarationFiles.map(file => readFile(new URL(file, distDir), "utf8"))))
+      .filter(declaration => declaration.includes("declare function createWorkspaceTools"))
+      .join("\n")
     const runtimeFiles = (await readdir(distDir)).filter(file => file === "runtime.js" || file === "runtime/state.js" || /^use-.*\.js$/.test(file))
     const builtRuntime = (await Promise.all(runtimeFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
@@ -152,6 +151,7 @@ describe("workspace public API", () => {
     expect(packageJson.version).toEqual(expect.any(String))
     expect(["workspace:*", packageJson.version]).toContain(packageJson.peerDependencies?.["@vite-hub/shell"])
     expect(packageJson.peerDependenciesMeta?.["@vite-hub/shell"]).toEqual({ optional: true })
+    expect(builtAiDeclarations).not.toBe("")
     expect(builtAiDeclarations).not.toContain("@vite-hub/shell")
     expect(builtAi).not.toContain("from\"@vite-hub/shell")
     expect(builtAi).not.toContain("from \"@vite-hub/shell")
@@ -170,7 +170,6 @@ describe("workspace public API", () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
     const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
-    const builtMountx = await readFile(new URL("../dist/mountx.js", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
     const declarations = (await Promise.all(distFiles
@@ -189,14 +188,13 @@ describe("workspace public API", () => {
 
     // The server helpers return Fetchable routes and do not import h3.
     expect(packageJson.dependencies?.h3).toBeUndefined()
-    expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.ofetch).toBeUndefined()
     expect(packageJson.dependencies?.vite).toBeUndefined()
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
     expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
     expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
     expect(packageJson.exports).not.toHaveProperty("./collections")
     expect(packageJson.exports).not.toHaveProperty("./collections/client")
-    expect(packageJson.exports).toHaveProperty("./mountx")
     expect(packageJson.peerDependencies?.vue).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.vue).toBeUndefined()
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
@@ -215,8 +213,6 @@ describe("workspace public API", () => {
     expect(declarations).not.toMatch(effectImport)
     expect(effectFreeBundles).not.toMatch(effectImport)
     expect(builtCloudflareArtifactsStore).not.toMatch(effectImport)
-    expect(builtMountx).toContain('from "mountx/drivers/unstorage"')
-    expect(vueFreeBundles).not.toContain('from "mountx')
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
   })
 
@@ -573,7 +569,7 @@ describe("workspace public API", () => {
         "/docs/**/*.md": {
           mediaType: "text/markdown",
           validate(input) {
-            if (hasRuntimeType(input.content, "string") && input.content.includes("<script")) return false
+            if (typeof input.content === "string" && input.content.includes("<script")) return false
           },
           write: true,
         },
@@ -722,6 +718,21 @@ describe("workspace public API", () => {
       expect.objectContaining({ path: "repo", type: "directory" }),
       expect.objectContaining({ path: "repo/README.md", type: "file" }),
     ])
+  })
+
+  it("loads the Workspace Definition again on the next read after a failed load", async () => {
+    const definition = defineWorkspace({
+      store: { provider: "memory" },
+      sources: { repo: file({ content: "# Repo\n", workspacePath: "README.md" }) },
+    })
+    const load = vi.fn()
+      .mockRejectedValueOnce(new Error("transient definition load failure"))
+      .mockResolvedValue({ default: definition })
+    setWorkspaceRegistry({ docs: load })
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.readFile("README.md")).rejects.toThrow("transient definition load failure")
+    await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Repo\n")
   })
 
   it("caps merged read-only search results", async () => {

@@ -77,18 +77,11 @@ it("keeps installed Console sections independent of optional Auth packages", asy
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
     }
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { createConsoleAppAuthPages, installConsoleSections } from "vite-hub/console/sections"
+      import { consoleRealtimeAccess, installConsoleSections } from "./node_modules/vite-hub/dist/console/runtime/server/sections.js"
+      import { defineConsoleAuthorize } from "./node_modules/vite-hub/dist/console/auth.js"
       installConsoleSections("/consumer", [])
-      createConsoleAppAuthPages(async () => ({
-        api: { getSession: async () => null },
-        handler: async () => new Response(),
-        $context: Promise.resolve({
-          baseURL: "https://example.com/api/auth",
-          options: {},
-          socialProviders: [],
-          isTrustedOrigin: () => true,
-        }),
-      }))
+      consoleRealtimeAccess("content")
+      defineConsoleAuthorize(({ user }) => Boolean(user))
     `)
     await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
     await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({
@@ -117,15 +110,16 @@ it("publishes Env's Vite config augmentation from the framework root", async () 
 it("keeps the installed Database runtime facade declaration self-contained", async () => {
   const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-database-types-"))
   const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
-  const installedState = resolve(installedRoot, "dist/_internal/database/runtime/state")
+  // Nuxt aliases `@vite-hub/database/runtime/state` to this file. It is not a package export.
+  const installedState = resolve(installedRoot, "dist/internal/database-runtime-state")
 
   try {
     await mkdir(dirname(installedState), { recursive: true })
     await copyFile(resolve(packageRoot, "package.json"), resolve(installedRoot, "package.json"))
-    await copyFile(resolve(packageRoot, "dist/_internal/database/runtime/state.js"), `${installedState}.js`)
-    await copyFile(resolve(packageRoot, "dist/_internal/database/runtime/state.d.ts"), `${installedState}.d.ts`)
+    await copyFile(resolve(packageRoot, "dist/internal/database-runtime-state.js"), `${installedState}.js`)
+    await copyFile(resolve(packageRoot, "dist/internal/database-runtime-state.d.ts"), `${installedState}.d.ts`)
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { setActiveCloudflareEnv } from "vite-hub/_internal/database/runtime/state"
+      import { setActiveCloudflareEnv } from "./node_modules/vite-hub/dist/internal/database-runtime-state.js"
       setActiveCloudflareEnv({ DB: {} })
     `)
     await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
@@ -172,7 +166,10 @@ it.each(["evlog", "ai"])("keeps installed framework declarations independent of 
       const source: LogSource | undefined = getLogSource()
       if (source) installLogSource("/consumer", source)
       parseLogQuery({ level: "error" })
-      vitehub({ preset: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
+      vitehub({ host: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
+      vitehub({ host: "node", agent: { providers: { state: { driver: "memory" } }, invocations: { retention: { maxRecords: 10 } } } })
+      // @ts-expect-error Agent backends use driver.
+      vitehub({ agent: { providers: { state: { provider: "memory" } } } })
       const valid: ObservabilityEvlogOptions = { dev: { prettyError: { detail: "full" } }, redact: { builtins: ["email"], patterns: [/secret/], replacement: (matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => context.path }, sampling: { keep: [{ status: 400 }] } }
       void valid
       // @ts-expect-error Unsupported terminal preset.

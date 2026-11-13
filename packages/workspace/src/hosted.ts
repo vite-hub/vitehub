@@ -29,16 +29,25 @@ export interface HostedWorkspaceRuntimeOptions {
   store?: HostedWorkspaceRuntimeStoreOptions
 }
 
-export function installHostedWorkspaceRuntime(): void {
+export function installHostedGitHubWorkspaceStore(): void {
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
-    if (storeOptions.provider === "cloudflare-artifacts") {
-      return createCloudflareArtifactsWorkspaceStore(storeOptions, workspaceName)
-    }
     if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
-    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw workspaceError("[vitehub] Hosted workspace runtime cannot load unsupported hosted store.")
+    return existingWorkspaceHostedStoreLoader?.(storeOptions, workspaceName)
   })
+}
+
+export function installHostedCloudflareArtifactsWorkspaceStore(): void {
+  const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
+  setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
+    if (storeOptions.provider === "cloudflare-artifacts") return createCloudflareArtifactsWorkspaceStore(storeOptions, workspaceName)
+    return existingWorkspaceHostedStoreLoader?.(storeOptions, workspaceName)
+  })
+}
+
+export function installHostedWorkspaceRuntime(): void {
+  installHostedGitHubWorkspaceStore()
+  installHostedCloudflareArtifactsWorkspaceStore()
 }
 
 export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeOptions = {}): ResolvedWorkspaceModuleOptions {
@@ -57,7 +66,8 @@ export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeO
     store,
   }
 
-  installHostedWorkspaceRuntime()
+  if (store.provider === "github") installHostedGitHubWorkspaceStore()
+  else installHostedCloudflareArtifactsWorkspaceStore()
   setWorkspaceRuntimeConfig(config)
   return config
 }

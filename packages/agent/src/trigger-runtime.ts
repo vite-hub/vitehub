@@ -6,8 +6,7 @@ import {
   normalizeCapabilities,
 } from "./capability-runtime.ts"
 import { AgentHttpError } from "./http-error.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { isRuntimeFunction, isRuntimeString } from "./internal/runtime-value.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { runInvocationReference } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 
@@ -42,6 +41,7 @@ import type {
   ResolvedAgentTriggerTask,
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
+import { githubHmacSignatureFormat, verifyViteHubHmacSignature, viteHubHmacSha256 } from "@vite-hub/internal/secret"
 import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -52,7 +52,7 @@ import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 
 export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
-  if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
+  if (!isRuntimeRecord(input) && typeof input !== "function") return false
   if (!Object.hasOwn(input, "~standard")) {
     let prototype = Object.getPrototypeOf(input)
     let classGetterFound = false
@@ -60,8 +60,8 @@ export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<un
       const marker = Object.getOwnPropertyDescriptor(prototype, "~standard")
       if (marker) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        classGetterFound = hasRuntimeType(marker.get, "function")
-          && hasRuntimeType(constructor, "function")
+        classGetterFound = typeof marker.get === "function"
+          && typeof constructor === "function"
           && constructor !== Object
           && constructor.prototype === prototype
         break
@@ -72,7 +72,7 @@ export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<un
   }
   // SAFETY: The runtime checks above establish an object or function with a validated marker location; its value remains unknown until validated below.
   const standard = (input as Record<PropertyKey, unknown>)["~standard"]
-  return isRuntimeRecord(standard) && hasRuntimeType(standard.validate, "function")
+  return isRuntimeRecord(standard) && typeof standard.validate === "function"
 }
 
 const agentTriggerContextKey = "agent.trigger"
@@ -136,13 +136,13 @@ function channelHistoryAnnotations<TRuntimeConfig extends AgentRuntimeConfig>(
   const annotations: NonNullable<AgentRunMetadata["annotations"]> = {}
   try {
     const key = history.key(input)
-    if (hasRuntimeType(key, "string") && key.trim()) annotations["vitehub.channel.key"] = key
+    if (typeof key === "string" && key.trim()) annotations["vitehub.channel.key"] = key
   }
   catch {}
   if (history.thread) {
     try {
       const thread = history.thread(input)
-      if (hasRuntimeType(thread, "string") && thread.trim()) annotations["vitehub.channel.thread"] = thread
+      if (typeof thread === "string" && thread.trim()) annotations["vitehub.channel.thread"] = thread
     }
     catch {}
   }
@@ -275,7 +275,7 @@ async function bindAgentTriggerCallbacks<TContext>(
   const prepare = trigger.prepare as ((context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>) | undefined
   const bound: Pick<ResolvedAgentTriggerDefinition, "prepare" | "tasks"> = {}
   if (prepare !== undefined) {
-    if (!isRuntimeFunction(prepare)) throw new TypeError(`[vitehub] Trigger "${id}" prepare must be a function.`)
+    if (typeof prepare !== "function") throw new TypeError(`[vitehub] Trigger "${id}" prepare must be a function.`)
     bound.prepare = invocation => prepare(context, invocation)
   }
   if (trigger.tasks === undefined) return bound
@@ -286,15 +286,15 @@ async function bindAgentTriggerCallbacks<TContext>(
     if ((task.agent === undefined) === (task.run === undefined)) {
       throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" must declare exactly one of agent or run.`)
     }
-    const target: unknown = isRuntimeFunction(task.agent) && !hasAgentDefinition(task.agent) ? await task.agent() : task.agent
+    const target: unknown = typeof task.agent === "function" && !hasAgentDefinition(task.agent) ? await task.agent() : task.agent
     const agent: unknown = !hasAgentDefinition(target) && isRuntimeRecord(target) && "default" in target ? target.default : target
     const agentName: unknown = isRuntimeRecord(agent) ? agent.name : undefined
-    if (task.agent !== undefined && !(hasAgentDefinition(agent) && isRuntimeString(agentName) && agentName.trim())) {
+    if (task.agent !== undefined && !(hasAgentDefinition(agent) && typeof agentName === "string" && agentName.trim())) {
       throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" needs an Agent with a stable non-empty name. The webhook queue stores the name with the delivery.`)
     }
-    if (task.run !== undefined && !isRuntimeFunction(task.run)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
-    if (task.prepare !== undefined && !isRuntimeFunction(task.prepare)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
-    if (task.failed !== undefined && !isRuntimeFunction(task.failed)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
+    if (task.run !== undefined && typeof task.run !== "function") throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
+    if (task.prepare !== undefined && typeof task.prepare !== "function") throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
+    if (task.failed !== undefined && typeof task.failed !== "function") throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
     // SAFETY: The checks above validated the task shape that the trigger definition declares for its context type.
     const { failed, prepare: taskPrepare, run } = task as {
       failed?: ResolvedAgentTriggerTask["failed"]
@@ -458,10 +458,10 @@ async function resolveWebhookSecret(
   context: AgentCallbackContext,
 ): Promise<unknown> {
   if (value === undefined) return undefined
-  if (isRuntimeFunction(value)) {
+  if (typeof value === "function") {
     return unsealWebhookSecret(await value(context))
   }
-  if (isRecord(value) && Object.hasOwn(value, "resolve") && isRuntimeFunction(value.resolve)) {
+  if (isRecord(value) && Object.hasOwn(value, "resolve") && typeof value.resolve === "function") {
     return unsealWebhookSecret(await value.resolve(context))
   }
   return unsealWebhookSecret(value)
@@ -469,7 +469,7 @@ async function resolveWebhookSecret(
 
 /** A sealed Server Env secret (`{ unseal() }`) resolves to its value. */
 function unsealWebhookSecret(value: unknown): unknown {
-  return isRecord(value) && isRuntimeFunction(value.unseal) ? value.unseal() : value
+  return isRecord(value) && typeof value.unseal === "function" ? value.unseal() : value
 }
 
 /** `signature: "bearer"` reads `Authorization` unless `secretHeader` names another header. */
@@ -493,51 +493,16 @@ async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
-async function hmacSha256Digest(secret: Uint8Array<ArrayBuffer>, value: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  const key = await globalThis.crypto.subtle.importKey("raw", secret, { hash: "SHA-256", name: "HMAC" }, false, ["sign"])
-  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, value))
-}
-
-function hexDigest(digest: Uint8Array): string {
-  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
 async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  return hexDigest(await hmacSha256Digest(new TextEncoder().encode(secret), value))
+  return [...await viteHubHmacSha256(secret, value)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
 
 function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
-  if (signature === "github-sha256") return { preset: "hmac-sha256", prefix: "sha256=" }
+  if (signature === "github-sha256") return { preset: "hmac-sha256", ...githubHmacSignatureFormat }
   if (isRecord(signature) && "preset" in signature && signature.preset === "hmac-sha256") return signature
   return undefined
-}
-
-/** Decodes a canonical base64 key. Returns `undefined` for malformed or empty input so verification fails closed. */
-export function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return undefined
-  let binary: string
-  try {
-    binary = atob(value)
-  }
-  catch {
-    return undefined
-  }
-  if (!binary.length || btoa(binary).replace(/=+$/, "") !== value.replace(/=+$/, "")) return undefined
-  return Uint8Array.from(binary, character => character.charCodeAt(0))
-}
-
-// Verifies `<prefix><digest>`, where the digest is the HMAC-SHA256 of the raw body in hex or base64.
-async function verifyHmacSignature(signature: HmacSignaturePreset, secret: string, header: string, rawBody: Uint8Array<ArrayBuffer>): Promise<boolean> {
-  const prefix = signature.prefix ?? ""
-  if (!header.startsWith(prefix)) return false
-  const key = signature.secretEncoding === "base64" ? decodeBase64Key(secret) : new TextEncoder().encode(secret)
-  if (!key) return false
-  const digest = await hmacSha256Digest(key, rawBody)
-  const received = header.slice(prefix.length)
-  if (signature.encoding === "base64") return await constantTimeEqual(btoa(String.fromCharCode(...digest)), received)
-  return await constantTimeEqual(hexDigest(digest), received.toLowerCase())
 }
 
 async function constantTimeEqual(left: string, right: string): Promise<boolean> {
@@ -606,7 +571,7 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
 ): Promise<AgentWebhookVerificationResult> {
   for (const registration of registrations) {
     const secretToken = await resolveWebhookSecret(registration.secretToken, context)
-    if (secretToken !== undefined && secretToken !== false && !isRuntimeString(secretToken)) {
+    if (secretToken !== undefined && secretToken !== false && typeof secretToken !== "string") {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secretToken to an invalid value.`)
     }
     if (!secretToken && secretToken !== false && registration.signature === "bearer") throw missingBearerSecretError(registration)
@@ -671,7 +636,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
 
   for (const { headerValue, registration } of targeted) {
     const secretToken = await resolveWebhookSecret(registration.secretToken, verificationContext)
-    if (secretToken !== undefined && secretToken !== false && !isRuntimeString(secretToken)) {
+    if (secretToken !== undefined && secretToken !== false && typeof secretToken !== "string") {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secretToken to an invalid value.`)
     }
     if (secretToken === false) {
@@ -705,7 +670,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     }
     const hmacSignature = hmacSignaturePreset(registration.signature)
     if (hmacSignature) {
-      if (await verifyHmacSignature(hmacSignature, secretToken, headerValue, await readRawBody())) {
+      if (await verifyViteHubHmacSignature(secretToken, headerValue, await readRawBody(), hmacSignature)) {
         return { registration, verified: true }
       }
       continue
@@ -882,7 +847,7 @@ function withWebhookDeliveryRun<CALL_OPTIONS>(
   trigger: Pick<ResolvedAgentTriggerDefinition, "channelId">,
 ): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
   const deliveryId = invoked.webhook?.deliveryId
-  if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
+  if (!trigger.channelId || typeof deliveryId !== "string" || !deliveryId.trim()) return invoked
   return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
 }
 
@@ -928,7 +893,7 @@ export function agentTriggerTask<CALL_OPTIONS = unknown>(
   trigger: { id: string, tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>> },
   name: unknown,
 ): ResolvedAgentTriggerTask<CALL_OPTIONS> {
-  const task = isRuntimeString(name) && trigger.tasks && Object.hasOwn(trigger.tasks, name) ? trigger.tasks[name] : undefined
+  const task = typeof name === "string" && trigger.tasks && Object.hasOwn(trigger.tasks, name) ? trigger.tasks[name] : undefined
   if (!task) throw new TypeError(`[vitehub] Task "${String(name)}" is not declared by trigger "${trigger.id}".`)
   return task
 }
@@ -969,7 +934,7 @@ export async function prepareAgentTriggerInvocation<
 
 /** The host identity of a task Agent. Its Invocations belong to that Agent, not to the Agent that owns the trigger. */
 export function taskAgentIdentity(agent: AgentInput): { name: string } {
-  if (!isRuntimeString(agent.name) || !agent.name.trim()) throw new TypeError("[vitehub] A task Agent needs a stable non-empty name.")
+  if (typeof agent.name !== "string" || !agent.name.trim()) throw new TypeError("[vitehub] A task Agent needs a stable non-empty name.")
   return { name: agent.name }
 }
 
@@ -984,7 +949,7 @@ function withSerializedWebhook<CALL_OPTIONS>(
 ): AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined {
   if (webhook?.serialize === undefined) return webhook
   const { serialize, ...ownership } = webhook
-  if (!isRuntimeString(serialize) || !serialize.trim()) {
+  if (typeof serialize !== "string" || !serialize.trim()) {
     throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize must be a non-empty string.`)
   }
   if (ownership.concurrencyKey !== undefined || ownership.concurrencyLimit !== undefined) {

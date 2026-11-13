@@ -1,3 +1,6 @@
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+
 import type {
   CommentCreateInput,
   CommentDeleteInput,
@@ -36,38 +39,37 @@ export class CommentsRpcError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
 /**
- * A transport over the operations RPC at `/_vitehub/rpc/__call`. The browser sends its session cookie, and the server
- * runs `console.authorize` and the `authorize` of `server/comments.ts`. It has no `subscribe`: the client refreshes
- * when the window gets focus.
+ * A transport over the operations RPC at `POST /_vitehub/rpc`, one birpc call for each request, for development only.
+ * A browser cannot sign Console calls, so it works on a development server with `console: { auth: false }` or without
+ * the `console` option. Pages of a production app use `createRestTransport()` from `@vite-hub/comments/client`. It has
+ * no `subscribe`: the client refreshes when the window gets focus.
  */
 export function createRpcTransport(options: RpcTransportOptions = {}): CommentsTransport {
   const base = (options.base ?? "").replace(/\/+$/, "")
   async function call<T>(operation: string, input: unknown): Promise<T> {
     const send = options.fetch ?? globalThis.fetch
-    let response: Response
+    let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
     try {
-      response = await send(`${base}/_vitehub/rpc/__call`, {
-        // The operation comes first so the server can find large calls within the first bytes.
-        body: JSON.stringify({ operation, input }),
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", "x-vitehub-console": "1" },
-        method: "POST",
+      outcome = await callOperationRpc(operation, input, async (body) => {
+        const response = await send(`${base}${operationRpcPath}`, {
+          body,
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+          method: "POST",
+        })
+        return { body: await response.json().catch(() => undefined), response }
       })
     }
     catch (cause) {
       throw new CommentsRpcError({ code: "COMMENTS_R0013", fix: "Check the connection and try again.", message: `The request failed: ${cause instanceof Error ? cause.message : String(cause)}`, status: 0 })
     }
-    const body: unknown = await response.json().catch(() => undefined)
-    if (isRecord(body) && body.ok === true) {
-      // SAFETY: The operation of the same name answers with the type of the transport method that called it.
-      return body.value as T
-    }
+    // SAFETY: The operation of the same name answers with the type of the transport method that called it.
+    if (outcome.ok) return outcome.value as T
+    if (outcome.error) throw new CommentsRpcError(outcome.error)
+    // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+    const { body, response } = outcome.answer
     throw new CommentsRpcError({
       code: isRecord(body) && typeof body.code === "string" ? body.code : "COMMENTS_R0013",
       message: isRecord(body) && typeof body.message === "string" ? body.message : `The server answered with HTTP ${response.status}.`,

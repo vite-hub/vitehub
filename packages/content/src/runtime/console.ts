@@ -1,4 +1,5 @@
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type {
   ViteHubConsoleActionFailure,
@@ -53,10 +54,6 @@ const maximumSearchLimit = 50
 const maximumReferencePathnames = 100
 const referencePageSize = 1_000
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
 function isContentRuntime(value: unknown): value is ContentRuntime {
   return isRecord(value)
     && value.collection instanceof Function
@@ -71,7 +68,7 @@ function isContentRuntime(value: unknown): value is ContentRuntime {
 }
 
 function contentRuntime(value: unknown): ContentRuntime {
-  if (!isContentRuntime(value)) throw new TypeError("[vitehub] server/content.ts must export the defineContent() runtime as `content`.")
+  if (!isContentRuntime(value)) throw new TypeError("[vitehub] server/content.ts must default-export the defineContent() runtime.")
   return value
 }
 
@@ -379,11 +376,11 @@ function sessionsUnavailable(error: unknown): string | undefined {
 }
 
 /**
- * Create the Console document actions for the `content` export of `server/content.ts`. Every action checks
+ * Create the Console document actions for the default export of `server/content.ts`. Every action checks
  * `content.can()` with the signed-in Console user before it calls the trusted runtime method.
  */
 export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory = (module) => {
-  const content = contentRuntime(module.content)
+  const content = contentRuntime(module.default)
 
   function open(name: unknown): AnyContentCollection {
     const collectionName = text(name, "collection")
@@ -716,7 +713,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           expect: expected.map(({ id, digest, locale }) => ({ collection: collection.name, id, digest, ...(locale === undefined ? {} : { locale }) })),
           metadata: writeMetadata(context),
         })
-        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })), ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}) }
+        return {
+          revision: result.revision?.id ?? null,
+          documents: result.documents.map(document => ({ ...document })),
+          ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}),
+          ...(result.previews ? { previews: result.previews.map(preview => ({ ...preview, expiresAt: preview.expiresAt.toISOString() })) } : {}),
+        }
       })
     },
 

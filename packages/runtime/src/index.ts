@@ -1,27 +1,9 @@
-import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+import { isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
 export { runtimeErrorDiagnostics }
-
-export {
-  runRuntimePreflight,
-  startRuntimePreflight,
-  type RuntimePreflightCheck,
-  type RuntimePreflightCheckContext,
-  type RuntimePreflightCheckResult,
-  type RuntimePreflightCheckSummary,
-  type RuntimePreflightDetails,
-  type RuntimePreflightDiagnosticData,
-  type RuntimePreflightHandle,
-  type RuntimePreflightIssue,
-  type RuntimePreflightKind,
-  type RuntimePreflightManifest,
-  type RuntimePreflightOptions,
-  type RuntimePreflightState,
-  type RuntimePreflightValue,
-} from "./preflight.ts"
 
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
@@ -36,6 +18,19 @@ export {
   type ExecutionBudgetUsage,
 } from "./execution-budget.ts"
 
+export {
+  createMemoryLeaseStore,
+  createSqlLeaseStore,
+  leaseTable,
+  type Lease,
+  type LeaseAcquireOptions,
+  type LeaseErrorCode,
+  type LeaseOperation,
+  type LeaseRecord,
+  type LeaseSqlClient,
+  type LeaseSqlParam,
+  type LeaseStore,
+} from "./lease.ts"
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
 export { consoleInvocationUrl, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
@@ -78,17 +73,21 @@ export {
 
 export type MaybePromise<T> = T | Promise<T>
 
-// Capture platform methods before application callbacks run. As with the other
-// platform brand checks, the host must supply intact intrinsics at import time.
-const webAssemblyModuleConstructor = (() => {
+function captureWebAssemblyModule(): { constructor: unknown, exports: unknown } {
   const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
-  return hasRuntimeType(namespace, "object")
+  const constructor: unknown = typeof namespace === "object"
     ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
     : undefined
-})()
-const webAssemblyModuleExports = hasRuntimeType(webAssemblyModuleConstructor, "function")
-  ? Object.getOwnPropertyDescriptor(webAssemblyModuleConstructor, "exports")?.value
-  : undefined
+  const exports: unknown = typeof constructor === "function"
+    ? Object.getOwnPropertyDescriptor(constructor, "exports")?.value
+    : undefined
+  return { constructor, exports }
+}
+
+// Capture platform methods before application callbacks run. As with the other
+// platform brand checks, the host must supply intact intrinsics at import time.
+// Each capture is pure, so a bundle that never checks trace values drops it.
+const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
 export interface AccessAuthorizationContext {
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
@@ -160,11 +159,11 @@ interface InspectedExecutionAuthority {
 
 function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority | undefined {
   try {
-    if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return undefined
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
     // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     const authority = value as Record<string, unknown>
     const filesystem = authority.filesystem
-    if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return undefined
+    if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem)) return undefined
     // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     const files = filesystem as Record<string, unknown>
     const credentials = authority.credentials
@@ -174,13 +173,13 @@ function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority 
     const isolation = authority.isolation
     const network = authority.network
     const processes = authority.processes
-    if (!(hasRuntimeType(credentials, "string") && ["ambient", "none", "provisioned", "unknown"].includes(credentials)
-      && hasRuntimeType(environment, "string") && ["ambient", "none", "selected", "unknown"].includes(environment)
-      && hasRuntimeType(access, "string") && ["none", "read-only", "read-write", "unknown"].includes(access)
-      && hasRuntimeType(scope, "string") && ["host", "none", "sandbox", "unknown", "workspace"].includes(scope)
-      && hasRuntimeType(isolation, "string") && ["container", "microvm", "none", "process", "unknown"].includes(isolation)
-      && hasRuntimeType(network, "string") && ["none", "restricted", "unrestricted", "unknown"].includes(network)
-      && hasRuntimeType(processes, "string") && ["arbitrary", "none", "restricted", "unknown"].includes(processes))) return undefined
+    if (!(typeof credentials === "string" && ["ambient", "none", "provisioned", "unknown"].includes(credentials)
+      && typeof environment === "string" && ["ambient", "none", "selected", "unknown"].includes(environment)
+      && typeof access === "string" && ["none", "read-only", "read-write", "unknown"].includes(access)
+      && typeof scope === "string" && ["host", "none", "sandbox", "unknown", "workspace"].includes(scope)
+      && typeof isolation === "string" && ["container", "microvm", "none", "process", "unknown"].includes(isolation)
+      && typeof network === "string" && ["none", "restricted", "unrestricted", "unknown"].includes(network)
+      && typeof processes === "string" && ["arbitrary", "none", "restricted", "unknown"].includes(processes))) return undefined
     return {
       authority: { credentials, environment, filesystem: { access, scope }, isolation, network, processes } as ExecutionAuthority,
       filesystem,
@@ -420,7 +419,7 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
 
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
-  if (hasRuntimeType(value, "string")) return value
+  if (typeof value === "string") return value
   if (isRuntimeObject(value)) {
     try {
       // Date.prototype's intrinsic methods recognize Date objects from other realms.
@@ -434,7 +433,7 @@ function timestamp(value: Date | string | undefined): string {
 }
 
 function normalizedTraceActivity(activity: TraceActivityContext | undefined): TraceActivityContext | undefined {
-  if (!activity || !hasRuntimeType(activity, "object")) return
+  if (!activity || typeof activity !== "object") return
   try {
     if (Array.isArray(activity)) return
     const owner = Object.getOwnPropertyDescriptor(activity, "owner")
@@ -450,7 +449,7 @@ function normalizedTraceActivity(activity: TraceActivityContext | undefined): Tr
 }
 
 function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   try {
     return Array.from(Map.prototype.entries.call(value))
   }
@@ -460,7 +459,7 @@ function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefi
 }
 
 function reflectedSetValues(value: unknown): unknown[] | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   try {
     return Array.from(Set.prototype.values.call(value))
   }
@@ -470,18 +469,19 @@ function reflectedSetValues(value: unknown): unknown[] | undefined {
 }
 
 function isCryptoKey(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object")) return false
+  if (!value || typeof value !== "object") return false
   const CryptoKeyConstructor = Object.getOwnPropertyDescriptor(globalThis, "CryptoKey")?.value
-  return hasRuntimeType(CryptoKeyConstructor, "function") && value instanceof CryptoKeyConstructor
+  return typeof CryptoKeyConstructor === "function" && value instanceof CryptoKeyConstructor
 }
 
 function isWebAssemblyModule(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object")) return false
-  if (!hasRuntimeType(webAssemblyModuleConstructor, "function")) return false
-  if (value instanceof webAssemblyModuleConstructor) return true
+  if (!value || typeof value !== "object") return false
+  const { constructor, exports } = webAssemblyModule
+  if (typeof constructor !== "function") return false
+  if (value instanceof constructor) return true
   try {
-    if (!hasRuntimeType(webAssemblyModuleExports, "function")) return false
-    Reflect.apply(webAssemblyModuleExports, webAssemblyModuleConstructor, [value])
+    if (typeof exports !== "function") return false
+    Reflect.apply(exports, constructor, [value])
     return true
   }
   catch {
@@ -491,8 +491,13 @@ function isWebAssemblyModule(value: unknown): boolean {
 
 // Exact native source signatures reject user functions, bound functions and proxies.
 // This boundary uses the host Function intrinsic rather than a payload-owned method.
-const intrinsicFunctionToString = Function.prototype.toString
-const nativeFunctionToString = (() => {
+function captureFunctionToString() {
+  return Function.prototype.toString
+}
+
+const intrinsicFunctionToString = /* @__PURE__ */ captureFunctionToString()
+
+function checkNativeFunctionToString(): boolean {
   try {
     // Built-in functions have no own `prototype` property. Keep this check
     // independent of the formatter's reported source.
@@ -535,10 +540,12 @@ const nativeFunctionToString = (() => {
   catch {
     return false
   }
-})()
+}
+
+const nativeFunctionToString = /* @__PURE__ */ checkNativeFunctionToString()
 
 function isNativeBufferOperation(value: unknown, name: string): value is (...args: never[]) => unknown {
-  if (!nativeFunctionToString || !hasRuntimeType(value, "function")) return false
+  if (!nativeFunctionToString || typeof value !== "function") return false
   try {
     return intrinsicFunctionToString.call(value).replace(/\s+/g, " ") === `function ${name}() { [native code] }`
   }
@@ -616,11 +623,11 @@ function captureOrdinaryBufferOperations(): {
   }
 }
 
-const sharedBufferByteLength = captureSharedBufferByteLength()
-const ordinaryBufferOperations = captureOrdinaryBufferOperations()
+const sharedBufferByteLength = /* @__PURE__ */ captureSharedBufferByteLength()
+const ordinaryBufferOperations = /* @__PURE__ */ captureOrdinaryBufferOperations()
 
 function isSharedArrayBuffer(value: unknown): boolean {
-  if (!value || !hasRuntimeType(value, "object")) return false
+  if (!value || typeof value !== "object") return false
   if (sharedBufferByteLength) {
     try {
       // When the native ordinary-buffer probes are available, prove the value
@@ -630,7 +637,7 @@ function isSharedArrayBuffer(value: unknown): boolean {
       if (ordinaryBufferOperations) {
         Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
       }
-      return hasRuntimeType(sharedBufferByteLength.call(value), "number")
+      return typeof sharedBufferByteLength.call(value) === "number"
     }
     catch {
       return false
@@ -644,7 +651,7 @@ function isSharedArrayBuffer(value: unknown): boolean {
       if (prototype === Object.prototype) return false
       const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value
       const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
-      return tag === "SharedArrayBuffer" && hasRuntimeType(byteLength, "function")
+      return tag === "SharedArrayBuffer" && typeof byteLength === "function"
     }
     catch {
       return true
@@ -668,7 +675,7 @@ function isSharedArrayBuffer(value: unknown): boolean {
 }
 
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
-  if (!value || !hasRuntimeType(value, "object")) return false
+  if (!value || typeof value !== "object") return false
   if (isSharedArrayBuffer(value)) return true
   // SAFETY: The runtime guard below verifies this optional host constructor before instantiation checks.
   const WebAssemblyMemory = (globalThis as typeof globalThis & {
@@ -693,12 +700,12 @@ function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): bo
 }
 
 function reflectedRegExpState(value: unknown): { flags: string, lastIndex: number, source: string } | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   try {
     const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get?.call(value)
     const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get?.call(value)
     const lastIndex = Reflect.get(value, "lastIndex")
-    if (!hasRuntimeType(source, "string") || !hasRuntimeType(flags, "string") || !hasRuntimeType(lastIndex, "number")) return
+    if (typeof source !== "string" || typeof flags !== "string" || typeof lastIndex !== "number") return
     return { flags, lastIndex, source }
   }
   catch {
@@ -710,23 +717,23 @@ function reflectedArrayBufferViewState(value: unknown): { byteLength: number, ki
   if (!ArrayBuffer.isView(value)) return
   try {
     const bufferConstructor = Object.getOwnPropertyDescriptor(globalThis, "Buffer")?.value ?? globalThis.Buffer
-    const isBuffer = hasRuntimeType(bufferConstructor, "function")
+    const isBuffer = typeof bufferConstructor === "function"
       ? Object.getOwnPropertyDescriptor(bufferConstructor, "isBuffer")?.value
       : undefined
-    const isNodeBuffer = hasRuntimeType(isBuffer, "function")
+    const isNodeBuffer = typeof isBuffer === "function"
       && Reflect.apply(isBuffer, bufferConstructor, [value]) === true
     const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
     if (isNodeBuffer) {
       const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get?.call(value)
-      return hasRuntimeType(byteLength, "number") ? { byteLength, kind: "Buffer" } : undefined
+      return typeof byteLength === "number" ? { byteLength, kind: "Buffer" } : undefined
     }
     const typedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get?.call(value)
-    if (hasRuntimeType(typedArrayTag, "string")) {
+    if (typeof typedArrayTag === "string") {
       const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get?.call(value)
-      return hasRuntimeType(byteLength, "number") ? { byteLength, kind: typedArrayTag } : undefined
+      return typeof byteLength === "number" ? { byteLength, kind: typedArrayTag } : undefined
     }
     const dataViewByteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")?.get?.call(value)
-    return hasRuntimeType(dataViewByteLength, "number") ? { byteLength: dataViewByteLength, kind: "DataView" } : undefined
+    return typeof dataViewByteLength === "number" ? { byteLength: dataViewByteLength, kind: "DataView" } : undefined
   }
   catch {
     return
@@ -743,17 +750,17 @@ interface ReflectedBlobState {
 
 function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
   const BlobConstructor = globalThis.Blob
-  if (!hasRuntimeType(BlobConstructor, "function") || !(value instanceof BlobConstructor)) return
+  if (typeof BlobConstructor !== "function" || !(value instanceof BlobConstructor)) return
   try {
     const FileConstructor = globalThis.File
-    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
+    const file = typeof FileConstructor === "function" && value instanceof FileConstructor ? value : undefined
     const intrinsic = file ? new FileConstructor([], "") : new BlobConstructor([])
     const size = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "size")?.get?.call(value)
     const type = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "type")?.get?.call(value)
-    if (!hasRuntimeType(size, "number") || !hasRuntimeType(type, "string")) return
+    if (typeof size !== "number" || typeof type !== "string") return
     const state: ReflectedBlobState = {
       intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
-        hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
+        typeof key === "symbol" && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
       )),
       size,
       type,
@@ -761,7 +768,7 @@ function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
     if (file) {
       const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
       const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
-      if (!hasRuntimeType(lastModified, "number") || !hasRuntimeType(name, "string")) return
+      if (typeof lastModified !== "number" || typeof name !== "string") return
       state.lastModified = lastModified
       state.name = name
     }
@@ -773,7 +780,7 @@ function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
 }
 
 function containsUnsafeStructuredCloneState(value: unknown, seen = new Set<object>()): boolean {
-  if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
+  if (!value || typeof value !== "object" || seen.has(value)) return false
   if (isCryptoKey(value) || isWebAssemblyModule(value)) return true
   seen.add(value)
   for (const key of Reflect.ownKeys(value)) {
@@ -803,8 +810,8 @@ function containsUnsafeStructuredCloneState(value: unknown, seen = new Set<objec
 }
 
 function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
-  if (!source || !hasRuntimeType(source, "object")) return true
-  if (!snapshot || !hasRuntimeType(snapshot, "object")) return false
+  if (!source || typeof source !== "object") return true
+  if (!snapshot || typeof snapshot !== "object") return false
   if (seen.has(source)) return seen.get(source) === snapshot
   seen.set(source, snapshot)
 
@@ -861,7 +868,7 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   for (const key of Reflect.ownKeys(source)) {
     const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key)
     if (!sourceDescriptor?.enumerable) continue
-    if (hasRuntimeType(key, "symbol")) {
+    if (typeof key === "symbol") {
       if (sourceBlob?.intrinsicSymbols.has(key)) continue
       return false
     }
@@ -892,7 +899,7 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
 
 function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
   if (payload === undefined) return
-  if (!payload || !hasRuntimeType(payload, "object")) return { visibility: "private" }
+  if (!payload || typeof payload !== "object") return { visibility: "private" }
   try {
     if (Array.isArray(payload)) return { visibility: "private" }
     const visibility = Object.getOwnPropertyDescriptor(payload, "visibility")
@@ -908,7 +915,7 @@ function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEv
     }
     if (visibility.value === "summary") {
       const summary = Object.getOwnPropertyDescriptor(payload, "summary")
-      if (summary && "value" in summary && hasRuntimeType(summary.value, "string")) {
+      if (summary && "value" in summary && typeof summary.value === "string") {
         return { summary: summary.value, visibility: "summary" }
       }
     }
@@ -1030,7 +1037,7 @@ function durationMs(startTime: string, endTime: string | undefined): number | un
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => hasRuntimeType(value, "string") && value.length > 0)
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
 function runId(event: TraceEventLogEntry): string {
@@ -1301,23 +1308,12 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
             : step.endTime || run.status === "completed"
               ? "OK"
               : "UNSET",
-          ...(hasRuntimeType(step.attributes?.["error.message"], "string") ? { message: step.attributes["error.message"] } : {}),
+          ...(typeof step.attributes?.["error.message"] === "string" ? { message: step.attributes["error.message"] } : {}),
         } as const,
         traceId,
       })),
     ]
   })
-}
-
-export interface Lease {
-  expiresAt?: Date | string
-  id: string
-  key: string
-  release(): MaybePromise<void>
-}
-
-export interface LeaseStore {
-  acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
 type NormalizedRuntimeConfig<TConfig> = Exclude<TConfig, null | undefined> extends Record<string, unknown>
@@ -1452,7 +1448,7 @@ function isProxy(value: object): boolean | undefined {
 }
 
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  if (!hasRuntimeType(value, "object") || value === null) return false
+  if (typeof value !== "object" || value === null) return false
   if (capabilityHandles.has(value)) return true
   // Node can identify proxies without invoking their traps. Structural checks
   // cannot distinguish a proxy's fabricated descriptors from target-owned data.
@@ -1464,7 +1460,7 @@ function isCapabilityHandle(value: unknown): value is CapabilityHandle {
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const kind = descriptors.kind
     const implementation = descriptors.value
-    if (!kind || !Object.hasOwn(kind, "value") || !hasRuntimeType(kind.value, "string")
+    if (!kind || !Object.hasOwn(kind, "value") || typeof kind.value !== "string"
       || !implementation || !Object.hasOwn(implementation, "value")) {
       return false
     }
@@ -1516,11 +1512,11 @@ export function getCapability(
 export function isResolvable<T, TContext extends RuntimeHostContext<any>>(
   value: MaybeResolvable<T, TContext>,
 ): value is Resolvable<T, TContext> {
-  return hasRuntimeType(value, "object")
+  return typeof value === "object"
     && value !== null
     && "resolve" in value
     // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
+    && typeof (value as { resolve?: unknown }).resolve === "function"
 }
 
 export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext<any>>(
@@ -1531,7 +1527,7 @@ export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext
     return await value.resolve(context)
   }
 
-  if (hasRuntimeType(value, "function")) {
+  if (typeof value === "function") {
     // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     return await (value as (context: TContext) => MaybePromise<T>)(context)
   }
@@ -1544,13 +1540,11 @@ export async function resolveCapabilityPolicy(
   context: PolicyContext,
 ): Promise<PolicyDecision> {
   if (!policy) return "allow"
-  return hasRuntimeType(policy, "function") ? await policy(context) : policy
+  return typeof policy === "function" ? await policy(context) : policy
 }
 
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 export { getRuntimeContext, getStandardContext, type RequestRuntimeContext, type RuntimeContextOptions, type RuntimeName } from "./request-context.ts"
-export { createWorkTracker } from "./work.ts"
-export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"
 
 export {
   deserializeResponse,
@@ -1559,3 +1553,5 @@ export {
   toResponse,
   type SerializedResponse,
 } from "./response.ts"
+
+export { detectHost, getHostBinding, type HostBindingErrorCode, type ViteHubHost } from "./host.ts"

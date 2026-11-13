@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 /** Internal capability used only by Source Sync through wrapped writable facades. */
 export const workspaceInternalMetadataCapability: unique symbol = Symbol("vitehub.workspace.internalMetadata")
 
@@ -116,9 +115,9 @@ export function forwardWorkspaceMetadataView(source: unknown, target: WorkspaceM
 }
 
 function metadataTargetResolver(source: unknown) {
-  if (source === null || !(hasRuntimeType(source, "object") || hasRuntimeType(source, "function"))) return undefined
+  if (source === null || !(typeof source === "object" || typeof source === "function")) return undefined
   return metadataTargetResolvers.get(source)
-    ?? ("fs" in source && source.fs !== null && hasRuntimeType(source.fs, "object") ? facadeMetadataTargets.get(source.fs) : undefined)
+    ?? ("fs" in source && source.fs !== null && typeof source.fs === "object" ? facadeMetadataTargets.get(source.fs) : undefined)
 }
 
 export function resolveWorkspaceMetadataMutationTarget(target: WorkspaceMetadataTarget): WorkspaceMetadataTarget {

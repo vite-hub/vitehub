@@ -5,13 +5,13 @@ import { detectStyle, end, isReference, keyName, line, listItemRemoval, parsePro
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import { bindingResolver } from "../shared/lexical-bindings.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
 
 import type { CallExpression, File, Identifier, ImportDeclaration, ObjectExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 
-const emailImport = "vite-hub/email/server"
+const emailImport = "vite-hub/email"
 
 /** Message fields that the ViteHub Resend driver sends. Resend's `reply_to` becomes `replyTo`. */
 const portableFields = new Set(["from", "to", "cc", "bcc", "replyTo", "subject", "html", "text", "headers", "attachments"])
@@ -190,7 +190,7 @@ class FileRewrite {
         }
       }
     }
-    this.follow(client, "This Resend client is used in a way the codemod does not rewrite, such as a class field or an argument. Replace its emails.send() calls with email.send() from vite-hub/email/server.")
+    this.follow(client, "This Resend client is used in a way the codemod does not rewrite, such as a class field or an argument. Replace its emails.send() calls with email.send() from vite-hub/email.")
     this.keepsResend = true
   }
 
@@ -370,7 +370,7 @@ export async function rewriteResendCallSites(cwd: string): Promise<ResendCallSit
       rewrite.run()
     }
     catch {
-      result.followUps.push({ file, message: "The codemod could not parse this file. Replace its Resend calls with email.send() from vite-hub/email/server by hand." })
+      result.followUps.push({ file, message: "The codemod could not parse this file. Replace its Resend calls with email.send() from vite-hub/email by hand." })
       result.remaining.push(file)
       if (code.includes("useResend")) result.useResendRemaining.push(file)
       continue

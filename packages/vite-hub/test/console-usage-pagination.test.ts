@@ -1,5 +1,5 @@
 import { createClient } from "@libsql/client";
-import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite";
+import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations";
 import { defineAgentInvocations } from "@vite-hub/agent/server";
 import { expect, it } from "vitest";
 import { createConsoleUsageIndex } from "../src/console/runtime/server/usage-index.ts";

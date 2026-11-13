@@ -17,7 +17,6 @@ import type { AgentStateCacheMutation } from "./state-lock.ts"
 import type { AgentWebhookQueue, AgentWebhookQueueDelivery, AgentWebhookQueueRegistration } from "./webhook-queue.ts"
 import { hasAgentWebhookQueue } from "./webhook-queue.ts"
 import { isResponse } from "./response.ts"
-import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 export const channelStateLockTtlMs: number = 60_000
 export const channelStateLockWaitMs: number = 10_000
@@ -49,7 +48,7 @@ export interface AgentChannelStateCommit {
 
 function hasChannelStateCommit(state: StateAdapter): state is AgentChannelStateCommitAdapter {
   // SAFETY: The State contract may include optional extension methods, checked below before use.
-  return isRuntimeFunction((state as Partial<AgentChannelStateCommitAdapter>).commitWebhookState)
+  return typeof (state as Partial<AgentChannelStateCommitAdapter>).commitWebhookState === "function"
 }
 
 function channelStateLockLost(lock: Lock): Error {
@@ -58,7 +57,7 @@ function channelStateLockLost(lock: Lock): Error {
 
 function positiveDuration(value: number | undefined, fallback: number, name: string, allowZero = false): number {
   if (value === undefined) return fallback
-  if (!isRuntimeNumber(value) || !Number.isFinite(value) || value < 0 || (!allowZero && value === 0)) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || (!allowZero && value === 0)) {
     throw new TypeError(`[vitehub] channelState.transaction() ${name} must be a ${allowZero ? "non-negative" : "positive"} finite number.`)
   }
   return value
@@ -159,8 +158,8 @@ export async function runChannelStateTransaction<T, R>(
   run: (state: AgentChannelStateTransaction<T>) => MaybePromise<R>,
   options: AgentChannelStateTransactionOptions = {},
 ): Promise<R> {
-  if (!isRuntimeString(key) || !key) throw new TypeError("[vitehub] channelState.transaction() needs a non-empty key.")
-  if (!isRuntimeFunction(run)) throw new TypeError("[vitehub] channelState.transaction() needs a callback.")
+  if (typeof key !== "string" || !key) throw new TypeError("[vitehub] channelState.transaction() needs a non-empty key.")
+  if (typeof run !== "function") throw new TypeError("[vitehub] channelState.transaction() needs a callback.")
   const ttlMs = positiveDuration(options.ttlMs, channelStateLockTtlMs, "ttlMs")
   const waitMs = positiveDuration(options.waitMs, channelStateLockWaitMs, "waitMs", true)
   const { state } = binding
@@ -219,12 +218,12 @@ interface PullContext {
 }
 
 function isPullPage(value: unknown, cursorType: "number" | "string"): value is AgentChannelPullPage {
-  if (!isRuntimeObject(value) || !("items" in value) || !("next" in value) || !("more" in value)) return false
+  if (typeof value !== "object" || value === null || !("items" in value) || !("next" in value) || !("more" in value)) return false
   const items: unknown = value.items
   return typeof value.next === cursorType
     && (cursorType === "string" || Number.isFinite(value.next))
     && typeof value.more === "boolean"
-    && isRuntimeObject(items)
+    && typeof items === "object" && items !== null
     && (Symbol.iterator in items || Symbol.asyncIterator in items)
 }
 
@@ -237,7 +236,7 @@ export async function pullAgentChannel<TCursor extends string | number>(
   options: AgentChannelPullOptions<TCursor>,
 ): Promise<AgentChannelPullResult<TCursor>> {
   const binding = context.channelState
-  const name = isRuntimeObject(options) && isRuntimeString(options.key) ? options.key : ""
+  const name = typeof options === "object" && options !== null && typeof options.key === "string" ? options.key : ""
   if (!binding) {
     throw new Error(`[vitehub] Channel trigger "${context.trigger.id}" can pull only with the Channel's State. Run it through the Channel's webhook route.`)
   }
@@ -246,8 +245,8 @@ export async function pullAgentChannel<TCursor extends string | number>(
   if ((cursorType !== "string" && cursorType !== "number") || (cursorType === "number" && !Number.isFinite(options.initialCursor))) {
     throw new TypeError(`[vitehub] context.pull("${name}") needs a string or finite number initialCursor.`)
   }
-  if (!isRuntimeFunction(options.fetch)) throw new TypeError(`[vitehub] context.pull("${name}") needs a fetch function.`)
-  if (!isRuntimeString(options.trigger) || !options.trigger.trim()) {
+  if (typeof options.fetch !== "function") throw new TypeError(`[vitehub] context.pull("${name}") needs a fetch function.`)
+  if (typeof options.trigger !== "string" || !options.trigger.trim()) {
     throw new TypeError(`[vitehub] context.pull("${name}") needs the trigger that admits its items.`)
   }
   const { signal } = options
@@ -275,7 +274,7 @@ export async function pullAgentChannel<TCursor extends string | number>(
       if (page.first !== undefined && page.first !== cursor) {
         throw new Error(`[vitehub] context.pull("${name}") has a gap: expected cursor ${cursor}, received ${page.first}.`)
       }
-      if (isRuntimeNumber(cursor) && isRuntimeNumber(next) && next < cursor) {
+      if (typeof cursor === "number" && typeof next === "number" && next < cursor) {
         throw new Error(`[vitehub] context.pull("${name}") moved its cursor back from ${cursor} to ${next}.`)
       }
       if (page.more && next === cursor) {

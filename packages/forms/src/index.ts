@@ -1,4 +1,6 @@
 export { defineForm, isFormDefinition } from "./define.ts"
+export { guardRequest } from "./guard.ts"
+export type { GuardedRequest, GuardRequestOptions, GuardRequestServices } from "./guard.ts"
 export { handleFormRequest } from "./handler.ts"
 export { createMemoryFormsStore } from "./memory.ts"
 export { createFormsInbox } from "./inbox.ts"

@@ -3,7 +3,7 @@ title: Avatar Stack
 description: "Show who is in a document as overlapping avatars, with a count for the rest."
 navigation.order: 30
 navigation.group: Collaboration
-icon: i-ph-users-three-light
+icon: i-lucide-users
 ---
 
 `AvatarStack` shows the people in a document or room as overlapping avatars. It works like the stacks of [Liveblocks](https://liveblocks.io/docs/api-reference/liveblocks-react-ui#AvatarStack), [Kibo UI](https://www.kibo-ui.com/components/avatar-stack), and [Supabase UI](https://supabase.com/ui/docs/nextjs/realtime-avatar-stack): same name, a `max` that counts the "+N" item, and one avatar per person. Pass Realtime's `people` as they are.
@@ -13,7 +13,7 @@ icon: i-ph-users-three-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/avatar-stack`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { AvatarStack } from "@vite-hub/ui";
@@ -49,6 +49,7 @@ AvatarStack
 - An image, or the person's initials without one.
 - `outline` rings each avatar in the person's presence color, to match their caret.
 - Hover an avatar to see the name. Hover the count to list hidden names.
+- Pass only the people who are here now. The stack has no away state: someone who left or went idle drops out.
 - Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`.
 
 ## Outline
@@ -88,12 +89,12 @@ Renders a `div` with `data-slot="avatar-stack"`. Each avatar is a `span` with `d
 
 #### Props
 
-| Prop      | Type                             | Default     | Description                                                                 |
-| --------- | -------------------------------- | ----------- | --------------------------------------------------------------------------- |
-| `people`  | `AvatarStackPerson[]`            | Required    | `{ id, name, image?, color? }`. Entries with the same `id` show once. |
-| `max`     | `number \| null`                 | `3`         | Most items, counting "+N". `null` shows everyone. |
-| `size`    | `"sm" \| "default" \| "lg"`      | `"default"` | The avatar size.                                                            |
-| `variant` | `"default" \| "outline"`         | `"default"` | `outline` rings each avatar in the person's `color`.                        |
+| Prop      | Type                        | Default     | Description                                                           |
+| --------- | --------------------------- | ----------- | --------------------------------------------------------------------- |
+| `people`  | `AvatarStackPerson[]`       | Required    | `{ id, name, image?, color? }`. Entries with the same `id` show once. |
+| `max`     | `number \| null`            | `3`         | Most items, counting "+N". `null` shows everyone.                     |
+| `size`    | `"sm" \| "default" \| "lg"` | `"default"` | The avatar size.                                                      |
+| `variant` | `"default" \| "outline"`    | `"default"` | `outline` rings each avatar in the person's `color`.                  |
 
 ## Related
 

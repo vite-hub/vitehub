@@ -5,13 +5,13 @@
     // Resolve workspace packages through their built declarations, so server sources stay out of this browser program.
     "paths": {
       // The stand-ins for Nuxt UI that the overlay builds with. `standaloneUI()` of the overlay build owns them.
-      "@vite-hub/ui/standalone/*": ["../ui/src/standalone/*.ts"]
+      "@vite-hub/ui/standalone/*": ["../ui/src/standalone/*.ts"],
+      // overlay.vite.config.ts bundles the comment parts alone. They are not a package entry, so read their built declarations.
+      "@vite-hub/ui/comments": ["../ui/dist/parts/components/comments.d.ts"]
     }
   },
   "include": [
     "src/console/runtime/components/invocation/**/*.ts",
-    "src/console/page/**/*.ts",
-    "test/console-page-tool-client.test.ts",
     "src/console/ui.ts",
     "src/page/**/*.ts",
     "../ui/src/standalone/virtual.d.ts",

@@ -1,7 +1,8 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
-import { executeSchedule, runSchedule } from "../src/runtime.ts"
+import { executeSchedule } from "../src/runtime.ts"
+import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { createScheduleError } from "../src/errors.ts"
 
 describe("Schedule errors", () => {
@@ -21,7 +22,7 @@ describe("Schedule errors", () => {
   })
 
   it.each([
-    [() => runSchedule("private-name-value", { registry: {} }), "SCHEDULE_DEFINITION_NOT_FOUND"],
+    [() => runScheduleFrom({}, "private-name-value"), "SCHEDULE_DEFINITION_NOT_FOUND"],
     [() => executeSchedule({ definition: { cron: "0 9 * * *", handler: () => {} }, scheduleId: "report", scheduledAt: "private-date-value" as never, target: "report" }), "SCHEDULE_INVALID_SCHEDULED_AT"],
   ])("returns ViteHubError code %s", async (run, code) => {
     const error = await Promise.resolve().then(run).then(() => undefined, cause => cause)

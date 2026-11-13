@@ -41,7 +41,7 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
       "import { inbox } from '../inbox'",
       "export default defineSchedule({ cron: '*/5 * * * *', handler: async () => await pollGmailChannel(inbox) })",
     ].join("\n"))
-    const plugin = hubAgent({ providers: { state: { provider: "libsql", url: `file:${join(root, "state.db")}` } } })
+    const plugin = hubAgent({ providers: { state: { driver: "libsql", url: `file:${join(root, "state.db")}` } } })
     if (typeof plugin.config !== "function") throw new Error("Expected config hook")
     const configured = await plugin.config.call({} as never, { root, nitro: {} } as never, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)) })
@@ -103,7 +103,7 @@ it("installs the Deno polling host before importing cron registrations", async (
       "Deno.cron('mail', '*/5 * * * *', () => pollGmailChannel(inbox))",
       "await globalThis.gmailPollCron()",
     ].join("\n"))
-    const plugin = hubAgent({ runtime: "deno", providers: { state: { provider: "libsql", url: `file:${join(root, "state.db")}` } } })
+    const plugin = hubAgent({ runtime: "deno", providers: { state: { driver: "libsql", url: `file:${join(root, "state.db")}` } } })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], resolve: { alias: [] } })
     const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"))
     await build({
@@ -129,7 +129,7 @@ it("installs the Deno polling host before importing cron registrations", async (
 it("registers a named Channel from retained Netlify Agent sources", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-netlify-output-"))
   try {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     await cp(resolve(import.meta.dirname, "../node_modules"), join(root, "node_modules"), { recursive: true })
     await symlink(resolve(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/agent"), "dir")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "named-channel-output", type: "module" }))
@@ -146,7 +146,7 @@ it("registers a named Channel from retained Netlify Agent sources", async () => 
       "import { defineAgent as makeAgent } from '@vite-hub/agent'",
       "export default makeAgent({ channels: /* retained */ ['teams'], runtime: false, driver: { run: () => 'ok' } })",
     ].join("\n"))
-    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { inspection: true } })
+    const plugin = hubAgent({ providers: { state: { driver: "memory" } }, routes: { inspection: true } })
     const config = await resolveConfig({ root, configFile: false, build: { outDir: "dist" } }, "build")
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     await (plugin.buildEnd as () => Promise<void>)()
@@ -180,16 +180,16 @@ it("registers a named Channel from retained Netlify Agent sources", async () => 
 it("installs configured workspace dependency loaders in the retained polling host", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-loaders-"))
   try {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
     // SAFETY: Framework integrations supply these internal import options to hubAgent.
     const plugin = hubAgent({
-      providers: { state: { provider: "libsql", url: "libsql://state.example.com" } },
+      providers: { state: { driver: "libsql", url: "libsql://state.example.com" } },
       workspaceDependencyRuntimeImports: {
         sandboxTask: "vite-hub/sandbox/task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     } as never)
@@ -209,7 +209,7 @@ it("installs configured workspace dependency loaders in the retained polling hos
     const handler = await readFile(handlers[0]!, "utf8")
     expect(handler).toContain("vitehubSetWorkspaceDependencyRuntimeLoaders({")
     expect(handler).toContain('sandboxTask: () => import("vite-hub/sandbox/task")')
-    expect(handler).toContain('sandboxTaskRuntimeState: () => import("vite-hub/_internal/sandbox/task/runtime/state")')
+    expect(handler).toContain('sandboxTaskRuntimeState: () => import("/sandbox/dist/task/runtime/state.js")')
     expect(handler).toContain('shellWorkspace: () => import("vite-hub/shell/workspace")')
   }
   finally {

@@ -50,11 +50,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./ai-sdk": {
-      "types": "./dist/ai-sdk.d.ts",
-      "import": "./dist/ai-sdk.js",
-      "default": "./dist/ai-sdk.js"
-    },
     "./capabilities": {
       "types": "./dist/capabilities.d.ts",
       "import": "./dist/capabilities.js",
@@ -80,6 +75,11 @@
       "import": "./dist/cloudflare/state.js",
       "default": "./dist/cloudflare/state.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./env-identity": {
       "types": "./dist/env-identity.d.ts",
       "import": "./dist/env-identity.js",
@@ -90,50 +90,45 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
-    "./eve": {
-      "types": "./dist/eve.d.ts",
-      "import": "./dist/eve.js",
-      "default": "./dist/eve.js"
+    "./internal/default-invocations": {
+      "types": "./dist/internal/default-invocations.d.ts",
+      "import": "./dist/internal/default-invocations.js",
+      "default": "./dist/internal/default-invocations.js"
     },
-    "./internal/workspace/internal/runtime/hosted": {
-      "types": "./dist/internal/workspace/internal/runtime/hosted.d.ts",
-      "import": "./dist/internal/workspace/internal/runtime/hosted.js",
-      "default": "./dist/internal/workspace/internal/runtime/hosted.js"
+    "./internal/default-invocations-core": {
+      "types": "./dist/internal/default-invocations-core.d.ts",
+      "import": "./dist/internal/default-invocations-core.js",
+      "default": "./dist/internal/default-invocations-core.js"
     },
-    "./internal/workspace/internal/runtime/hosted-vercel-blob": {
-      "types": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
-      "import": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js",
-      "default": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js"
+    "./internal/default-invocations-libsql": {
+      "types": "./dist/internal/default-invocations-libsql.d.ts",
+      "import": "./dist/internal/default-invocations-libsql.js",
+      "default": "./dist/internal/default-invocations-libsql.js"
     },
-    "./internal/workspace/runtime": {
-      "types": "./dist/internal/workspace/runtime.d.ts",
-      "import": "./dist/internal/workspace/runtime.js",
-      "default": "./dist/internal/workspace/runtime.js"
+    "./invocations": {
+      "types": "./dist/invocations/index.d.ts",
+      "import": "./dist/invocations/index.js",
+      "default": "./dist/invocations/index.js"
     },
-    "./invocations/d1": {
-      "types": "./dist/invocations/d1.d.ts",
-      "import": "./dist/invocations/d1.js",
-      "default": "./dist/invocations/d1.js"
+    "./invocations/app": {
+      "types": "./dist/invocations/app.d.ts",
+      "import": "./dist/invocations/app.js",
+      "default": "./dist/invocations/app.js"
     },
-    "./invocations/default": {
-      "types": "./dist/invocations/default.d.ts",
-      "import": "./dist/invocations/default.js",
-      "default": "./dist/invocations/default.js"
+    "./invocations/database": {
+      "types": "./dist/invocations/database.d.ts",
+      "import": "./dist/invocations/database.js",
+      "default": "./dist/invocations/database.js"
     },
-    "./invocations/sqlite": {
-      "types": "./dist/invocations/sqlite.d.ts",
-      "import": "./dist/invocations/sqlite.js",
-      "default": "./dist/invocations/sqlite.js"
+    "./invocations/drizzle": {
+      "types": "./dist/invocations/drizzle.d.ts",
+      "import": "./dist/invocations/drizzle.js",
+      "default": "./dist/invocations/drizzle.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
-    },
-    "./mcp/stdio": {
-      "types": "./dist/mcp/stdio.d.ts",
-      "import": "./dist/mcp/stdio.js",
-      "default": "./dist/mcp/stdio.js"
     },
     "./messages": {
       "types": "./dist/messages.d.ts",
@@ -155,40 +150,10 @@
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
-    },
-    "./output": {
-      "types": "./dist/output.d.ts",
-      "import": "./dist/output.js",
-      "default": "./dist/output.js"
-    },
-    "./process-host": {
-      "types": "./dist/process-host.d.ts",
-      "import": "./dist/process-host.js",
-      "default": "./dist/process-host.js"
-    },
-    "./runtime/invocations-dev": {
-      "types": "./dist/runtime/invocations-dev.d.ts",
-      "import": "./dist/runtime/invocations-dev.js",
-      "default": "./dist/runtime/invocations-dev.js"
-    },
-    "./runtime/process": {
-      "types": "./dist/runtime/process.d.ts",
-      "import": "./dist/runtime/process.js",
-      "default": "./dist/runtime/process.js"
-    },
-    "./runtime/registry": {
-      "types": "./dist/runtime/registry.d.ts",
-      "import": "./dist/runtime/registry.js",
-      "default": "./dist/runtime/registry.js"
-    },
-    "./runtime/workflow": {
-      "types": "./dist/runtime/workflow.d.ts",
-      "import": "./dist/runtime/workflow.js",
-      "default": "./dist/runtime/workflow.js"
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "import": "./dist/process.js",
+      "default": "./dist/process.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -200,20 +165,15 @@
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
     },
-    "./server/registry": {
-      "types": "./dist/server/registry.d.ts",
-      "import": "./dist/server/registry.js",
-      "default": "./dist/server/registry.js"
+    "./sessions": {
+      "types": "./dist/sessions.d.ts",
+      "import": "./dist/sessions.js",
+      "default": "./dist/sessions.js"
     },
-    "./server/workspace": {
-      "types": "./dist/server/workspace.d.ts",
-      "import": "./dist/server/workspace.js",
-      "default": "./dist/server/workspace.js"
-    },
-    "./state/sqlite": {
-      "types": "./dist/state/sqlite.d.ts",
-      "import": "./dist/state/sqlite.js",
-      "default": "./dist/state/sqlite.js"
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js",
+      "default": "./dist/state.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
@@ -236,7 +196,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/agent#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
+    "test": "vp run --cache -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "catalog:ai",
@@ -251,7 +211,6 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/channels": "workspace:*",
-    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
@@ -262,12 +221,12 @@
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
+    "birpc": "catalog:runtime",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
@@ -278,7 +237,6 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -288,9 +246,11 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@whatwg-node/node-fetch": "0.8.6",
+    "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -317,6 +277,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -326,7 +287,6 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:vue-compat",
-    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
     "@vite-hub/connections": "workspace:*"
@@ -353,6 +313,9 @@
     "@vite-hub/database": {
       "optional": true
     },
+    "drizzle-orm": {
+      "optional": true
+    },
     "@vite-hub/email": {
       "optional": true
     },
@@ -375,9 +338,6 @@
       "optional": true
     },
     "vue": {
-      "optional": true
-    },
-    "eve": {
       "optional": true
     },
     "evlog": {

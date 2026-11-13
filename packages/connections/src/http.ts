@@ -1,5 +1,3 @@
-import { getStandardContext } from "@vite-hub/runtime/internal/h3";
-
 import { isConnectionError } from "./errors.ts";
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
@@ -9,12 +7,16 @@ import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
 import { getConnectionsRuntime } from "./runtime/state.ts";
 
-import type { ViteHubContext } from "@vite-hub/runtime";
 import type { ConnectionsAccessPolicy } from "./internal/http-access.ts";
 import type { ConnectionsRuntime } from "./runtime.ts";
 
 export { CONNECTIONS_ROUTE };
 export type { ConnectionsActor, ConnectionsAccessPolicy } from "./internal/http-access.ts";
+
+/** The Connections management route. Mount it as a Nitro route or call `fetch()` with a Web Request. */
+export interface ConnectionsHandler {
+  fetch(request: Request): Promise<Response>;
+}
 
 export interface ConnectionsHandlerOptions {
   /**
@@ -47,21 +49,9 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   return normalized;
 }
 
-/** Fetch hosts can supply a Request whose constructor differs from this realm's. */
-function isWebRequest(input: Request | ViteHubContext): input is Request {
-  if (input instanceof Request) return true;
-  if ("~standard" in input) return false;
-  const headers: unknown = Reflect.get(input, "headers");
-  return typeof Reflect.get(input, "url") === "string"
-    && typeof Reflect.get(input, "method") === "string"
-    && headers !== null && typeof headers === "object"
-    && typeof Reflect.get(headers, "get") === "function"
-    && typeof Reflect.get(input, "json") === "function";
-}
-
 /**
- * Management API for Connections. Every route runs the `actor` policy first. A route body reads
- * the Connections runtime only through the access that the policy grants for this request.
+ * Management API for Connections, as a Fetchable: `{ fetch(request) }`. Every route runs the `actor` policy
+ * first. A route body reads the Connections runtime only through the access that the policy grants for this request.
  *
  * - `POST /_vitehub/connections` runs one JSON action.
  * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow. An optional
@@ -69,41 +59,37 @@ function isWebRequest(input: Request | ViteHubContext): input is Request {
  * - `GET /_vitehub/connections/callback` completes it. The OAuth `state` is single-use and bound to
  *   the browser and the manager that started the flow. The result page returns to the `return` page.
  */
-export function createConnectionsHandler(
-  options: ConnectionsHandlerOptions,
-): (input: Request | ViteHubContext) => Promise<Response> {
+export function createConnectionsHandler(options: ConnectionsHandlerOptions): ConnectionsHandler {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
   const base = normalizeConnectionsBasePath(options.basePath);
-  return async (input) => {
-    // A request event, such as an H3 1 or H3 2 event in a ViteHub app, gives its Web Request through Standard Context.
-    const requestInput = isWebRequest(input);
-    const request = requestInput ? input : getStandardContext(input).req;
-    const event = requestInput ? undefined : input;
-    const path = new URL(request.url).pathname.replace(/\/+$/, "");
-    try {
-      const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);
-      if (check.rejection) return check.rejection;
-      const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
-      if (!route)
-        return json({ error: managementErrorBody("CONNECTIONS_ROUTE_NOT_FOUND", "Not found.") }, 404);
-      if (request.method !== route.method)
-        return json({ error: managementErrorBody("CONNECTIONS_METHOD_NOT_ALLOWED", `Use ${route.method}.`) }, 405, {
-          allow: route.method,
-        });
-      return await route.handle(check.access, base);
-    } catch (error) {
-      if (request.method === "GET") {
-        return page({
-          code: isConnectionError(error) ? error.code : "CONNECTIONS_REQUEST_FAILED",
-          fix: isConnectionError(error) ? error.fix : undefined,
-          message: isConnectionError(error) ? error.message : "The connection could not be completed.",
-          outcome: "error",
-          returnTo: requestReturnPath(request),
-          status: errorStatus(error),
-          title: "Connection failed",
-        });
+  return {
+    async fetch(request) {
+      const path = new URL(request.url).pathname.replace(/\/+$/, "");
+      try {
+        const check = await checkConnectionsAccess(options.actor, request, runtime, options.agentName);
+        if (check.rejection) return check.rejection;
+        const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
+        if (!route)
+          return json({ error: managementErrorBody("CONNECTIONS_ROUTE_NOT_FOUND", "Not found.") }, 404);
+        if (request.method !== route.method)
+          return json({ error: managementErrorBody("CONNECTIONS_METHOD_NOT_ALLOWED", `Use ${route.method}.`) }, 405, {
+            allow: route.method,
+          });
+        return await route.handle(check.access, base);
+      } catch (error) {
+        if (request.method === "GET") {
+          return page({
+            code: isConnectionError(error) ? error.code : "CONNECTIONS_REQUEST_FAILED",
+            fix: isConnectionError(error) ? error.fix : undefined,
+            message: isConnectionError(error) ? error.message : "The connection could not be completed.",
+            outcome: "error",
+            returnTo: requestReturnPath(request),
+            status: errorStatus(error),
+            title: "Connection failed",
+          });
+        }
+        return errorResponse(error);
       }
-      return errorResponse(error);
-    }
+    },
   };
 }

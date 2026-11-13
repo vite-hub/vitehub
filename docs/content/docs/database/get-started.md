@@ -32,7 +32,7 @@ Then add `database: true` to the ViteHub options of your app. Keep the other opt
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', database: true },
+  vitehub: { host: 'node', database: true },
 })
 ```
 ::::
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true }), nitro()],
+  plugins: [vitehub({ host: 'node', database: true }), nitro()],
 })
 ```
 ::::
@@ -57,22 +57,20 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true })],
+  plugins: [vitehub({ host: 'node', database: true })],
 })
 ```
 ::::
 :::
-
-If you use Nuxt, add `database: true` to the `vite-hub/nuxt` module options instead. The other steps are the same.
 
 ::
 
 ::tutorial-step{title="Create and migrate the table"}
 ## Create and migrate the table
 
-Create `server/databases/config.ts`. This file is the Definition of your `default` database: it lists its tables.
+Create `server/databases/default.ts`. This file is the Definition of your `default` database: it lists its tables.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -87,16 +85,16 @@ export default defineDatabase({
 ```
 
 - `notes` gets an `id` that counts up by itself and a `title` that must have a value.
-- If your app already has `server/databases/config.ts`, add `notes` to its `schema`. Do not make a second file.
+- If your app already has `server/databases/default.ts`, add `notes` to its `schema`. Do not make a second file.
 
 The Definition only describes the table. To create the table in the database, make a migration and apply it:
 
 ```bash [commands/generate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-- `generate` writes the SQL for your tables to `server/databases/migrations/`.
+- `generate` writes the SQL for your tables to `server/databases/default/migrations/`.
 - `migrate` runs that SQL on the SQLite file.
 
 You do not need a running server for these commands. Make sure both finish without an error before you go on.
@@ -110,7 +108,7 @@ Create `server/api/notes.post.ts`. This file is the route `POST /api/notes`. It 
 
 ```ts [server/api/notes.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ title?: unknown }>(event)
@@ -137,7 +135,7 @@ Create `server/api/notes.get.ts`. This route reads all notes, in ID order.
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')
@@ -184,7 +182,7 @@ The response has your note:
 
 Each POST adds a row with a new ID, and GET returns all rows. Restart the server and send the GET again: the note is still there.
 
-If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub db migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
+If the route fails and the server terminal shows `no such table: notes`, run `pnpm vitehub database migrate` again from the app root. Each time you change the schema, run `generate` and then `migrate`. Commit the schema file and the `migrations` folder.
 
 ::
 

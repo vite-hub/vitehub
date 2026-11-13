@@ -8,14 +8,19 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
-import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/esbuild"
+import { resolveDurabilityModule } from "@vite-hub/internal/durability"
+import { sqliteUrlInput } from "@vite-hub/runtime/durability"
+import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { scanModule } from "@vite-hub/internal/build/scan-module"
 import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
+import type { AgentStateDurabilityInput } from "./durability.ts"
+import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
@@ -39,12 +44,11 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames } from "./discovery.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
 import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from "./internal/routes.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
 import { discoverAgentChannelModules, discoverStandaloneChannels, standaloneChannelWebhookAliases } from "./vite/standalone-channels.ts"
@@ -82,13 +86,17 @@ import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vit
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
-import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
+import type { AgentOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface AgentCliContributingPlugin {
-  vitehub?: ViteHubInspectionPluginMetadata & {
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     agent?: {
       transformWorkflowRegistry: (code: string, id: string) => string
+      /** Checks direct folder Agent imports in a server build that does not run Vite transforms. */
+      transformWorkspaceAgent: (code: string, id: string, options: { root: string, serverDirs?: string[] }) => Promise<string | undefined>
+      /** The Agent files that a generated Workflow registry imports by path. */
+      workflowModules: { index: string, runtimeWorkflow: string, serverInternal: string }
     }
     cli?: unknown
     operations?: OperationContributions
@@ -108,6 +116,32 @@ async function parseTypeScript(): Promise<(source: string) => ReturnType<typeof 
 }
 
 const agentPackageName = "@vite-hub/agent"
+
+/** A build entry of the Agent package that generated code imports. */
+export type AgentRuntimeModule =
+  | "cloudflare"
+  | "cloudflare/state"
+  | "index"
+  | "internal/workspace/internal/runtime/hosted"
+  | "internal/workspace/internal/runtime/hosted-vercel-blob"
+  | "internal/workspace/runtime"
+  | "operations"
+  | "runtime/invocations-dev"
+  | "process"
+  | "runtime/workflow"
+  | "server"
+  | "server/internal"
+  | "server/registry"
+  | "server/workspace"
+  | "state"
+
+/**
+ * The absolute path of an Agent build entry. Generated code imports these by path, so they need no package export.
+ * In `vite dev`, the `load` hook of `hubAgent()` lets Node load them, so they share the instance that the app imports.
+ */
+export function agentRuntimeModule(entry: AgentRuntimeModule): string {
+  return ownModule(import.meta.url, entry)
+}
 const providerAgentWorkerStub = /\/runtime\/provider-agent-worker\.[jt]s$/
 const agentProcessHostDrainRoute = "/api/_vitehub/host/drain"
 const agentProcessHostHealthRoute = "/api/_vitehub/host/health"
@@ -138,7 +172,6 @@ const generatedAgentRegistryCatalog = "agent/registry-agents.mjs"
 const generatedAgentRegistryDevPlugin = "agent/registry-dev-plugin.ts"
 const agentRegistryId = "#vitehub/agent/registry"
 const netlifyAgentFunctionName = "vitehub-agent"
-const workspacePackageName = "@vite-hub/workspace"
 const optionalAskDriverPeer = "advocaat"
 const agentPackageRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/\\/g, "/")
 // AI gateways import advocaat for ask(); in this workspace the package is a sibling of the Agent package.
@@ -149,7 +182,6 @@ const optionalAgentRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
@@ -166,12 +198,21 @@ const optionalNetlifyAgentBundleExternals = [
   "vitest/*",
 ]
 
+// The ChatGPT model is the only Agent module that imports @ai-sdk/openai.
+const chatgptModelProvider = "@ai-sdk/openai"
+const chatgptModelProviderWithoutConnections = "\0vitehub-agent:chatgpt-model-provider-without-connections"
+
+function isAgentModule(importer: string | undefined): boolean {
+  if (!importer) return false
+  const normalized = importer.replace(/\\/g, "/")
+  return normalized.includes("/node_modules/@vite-hub/agent/") || normalized.startsWith(agentPackageRoot)
+}
+
 function isAgentPackageImporter(importer: string | undefined): boolean {
   if (!importer) return false
   const normalized = importer.replace(/\\/g, "/")
-  return normalized.includes("/node_modules/@vite-hub/agent/")
+  return isAgentModule(importer)
     || normalized.includes("/node_modules/@vite-hub/gateways/")
-    || normalized.startsWith(agentPackageRoot)
     || normalized.startsWith(gatewaysPackageRoot)
 }
 
@@ -180,7 +221,7 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
   if (options.runtimeCapabilities?.some(capability => capability.name === "kv" && capability.packageName !== false)) {
     bundled.add("@vite-hub/kv")
   }
-  if (options.workflowImportBase) {
+  if (options.workflowModules) {
     bundled.add("@vite-hub/workflow")
     bundled.add("@vite-hub/workflow/*")
   }
@@ -195,29 +236,31 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
   return optionalNetlifyAgentBundleExternals.filter(specifier => !bundled.has(specifier))
 }
 
-interface InternalAgentModuleOptions extends AgentModuleOptions {
-  cloudflareStateImport?: string
-  importBase?: string
+interface InternalAgentModuleOptions extends AgentOptions {
   /** The specifier that generated code uses to import the KV package. */
   kvImport?: string
   processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
-  workflowImportBase?: string
+  /** The Workflow modules that generated code loads, when Workflow is on. */
+  workflowModules?: AgentWorkflowModules
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
-  workspaceImportBase?: string
+}
+
+/** The Workflow modules that generated Agent code loads: the public root and the runtime state file. */
+export interface AgentWorkflowModules {
+  index: string
+  state: string
 }
 
 interface AgentGeneratedImportOptions {
-  agentImportBase?: string
   denoCronImport?: string
   providerImportAliases?: Record<string, string>
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
   sourceRootDir?: string
   standaloneChannels?: readonly StandaloneChannel[]
-  workflowImportBase?: string
+  workflowModules?: AgentWorkflowModules
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
-  workspaceImportBase?: string
 }
 
 interface WorkspaceDependencyRuntimeImports {
@@ -241,17 +284,17 @@ interface GeneratedAgentRuntimeCapabilityDefinition extends GeneratedAgentRuntim
 /** The project root that ViteHub plugins key generated state by. Nuxt sets it explicitly. */
 function viteHubProjectRoot(config: { root?: string }): string {
   const configured: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
-  return hasRuntimeType(configured, "string") && configured ? resolve(configured) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
+  return typeof configured === "string" && configured ? resolve(configured) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
 }
 
-/** The Content runtime is the `content` export of the `server/content.ts` file that the Source plugin discovered. */
+/** The Content runtime is the default export of the `server/content.ts` file that the Source plugin discovered. */
 function contentDefinitionPath(plugin: Plugin, projectRoot: string | undefined): string | undefined {
   const api: unknown = Reflect.get(Object(plugin), "api")
   const getContentDefinition: unknown = Reflect.get(Object(api), "getContentDefinition")
   if (!(getContentDefinition instanceof Function)) return
   const definition: unknown = getContentDefinition(projectRoot)
   const handler: unknown = Reflect.get(Object(definition), "handler")
-  return hasRuntimeType(handler, "string") && handler ? handler.replace(/\\/g, "/") : undefined
+  return typeof handler === "string" && handler ? handler.replace(/\\/g, "/") : undefined
 }
 
 async function prepareSourceDefinitions(config: ResolvedConfig, projectRoot: string, serverDirs: string[] | undefined): Promise<void> {
@@ -266,10 +309,11 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "agentAuth", name: "auth", packageName: "@vite-hub/auth/agent", pluginName: "@vite-hub/auth/vite" },
   { importName: "blob", name: "blob", packageName: "@vite-hub/blob", pluginName: "@vite-hub/blob/vite" },
   { importName: "connections", name: "connections", packageName: "@vite-hub/connections/server", pluginName: "@vite-hub/connections/vite" },
-  { importName: "console", name: "console", packageName: "vite-hub/console/server", pluginName: "vite-hub/console" },
-  { importName: "content", modulePath: contentDefinitionPath, name: "content", packageName: false, pluginName: "@vite-hub/source/vite" },
-  { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle", pluginName: "@vite-hub/database/vite" },
-  { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
+  { importName: "agentConsole", name: "console", packageName: "vite-hub/console/server", pluginName: "vite-hub/console" },
+  { importName: "default", modulePath: contentDefinitionPath, name: "content", packageName: false, pluginName: "@vite-hub/source/vite" },
+  { importName: "agentDb", name: "db", packageName: "@vite-hub/database/runtime/registry", pluginName: "@vite-hub/database/vite" },
+  { importName: "email", name: "email", packageName: "@vite-hub/email", pluginName: "@vite-hub/email/vite" },
+  { importName: "agentI18n", name: "i18n", packageName: "@vite-hub/i18n/server", pluginName: "@vite-hub/i18n/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 
@@ -373,28 +417,19 @@ async function writeStandaloneAgentRuntimeCapabilities(
     : capability)
 }
 
-function getInternalAgentOptions(options: AgentModuleOptions | false | undefined): InternalAgentModuleOptions | undefined {
+function getInternalAgentOptions(options: AgentOptions | false | undefined): InternalAgentModuleOptions | undefined {
   return options && typeof options === "object" ? options as InternalAgentModuleOptions : undefined
 }
 
-function getAgentImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
-  return getInternalAgentOptions(options)?.importBase ?? fallback?.importBase ?? agentPackageName
-}
-
 function getProviderImportAliases(
-  options: AgentModuleOptions | false | undefined,
+  options: AgentOptions | false | undefined,
   fallback?: InternalAgentModuleOptions,
 ): Record<string, string> | undefined {
   return getInternalAgentOptions(options)?.providerImportAliases ?? fallback?.providerImportAliases
 }
 
-function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
-  return getInternalAgentOptions(options)?.workspaceImportBase ?? fallback?.workspaceImportBase ?? workspacePackageName
-}
-
 function generatedAgentWorkflowCapabilityLoaders(
   capabilities: GeneratedAgentRuntimeCapability[],
-  agentImportBase: string,
   includeCapabilityImports = true,
 ) {
   const portableCapabilities = capabilities.filter(capability =>
@@ -404,7 +439,7 @@ function generatedAgentWorkflowCapabilityLoaders(
   return {
     imports: [
       ...(includeCapabilityImports ? generatedAgentRuntimeCapabilityImports(portableCapabilities) : []),
-      `import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+      `import { setAgentWorkflowCapabilityLoaders as vitehubSetAgentWorkflowCapabilityLoaders } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ],
     setup: [
       "vitehubSetAgentWorkflowCapabilityLoaders({",
@@ -418,19 +453,18 @@ function generatedAgentWorkflowCapabilityLoaders(
 function transformGeneratedAgentWorkflowRegistry(
   code: string,
   capabilities: GeneratedAgentRuntimeCapability[],
-  agentImportBase: string,
   state: { cloudflare?: boolean, libsql?: GeneratedLibsqlAgentStateOptions } = {},
 ): string {
-  const capabilityLoaders = generatedAgentWorkflowCapabilityLoaders(capabilities, agentImportBase)
+  const capabilityLoaders = generatedAgentWorkflowCapabilityLoaders(capabilities)
   const stateImports = state.libsql
     ? [
-        `import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`,
-        `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+        `import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`,
+        `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       ]
     : state.cloudflare
       ? [
-          `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
-          `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+          `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`,
+          `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
         ]
       : []
   const stateSetup = state.libsql
@@ -478,16 +512,13 @@ function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
   return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry-runtime.mjs")
 }
 
-function getCloudflareStateImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
-  return getInternalAgentOptions(options)?.cloudflareStateImport ?? fallback?.cloudflareStateImport ?? "@vite-hub/agent/cloudflare/state"
-}
 
-function getWorkflowImportBase(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string | undefined {
-  return getInternalAgentOptions(options)?.workflowImportBase ?? fallback?.workflowImportBase
+function getWorkflowModules(options: AgentOptions | false | undefined, fallback?: InternalAgentModuleOptions): AgentWorkflowModules | undefined {
+  return getInternalAgentOptions(options)?.workflowModules ?? fallback?.workflowModules
 }
 
 function getWorkspaceDependencyRuntimeImports(
-  options: AgentModuleOptions | false | undefined,
+  options: AgentOptions | false | undefined,
   fallback?: InternalAgentModuleOptions,
 ): WorkspaceDependencyRuntimeImports | undefined {
   return getInternalAgentOptions(options)?.workspaceDependencyRuntimeImports ?? fallback?.workspaceDependencyRuntimeImports
@@ -498,14 +529,13 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
   if (!runtimeCapabilities.length) return { imports: [] as string[], requestOption: "", requestProperty: "", setup: [] as string[] }
   const workflowCapabilityLoaders = generatedAgentWorkflowCapabilityLoaders(
     runtimeCapabilities,
-    options.agentImportBase ?? agentPackageName,
     false,
   )
   return {
     imports: [
       ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
       ...workflowCapabilityLoaders.imports,
-      `import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
+      `import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ],
     requestOption: "capabilities: vitehubAgentRouteCapabilities, ",
     requestProperty: ", capabilities: vitehubAgentRouteCapabilities",
@@ -558,29 +588,25 @@ function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "serve
   }).length > 0 || standaloneChannels.some(channel => channel.inbound)
 }
 
-function subpath(base: string, path: string): string {
-  return `${base}/${path}`
-}
-
-function generatedAgentWorkflowRuntime(options: AgentGeneratedImportOptions, agentImportBase: string) {
-  if (!options.workflowImportBase) return { imports: [] as string[], setup: [] as string[] }
+function generatedAgentWorkflowRuntime(options: AgentGeneratedImportOptions) {
+  if (!options.workflowModules) return { imports: [] as string[], setup: [] as string[] }
   return {
-    imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+    imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
     setup: [
       "vitehubSetAgentWorkflowRuntimeLoaders({",
-      `  state: () => import(${JSON.stringify(subpath(options.workflowImportBase, "runtime/state"))}),`,
-      `  workflow: () => import(${JSON.stringify(options.workflowImportBase)}),`,
+      `  state: () => import(${JSON.stringify(options.workflowModules.state)}),`,
+      `  workflow: () => import(${JSON.stringify(options.workflowModules.index)}),`,
       "})",
       "",
     ],
   }
 }
 
-function generatedAgentWorkspaceDependencyRuntime(options: AgentGeneratedImportOptions, workspaceImportBase: string) {
+function generatedAgentWorkspaceDependencyRuntime(options: AgentGeneratedImportOptions) {
   const imports = options.workspaceDependencyRuntimeImports
   if (!imports) return { imports: [] as string[], setup: [] as string[] }
   return {
-    imports: [`import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`],
+    imports: [`import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(agentRuntimeModule("internal/workspace/runtime"))}`],
     setup: [
       "vitehubSetWorkspaceDependencyRuntimeLoaders({",
       ...(imports.sandboxTask ? [`  sandboxTask: () => import(${JSON.stringify(imports.sandboxTask)}),`] : []),
@@ -614,17 +640,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function readHostingPreset(value: unknown): string | undefined {
-  return isRecord(value) && typeof value.preset === "string" ? value.preset : undefined
+function readStringField(value: unknown, field: "host" | "preset"): string | undefined {
+  return isRecord(value) && typeof value[field] === "string" ? value[field] : undefined
 }
 
 function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "vercel" | undefined {
   const target = isRecord(config) ? config : {}
   const values = [
-    readHostingPreset(target.vitehub),
-    typeof target.preset === "string" ? target.preset : undefined,
-    readHostingPreset(target.nitro),
-    process.env.VITEHUB_HOSTING,
+    readStringField(target.vitehub, "host"),
+    readStringField(target.nitro, "preset"),
+    process.env.VITEHUB_HOST,
   ]
   for (const value of values) {
     const provider = getHostingProvider(value)
@@ -656,9 +681,9 @@ function shouldInstallCloudflareAgentState(
   command?: "build" | "serve",
 ): options is ResolvedAgentModuleOptions {
   if (!options) return false
-  const { provider, url } = options.providers.state
-  if (provider === "cloudflare" || provider === "cloudflare-agents") return true
-  if (provider !== "auto") return false
+  const { driver, url } = options.providers.state
+  if (driver === "cloudflare" || driver === "cloudflare-agents") return true
+  if (driver !== "auto") return false
   if (url) return false
   if (options.runtime === "cloudflare-agents") return true
   if (command === "serve" || (isRecord(config) && config.command === "serve")) return false
@@ -677,9 +702,9 @@ function resolveLibsqlAgentState(
   config: unknown,
 ): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
-  const { authToken, journalMode, provider, tablePrefix, url } = options.providers.state
-  const auto = provider === "auto"
-  if (!auto && provider !== "sqlite" && provider !== "libsql") return
+  const { authToken, driver, journalMode, tablePrefix, url } = options.providers.state
+  const auto = driver === "auto"
+  if (!auto && driver !== "sqlite" && driver !== "libsql") return
   if (auto && shouldInstallCloudflareAgentState(options, config)) return
   const authTokenEnvName = resolveEnvNameForValue(authToken)
   const target = isRecord(config) ? config : {}
@@ -701,6 +726,16 @@ function resolveLibsqlAgentState(
     ...(tablePrefix ? { tablePrefix } : {}),
     ...(resolvedUrl ? { url: resolvedUrl } : {}),
   }
+}
+
+/** The Agent state store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
+function agentStateDurabilityInput(options: ResolvedAgentModuleOptions, config: unknown, cloudflare: boolean): AgentStateDurabilityInput | undefined {
+  if (cloudflare) return { provider: "cloudflare" }
+  const { driver } = options.providers.state
+  if (driver === "memory") return { provider: "memory" }
+  const libsql = resolveLibsqlAgentState(options, config)
+  if (!libsql) return
+  return { provider: "libsql", ...(libsql.url ? { url: sqliteUrlInput(libsql.url) } : {}) }
 }
 
 function cloneStringArray(value: unknown): string[] | undefined {
@@ -811,12 +846,6 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
       (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
     )
   }
-  const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
-  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
-  externals.inline = externals.inline === true
-    ? true
-    : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
-  nitro.externals = externals
   if (isWebContainer()) {
     const existingTraceDeps = Array.isArray(nitro.traceDeps) ? nitro.traceDeps : []
     nitro.traceDeps = [...new Set([...existingTraceDeps, ...wasmSqliteTraceDeps])]
@@ -861,7 +890,7 @@ function guardAgentDevelopmentRoutes(nitro: NitroConfig, handlers: Array<{ route
       }) {
         runtime.hooks.hook("build:before", () => {
           const scanned = runtime.scannedHandlers.flatMap(handler =>
-            hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware }] : [])
+            typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware }] : [])
           for (const handler of handlers) validateAgentStaticRoute(handler.route, scanned, "development invocation", agentInvocationsDevRuntimeNamespace)
         })
       },
@@ -888,7 +917,7 @@ function createAgentProviderRuntimePackagesNitroModule(rootDir: string): (nitro:
   options: { dev?: boolean, output: { serverDir: string }, preset?: string | null }
 }) => void {
   return (nitro) => {
-    if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
+    if (nitro.options.dev !== false || hostFromNitroPreset(nitro.options.preset) !== "node") return
     nitro.hooks.hook("compiled", async () => {
       const packages = resolveProviderRuntimePackages({ rootDir })
       if (!packages.length) return
@@ -987,8 +1016,27 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  const sourceSymbol = Symbol.for('vitehub.agent.definitionSource')",
     "  if (resolvedAgent !== agent) Object.defineProperty(resolvedAgent, sourceSymbol, { configurable: true, value: agent })",
-    "  if (Object.keys(skills).length && typeof setDiscoveredSkills !== 'function') {",
-    "    const descriptor = { configurable: true, enumerable: true, value: skills }",
+    "  const currentSkillsGetter = Object.getOwnPropertyDescriptor(agent, skillsSymbol)?.get",
+    "  const updateSymbol = Symbol.for('vitehub.agent.discoveredSkillsUpdate')",
+    "  const updateSkills = currentSkillsGetter && Reflect.get(currentSkillsGetter, updateSymbol)",
+    "  if (typeof updateSkills === 'function') updateSkills(skills)",
+    "  if (Object.keys(skills).length && typeof setDiscoveredSkills !== 'function' && typeof updateSkills !== 'function') {",
+    "    // Skills extend by name. A Skill folder of this Agent replaces the inherited folder with the same name, including its references.",
+    "    // Read the inherited Skills when the Agent runs, because the registry can load this Agent before its parent.",
+    "    const inheritedSkills = Object.getOwnPropertyDescriptor(agent, skillsSymbol)?.get",
+    `    const skillName = (source${typescript ? ": unknown" : ""}) => {`,
+    "      const path = source && typeof source === 'object' ? Reflect.get(source, 'workspacePath') : undefined",
+    "      return typeof path === 'string' ? path.split('/')[2] : undefined",
+    "    }",
+    "    let localSkills = skills",
+    "    const update = (sources" + (typescript ? ": typeof skills | undefined" : "") + ") => { localSkills = sources || {} }",
+    "    const extendedSkills = () => {",
+    "      const inherited = inheritedSkills?.call(agent)",
+    "      const ownSkillNames = new Set(Object.values(localSkills).map(skillName))",
+    "      return { ...Object.fromEntries(Object.entries(inherited && typeof inherited === 'object' ? inherited : {}).filter(([, source]) => !ownSkillNames.has(skillName(source)))), ...localSkills }",
+    "    }",
+    "    Object.defineProperty(extendedSkills, updateSymbol, { value: update })",
+    "    const descriptor = inheritedSkills ? { configurable: true, enumerable: true, get: extendedSkills } : { configurable: true, enumerable: true, value: skills }",
     "    Object.defineProperty(agent, skillsSymbol, descriptor)",
     "    if (resolvedAgent !== agent) {",
     "      Object.defineProperty(resolvedAgent, skillsSymbol, descriptor)",
@@ -1045,18 +1093,6 @@ function isPositionedNode(value: unknown): value is PositionedNode {
   )
 }
 
-function visitNodes(node: PositionedNode, visit: (node: PositionedNode, parent?: PositionedNode) => void, parent?: PositionedNode): void {
-  visit(node, parent)
-  for (const value of Object.values(node)) {
-    if (isPositionedNode(value)) visitNodes(value, visit, node)
-    else if (Array.isArray(value)) {
-      for (const item of value) {
-        if (isPositionedNode(item)) visitNodes(item, visit, node)
-      }
-    }
-  }
-}
-
 function applyCodeReplacements(
   code: string,
   replacements: Array<{ end: number, start: number, value: string }>,
@@ -1075,11 +1111,10 @@ interface DiscoveredAgentExportDecorator {
 
 function colocatedAgentSkillsDecorator(
   skills: NonNullable<ReturnType<typeof readColocatedAgentSkills>>,
-  agentImportBase: string,
 ): DiscoveredAgentExportDecorator {
   return {
     decorate: value => `vitehubWithColocatedAgentSkills(${value}, vitehubDecodeColocatedAgentSkills(${JSON.stringify(skills)}))`,
-    imports: [`import { decodeColocatedAgentSkills as vitehubDecodeColocatedAgentSkills, withColocatedAgentSkills as vitehubWithColocatedAgentSkills } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+    imports: [`import { decodeColocatedAgentSkills as vitehubDecodeColocatedAgentSkills, withColocatedAgentSkills as vitehubWithColocatedAgentSkills } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
   }
 }
 
@@ -1089,11 +1124,25 @@ function discoveredAgentIdentityArguments(definition: DiscoveredAgentDefinition)
 }
 
 // A route that imports the Definition runs it with its host identity, also before the host routes load.
-function discoveredAgentIdentityDecorator(definition: DiscoveredAgentDefinition, agentImportBase: string): DiscoveredAgentExportDecorator {
+function discoveredAgentIdentityDecorator(definition: DiscoveredAgentDefinition): DiscoveredAgentExportDecorator {
   return {
     decorate: value => `vitehubWithDiscoveredAgentName(${value}, ${discoveredAgentIdentityArguments(definition)})`,
-    imports: [`import { withDiscoveredAgentName as vitehubWithDiscoveredAgentName } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`],
+    imports: [`import { withDiscoveredAgentName as vitehubWithDiscoveredAgentName } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
   }
+}
+
+// A folder Agent gets its Workspace only from its `workspace` key. Without the key, it fails when it loads if it owns one.
+function checksDeclaredWorkspace(definition: DiscoveredAgentDefinition): boolean {
+  return !definition.workspace && isFolderAgentDefinition(definition)
+}
+
+// Server transforms check direct imports. The generated catalog also checks hosts that load untransformed Agent files.
+function declaredWorkspaceDecorators(definition: DiscoveredAgentDefinition): DiscoveredAgentExportDecorator[] {
+  if (!checksDeclaredWorkspace(definition)) return []
+  return [{
+    decorate: value => `vitehubWithDeclaredAgentWorkspace(${value}, ${JSON.stringify(definition.name)})`,
+    imports: [`import { withDeclaredAgentWorkspace as vitehubWithDeclaredAgentWorkspace } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
+  }]
 }
 
 // Direct imports can create derived Agents before any generated registry loads the parent.
@@ -1120,7 +1169,7 @@ function decorateDiscoveredAgentExport(
     if (statement.type !== "ExportNamedDeclaration" || !Array.isArray(statement.specifiers)) continue
     for (const specifier of statement.specifiers) {
       if (!isPositionedNode(specifier) || !isPositionedNode(specifier.exported) || !isPositionedNode(specifier.local)) continue
-      if (specifier.exported.name !== "default" || !hasRuntimeType(specifier.local.name, "string")) continue
+      if (specifier.exported.name !== "default" || typeof specifier.local.name !== "string") continue
       if (isPositionedNode(statement.source)) {
         const source = code.slice(statement.source.start, statement.source.end)
         return [
@@ -1217,13 +1266,12 @@ async function transformNamedAgentChannels(
   parse: (code: string) => unknown,
   file: string,
   channels: ReadonlyArray<{ handler: string, name: string }>,
-  agentImportBase: string,
   resolveModule?: NamedChannelModuleResolver,
 ): Promise<string | undefined> {
   const modules = await namedAgentChannelModules(code, parse, file, channels, resolveModule)
   if (!modules.length) return
   return [
-    `import { registerAgentChannels as vitehubRegisterAgentChannels } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { registerAgentChannels as vitehubRegisterAgentChannels } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ...modules.map((channel, index) => `import vitehubChannel${index} from ${JSON.stringify(channel.handler.replace(/\\/g, "/"))}`),
     `vitehubRegisterAgentChannels({ ${modules.map((channel, index) => `[${JSON.stringify(channel.name)}]: vitehubChannel${index}`).join(", ")} })`,
     code,
@@ -1234,7 +1282,6 @@ async function prepareRetainedAgentSources(
   sources: { resolve: (path: string) => string },
   definitions: DiscoveredAgentDefinition[],
   channels: ReadonlyArray<{ handler: string, name: string }>,
-  agentImportBase: string,
   resolveModule?: NamedChannelModuleResolver,
 ): Promise<void> {
   const parse = await parseTypeScript()
@@ -1246,10 +1293,11 @@ async function prepareRetainedAgentSources(
     await namedAgentChannelModules(code, parse, definition.handler, channels, resolveModule)
     const skills = readColocatedAgentSkills(definition.handler)
     let transformed = decorateDiscoveredAgentExport(code, parse, [
-      ...(skills ? [colocatedAgentSkillsDecorator(skills, agentImportBase)] : []),
-      discoveredAgentIdentityDecorator(definition, agentImportBase),
+      ...declaredWorkspaceDecorators(definition),
+      ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
+      discoveredAgentIdentityDecorator(definition),
     ]) ?? code
-    transformed = await transformNamedAgentChannels(transformed, parse, definition.handler, retainedChannels, agentImportBase) ?? transformed
+    transformed = await transformNamedAgentChannels(transformed, parse, definition.handler, retainedChannels) ?? transformed
     if (transformed !== code) await writeFile(handler, transformed, "utf8")
   }
 }
@@ -1307,14 +1355,6 @@ async function assertNamedChannelImportAcyclic(
   }
 }
 
-interface EveExtensionImport {
-  call: PositionedNode
-  declaration: PositionedNode
-  identity?: string
-  local: string
-  source: string
-}
-
 function nodePropertyName(node: PositionedNode): unknown {
   const key = node.key
   return isPositionedNode(key) && key.type === "Identifier"
@@ -1336,513 +1376,6 @@ function unwrapTypeScriptExpression(node: PositionedNode): PositionedNode {
     expression = inner
   }
   return expression
-}
-
-function staticObjectProperty(
-  object: PositionedNode,
-  name: string,
-  objects: Map<string, PositionedNode>,
-  seen = new Set<PositionedNode>(),
-): PositionedNode | null | undefined {
-  if (seen.has(object)) return
-  seen.add(object)
-  const properties = Array.isArray(object.properties) ? object.properties : []
-  for (let index = properties.length - 1; index >= 0; index--) {
-    const property = properties[index]
-    if (!isPositionedNode(property)) continue
-    if (property.type === "Property" && property.computed !== true && nodePropertyName(property) === name) return property
-    if (property.type !== "SpreadElement") continue
-    const argument = property.argument
-    if (!isPositionedNode(argument) || argument.type !== "Identifier" || typeof argument.name !== "string") return null
-    const spread = objects.get(argument.name)
-    if (!spread) return null
-    const found = staticObjectProperty(spread, name, objects, seen)
-    if (found !== undefined) return found
-  }
-}
-
-function eveExtensionIdentityNamespace(specifier: string): string {
-  const encoded = [...specifier].map((character) => {
-    if (/[a-z0-9-]/i.test(character)) return character
-    if (character === "_") return "_u"
-    if (character === "@") return "_a"
-    if (character === "/") return "_s"
-    return `_x${character.codePointAt(0)!.toString(16)}_`
-  }).join("")
-  return `pkg-${encoded}`
-}
-
-export async function transformEveExtensionCapabilities(
-  code: string,
-  parse: (code: string) => unknown,
-  resolveExtension: (specifier: string) => Promise<boolean | string>,
-  agentImportBase: string = agentPackageName,
-  resolveExtensionIdentity: (specifier: string) => Promise<boolean | string> = resolveExtension,
-): Promise<string | undefined> {
-  const program = parse(code)
-  if (!isPositionedNode(program)) return
-
-  const imports = new Map<string, { declaration: PositionedNode, source: string }>()
-  const defineAgentImports = new Set<string>()
-  const defineAgentNamespaces = new Set<string>()
-  const staticArrays = new Map<string, PositionedNode>()
-  const staticObjects = new Map<string, PositionedNode>()
-  const exportedStaticArrays = new Set<PositionedNode>()
-  const optionFactories = new Map<string, PositionedNode>()
-  const optionValues = new Map<string, PositionedNode>()
-  const dynamicOptionFactoryRanges = new Set<PositionedNode>()
-  const references = new Map<string, number>()
-  const functionRanges: Array<{ end: number, start: number }> = []
-  const nestedClassRanges: Array<{ end: number, start: number }> = []
-  const shadowRanges = new Map<string, Array<{ end: number, start: number }>>()
-  for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement)) continue
-    const declarationStatement = statement.type === "ExportNamedDeclaration" && isPositionedNode(statement.declaration)
-      ? statement.declaration
-      : statement
-    if (declarationStatement.type === "FunctionDeclaration") {
-      const identifier = declarationStatement.id
-      if (isPositionedNode(identifier) && identifier.type === "Identifier" && typeof identifier.name === "string") {
-        optionFactories.set(identifier.name, declarationStatement)
-      }
-      continue
-    }
-    if (declarationStatement.type !== "VariableDeclaration" || declarationStatement.kind !== "const") continue
-    for (const declaration of Array.isArray(declarationStatement.declarations) ? declarationStatement.declarations : []) {
-      if (!isPositionedNode(declaration) || declaration.type !== "VariableDeclarator") continue
-      const identifier = declaration.id
-      const initializer = isPositionedNode(declaration.init) ? unwrapTypeScriptExpression(declaration.init) : declaration.init
-      if (!isPositionedNode(identifier) || identifier.type !== "Identifier" || typeof identifier.name !== "string") continue
-      if (!isPositionedNode(initializer)) continue
-      optionValues.set(identifier.name, initializer)
-      if (initializer.type.includes("Function")) optionFactories.set(identifier.name, initializer)
-      if (initializer.type === "ArrayExpression") {
-        staticArrays.set(identifier.name, initializer)
-        if (statement.type === "ExportNamedDeclaration" && identifier.name === "capabilities") exportedStaticArrays.add(initializer)
-      }
-      if (initializer.type === "ObjectExpression") staticObjects.set(identifier.name, initializer)
-    }
-  }
-  for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement)) continue
-    if (statement.type === "ExportNamedDeclaration") {
-      for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
-        if (!isPositionedNode(specifier)) continue
-        const local = specifier.local
-        if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") continue
-        const exported = specifier.exported
-        const exportedName = isPositionedNode(exported) && exported.type === "Identifier"
-          ? exported.name
-          : isPositionedNode(exported) && exported.type === "Literal"
-            ? exported.value
-            : undefined
-        if (exportedName !== "capabilities") continue
-        const array = staticArrays.get(local.name)
-        if (array) exportedStaticArrays.add(array)
-      }
-    }
-  }
-  visitNodes(program, (node, parent) => {
-    const nonComputedPropertyKey = parent?.type === "Property"
-      && parent.computed !== true
-      && parent.shorthand !== true
-      && parent.key === node
-    const nonComputedMemberProperty = parent?.type === "MemberExpression"
-      && parent.computed !== true
-      && parent.property === node
-    if (node.type === "Identifier" && typeof node.name === "string" && !nonComputedPropertyKey && !nonComputedMemberProperty) {
-      references.set(node.name, (references.get(node.name) ?? 0) + 1)
-    }
-    if (node.type.includes("Function")) functionRanges.push({ end: node.end, start: node.start })
-    if (node.type === "PropertyDefinition" || node.type === "StaticBlock") nestedClassRanges.push({ end: node.end, start: node.start })
-    if (node.type !== "ImportDeclaration") return
-    const source = node.source
-    const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
-    if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") return
-    if (source.value === "@vite-hub/agent" || source.value === "vite-hub/agent") {
-      for (const specifier of specifiers) {
-        if (!isPositionedNode(specifier)) continue
-        if (specifier.type === "ImportNamespaceSpecifier") {
-          const local = specifier.local
-          if (isPositionedNode(local) && local.type === "Identifier" && typeof local.name === "string") {
-            defineAgentNamespaces.add(local.name)
-          }
-          continue
-        }
-        if (specifier.type !== "ImportSpecifier") continue
-        const imported = specifier.imported
-        const local = specifier.local
-        if (
-          isPositionedNode(imported)
-          && imported.type === "Identifier"
-          && imported.name === "defineAgent"
-          && isPositionedNode(local)
-          && local.type === "Identifier"
-          && typeof local.name === "string"
-        ) defineAgentImports.add(local.name)
-      }
-    }
-    const defaultSpecifier = specifiers.find(specifier => isPositionedNode(specifier) && specifier.type === "ImportDefaultSpecifier")
-    if (!isPositionedNode(defaultSpecifier)) return
-    const local = defaultSpecifier.local
-    if (!isPositionedNode(local) || local.type !== "Identifier" || typeof local.name !== "string") return
-    imports.set(local.name, { declaration: node, source: source.value })
-  })
-  if (!imports.size) return
-
-  const shadowable = new Set([
-    ...imports.keys(),
-    ...defineAgentImports,
-    ...defineAgentNamespaces,
-    ...staticArrays.keys(),
-    ...staticObjects.keys(),
-    ...optionFactories.keys(),
-    ...optionValues.keys(),
-  ])
-  const bindingNames = (value: unknown): string[] => {
-    if (!isPositionedNode(value)) return []
-    if (value.type === "Identifier" && typeof value.name === "string") return [value.name]
-    if (value.type === "RestElement") return bindingNames(value.argument)
-    if (value.type === "AssignmentPattern") return bindingNames(value.left)
-    if (value.type === "ArrayPattern") return (Array.isArray(value.elements) ? value.elements : []).flatMap(bindingNames)
-    if (value.type === "ObjectPattern") {
-      return (Array.isArray(value.properties) ? value.properties : []).flatMap((property) => {
-        if (!isPositionedNode(property)) return []
-        return property.type === "RestElement" ? bindingNames(property.argument) : bindingNames(property.value)
-      })
-    }
-    return []
-  }
-  const recordShadows = (value: unknown, range?: { end: number, start: number }): void => {
-    if (!range) return
-    for (const name of bindingNames(value)) {
-      if (!shadowable.has(name)) continue
-      const ranges = shadowRanges.get(name) ?? []
-      ranges.push(range)
-      shadowRanges.set(name, ranges)
-    }
-  }
-  const collectShadows = (
-    value: unknown,
-    scope?: { end: number, start: number },
-    functionScope?: { end: number, start: number },
-  ): void => {
-    if (!value || typeof value !== "object") return
-    const node = value as Record<string, unknown>
-    const nextScope = isPositionedNode(node) && (
-      node.type === "BlockStatement"
-      || node.type === "CatchClause"
-      || node.type === "ForStatement"
-      || node.type === "ForInStatement"
-      || node.type === "ForOfStatement"
-      || node.type === "StaticBlock"
-      || node.type === "SwitchStatement"
-      || node.type.includes("Function")
-    )
-      ? { end: node.end, start: node.start }
-      : scope
-    const nextFunctionScope = isPositionedNode(node) && node.type.includes("Function")
-      ? { end: node.end, start: node.start }
-      : functionScope
-    if (node.type === "VariableDeclaration") {
-      const declarationScope = node.kind === "var" ? nextFunctionScope ?? nextScope : nextScope
-      for (const declaration of Array.isArray(node.declarations) ? node.declarations : []) {
-        if (isPositionedNode(declaration) && declaration.type === "VariableDeclarator") {
-          recordShadows(declaration.id, declarationScope)
-        }
-      }
-    }
-    if (nextScope && typeof node.type === "string" && node.type.includes("Function")) {
-      for (const parameter of Array.isArray(node.params) ? node.params : []) {
-        recordShadows(parameter, nextScope)
-      }
-    }
-    if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") recordShadows(node.id, scope)
-    if (node.type === "FunctionExpression" || node.type === "ClassExpression") recordShadows(node.id, nextScope)
-    if (node.type === "CatchClause") recordShadows(node.param, nextScope)
-    for (const child of Object.values(node)) {
-      if (Array.isArray(child)) child.forEach(item => collectShadows(item, nextScope, nextFunctionScope))
-      else collectShadows(child, nextScope, nextFunctionScope)
-    }
-  }
-  collectShadows(program)
-
-  const calls: EveExtensionImport[] = []
-  const collectedArrays = new Set<PositionedNode>()
-  function collectExtensionCalls(array: PositionedNode): void {
-    if (collectedArrays.has(array)) return
-    collectedArrays.add(array)
-    for (const rawElement of Array.isArray(array.elements) ? array.elements : []) {
-      if (!isPositionedNode(rawElement)) continue
-      const element = unwrapTypeScriptExpression(rawElement)
-      if (element.type === "SpreadElement") {
-        const argument = element.argument
-        if (isPositionedNode(argument) && argument.type === "Identifier" && typeof argument.name === "string") {
-          if (shadowRanges.get(argument.name)?.some(range => argument.start > range.start && argument.end < range.end)) continue
-          const spreadArray = staticArrays.get(argument.name)
-          if (spreadArray) collectExtensionCalls(spreadArray)
-        }
-        continue
-      }
-      if (element.type !== "CallExpression") continue
-      const rawCallee = element.callee
-      if (!isPositionedNode(rawCallee)) continue
-      const callee = unwrapTypeScriptExpression(rawCallee)
-      if (!isPositionedNode(callee) || callee.type !== "Identifier" || typeof callee.name !== "string") continue
-      const imported = imports.get(callee.name)
-      if (!imported) continue
-      if (shadowRanges.get(callee.name)?.some(range => element.start > range.start && element.end < range.end)) continue
-      calls.push({ call: element, declaration: imported.declaration, local: callee.name, source: imported.source })
-    }
-  }
-  function collectDynamicOptionFactories(value: PositionedNode, seen = new Set<PositionedNode>()): void {
-    const expression = unwrapTypeScriptExpression(value)
-    if (seen.has(expression)) return
-    seen.add(expression)
-    if (expression.type === "Identifier" && typeof expression.name === "string") {
-      if (shadowRanges.get(expression.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
-      const initializer = optionValues.get(expression.name)
-      if (initializer) collectDynamicOptionFactories(initializer, seen)
-      return
-    }
-    if (expression.type === "CallExpression") {
-      const callee = expression.callee
-      if (isPositionedNode(callee) && callee.type === "Identifier" && typeof callee.name === "string") {
-        if (shadowRanges.get(callee.name)?.some(range => expression.start > range.start && expression.end < range.end)) return
-        const factory = optionFactories.get(callee.name)
-        if (factory) dynamicOptionFactoryRanges.add(factory)
-      }
-      return
-    }
-    if (expression.type !== "ObjectExpression") return
-    for (const property of Array.isArray(expression.properties) ? expression.properties : []) {
-      if (!isPositionedNode(property) || property.type !== "SpreadElement" || !isPositionedNode(property.argument)) continue
-      collectDynamicOptionFactories(property.argument, seen)
-    }
-  }
-  visitNodes(program, (node) => {
-    if (node.type !== "CallExpression") return
-    const callee = node.callee
-    const isDefineAgentCall = isPositionedNode(callee)
-      && (
-        (callee.type === "Identifier" && typeof callee.name === "string" && defineAgentImports.has(callee.name)
-          && !shadowRanges.get(callee.name)?.some(range => node.start > range.start && node.end < range.end))
-        || (
-          callee.type === "MemberExpression"
-          && callee.computed !== true
-          && isPositionedNode(callee.object)
-          && callee.object.type === "Identifier"
-          && typeof callee.object.name === "string"
-          && defineAgentNamespaces.has(callee.object.name)
-          && !shadowRanges.get(callee.object.name)?.some(range => node.start > range.start && node.end < range.end)
-          && isPositionedNode(callee.property)
-          && callee.property.type === "Identifier"
-          && callee.property.name === "defineAgent"
-        )
-      )
-    if (!isDefineAgentCall) return
-    const rawOptions = Array.isArray(node.arguments) ? node.arguments[0] : undefined
-    if (!isPositionedNode(rawOptions)) return
-    collectDynamicOptionFactories(rawOptions)
-    const unwrappedOptions = unwrapTypeScriptExpression(rawOptions)
-    const options = unwrappedOptions.type === "ObjectExpression"
-      ? unwrappedOptions
-      : unwrappedOptions.type === "Identifier" && typeof unwrappedOptions.name === "string"
-        && !shadowRanges.get(unwrappedOptions.name)?.some(range => node.start > range.start && node.end < range.end)
-          ? staticObjects.get(unwrappedOptions.name)
-        : undefined
-    if (!options) return
-    const capabilities = staticObjectProperty(options, "capabilities", staticObjects)
-    if (!isPositionedNode(capabilities)) return
-    const rawValue = capabilities.value
-    if (!isPositionedNode(rawValue)) return
-    const value = unwrapTypeScriptExpression(rawValue)
-    const array = value.type === "ArrayExpression"
-      ? value
-      : value.type === "Identifier" && typeof value.name === "string"
-        && !shadowRanges.get(value.name)?.some(range => value.start > range.start && value.end < range.end)
-          ? staticArrays.get(value.name)
-        : undefined
-    if (!array) return
-    collectExtensionCalls(array)
-  })
-  for (const array of exportedStaticArrays) collectExtensionCalls(array)
-  const staticallyMountedImports = new Set(calls.map(call => call.local))
-  for (const [local, imported] of imports) {
-    if (staticallyMountedImports.has(local) || !dynamicOptionFactoryRanges.size) continue
-    let hasDynamicOptionReference = false
-    visitNodes(program, (node, parent) => {
-      if (hasDynamicOptionReference || node.type !== "Identifier" || node.name !== local) return
-      if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
-      if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
-      if (node.start >= imported.declaration.start && node.end <= imported.declaration.end) return
-      if (shadowRanges.get(local)?.some(range => node.start > range.start && node.end < range.end)) return
-      if (![...dynamicOptionFactoryRanges].some(range => node.start > range.start && node.end < range.end)) return
-      hasDynamicOptionReference = true
-    })
-    if (hasDynamicOptionReference && await resolveExtension(imported.source)) {
-      throw agentDiagnostics.AGENT_B0007({ message: `[vitehub] Eve extension ${JSON.stringify(imported.source)} must be mounted in a top-level static capabilities array.` })
-    }
-  }
-  if (!calls.length) return
-
-  const extensions: EveExtensionImport[] = []
-  for (const call of calls) {
-    const resolvedIdentity = await resolveExtension(call.source)
-    if (!resolvedIdentity) continue
-    if ([...functionRanges, ...nestedClassRanges].some(range => call.call.start > range.start && call.call.end < range.end)) {
-      throw agentDiagnostics.AGENT_B0008({ message: `[vitehub] Eve extension ${JSON.stringify(call.source)} must be mounted in a top-level static capabilities array.` })
-    }
-    const args = Array.isArray(call.call.arguments) ? call.call.arguments : []
-    if (args.length > 1 || args.some(argument => isPositionedNode(argument) && argument.type === "SpreadElement")) {
-      throw agentDiagnostics.AGENT_B0009({ message: `[vitehub] Eve extension ${JSON.stringify(call.source)} accepts one config argument.` })
-    }
-    extensions.push({ ...call, identity: typeof resolvedIdentity === "string" ? resolvedIdentity : call.source })
-  }
-  if (!extensions.length) return
-
-  const packageCounts = new Map<string, number>()
-  for (const extension of extensions) {
-    packageCounts.set(extension.identity!, (packageCounts.get(extension.identity!) ?? 0) + 1)
-  }
-  const duplicate = [...packageCounts].find(([, count]) => count > 1)
-  if (duplicate) throw agentDiagnostics.AGENT_B0010({ message: `[vitehub] Eve extension ${JSON.stringify(duplicate[0])} can only be mounted once per Agent Definition.` })
-  const identifiers = new Set(references.keys())
-  let helper = "__vitehubEveExtensionCapability"
-  while (identifiers.has(helper)) helper += "_"
-  const firstImport = extensions.reduce((first, extension) =>
-    extension.declaration.start < first.declaration.start ? extension : first
-  )
-  const replacements: Array<{ end: number, start: number, value: string }> = []
-  const runtimeImportIdentities = new Map<PositionedNode, string>()
-  for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isPositionedNode(statement) || statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
-    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : []
-    if (!specifiers.some(specifier => !isPositionedNode(specifier) || specifier.importKind !== "type")) continue
-    const source = statement.source
-    if (!isPositionedNode(source) || source.type !== "Literal" || typeof source.value !== "string") continue
-    const identity = await resolveExtensionIdentity(source.value)
-    if (identity) runtimeImportIdentities.set(statement, typeof identity === "string" ? identity : source.value)
-  }
-  for (const extension of extensions) {
-    const separateRuntimeImport = [...runtimeImportIdentities]
-      .find(([statement, identity]) => statement !== extension.declaration && identity === extension.identity)?.[0]
-    if (separateRuntimeImport) {
-      throw agentDiagnostics.AGENT_B0011({ message: `[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot be imported separately as a runtime value.` })
-    }
-    let hasSurvivingReference = false
-    visitNodes(program, (node, parent) => {
-      if (hasSurvivingReference || node.type !== "Identifier" || node.name !== extension.local) return
-      if (parent?.type === "Property" && parent.computed !== true && parent.shorthand !== true && parent.key === node) return
-      if (parent?.type === "ImportSpecifier" && parent.imported === node && parent.local !== node) return
-      if (parent?.type === "MemberExpression" && parent.computed !== true && parent.property === node) return
-      if (node.start >= extension.declaration.start && node.end <= extension.declaration.end) return
-      if (extensions.some((candidate) => {
-        const callee = candidate.call.callee
-        return candidate.local === extension.local
-          && isPositionedNode(callee)
-          && node.start >= callee.start
-          && node.end <= callee.end
-      })) return
-      if (shadowRanges.get(extension.local)?.some(range => node.start > range.start && node.end < range.end)) return
-      hasSurvivingReference = true
-    })
-    if (hasSurvivingReference) {
-      throw agentDiagnostics.AGENT_B0012({ message: `[vitehub] Eve extension factory ${JSON.stringify(extension.local)} cannot be referenced outside its static Capability mount.` })
-    }
-    const args = Array.isArray(extension.call.arguments) ? extension.call.arguments : []
-    const config = isPositionedNode(args[0]) ? code.slice(args[0].start, args[0].end) : "undefined"
-    replacements.push({
-      end: extension.call.end,
-      start: extension.call.start,
-      value: `await ${helper}(${JSON.stringify(extension.identity)}, ${JSON.stringify(eveExtensionIdentityNamespace(extension.identity!))}, () => import(${JSON.stringify(extension.source)}), () => import(${JSON.stringify(`${extension.source}/tools`)}), ${config})`,
-    })
-    const retainedSpecifiers = Array.isArray(extension.declaration.specifiers)
-      ? extension.declaration.specifiers.filter((specifier) => {
-          if (!isPositionedNode(specifier) || specifier.type === "ImportDefaultSpecifier") return false
-          return specifier.importKind === "type" || extension.declaration.importKind === "type"
-        })
-      : []
-    const valueCoImports = Array.isArray(extension.declaration.specifiers)
-      ? extension.declaration.specifiers.filter(specifier => isPositionedNode(specifier) && specifier.type !== "ImportDefaultSpecifier" && specifier.importKind !== "type" && extension.declaration.importKind !== "type")
-      : []
-    if (valueCoImports.length) {
-      throw agentDiagnostics.AGENT_B0013({ message: `[vitehub] Eve extension ${JSON.stringify(extension.source)} cannot share its import with named runtime values.` })
-    }
-    replacements.push({
-      end: extension.declaration.end,
-      start: extension.declaration.start,
-      value: [
-        ...(extension === firstImport ? [`import { eveExtensionCapability as ${helper} } from ${JSON.stringify(`${agentImportBase}/eve`)}`] : []),
-        ...(retainedSpecifiers.length
-          ? [`import type { ${retainedSpecifiers.map(specifier => code.slice(specifier.start, specifier.end).replace(/^type\s+/, "")).join(", ")} } from ${JSON.stringify(extension.source)}`]
-          : []),
-      ].join("\n"),
-    })
-  }
-  return applyCodeReplacements(code, replacements)
-}
-
-const supportedEveExtensionContracts = {
-  1: {
-    config: [1],
-    dynamicTool: [8],
-    extension: [1],
-    tool: [5],
-  },
-  2: {
-    config: [1],
-    // Epochs whose tool shapes ViteHub's adapter is tested against: 20, GitHub Tools 0.8.0 (54/52),
-    // and GitHub Tools 0.8.1 built with Eve 0.72.1 (76/72).
-    // This adapter-specific list is independent of Eve's runtime support table.
-    dynamicTool: [20, 52, 72],
-    extension: [1],
-    tool: [20, 54, 76],
-  },
-} satisfies Record<number, Record<string, readonly number[]>>
-
-async function resolveEveExtensionPackage(
-  config: Pick<ResolvedConfig, "createResolver">,
-  specifier: string,
-  importer: string,
-  validate = true,
-): Promise<false | string> {
-  const entry = await config.createResolver()(specifier, importer)
-  if (!entry) return false
-  let directory = dirname(entry.split(/[?#]/, 1)[0]!)
-  while (true) {
-    const packagePath = join(directory, "package.json")
-    if (existsSync(packagePath)) {
-      const packageJson: unknown = JSON.parse(await readFile(packagePath, "utf8"))
-      const packageName = isRecord(packageJson) ? packageJson.name : undefined
-      const eve = isRecord(packageJson) && isRecord(packageJson.eve) ? packageJson.eve : undefined
-      const extension = eve && isRecord(eve.extension) ? eve.extension : undefined
-      if (hasRuntimeType(packageName, "string") && extension) {
-        if (!validate) return packageName
-        const dist = extension.dist
-        if (!hasRuntimeType(dist, "string")) return false
-        const manifestPath = resolve(directory, dist, "_manifest.json")
-        const manifest: unknown = JSON.parse(await readFile(manifestPath, "utf8"))
-        const formatVersion = isRecord(manifest) ? manifest.formatVersion : undefined
-        const requires = isRecord(manifest) && isRecord(manifest.requires) ? manifest.requires : undefined
-        if (!isRecord(manifest) || manifest.kind !== "eve-extension" || !requires
-          || (formatVersion !== 1 && formatVersion !== 2)) {
-          throw agentDiagnostics.AGENT_B0014({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} has an unsupported compatibility manifest (expected eve-extension format 1 or 2).` })
-        }
-        const contracts = supportedEveExtensionContracts[formatVersion]
-        for (const [contract, version] of Object.entries(requires)) {
-          const versions = Object.entries(contracts).find(([name]) => name === contract)?.[1]
-          if (!hasRuntimeType(version, "number") || !Number.isInteger(version) || version < 1 || !versions?.includes(version)) {
-            throw agentDiagnostics.AGENT_B0015({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} requires unsupported ${contract}@${String(version)}.` })
-          }
-        }
-        return packageName
-      }
-    }
-    const parent = dirname(directory)
-    if (parent === directory) return false
-    directory = parent
-  }
 }
 
 function generatedRuntimeHelpers(): string[] {
@@ -1988,8 +1521,8 @@ function generatedNetlifyRuntimeHelpers(): string[] {
     "}",
     "",
     "function ensureNetlifyHostingEnv() {",
-    "  if (typeof process === 'object' && process && process.env && !process.env.VITEHUB_HOSTING) {",
-    "    process.env.VITEHUB_HOSTING = 'netlify'",
+    "  if (typeof process === 'object' && process && process.env && !process.env.VITEHUB_HOST) {",
+    "    process.env.VITEHUB_HOST = 'netlify'",
     "  }",
     "}",
   ]
@@ -1997,7 +1530,6 @@ function generatedNetlifyRuntimeHelpers(): string[] {
 
 function generatedHostedWorkspaceRuntimeSetup(
   definitions: DiscoveredAgentDefinition[],
-  workspaceImportBase: string,
   typescript = false,
 ): { imports: string[], setup: string[] } {
   const modules = definitions
@@ -2006,8 +1538,8 @@ function generatedHostedWorkspaceRuntimeSetup(
   if (!modules.length) return { imports: [], setup: [] }
   return {
     imports: [
-      `import { installHostedWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted"))}`,
-      `import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted-vercel-blob"))}`,
+      `import { installHostedWorkspaceRuntime } from ${JSON.stringify(agentRuntimeModule("internal/workspace/internal/runtime/hosted"))}`,
+      `import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(agentRuntimeModule("internal/workspace/internal/runtime/hosted-vercel-blob"))}`,
     ],
     setup: [
       `function hasHostedWorkspaceStore(module${typescript ? ": AgentRegistryModule" : ""}) {`,
@@ -2037,7 +1569,7 @@ function generatedHostedWorkspaceRuntimeSetup(
 async function writeAgentRuntimeRegistry(
   root: string,
   definitions: DiscoveredAgentDefinition[],
-  options: { agentImportBase: string, workspaceImportBase: string, agentHost?: boolean },
+  options: { agentHost?: boolean } = {},
 ): Promise<void> {
   const seen = new Set<string>()
   for (const definition of definitions) {
@@ -2073,7 +1605,7 @@ async function writeAgentRuntimeRegistry(
   // Use a non-cyclic alias reset entry: server internals also import this registry,
   // so their reset re-export can be uninitialized during an internal-first reload.
   await writeFileIfChanged(registryPath, [
-    `import { resetPublicUrlAgentNames } from ${JSON.stringify(subpath(options.agentImportBase, "server/registry"))}`,
+    `import { resetPublicUrlAgentNames } from ${JSON.stringify(agentRuntimeModule("server/registry"))}`,
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
@@ -2108,11 +1640,9 @@ async function generateAgentDeploymentCatalog(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
   options: {
-    agentImportBase: string
     channelHandlers?: boolean
     inspection?: false | string
     typescript?: boolean
-    workspaceImportBase: string
     workspaceRegistry?: false
     resetPublicUrlAgentNames?: boolean
     /** Channels from `server/channels`. An inbound one that no Agent lists gets a host Agent for its webhook handler. */
@@ -2139,7 +1669,7 @@ async function generateAgentDeploymentCatalog(
         : undefined,
     }
   }))
-  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase, typescript)
+  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, typescript)
   const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join(",\n  ")
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const registeredAgentWorkspaceEntries = definitions.flatMap(definition => options.workspaceRegistry !== false && definition.workspace
@@ -2151,20 +1681,22 @@ async function generateAgentDeploymentCatalog(
     "inheritAgentLayerOptions",
     "markDiscoveredAgentName",
     "resetPublicUrlAgentNames",
+    "workspaceAgentOwnsWorkspaceDefinition",
+    "workspaceDefinitionFromOptions",
+    options.inspection ? "resolveAgentInspectionMetadata" : undefined,
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl", "namedChannelHosts"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
+    ...(definitions.some(checksDeclaredWorkspace) ? ["withDeclaredAgentWorkspace"] : []),
   ].filter(Boolean).join(", ")
 
   return {
     imports: [
-      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions, ${standaloneChannels.length ? "defineAgent, " : ""}workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(options.agentImportBase)}`,
-      ...(options.inspection
-        ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
-        : []),
-      `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
+      `import { ${typescript ? "type AgentHostIdentity, type AgentInput, type AgentRegistryModule, type AgentWaitUntil, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, " : ""}agentWithColocatedInstructions${standaloneChannels.length ? ", defineAgent" : ""} } from ${JSON.stringify(agentRuntimeModule("index"))}`,
+      ...(options.inspection && typescript ? [`import type { ResolvedAgentRuntimeContext } from ${JSON.stringify(agentRuntimeModule("index"))}`] : []),
+      `import { ${serverInternalImports} } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       ...(options.workspaceRegistry !== false
-        ? [`import { setAgentWorkspaceDefinitions } from ${JSON.stringify(subpath(options.agentImportBase, "server/workspace"))}`]
+        ? [`import { setAgentWorkspaceDefinitions } from ${JSON.stringify(agentRuntimeModule("server/workspace"))}`]
         : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
@@ -2200,6 +1732,10 @@ async function generateAgentDeploymentCatalog(
             "}",
             "",
           ]
+        : []),
+      // Check the exported Agent before the catalog decorates it or registers its Workspace.
+      ...definitions.flatMap((definition, index) => checksDeclaredWorkspace(definition)
+        ? [`withDeclaredAgentWorkspace(resolveAgentModule(agent${index}), ${JSON.stringify(definition.name)})`]
         : []),
       ...hostedWorkspaceRuntime.setup,
       ...(options.workspaceRegistry !== false
@@ -2260,20 +1796,16 @@ async function generateAgentDeploymentCatalog(
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
-  const agentImportBase = options.agentImportBase ?? agentPackageName
-  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
-  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
-  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
-    agentImportBase,
     inspection: options.inspectionRoute,
     standaloneChannels: options.standaloneChannels,
     typescript: true,
-    workspaceImportBase,
   })
   const webhookStateOption = options.cloudflareState
     ? "state: chatStateFromCloudflare(cloudflare), webhookState: chatStateFromCloudflare(cloudflare), "
@@ -2284,22 +1816,22 @@ async function generateAgentWebhookRouteHandler(
 
   return [
     ...deploymentCatalog.imports,
-    `import type { AgentChannelWebhookRouteOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import type { AgentChannelWebhookRouteOptions } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ...(options.cloudflareState
       ? [
-          `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
-          `import type { ViteHubAgentStateDurableObjectNamespace } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
+          `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`,
+          `import type { ViteHubAgentStateDurableObjectNamespace } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`,
         ]
       : []),
-    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
-    ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
-    ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
-    ...(options.cloudflareState && !options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
+    ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
+    ...(options.cloudflareState && !options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     // In a ViteHub app, the Request that Nitro passes to `fetch(request)` carries the Standard Context of the event.
-    `import { getStandardContext } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { getStandardContext } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -2408,11 +1940,17 @@ async function generateAgentWebhookRouteHandler(
     "}",
     "",
     // The declared webhook middleware runs this for every request. `undefined` passes the request on to the next handler.
-    "export async function declaredWebhookResponse(request: Request): Promise<Response | undefined> {",
-    "  const url = new URL(request.url)",
-    "  const pathname = url.pathname.replace(/\\/+$/, '') || '/'",
+    // The middleware passes the URL that H3 already parsed. A request that no Agent declares returns before any await.
+    "export function declaredWebhookResponse(request: Request, requestUrl?: URL): Promise<Response | undefined> | undefined {",
+    "  const requestPathname = (requestUrl ?? new URL(request.url)).pathname",
+    "  const pathname = requestPathname.replace(/\\/+$/, '') || '/'",
     "  const alias = webhookAliases[pathname]",
-    "  if (!alias && declaredWebhookMatchers?.every(({ matches }) => !matches(url.pathname))) return",
+    "  if (!alias && declaredWebhookMatchers?.every(({ matches }) => !matches(requestPathname))) return",
+    "  return declaredWebhookRouteResponse(request, pathname, alias)",
+    "}",
+    "",
+    "async function declaredWebhookRouteResponse(request: Request, pathname: string, alias: { agent: string, webhook: string } | undefined): Promise<Response | undefined> {",
+    "  const url = new URL(request.url)",
     "  const cloudflare = cloudflareFromContext(request)",
     `  const optionsForAgent = (agent: string): AgentChannelWebhookRouteOptions => ({ agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromContext(request) })`,
     "  const matchers = await resolveDeclaredWebhookMatchers(request, url, optionsForAgent)",
@@ -2480,25 +2018,21 @@ async function generateAgentNetlifyFunctionRouteHandler(
   handlerPath: string,
   options: { discordGatewayRoute?: false | string, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
-  const agentImportBase = options.agentImportBase ?? agentPackageName
-  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
-  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
-  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
-    agentImportBase,
     inspection: options.inspectionRoute,
-    workspaceImportBase,
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
   const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, " : ""
 
   return [
     ...deploymentCatalog.imports,
-    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
-    ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
-    `import { createDiscordGatewayRouteHandler, isViteHubBearerSecretEqual } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
+    ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
+    `import { createDiscordGatewayRouteHandler, isViteHubBearerSecretEqual } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2577,7 +2111,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -2596,19 +2130,19 @@ async function writeAgentWebhookRouteHandler(
   await writeFileIfChanged(join(root, generatedAgentDeclaredWebhookRouteHandler), [
     `import { declaredWebhookResponse } from "./chat-webhook-route"`,
     "",
-    "export default (event: { req: Request }) => declaredWebhookResponse(event.req)",
+    "export default (event: { req: Request, url?: URL }) => declaredWebhookResponse(event.req, event.url)",
     "",
   ].join("\n"))
   if (options.preparation) {
     const { route: _route, ...preparation } = options.preparation
     await writeFileIfChanged(join(root, "agent/preparation.ts"), [
       `import "./chat-webhook-route"`,
-      `import { createWorkspacePreparation } from ${JSON.stringify(subpath(options.workspaceImportBase ?? workspacePackageName, "runtime"))}`,
+      `import { createWorkspacePreparation } from ${JSON.stringify(agentRuntimeModule("internal/workspace/runtime"))}`,
       `export const preparation = createWorkspacePreparation(${JSON.stringify(preparation)})`,
     ].join("\n"))
     await writeFileIfChanged(join(root, generatedAgentPreparationPlugin), [
       `import { preparation } from "./preparation"`,
-      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
+      `import { onShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       `export default function(nitroApp) {`,
       `  void preparation.start()`,
       `  onShutdown(nitroApp, "agent.preparation", () => preparation.stop())`,
@@ -2657,7 +2191,7 @@ async function writeAgentWebhookRouteHandler(
   if (options.processDiscordGateway) {
     await writeFileIfChanged(gatewayPluginPath, [
       `import { startDiscordGateways } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
-      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
+      `import { onShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       "",
       "export default function viteHubDiscordGatewayPlugin(nitroApp) {",
       "  const stop = startDiscordGateways()",
@@ -2679,7 +2213,7 @@ async function writeAgentWebhookRouteHandler(
     const routeModule = `./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`
     await writeFileIfChanged(processHostFiles[0]!, [
       `import registry from ${JSON.stringify(agentRegistryId)}`,
-      `import { createAgentProcessHosts } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "runtime/process"))}`,
+      `import { createAgentProcessHosts } from ${JSON.stringify(agentRuntimeModule("process"))}`,
       `import { agentProcessHostState } from ${JSON.stringify(routeModule)}`,
       "",
       `export const host = createAgentProcessHosts({ names: ${JSON.stringify(processHosts)}, registry, state: agentProcessHostState })`,
@@ -2687,7 +2221,7 @@ async function writeAgentWebhookRouteHandler(
     ].join("\n"))
     await writeFileIfChanged(processHostFiles[1]!, [
       `import { host } from "./process-hosts"`,
-      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
+      `import { onShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       "",
       "export default function viteHubAgentProcessHostsPlugin(nitroApp) {",
       "  if (import.meta.prerender) return",
@@ -2710,7 +2244,7 @@ async function writeAgentWebhookRouteHandler(
     const persistent = !options.libsqlState.ephemeralHosting
     // A persistent server also drains inline Chat invocations when it stops.
     const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
-    const internalImport = JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))
+    const internalImport = JSON.stringify(agentRuntimeModule("server/internal"))
     await writeFileIfChanged(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, registerChannelTaskQueueStarter, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
@@ -2739,7 +2273,7 @@ async function writeAgentWebhookRouteHandler(
             "  const startedAt = performance.timeOrigin",
             "  // Start one second after the server starts, so the Agent routes do not compile while the server answers its",
             "  // first requests, or at once when a request loads them. Invocations that started before this process are",
-            "  // interrupted unless a queued delivery runs them again.",
+            "  // interrupted unless a queued delivery runs them again or a live run in another process holds their claim.",
             "  // The warm-up builds registrations, secrets, and State before the first delivery needs them.",
             "  // /api/_vitehub/ready starts it at once and answers 503 until it finishes.",
             "  function startNow() {",
@@ -2770,7 +2304,7 @@ async function writeAgentWebhookRouteHandler(
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
             `  const webhookAliases = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, '') || '/', target])))};`,
             "  nitroApp.hooks.hook('request', event => {",
-            "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
+            "    const pathname = new URL(event?.path || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
             "    waitUntil ||= waitUntilFromContext(event)",
             "    void warmWebhookRoutes()",
@@ -2795,23 +2329,19 @@ async function generateAgentDiscordGatewayRouteHandler(
   handlerPath: string,
   options: { discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
-  const agentImportBase = options.agentImportBase ?? agentPackageName
-  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
-  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
-  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options)
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
-    agentImportBase,
     channelHandlers: false,
     typescript: true,
-    workspaceImportBase,
   })
 
   return [
     ...deploymentCatalog.imports,
-    `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
-    `import { getStandardContext, isViteHubBearerSecretEqual } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(agentRuntimeModule("server"))}`,
+    `import { getStandardContext, isViteHubBearerSecretEqual } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2878,22 +2408,18 @@ async function generateAgentDenoServer(
   handlerPath: string,
   options: { inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
-  const agentImportBase = options.agentImportBase ?? agentPackageName
-  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const routeCapabilities = generatedAgentRouteCapabilities(options)
-  const workflowRuntime = generatedAgentWorkflowRuntime(options, agentImportBase)
-  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options, workspaceImportBase)
+  const workflowRuntime = generatedAgentWorkflowRuntime(options)
+  const workspaceDependencyRuntime = generatedAgentWorkspaceDependencyRuntime(options)
   const deploymentCatalog = await generateAgentDeploymentCatalog(definitions, handlerPath, {
-    agentImportBase,
     inspection: options.inspectionRoute,
     typescript: true,
-    workspaceImportBase,
   })
 
   return [
     ...deploymentCatalog.imports,
-    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
-    ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
+    ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -3007,12 +2533,9 @@ async function writeAgentDenoServer(
       paths: [...sourceDefinitions.map(definition => definition.handler), ...channels.filter(channel => names.has(channel.name)).map(channel => channel.handler)],
       roots: [options.sourceRootDir ?? resolve(root, "..")],
     })
-    await prepareRetainedAgentSources(retainedSources, sourceDefinitions, channels, options.agentImportBase ?? agentPackageName, resolveModule)
+    await prepareRetainedAgentSources(retainedSources, sourceDefinitions, channels, resolveModule)
     definitions = definitions.map(definition => ({ ...definition, handler: retainedSources.resolve(definition.handler) }))
-    await writeAgentRuntimeRegistry(root, sourceDefinitions.map(definition => ({ ...definition, handler: retainedSources.resolve(definition.handler) })), {
-      agentImportBase: options.agentImportBase ?? agentPackageName,
-      workspaceImportBase: options.workspaceImportBase ?? workspacePackageName,
-    })
+    await writeAgentRuntimeRegistry(root, sourceDefinitions.map(definition => ({ ...definition, handler: retainedSources.resolve(definition.handler) })))
   }
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFileIfChanged(handlerPath, await generateAgentDenoServer(definitions, handlerPath, options))
@@ -3203,7 +2726,7 @@ async function cleanupNetlifyAgentProviderOutput(
 const channelSimulationOwners = new Set<object>()
 let channelSimulationPreviousValue: string | undefined
 
-export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
+export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   const channelSimulationOwner = {}
   function setChannelSimulation(enabled: boolean, config?: ResolvedConfig): void {
     const env = globalThis.process.env
@@ -3225,16 +2748,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     }
   }
   const frameworkOptions = getInternalAgentOptions(options)
-  let agent: AgentModuleOptions | false | undefined = options
+  const agent: AgentOptions | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
-  const eveExtensionOwners = new Map<string, string>()
   let installsCloudflareState = false
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/agent/vite")
   const buildConfigs = new WeakMap<object, {
-    agent: AgentModuleOptions | false | undefined
+    agent: AgentOptions | false | undefined
     config: ResolvedConfig
     providerOutput: ProviderOutputCatalog | undefined
     serverDirs: string[] | undefined
@@ -3246,14 +2768,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   const buildEnvironment = (context: { environment?: object } | undefined): object =>
     context?.environment ?? context ?? fallbackEnvironment
   let resolved: ResolvedConfig | undefined
+  // The Agent state store that the server uses, when the app has hosted Agents.
+  let stateDurability: AgentStateDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
-
-  function clearEveExtensionOwnership(owner: string): void {
-    for (const [specifier, currentOwner] of eveExtensionOwners) {
-      if (currentOwner === owner) eveExtensionOwners.delete(specifier)
-    }
-  }
 
   function workflowState(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
@@ -3283,12 +2801,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         ]
       : []
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
-      agentImportBase: getAgentImportBase(agent, frameworkOptions),
       agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
-      workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
-      const registryEntry = subpath(getAgentImportBase(agent, frameworkOptions), "server/registry")
+      const registryEntry = agentRuntimeModule("server/registry")
       // Standalone hubAgent() also needs the app root in Node-loaded packages. Build the global's name at runtime
       // because Nitro's replace rewrites define names inside strings too.
       const appRootGlobal = [
@@ -3325,7 +2841,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       await writeFileIfChanged(join(generatedRoot, generatedAgentInvocationsDevHandler), renderViteHubNitroDevHandler({
         context: { rootDir: config.root, serverId: workspaceDevTokenServerId(config.server?.port) },
         export: "handleAgentInvocationsDevRequest",
-        module: `${getAgentImportBase(agent, frameworkOptions)}/runtime/invocations-dev`,
+        module: agentRuntimeModule("runtime/invocations-dev"),
       }))
     }
     if (normalized && hasHostedAgents) {
@@ -3333,7 +2849,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentDenoServer(generatedRoot, {
           sourceRootDir: viteHubProjectRoot(config),
           standaloneChannels,
-          agentImportBase: getAgentImportBase(agent, frameworkOptions),
           denoCronImport: moduleImportSpecifier(
             join(generatedRoot, generatedAgentDenoServer),
             join(resolveViteHubProjectRoot(config.root), ".vitehub", "schedule", "deno-cron.mjs"),
@@ -3341,9 +2856,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
           runtimeCapabilities: standaloneRuntimeCapabilities,
-          workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+          workflowModules: getWorkflowModules(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
-          workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
         }, definitionServerDirs, registryDefinitions, namedChannelModuleResolver(config))
       }
@@ -3352,7 +2866,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           standaloneChannels,
           preparation: normalized.preparation,
           webhookAliases: normalized.routes.aliases,
-          agentImportBase: getAgentImportBase(agent, frameworkOptions),
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
           inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
@@ -3360,34 +2873,29 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
           shutdown: normalized.shutdown,
-          workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+          workflowModules: getWorkflowModules(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
-          workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
         }, definitionServerDirs)
         if (normalized.routes.discordGateway && !processDiscordGateway) {
           await writeAgentDiscordGatewayRouteHandler(generatedRoot, {
-            agentImportBase: getAgentImportBase(agent, frameworkOptions),
             discordGatewayRoute: normalized.routes.discordGateway,
             ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
             runtimeCapabilities,
-            workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+            workflowModules: getWorkflowModules(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
-            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
             webhookRoute: normalized.routes.webhooks,
           }, definitionServerDirs)
         }
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
             standaloneChannels,
-            agentImportBase: getAgentImportBase(agent, frameworkOptions),
             libsqlState: resolveLibsqlAgentState(normalized, config),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtime: "vite",
             runtimeCapabilities: standaloneRuntimeCapabilities,
-            workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+            workflowModules: getWorkflowModules(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
-            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
           }, definitionServerDirs)
         }
       }
@@ -3402,11 +2910,20 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     resolveId: {
       // Run before Vite resolves installed optional peers to absolute module paths.
       order: "pre",
+      filter: { id: /^(?:@vite-hub\/kv|@ai-sdk\/openai|advocaat)$/ },
       async handler(source, importer, options) {
         if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
-          // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
+          // Configured KV must bundle with the host's virtual config. Without hubKV(), keep the
           // optional package and its unresolved virtual config out of unrelated Agent builds.
           if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
+          return
+        }
+        if (source === chatgptModelProvider && isAgentModule(importer)) {
+          // The ChatGPT model reads its plan credential through the connections runtime capability and stops with
+          // AGENT_R1016 before this import when the build gives Agents none, or `connections: false`. Workers compile
+          // every bundled module at isolate start, lazy ones too, so leave the package out of those builds.
+          const connections = runtimeCapabilities.some(capability => capability.name === "connections" && capability.packageName !== false)
+          if (resolved && !connections) return chatgptModelProviderWithoutConnections
           return
         }
         if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
@@ -3415,15 +2932,19 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
       },
     },
+    load(id) {
+      if (id === chatgptModelProviderWithoutConnections) {
+        return `export function createOpenAI() { throw new Error(${JSON.stringify("[vitehub] The ChatGPT model needs Connections. Enable connections in vitehub() and rebuild.")}) }`
+      }
+      // Generated code imports Agent and Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
+      return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+    },
     async configureServer(server) {
-      const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
-      server.watcher?.on("add", clearUnlinkedEveExtensionOwnership)
-      server.watcher?.on("unlink", clearUnlinkedEveExtensionOwnership)
       let discoveryRefresh: Promise<void> | undefined
       let discoveryClosed = false
       const pendingDiscovery = new Map<string, boolean>()
       const refreshDiscovery = (file: string) => {
-        if (!resolved || agent === false || discoveryClosed) return
+        if (!resolved || discoveryClosed) return
         const normalizedFile = file.replace(/\\/g, "/")
         const roots = serverDirs ?? [join(resolved.root, "server")]
         const relativeAgentPath = roots.map(root => `${resolve(root).replace(/\\/g, "/")}/agents/`)
@@ -3455,38 +2976,33 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         pendingDiscovery.clear()
         server.watcher?.off("add", refreshDiscovery)
         server.watcher?.off("unlink", refreshDiscovery)
-        server.watcher?.off("add", clearUnlinkedEveExtensionOwnership)
-        server.watcher?.off("unlink", clearUnlinkedEveExtensionOwnership)
         await discoveryRefresh
       }
       server.watcher?.on("add", refreshDiscovery)
       server.watcher?.on("unlink", refreshDiscovery)
-      if (agent !== false) {
-        // The Dev Loop runs Agents in this process. Load the Agent runtime with the dev server, not with the Vite config.
-        const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-endpoint.ts")
-        await registerAgentInvocationStreamEndpoint(server, { runtimeCapabilities })
-        // Cancel runs in the Nitro dev environment, which owns the application's journals and abort handles.
-        registerViteHubNitroDevEndpoint(server, {
-          ...agentInvocationsDevGuard,
-          nitroBaseURL: () => {
-            // SAFETY: Vite keeps unknown user config keys on the resolved config. Nitro reads the same `nitro` key.
-            const baseURL = (resolved as (ResolvedConfig & { nitro?: { baseURL?: unknown } }) | undefined)?.nitro?.baseURL
-            return hasRuntimeType(baseURL, "string") ? baseURL : process.env.NITRO_APP_BASE_URL
-          },
-          route: agentInvocationsDevRoute,
-          runtimeRoute: agentInvocationsDevRuntimeRoute,
-          discovery: { workspaceDevTokenServerId: workspaceDevTokenServerId(server.config.server.port) },
-          authorize: async req => req.headers[agentInvocationsDevTokenServerHeader] !== workspaceDevTokenServerId(server.config.server.port) || !await validateWorkspaceDevToken(server.config.root, req.headers, { serverId: workspaceDevTokenServerId(server.config.server.port) })
-            ? new Response("Forbidden Agent Invocations Dev token.", { status: 403 })
-            : undefined,
-          forwardHeaders: [workspaceDevTokenHeader, agentInvocationsDevTokenServerHeader],
-          unavailable: { code: agentInvocationsDevRuntimeUnavailableCode, message: agentInvocationsDevRuntimeUnavailableMessage },
-        })
-      }
+      // Register the Dev Loop route now; load the Agent runtime on its first request.
+      const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-route.ts")
+      await registerAgentInvocationStreamEndpoint(server, { runtimeCapabilities })
+      // Cancel runs in the Nitro dev environment, which owns the application's journals and abort handles.
+      registerViteHubNitroDevEndpoint(server, {
+        ...agentInvocationsDevGuard,
+        nitroBaseURL: () => {
+          // SAFETY: Vite keeps unknown user config keys on the resolved config. Nitro reads the same `nitro` key.
+          const baseURL = (resolved as (ResolvedConfig & { nitro?: { baseURL?: unknown } }) | undefined)?.nitro?.baseURL
+          return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
+        },
+        route: agentInvocationsDevRoute,
+        runtimeRoute: agentInvocationsDevRuntimeRoute,
+        discovery: { workspaceDevTokenServerId: workspaceDevTokenServerId(server.config.server.port) },
+        authorize: async req => req.headers[agentInvocationsDevTokenServerHeader] !== workspaceDevTokenServerId(server.config.server.port) || !await validateWorkspaceDevToken(server.config.root, req.headers, { serverId: workspaceDevTokenServerId(server.config.server.port) })
+          ? new Response("Forbidden Agent Invocations Dev token.", { status: 403 })
+          : undefined,
+        forwardHeaders: [workspaceDevTokenHeader, agentInvocationsDevTokenServerHeader],
+        unavailable: { code: agentInvocationsDevRuntimeUnavailableCode, message: agentInvocationsDevRuntimeUnavailableMessage },
+      })
     },
     async handleHotUpdate(context) {
       const file = context.file.replace(/\\/g, "/")
-      clearEveExtensionOwnership(file)
       const agentRoots = (serverDirs ?? [join(resolved?.root ?? context.server.config.root, "server")])
         .map(directory => `${resolve(directory).replace(/\\/g, "/")}/agents/`)
       const relativeAgentPath = agentRoots
@@ -3526,89 +3042,90 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       invalidateAgentDevModules(context.server, moduleIds)
     },
-    async transform(code, id) {
-      if (agent === false || !resolved?.root) return
-      const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
-      const typescriptModule = /\.(?:c|m)?[jt]s$/i.test(normalizedId)
-      const definitionServerDirs = serverDirs ?? [join(resolved.root, "server")]
-      const serverProjectModule = definitionServerDirs.some(directory =>
-        normalizedId.startsWith(`${resolve(directory).replace(/\\/g, "/")}/`),
-      )
-      // Configured server directories can belong to installed Nuxt layers and still need project transforms.
-      // Skip other installed packages to avoid parsing dependencies on the first dev request.
-      const projectModule = typescriptModule
-        && (serverProjectModule
-          || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
-      let transformed = code
-      if (projectModule) {
-        clearEveExtensionOwnership(normalizedId)
-        transformed = await transformEveExtensionCapabilities(
-          transformed,
-          value => this.parse(value),
-          async (specifier) => {
-            const identity = await resolveEveExtensionPackage(resolved!, specifier, normalizedId)
-            if (!identity) return false
-            const owner = eveExtensionOwners.get(identity)
-            if (owner && owner !== normalizedId) {
-              throw agentDiagnostics.AGENT_B0018({ message: `[vitehub] Eve extension ${JSON.stringify(specifier)} can only be mounted once per Vite app.` })
-            }
-            eveExtensionOwners.set(identity, normalizedId)
-            return identity
-          },
-          getAgentImportBase(agent, frameworkOptions),
-          specifier => resolveEveExtensionPackage(resolved!, specifier, normalizedId, false),
-        ) ?? transformed
-        const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
-          || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
-        const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
-          .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
-        if (definition) {
-          const agentImportBase = getAgentImportBase(agent, frameworkOptions)
-          const skills = readColocatedAgentSkills(definition.handler)
-          transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
-            ...(skills ? [colocatedAgentSkillsDecorator(skills, agentImportBase)] : []),
-            discoveredAgentIdentityDecorator(definition, agentImportBase),
-          ]) ?? transformed
-        }
-        if (definition) {
-          transformed = await transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), getAgentImportBase(agent, frameworkOptions), namedChannelModuleResolver(resolved!)) ?? transformed
-        }
-        if (transformed !== code) return transformed
-      }
-      if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
-        return transformGeneratedAgentWorkflowRegistry(
-          code,
-          runtimeCapabilities,
-          getAgentImportBase(agent, frameworkOptions),
-          workflowState(resolved!),
+    transform: {
+      // Only project modules and the generated Workflow registry change, and both are JavaScript or TypeScript.
+      filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
+      async handler(code, id) {
+        if (!resolved?.root) return
+        const normalizedId = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+        const typescriptModule = /\.(?:c|m)?[jt]s$/i.test(normalizedId)
+        const definitionServerDirs = serverDirs ?? [join(resolved.root, "server")]
+        const serverProjectModule = definitionServerDirs.some(directory =>
+          normalizedId.startsWith(`${resolve(directory).replace(/\\/g, "/")}/`),
         )
-      }
+        // Configured server directories can belong to installed Nuxt layers and still need project transforms.
+        // Skip other installed packages to avoid parsing dependencies on the first dev request.
+        const projectModule = typescriptModule
+          && (serverProjectModule
+            || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
+        let transformed = code
+        if (projectModule) {
+          const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
+            || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
+          const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
+            .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
+          if (definition) {
+            const skills = readColocatedAgentSkills(definition.handler)
+            transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
+              ...declaredWorkspaceDecorators(definition),
+              ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
+              discoveredAgentIdentityDecorator(definition),
+            ]) ?? transformed
+          }
+          if (definition) {
+            transformed = await transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!)) ?? transformed
+          }
+          if (transformed !== code) return transformed
+        }
+        if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
+          return transformGeneratedAgentWorkflowRegistry(
+            code,
+            runtimeCapabilities,
+            workflowState(resolved!),
+          )
+        }
+      },
     },
     vitehub: {
+      durability: () => stateDurability
+        ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }]
+        : [],
       // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
-      operations: () => agent === false
-        ? []
-        : [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: "@vite-hub/agent/operations" }],
+      operations: () => [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: agentRuntimeModule("operations") }],
       providerOutput: {
         async prepareSources(sources) {
-          if (agent === false || !resolved) return
+          if (!resolved) return
           await prepareRetainedAgentSources(sources, discoverProjectAgentDefinitions(resolved.root, serverDirs),
-            discoverAgentChannelModules(serverDirs ?? [join(resolved.root, "server")]), getAgentImportBase(agent, frameworkOptions), namedChannelModuleResolver(resolved))
+            discoverAgentChannelModules(serverDirs ?? [join(resolved.root, "server")]), namedChannelModuleResolver(resolved))
         },
       },
       agent: {
+        workflowModules: {
+          index: agentRuntimeModule("index"),
+          runtimeWorkflow: agentRuntimeModule("runtime/workflow"),
+          serverInternal: agentRuntimeModule("server/internal"),
+        },
+        async transformWorkspaceAgent(code, id, { root, serverDirs }) {
+          const file = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+          const roots = serverDirs ?? [join(root, "server")]
+          if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file)
+            && !roots.some(directory => file.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))) return
+          const definition = discoverProjectAgentDefinitions(root, serverDirs)
+            .find(definition => definition.handler.replace(/\\/g, "/") === file)
+          if (!definition || !checksDeclaredWorkspace(definition)) return
+          return decorateDiscoveredAgentExport(code, await parseTypeScript(), declaredWorkspaceDecorators(definition))
+        },
         transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
           ? transformGeneratedAgentWorkflowRegistry(
               code,
               runtimeCapabilities,
-              getAgentImportBase(agent, frameworkOptions),
               workflowState(resolved!),
             )
           : code,
       },
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
-        if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
+        if (agent?.cli === false) return createAgentCliContributor(false)
         return createAgentCliContributor({
           envDir: resolved?.envDir,
           eval: agent?.eval,
@@ -3617,7 +3134,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         })
       },
       inspect: () => {
-        if (agent === false) return
         const options = normalizeAgentOptions(agent)
         const rootDir = resolve(resolved?.root ?? process.cwd())
         return {
@@ -3641,7 +3157,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       },
     },
     config(config, environment) {
-      agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
@@ -3669,13 +3184,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
-      const stateProvider = resolved && resolved.providers.state.provider
+      const stateDriver = resolved && resolved.providers.state.driver
+      stateDurability = resolved && hasHostedAgents && !denoOutput ? agentStateDurabilityInput(resolved, environment ? { ...config, command: environment.command } : config, installCloudflareState) : undefined
       const installWebhookQueue = Boolean(
         resolved
         && hasHostedAgents
         && !denoOutput
         && !installCloudflareState
-        && (stateProvider === "auto" || stateProvider === "sqlite" || stateProvider === "libsql"),
+        && (stateDriver === "auto" || stateDriver === "sqlite" || stateDriver === "libsql"),
       )
       const installProcessDiscordGateway = Boolean(
         resolved
@@ -3753,14 +3269,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const nitro = installCloudflareState
         ? mergeCloudflareAgentStateNitroConfig(
             (config as { nitro?: unknown }).nitro,
-            getCloudflareStateImport(agent, frameworkOptions),
+            agentRuntimeModule("cloudflare/state"),
           )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
       if (resolved && hasHostedAgents && !denoOutput && Object.keys(webhookAliases).length) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
-        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         for (const [path, target] of Object.entries(webhookAliases)) {
-          if (!hasRuntimeType(target?.agent, "string") || !target.agent.trim() || !hasRuntimeType(target?.webhook, "string") || !target.webhook.trim()) {
+          if (typeof target?.agent !== "string" || !target.agent.trim() || typeof target?.webhook !== "string" || !target.webhook.trim()) {
             throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases require an Agent name and webhook name." })
           }
           const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias")
@@ -3769,7 +3285,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       if (installPreparation && resolved && resolved.preparation) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
-        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         const preparationHandler = nitroHandlers.find(handler => handler.handler === join(generatedRoot, generatedAgentPreparationHandler))!
         preparationHandler.route = validateAgentStaticRoute(preparationHandler.route, [
           ...routes,
@@ -3779,7 +3295,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       if (devNitroHandlers.length) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
-        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         for (const handler of devNitroHandlers) {
           handler.route = validateAgentStaticRoute(handler.route, [
             ...routes,
@@ -3820,7 +3336,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...config.define,
         },
         server: {
-          watch: {
+          watch: config.server?.watch === null ? null : {
             ignored: generatedViteHubWatchIgnoredAddition(config.server?.watch?.ignored),
           },
         },
@@ -3836,7 +3352,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }
         result.resolve = { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } }
       }
-      if (agent !== undefined) result.agent = agent
       if (nitroHandlers.length) {
         // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.
         result.build = mergeBuildExternal(config as BuildWithRolldownOptions, optionalAgentRuntimeExternals)
@@ -3852,7 +3367,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
-      agent = config.agent ?? agent
       installsCloudflareState ||= shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), config)
       // SAFETY: ViteHub's config hook adds this private server-directory symbol before config resolution.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
@@ -3870,7 +3384,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const configs = (scheduledBuildConfigsByRoot.get(config.root) ?? []).filter(previous => previous !== config)
       configs.push(config)
       scheduledBuildConfigsByRoot.set(config.root, configs)
-      if (agent === false || !discoverAgentEvalFiles([config.root, ...(serverDirs ?? [])]).length) {
+      if (!discoverAgentEvalFiles([config.root, ...(serverDirs ?? [])]).length) {
         await removeAgentEvaliteConfig(config.root, generatedRoot)
         return
       }
@@ -3910,7 +3424,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const scheduledConfig = matches[0]
         const scheduled = direct ?? (scheduledConfig && buildConfigs.get(scheduledConfig))
         buildConfigs.set(context, {
-          agent: scheduled ? scheduled.agent : environmentConfig.agent ?? options,
+          agent: scheduled ? scheduled.agent : options,
           config: environmentConfig,
           providerOutput: scheduled?.providerOutput ?? useProviderOutputCatalog(environmentConfig),
           // SAFETY: The framework owns this optional server-directory symbol on Vite configs.
@@ -4001,25 +3515,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           handler: retainedSources?.resolve(source.definition.handler) ?? source.definition.handler,
         }))
         if (retainedSources && normalized) {
-          await prepareRetainedAgentSources(retainedSources, definitions, channelModules, getAgentImportBase(buildAgent, frameworkOptions), namedChannelModuleResolver(config))
+          await prepareRetainedAgentSources(retainedSources, definitions, channelModules, namedChannelModuleResolver(config))
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
           const agentHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
-            agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
             agentHost,
-            workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
           })
           if (agentHost) {
             const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)
             await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
               standaloneChannels,
-              agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
               inspectionRoute: normalized.routes.inspection,
               libsqlState: resolveLibsqlAgentState(normalized, config),
               runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
-              workflowImportBase: getWorkflowImportBase(buildAgent, frameworkOptions),
+              workflowModules: getWorkflowModules(buildAgent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(buildAgent, frameworkOptions),
-              workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
               webhookRoute: normalized.routes.webhooks,
             }), "utf8")
           }
@@ -4040,14 +3550,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (normalized && hostedDefinitions.length && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               standaloneChannels,
-              agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
               libsqlState: resolveLibsqlAgentState(normalized, config),
               providerImportAliases: retainedProviderImportAliases,
               runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
               sourceRootDir: retainedSources?.resolve(config.root),
-              workflowImportBase: getWorkflowImportBase(buildAgent, frameworkOptions),
+              workflowModules: getWorkflowModules(buildAgent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(buildAgent, frameworkOptions),
-              workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
             }, buildServerDirs, write, retainedDefinitions.filter(definition => definition.source === "server-agents" || definition.source === "server-agent" || definition.source === "server-agent-workspace"), contributionArtifactDir ? resolve(contributionArtifactDir, "sources") : undefined)
           }
           else if (isNetlifyHosting(config)) {
@@ -4125,11 +3633,6 @@ export function inspectAgentDefinitions(options: AgentInspectionOptions): ViteHu
   return summarizeDefinitions(options.projectRoot, discoverAgentDefinitionEntries(options.rootDir, options.serverDirs), "agent")
 }
 
-declare module "vite" {
-  interface UserConfig {
-    agent?: false | AgentModuleOptions
-  }
-}
 
 export { processAgentHost } from './process-host-vite.ts'
 

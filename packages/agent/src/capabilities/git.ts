@@ -15,7 +15,6 @@ import type {
 import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isRuntimeString } from "../internal/runtime-value.ts"
 import { forgeGitEnvironment, forgeGitScope } from "../internal/forge-access.ts"
 import {
   preparePullRequestCheckout,
@@ -311,7 +310,7 @@ async function preparePullRequestGitSession(
 }
 
 function gitCommandFromArgs(args: unknown): string | undefined {
-  if (!Array.isArray(args) || !args.length || !args.every(arg => isRuntimeString(arg) && arg.length > 0)) return
+  if (!Array.isArray(args) || !args.length || !args.every(arg => typeof arg === "string" && arg.length > 0)) return
   const words = args[0] === "git" ? args : ["git", ...args]
   return words.map(word => /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : shellQuote(word)).join(" ")
 }

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-vi.mock("#vitehub/connections/registry", () => ({ default: {}, activityRetention: undefined, database: undefined }))
+vi.mock("#vitehub/connections/registry", () => ({ default: {}, activityRetention: undefined, database: undefined, docs: undefined }))
 
 import { setConnectionsRuntime, useConnection } from "../src/runtime/state.ts"
 import { defineConnection } from "../src/definition.ts"
@@ -79,6 +79,7 @@ it("uses the registry that the vite dev Nitro plugin installs", async () => {
     activityRetention: undefined,
     database: async () => { throw new Error("installed database") },
     default: { mail: async () => ({ default: definition }) },
+    docs: undefined,
   })
   await expect(getConnectionsRuntime().inspect("mail")).rejects.toThrow("installed database")
 })

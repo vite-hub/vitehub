@@ -9,6 +9,7 @@ import { expect, it } from "vitest"
 
 import { runAgentChannelReplayCli } from "../../agent/src/internal/channel-replay-cli.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../../agent/src/invocation-stream.ts"
+import { agentRuntimeModule } from "../../agent/src/vite.ts"
 
 it("journals authenticated Vite SSR dry-run replays in the configured Agent journal", async () => {
   // Load the built host integration, as an application does, without typechecking unrelated primitives here.
@@ -46,13 +47,13 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
 `)
     await writeFile(join(root, "authorize.ts"), "export default () => ({ actor: { id: 'test', name: 'Test' }, mode: 'admin' })\n")
     server = await createServer({ root, configFile: false, appType: "custom", logLevel: "silent",
-      plugins: [vitehub({ preset: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
+      plugins: [vitehub({ host: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
         console: { auth: false, authorize: "./authorize.ts" },
       }), nitro()],
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.
       resolve: { alias: {
         "@vite-hub/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
-        "vite-hub/_internal/agent/server/internal": join(packageRoot, "src/server/internal.ts"),
+        [agentRuntimeModule("server/internal")]: join(packageRoot, "src/server/internal.ts"),
       } },
       server: { port: 0, watch: null, fs: { allow: [root, join(packageRoot, "../..")] } },
     })

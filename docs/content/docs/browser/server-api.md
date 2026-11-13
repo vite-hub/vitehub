@@ -13,8 +13,8 @@ Start with Browser Definitions, one file per browser task. Use Browser actions f
 | Import | Use |
 | --- | --- |
 | `defineBrowser`, `runBrowser` from `vite-hub/browser` | Declare and run Browser Definitions. |
-| `runBrowserAction`, `runBrowserContent` from `vite-hub/browser/actions` | Run one stateless Browser Run action. |
-| `isBrowserAvailable` from `vite-hub/browser` or `vite-hub/browser/actions` | Check if this build has Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
+| `runBrowserAction`, `runBrowserContent` from `vite-hub/browser` | Run one stateless Browser Run action. |
+| `isBrowserAvailable` from `vite-hub/browser` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
 | `createBrowser` from `vite-hub/browser` | Create a low-level Browser Client. |
 | `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run provider. |
 | `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium provider for trusted Node hosts. |
@@ -43,7 +43,7 @@ Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` a
 Call a Browser action directly when you do not need a page session:
 
 ```ts [server/render-og.ts]
-import { runBrowserContent } from 'vite-hub/browser/actions'
+import { runBrowserContent } from 'vite-hub/browser'
 
 const html = await runBrowserContent('https://example.com')
 ```
@@ -80,9 +80,9 @@ pnpm add @vite-hub/browser
 ```
 
 ```ts [server/browser.ts]
-import { createBrowser } from '@vite-hub/browser'
-import { playwright } from '@vite-hub/browser/controllers/playwright'
-import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
+import { createBrowser } from 'vite-hub/browser'
+import { playwright } from 'vite-hub/browser/controllers/playwright'
+import { cloudflareBrowser } from 'vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
   provider: cloudflareBrowser({ binding: 'BROWSER' }),
@@ -107,16 +107,16 @@ If reading the controller client or attach tracing fails, ViteHub releases the c
 
 For the Playwright controller on Cloudflare, install `@cloudflare/playwright` and `playwright-core`. Cloudflare builds use the `workerd` export condition and leave out the Node Playwright loader. Standalone Worker bundlers must also use `workerd`. The built-in Playwright CDP adapter needs Node.js.
 
-`localBrowser({ executablePath })` from `@vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process.
+`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process.
 
 ## Live handoff
 
 A low-level session can pass its provider session to other code through an opaque ref tied to an audience. The default Kitesurf engine cannot do this. Use `engine: 'chromium'` on Cloudflare, or `localBrowser()`.
 
 ```ts [server/browser-handoff.ts]
-import { createBrowser } from '@vite-hub/browser'
-import { cdp } from '@vite-hub/browser/controllers/cdp'
-import { cloudflareBrowser } from '@vite-hub/browser/providers/cloudflare'
+import { createBrowser } from 'vite-hub/browser'
+import { cdp } from 'vite-hub/browser/controllers/cdp'
+import { cloudflareBrowser } from 'vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
   provider: cloudflareBrowser({ binding: 'BROWSER', engine: 'chromium' }),

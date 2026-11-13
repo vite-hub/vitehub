@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { mountViteHubPagePill, readViteHubPageDock, viteHubPageSvgIcon } from "../src/runtime/page-pill.ts"
+import { closeViteHubPagePill, mountViteHubPagePill, readViteHubPageDock, viteHubPageSvgIcon } from "../src/runtime/page-pill.ts"
 
 import type { ViteHubPagePillOptions, ViteHubPagePillPlace } from "../src/runtime/page-pill.ts"
 
@@ -108,6 +108,23 @@ describe("mountViteHubPagePill", () => {
     expect(exit.getAttribute("aria-label")).toBe("Close review")
     exit.click()
     expect(pressed).toEqual([true])
+  })
+})
+
+describe("pill folds", () => {
+  it("folds to the hexagon by default, or to the bare mark when asked", () => {
+    expect(mount().element.hasAttribute("fold")).toBe(false)
+    document.documentElement.replaceChildren(document.createElement("head"), document.createElement("body"))
+    expect(mount({ fold: "mark" }).element.getAttribute("fold")).toBe("mark")
+  })
+
+  it("closes into its collapsed shape without keeping that as the browser's choice", async () => {
+    const { element, mark } = mount()
+    await closeViteHubPagePill(element)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(element.inert).toBe(true)
+    expect(mark.getAttribute("aria-expanded")).toBe("true")
+    expect(localStorage.getItem(storage.collapsed)).toBeNull()
   })
 })
 

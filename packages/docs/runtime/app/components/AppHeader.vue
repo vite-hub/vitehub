@@ -45,12 +45,12 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
   <div class="vh-docs-header sticky top-0 z-50">
     <UHeader
       v-model:open="menuOpen"
-      :ui="{
+      :ui="withDocsTheme('header', {
         // Docs pages pin the rail to the left edge, so the header spans the full width.
         container: isDocsRoute ? 'max-w-none' : undefined,
         right: 'pointer-coarse:gap-0.5',
         toggle: touchIconButton,
-      }"
+      })"
     >
       <template #left>
         <!-- The menu repeats this slot and focuses the brand first. Its tooltip would take the first Escape, so it is off there. -->
@@ -77,10 +77,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             :to="link.to"
             :label="link.label"
             :active="isActiveLink(link.to)"
-            color="neutral"
             variant="ghost"
             active-variant="soft"
-            size="sm"
           />
         </nav>
       </template>
@@ -89,10 +87,10 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
         :collapsed="false"
         label="Search docs"
         :kbds="['meta', 'K']"
-        :ui="{
+        :ui="withDocsTheme('contentSearchButton', {
           base: 'vh-header-search hidden w-full lg:inline-flex',
           trailing: 'ms-auto flex items-center gap-0.5',
-        }"
+        })"
       />
 
       <template #right>
@@ -104,11 +102,11 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
         <UContentSearchButton
           collapsed
           :kbds="[]"
-          :ui="{
-            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated pointer-coarse:!size-11 max-[22.5rem]:pointer-coarse:!w-10 lg:hidden',
+          :ui="withDocsTheme('contentSearchButton', {
+            base: '!w-8 shrink-0 justify-center !p-1.5 text-default pointer-coarse:!size-11 max-[22.5rem]:pointer-coarse:!w-10 lg:hidden',
             label: 'sr-only',
             trailing: 'hidden',
-          }"
+          })"
         />
         <a
           v-if="github"
@@ -132,21 +130,12 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           target="_blank"
           :icon="link.icon"
           :label="link.icon ? undefined : link.label"
-          color="neutral"
           variant="ghost"
           :aria-label="link.label"
           :class="['hidden lg:inline-flex', link.icon ? touchIconButton : 'pointer-coarse:h-11']"
         />
-        <ClientOnly>
-          <UColorModeButton :class="touchIconButton" />
-          <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
-          <template #fallback>
-            <span :class="['inline-flex size-8 items-center justify-center text-default', touchIconButton]" aria-hidden="true">
-              <UIcon name="i-ph-sun-light" class="size-5 dark:hidden" />
-              <UIcon name="i-ph-moon-light" class="hidden size-5 dark:block" />
-            </span>
-          </template>
-        </ClientOnly>
+        <!-- The button renders both icons and the color mode class picks one, so the server draws it too. -->
+        <UColorModeButton :class="touchIconButton" />
       </template>
 
       <template #body>
@@ -157,9 +146,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
               :key="link.to"
               :to="link.to"
               :label="link.label"
-              color="neutral"
               variant="ghost"
-              size="sm"
               class="pointer-coarse:h-11"
             />
             <UButton
@@ -169,7 +156,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
               :label="link.label"
               :icon="link.icon"
               target="_blank"
-              color="neutral"
               variant="ghost"
               class="pointer-coarse:h-11"
             />
@@ -182,7 +168,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             :key="link.to"
             :to="link.to"
             :label="link.label"
-            color="neutral"
             variant="ghost"
             block
             class="justify-start"
@@ -194,7 +179,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             :label="link.label"
             :icon="link.icon"
             target="_blank"
-            color="neutral"
             variant="ghost"
             block
             class="justify-start pointer-coarse:h-11"
@@ -292,7 +276,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 :deep(.vh-header-search) {
   height: 2.25rem;
   gap: 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   background: var(--ui-bg-muted);
   box-shadow: inset 0 0 0 1px var(--ui-border);
   padding: 0 0.375rem 0 0.75rem;
@@ -313,14 +297,14 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
   }
 }
 
-/* A pill with the star count after a hairline, as on the old comark-ui site. */
+/* A framed link with the star count after a hairline, as on the old comark-ui site, with the control radius of the design system. */
 .vh-header-github {
   display: inline-flex;
   height: 2rem;
   flex: none;
   align-items: center;
   gap: 0.375rem;
-  border-radius: 999px;
+  border-radius: calc(var(--ui-radius) * 1.5);
   box-shadow: inset 0 0 0 1px var(--ui-border);
   padding: 0 0.75rem;
   color: var(--ui-text-highlighted);

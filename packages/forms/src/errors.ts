@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one Forms failure site. Keep published codes stable.
 export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/forms/diagnostics",
   codes: {
     /** A `defineForm()` definition is invalid. It throws when you define it. */
     FORMS_C0001: dynamicError,

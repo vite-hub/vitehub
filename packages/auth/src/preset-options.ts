@@ -1,6 +1,7 @@
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 import { withStatelessUserId } from "./stateless-user-id.ts"
+import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 import type { AuthStatelessPreset } from "./presets.ts"
 
@@ -17,10 +18,6 @@ const statelessOwnedOptions = [
   ["account", "storeAccountCookie"],
   ["account", "storeStateStrategy"],
 ] as const
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function readPath(value: unknown, path: readonly string[]): unknown {
   let current = value

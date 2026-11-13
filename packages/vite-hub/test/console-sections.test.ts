@@ -13,7 +13,6 @@ import {
   consoleSectionShortcut,
   consoleSectionShortcutKeys,
   consoleSectionRouteName,
-  isConsoleConnectionsEnabled,
   prioritizeConsoleSectionIds,
   readLastConsoleSection,
   rememberConsoleSection,
@@ -33,20 +32,8 @@ function memoryStorage(initial?: string) {
 }
 
 describe("Console section preferences", () => {
-  it("only advertises Connections when management is mounted", () => {
-    expect(isConsoleConnectionsEnabled({ connections: true }, true)).toBe(true)
-    expect(isConsoleConnectionsEnabled({ connections: { management: false } }, true)).toBe(true)
-    expect(isConsoleConnectionsEnabled({ connections: false }, true)).toBe(false)
-    expect(isConsoleConnectionsEnabled({ connections: { management: true } })).toBe(true)
-    expect(isConsoleConnectionsEnabled({ connections: true })).toBe(false)
-    expect(isConsoleConnectionsEnabled({ connections: { management: false } })).toBe(false)
-    const inherited = Object.create({ management: true })
-    expect(isConsoleConnectionsEnabled({ connections: inherited })).toBe(false)
-  })
-
   it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
-    expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
-      "connections",
+    expect(resolveConsoleSectionIds({ agent: true, blob: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "agents",
       "skills",
       "usage",
@@ -61,10 +48,9 @@ describe("Console section preferences", () => {
       "queues",
       "schedules",
     ])
-    expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
     expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, host: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, host: "netlify", workflow: { provider: "vercel" } })).toEqual([
       "agents",
       "skills",
       "usage",
@@ -76,8 +62,6 @@ describe("Console section preferences", () => {
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ comments: true, database: true })).toEqual(["comments", "databases"])
     expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
-    expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
-    expect(resolveConsoleSectionIds({ connections: false })).toEqual([])
     expect(resolveConsoleSectionIds({ env: false })).toEqual([])
   })
 
@@ -139,13 +123,13 @@ describe("Console section routes", () => {
 
 describe("Console section groups", () => {
   it("groups the rail by purpose, keeps the navigation order, and puts unknown sections last", () => {
-    const ids = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
+    const ids = ["env", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
     const groups = groupConsoleSections(ids.map(id => ({ id }))).map(group => group.map(section => section.id))
     expect(groups).toEqual([
       ["agents", "usage"],
       ["blob", "databases", "kv", "workspaces"],
       ["sandbox-tasks", "workflows", "queues", "schedules"],
-      ["env", "connections", "email", "rate-limits"],
+      ["env", "email", "rate-limits"],
       ["custom-tool"],
     ])
   })
@@ -202,9 +186,10 @@ describe("Console Go to shortcuts", () => {
       schedules: "g s",
       "sandbox-tasks": "g x",
       env: "g e",
-      connections: "g c",
       email: "g m",
       "rate-limits": "g r",
+      site: "g c",
+      setup: "g y",
     })
   })
 

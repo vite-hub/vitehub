@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./runtime-type.ts"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -43,10 +42,10 @@ async function readResult(readText: ReadText, path: string, signal?: AbortSignal
 }
 
 function readErrorCode(error: unknown): string | undefined {
-  if (!error || !hasRuntimeType(error, "object")) return
+  if (!error || typeof error !== "object") return
   try {
     // SAFETY: Runtime host normalization establishes the asserted provider contract.
-    return hasRuntimeType((error as { code?: unknown }).code, "string") ? (error as { code: string }).code : undefined
+    return typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : undefined
   }
   catch {
     return

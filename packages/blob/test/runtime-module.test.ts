@@ -15,7 +15,7 @@ import { normalizeBlobOptions } from "../src/config.ts"
 import { createBundledVercelBlobDriver, createDriver as createInternalVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { renderBlobRuntimeModule } from "../src/internal/nitro-runtime.ts"
 
-import type { BlobModuleOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
+import type { BlobOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -102,7 +102,7 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
-function resolveVercelBlob(blob: BlobModuleOptions): ResolvedBlobModuleOptions {
+function resolveVercelBlob(blob: BlobOptions): ResolvedBlobModuleOptions {
   const resolved = normalizeBlobOptions(blob, { hosting: "vercel" })
   if (!resolved) throw new Error("Blob config must resolve to a store.")
   return resolved
@@ -133,6 +133,14 @@ function stubVercelBlobApi() {
   return fetchMock
 }
 
+// Test values only. A store reads its credentials from env, so the generated output keeps only these names.
+const testCredentialEnv = {
+  TEST_ASSETS_BLOB_TOKEN: "assets-token",
+  TEST_DEFAULT_BLOB_TOKEN: "default-token",
+  TEST_R2_ACCESS_KEY_ID: "access-key",
+  TEST_R2_SECRET_ACCESS_KEY: "secret-key",
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -144,6 +152,7 @@ afterEach(async () => {
   delete process.env.MINIO_ROOT_PASSWORD
   delete process.env.MINIO_ROOT_USER
   delete process.env.MINIO_SECRET_ACCESS_KEY
+  for (const name of Object.keys(testCredentialEnv)) delete process.env[name]
   vercelBlobMock.del.mockClear()
   vercelBlobMock.get.mockClear()
   vercelBlobMock.head.mockClear()
@@ -155,6 +164,7 @@ afterEach(async () => {
 describe("Blob Nitro runtime module", () => {
   it.each(["lazy", "eager"])("uses native and HTTP R2 per development store when only one is remote (%s)", async (kind) => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-remote-r2-")
+    Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
       stores: {
         default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare-r2" },
@@ -202,6 +212,24 @@ describe("Blob Nitro runtime module", () => {
       send.mockRestore()
       warn.mockRestore()
     }
+  })
+
+  it("uses the R2 binding in generated output without the HTTP credential env variables that the config names", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-r2-binding-secrets-")
+    // Test values only. The binding does not use the HTTP credentials, so the server can leave them out.
+    const resolved = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare-r2", secretAccessKey: "test-secret" }, {
+      env: { TEST_MEDIA_KEY: "test-key", TEST_MEDIA_SECRET: "test-secret" },
+    })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const list = vi.fn(async () => ({ objects: [], truncated: false }))
+    vi.stubGlobal("MEDIA", { list })
+    const file = join(rootDir, "runtime.mjs")
+    await writeFile(file, renderBlobRuntimeModule(file, resolved, "cloudflare"), "utf8")
+    expect(await readFile(file, "utf8")).not.toMatch(/test-key|test-secret/)
+    const runtime = await import(pathToFileURL(file).href) as { blob: BlobStorage }
+
+    expect(await runtime.blob.list()).toMatchObject([undefined, { blobs: [], hasMore: false }])
+    expect(list).toHaveBeenCalledOnce()
   })
 
   it.each([
@@ -360,6 +388,7 @@ describe("Blob Nitro runtime module", () => {
 
   it("selects named stores from generated runtime output", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-runtime-")
+    Object.assign(process.env, testCredentialEnv)
 
     await writeVercelRuntimeModule(rootDir, resolveVercelBlob({
       serve: { route: "/", store: "assets" },
@@ -398,23 +427,26 @@ describe("Blob Nitro runtime module", () => {
 
     await expect(runtimeModule.blob.store("missing").put("notes/missing.txt", "hello")).rejects.toMatchObject({
       code: "BLOB_R0028",
-      message: "Unknown Blob store \"missing\".",
+      message: "Unknown Blob store \"missing\". Configured stores: \"default\", \"assets\".",
     })
 
     fetchMock.mockClear()
     await expect(runtimeModule.blob.store("constructor").put("notes/constructor.txt", "hello")).rejects.toMatchObject({
       code: "BLOB_R0028",
-      message: "Unknown Blob store \"constructor\".",
+      message: "Unknown Blob store \"constructor\". Configured stores: \"default\", \"assets\".",
     })
     expect(fetchMock).not.toHaveBeenCalled()
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore(resolveRuntimeBlobSecrets(store, blobRuntimeEnv()), process.env)")
+    expect(runtimeContents).not.toMatch(/assets-token|default-token/)
     expect(runtimeContents).toContain("store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage)")
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
   it.each(["lazy", "eager"] as const)("applies read mode to %s generated handles", { timeout: 30_000 }, async (kind) => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-read-mode-runtime-")
+    Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
       serve: { route: "/reports", store: "reports" },
       stores: {

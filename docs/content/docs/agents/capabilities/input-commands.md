@@ -73,14 +73,14 @@ The handler's `context` has:
 
 ### Console helpers
 
-When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work.
+When you enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work. Without the Console, `context.console` is `undefined`.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
-Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
+Read the journal itself with `getAgentInvocations()` from `vite-hub/agent` and `getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
 
 ```ts [server/agents/support.ts]
 import { desc } from 'drizzle-orm'
 import { inputCommands } from 'vite-hub/agent/capabilities'
-import { getAgentInvocationsDatabase } from 'vite-hub/agent'
+import { getAgentInvocationsDatabase } from 'vite-hub/agent/invocations/drizzle'
 
 const history = inputCommands({
   commands: {
@@ -95,6 +95,7 @@ const history = inputCommands({
           .orderBy(desc(schema.invocations.sequence))
           .limit(1)
         if (!latest?.agentName) return 'No previous invocation.'
+        if (!context.console) return await context.reply('The ViteHub Console is not enabled.')
         return await context.reply(context.console.invocationUrl({
           agentName: latest.agentName,
           id: latest.id,
@@ -104,8 +105,6 @@ const history = inputCommands({
   },
 })
 ```
-
-Only `vite-hub` types these helpers. The host-free `@vite-hub/agent` does not.
 
 ### Link the previous invocation with `/debug`
 
@@ -125,10 +124,11 @@ It replies with the Console URL of the latest earlier run of the same Agent, in 
 
 ## Requirements
 
-- Command names are lowercase: a letter, then letters, digits, `_`, or `-`.
-- `description` and `channels` entries, when set, must be non-empty.
-- The trigger is non-empty, with no whitespace.
-- Console helpers require the `vite-hub` import path and `vitehub({ console })`.
+- Command names must be lowercase stable identifiers: a letter first, then letters, digits, `_`, or `-`.
+- A command `description`, when set, must be a non-empty string.
+- `channels`, when set, must contain non-empty Channel IDs.
+- The trigger must be a non-empty string without whitespace.
+- Console helpers require `vitehub({ console })`.
 - `debug`, when set, must be `true` or `false`. `commands` is required unless `debug` is `true`.
 
 Input Commands only change Agent input. Host Commands that change chat, session, UI, or product state do not belong here.
@@ -140,7 +140,7 @@ The model cannot call commands. There is no `policy` option.
 Anyone who can send input can run every command. `channels` limits a command to selected Channels. Elsewhere, it does not run and its text stays.
 
 > [!WARNING]
-> Handlers are server code with Runtime Capabilities such as `db` and `context.console`, and skip Capability approval. Check `context.actor` or `context.invoker` before reading private data or changing state.
+> Handlers are server code with Runtime Capabilities such as `db` and `context.console`, and skip Capability approval. Check `context.invoker` before reading private data or changing state.
 
 Returned text becomes model input. Treat `args` as untrusted.
 
@@ -162,18 +162,17 @@ Returned text becomes model input. Treat `args` as untrusted.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `commands` | `Record<string, InputCommand>` | required unless `debug` is `true` | Commands by lowercase name. |
-| `commands.*.call` | `(input) => Partial<AgentRunInput> \| Response \| string \| void` | remove command text | Rejects, transforms, enriches, or answers. Gets `args`, `command`, `context`, `input`, `message`, `name`, and `text`. |
-| `commands.*.channels` | `string[]` | all Channels | Channel ID allowlist. |
-| `commands.*.description` | `string` | none | For metadata and inspection. |
-| `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Hooks with `ctx.message.reply/update/react`. |
-| `debug` | `boolean` | `false` | Add `/debug`. Needs the `vite-hub` import path. |
+| `commands` | `Record<string, InputCommand>` | required unless `debug` is `true` | Command map keyed by lowercase stable command names. |
+| `commands.*.call` | `(input) => Partial<AgentRunInput> \| Response \| string \| void` | remove command text | Handler that rejects, transforms, enriches, or answers the request. Receives `args`, `command`, `context`, `input`, `message`, `name`, and `text`. |
+| `commands.*.channels` | `string[]` | all Channels | Configured Channel ID allowlist. |
+| `commands.*.description` | `string` | none | Command description for metadata and inspection. |
+| `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery helpers. |
+| `debug` | `boolean` | `false` | Add `/debug`, which replies with the Console link of the previous Invocation. |
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 
 ## Related pages
 
-- [chatSummary()](/docs/agents/capabilities/chat-summary)
 - [Agent Invocations](/docs/agents/invocations)
 - [Channels](/docs/agents/channels)
 - [Official Capabilities](/docs/agents/capabilities/official)

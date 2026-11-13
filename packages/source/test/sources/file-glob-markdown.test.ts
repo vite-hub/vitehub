@@ -4,11 +4,8 @@ import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { clearSources, createSource, defineSources, registerSources, useSource } from "../../src/index.ts"
-import { file } from "../../src/file.ts"
-import type { FileSourceOptions } from "../../src/file.ts"
-import { glob } from "../../src/glob.ts"
-import { markdown } from "../../src/markdown.ts"
+import { clearSources, createSource, file, glob, markdown, registerSources, useSource } from "../../src/index.ts"
+import type { FileSourceOptions } from "../../src/index.ts"
 
 const tempDirs: string[] = []
 
@@ -121,10 +118,10 @@ describe("@vite-hub/source local file sources", () => {
     await writeFile(join(root, "docs", "guide.md"), "# Guide\n")
     await writeFile(join(root, "node_modules", "pkg", "skip.md"), "# Skip\n")
 
-    registerSources(defineSources({
+    registerSources({
       docs: glob({ cwd: ".", include: "**/*.md" }),
       readme: markdown({ path: "docs/README.md", workspacePath: "README.md" }),
-    }))
+    })
 
     await expect(useSource("docs", { rootDir: root }).keys()).resolves.toEqual([
       "docs/guide.md",
@@ -181,9 +178,9 @@ describe("@vite-hub/source local file sources", () => {
     await writeFile(join(root, "docs", "project.md"), "# Project\n")
     await writeFile(join(sourceRoot, "docs", "workspace.md"), "# Workspace\n")
 
-    registerSources(defineSources({
+    registerSources({
       docs: glob({ cwd: ".", include: "**/*.md" }),
-    }))
+    })
 
     await expect(useSource("docs", { rootDir: root, sourceRootDir: sourceRoot }).keys()).resolves.toEqual([
       "docs/workspace.md",

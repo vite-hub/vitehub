@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   dynamic,
+  exportNames,
   findCalls,
   findDefaultExportCall,
   findProperty,
@@ -115,5 +116,31 @@ describe("moduleTokens", () => {
 
   it("lists template substitutions without their delimiters", () => {
     expect(templateExpressionSources("`a${ b }c${`d${e}`}`")).toEqual([" b ", "`d${e}`"])
+  })
+})
+
+describe("exportNames", () => {
+  it("lists value exports and leaves out type-only exports", () => {
+    const source = [
+      "export const posts = 1, { a, b: [c] } = value",
+      "export function authorize() {}",
+      "export class Store {}",
+      "const local = 1",
+      "export { local as renamed, local as \"quoted name\" }",
+      "export * as helpers from \"./helpers\"",
+      "export * from \"./all\"",
+      "export type Post = { id: string }",
+      "export interface Shape {}",
+      "export type { Other } from \"./other\"",
+      "export default posts",
+    ].join("\n")
+    expect(exportNames(source, "server/collections/posts.ts")).toEqual([
+      "posts", "a", "c", "authorize", "Store", "renamed", "quoted name", "helpers", "default",
+    ])
+  })
+
+  it("reads JavaScript files and finds no names in CommonJS", () => {
+    expect(exportNames("export async function authorize() {}", "server/blob.mjs")).toEqual(["authorize"])
+    expect(exportNames("exports.authorize = () => true", "server/blob.cjs")).toEqual([])
   })
 })

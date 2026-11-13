@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import type { Plugin } from "esbuild"
 
+const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+
 const tempDirs: string[] = []
 
 async function createTempDir() {
@@ -22,6 +24,83 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("skips package alias probes for an explicitly selected entry", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, 'export const value = "entry"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const probedAliases: string[] = []
+    const plugin: Plugin = {
+      name: "unrelated-package-alias",
+      setup(build) {
+        build.onResolve({ filter: /^unrelated-package$/ }, args => {
+          probedAliases.push(args.path)
+          return { path: entry }
+        })
+      },
+    }
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "unrelated-package": replacement },
+      platform: "node",
+      plugins: [plugin],
+      resolveEntryPackageAliases: false,
+    })
+
+    expect(probedAliases).toEqual([])
+    expect((await import(pathToFileURL(outfile).href)).value).toBe("entry")
+  })
+
+  it.each(["cloudflare", "vercel", "netlify"] as const)("bundles the selected %s entry without probing package aliases by default", async provider => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    await Promise.all([
+      writeFile(entry, 'export const value = "entry"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    for (const resolveEntryPackageAliases of [undefined, true]) {
+      const probedAliases: string[] = []
+      const plugin: Plugin = {
+        name: "provider-entry-package-alias",
+        setup(build) {
+          build.onResolve({ filter: /^entry-package$/ }, args => {
+            probedAliases.push(args.path)
+            return { path: entry }
+          })
+        },
+      }
+      const bundleOptions: NonNullable<Parameters<typeof bundleEsmEntry>[2]> = {
+        alias: { "entry-package": replacement },
+        platform: "node",
+        plugins: [plugin],
+        resolveEntryPackageAliases,
+      }
+      const outputRoot = resolve(rootDir, resolveEntryPackageAliases ? "reverse" : "selected")
+      await writeProviderDeploymentOutputs({
+        rootDir,
+        clientOutDir: "client",
+        ...(provider === "cloudflare" ? {
+          cloudflare: { bundleEntry: entry, bundleOptions, bundleOutfileName: "index.mjs", outputRoot, wranglerConfig: { main: "index.mjs" } },
+        } : provider === "vercel" ? {
+          vercel: { bundleEntry: entry, bundleOptions, outputRoot },
+        } : {
+          netlify: { functions: [{ bundleEntry: entry, bundleOptions, functionName: "handler" }], outputRoot },
+        }),
+      })
+      const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : "functions/handler.mjs")
+      expect(probedAliases).toEqual(resolveEntryPackageAliases ? ["entry-package"] : [])
+      expect((await import(pathToFileURL(outfile).href)).value).toBe(resolveEntryPackageAliases ? "replacement" : "entry")
+    }
+  })
+
   it.each(["cloudflare", "vercel", "vercel-isolated", "netlify", "netlify-config"] as const)("minifies final %s output with independent opt-outs and preserved runtime behavior", async (provider) => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")
@@ -29,6 +108,7 @@ describe("bundleEsmEntry", () => {
     await writeFile(entry, `
 import { basename } from "node:path"
 import { createRuntimeContext, defineCapability, getCapability, ViteHubError, getViteHubErrorShape } from ${JSON.stringify(runtime)}
+
 const config = { errorType: "ViteHubError" }
 export const environment = () => process.env.NODE_ENV
 export const fileName = () => basename("/provider/entry.mjs")
@@ -225,8 +305,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await Promise.all(builds.map(async ({ catalog }) => await finalizeProviderDeploymentOutputs(catalog)))
     for (const { name, root } of builds) {
       const expected = name === "unconfigured"
-        ? "https://fallback.example.com/_vitehub/agents/bot/invocations/run%2F1"
-        : `https://${name}.example.com/${name}/portal/_vitehub/agents/bot/invocations/run%2F1`
+        ? hostedConsoleLink("https://fallback.example.com", "/agents/bot/invocations/run%2F1")
+        : hostedConsoleLink(`https://${name}.example.com/${name}/portal`, "/agents/bot/invocations/run%2F1")
       for (const file of [".netlify/v1/functions/agent.mjs", "cloudflare/index.mjs", "vercel/functions/__server.func/index.mjs"]) {
         expect((await import(pathToFileURL(resolve(root, file)).href)).url).toBe(expected)
       }
@@ -245,7 +325,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement-token'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "@", replacement: `${replacementDir}/$&` }]),
       format: "esm",
@@ -261,7 +342,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const outfile = resolve(rootDir, "output.mjs")
     await writeFile(entry, 'import "optional-package"\n', "utf8")
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: resolve(rootDir, "replacement") }]),
       external: ["optional-package"],
@@ -338,7 +420,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(nestedDir, "job.mjs"), "export const value = 'nested'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([
         { find: "@/", replacement: broadDir },
@@ -362,7 +445,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     const alias = encodeProviderOutputAliases([{ find: "__proto__", replacement }])
     expect(Object.hasOwn(alias, "__proto__")).toBe(true)
     await bundleEsmEntry(entry, outfile, { alias, format: "esm", platform: "node" })
@@ -548,7 +632,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "@scope", replacement: replacementDir }]),
       format: "esm",
@@ -583,7 +668,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
       format: "esm",
@@ -613,7 +699,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
       format: "esm",
@@ -642,7 +729,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { value } from "example/jobs/task.mjs"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
       format: "esm",
@@ -669,7 +757,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry, encodeProviderOutputAliases } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example/foo", replacement: resolve(replacementDir, "foo") }]),
       format: "esm",

@@ -9,23 +9,25 @@ import { parseCronExpression } from "cron-schedule"
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, recoverNetlifyDeploymentOutput, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
-import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { createImportPath, ensureGeneratedDir, ownModule } from "@vite-hub/internal/build/paths"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, findDefaultExportCall, findProperty, scanModule, staticString } from "@vite-hub/internal/build/scan-module"
+import { findDefaultExportCall, findProperty, scanModule, staticString } from "@vite-hub/internal/build/scan-module"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 import { utcCronForTimeZone } from "./time-zone-cron.ts"
 
 import type { Plugin } from "esbuild"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+import { isRecord } from "@vite-hub/internal/object"
 
 export const schedulePackageName = "@vite-hub/schedule"
+// Deno cron output keeps npm packages external, so it imports the static runtime from the deployed package.
 const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
 const cloudflareOutputStateFileName = "cloudflare-output.json"
@@ -36,26 +38,14 @@ const generatedRegistryFileName = "registry.mjs"
 
 type ImportResolver = (specifier: string) => string
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config is parsed as unknown and must be narrowed before reading fields.
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 function readStringArray(value: unknown): string[] {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
   return Array.isArray(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
     ? value.filter((entry): entry is string => typeof entry === "string")
     : []
 }
 
 function isVercelCron(value: unknown): value is { path: string, schedule: string } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider output config entries are untrusted JSON values.
   return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
-}
-
-export function resolveScheduleRuntimeEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
-  return fileURLToPath(resolveImport(scheduleStaticRuntimeImport))
 }
 
 export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
@@ -63,7 +53,8 @@ export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = s
   return resolve(packageRoot, "dist/definition.js")
 }
 
-const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
+// Generated Schedule functions import the static runtime by path. It is not a package export.
+const scheduleRuntimeEntry = ownModule(import.meta.url, "runtime/static")
 const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
 interface GeneratedScheduleArtifacts {
@@ -85,7 +76,7 @@ interface GenerateProviderOutputsOptions {
   crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
   /** The host this build targets. Schedule writes wake output only for it, and for every host when it is `undefined`. */
-  host?: DeploymentPreset
+  host?: ViteHubHost
   rootDir: string
   runtimeImport?: string
   retainedSourcesDir?: string
@@ -143,9 +134,10 @@ async function publishRetainedProviderSources(artifacts: GeneratedScheduleArtifa
 export interface ScheduleWorkflowRuntime {
   bundleAlias: Record<string, string>
   bundlePlugins?: Plugin[]
-  importBase: string
   native: boolean
   registryFile: string
+  /** File paths of the Workflow runtime modules that the Schedule function imports. */
+  runtimeModules: { state: string, vercelVite: string }
 }
 
 async function removeEmptyDirectories(directory: string, rootDir: string): Promise<void> {
@@ -189,10 +181,8 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 }
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
-  const cron = definition && staticString(definition.call.arguments.length > 1
-    ? argumentExpression(definition.call.arguments[0])
-    : definition.options && findProperty(definition.options, "cron")?.value)
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
+  const cron = definition?.options && staticString(findProperty(definition.options, "cron")?.value)
   if (!cron) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
   }
@@ -205,7 +195,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
  * when it is present but dynamic.
  */
 export function readStaticScheduleTimeZone(file: string): string | null | undefined {
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
   const property = definition?.options && findProperty(definition.options, "timeZone")
   if (!property) return undefined
   return property.value ? staticString(property.value) ?? null : null
@@ -217,11 +207,9 @@ export function readStaticScheduleTimeZone(file: string): string | null | undefi
  */
 export function readStaticScheduleTiming(file: string): { cron: string, timeZone?: string } | undefined {
   if (!existsSync(file)) return undefined
-  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
   if (!definition) return undefined
-  const cron = staticString(definition.call.arguments.length > 1
-    ? argumentExpression(definition.call.arguments[0])
-    : definition.options && findProperty(definition.options, "cron")?.value)
+  const cron = staticString(definition.options && findProperty(definition.options, "cron")?.value)
   const timeZone = definition.options && findProperty(definition.options, "timeZone")
   if (!cron || (timeZone && !(timeZone.value && staticString(timeZone.value)))) return undefined
   const zone = timeZone?.value && staticString(timeZone.value)
@@ -265,11 +253,11 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
-          `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/state`)}`,
-          `import { runWithVercelWorkflowRuntimeEvent } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
+          `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntime.runtimeModules.state)}`,
+          `import { runWithVercelWorkflowRuntimeEvent } from ${JSON.stringify(workflowRuntime.runtimeModules.vercelVite)}`,
           ...(workflowRuntime.native
             ? [
-                `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(`${workflowRuntime.importBase}/runtime/vercel-vite`)}`,
+                `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(workflowRuntime.runtimeModules.vercelVite)}`,
                 `import * as workflowApi from "workflow/api"`,
                 `import * as workflowRuntime from "workflow/runtime"`,
               ]
@@ -1001,7 +989,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
     const timeZoneCrons = readTimeZoneCrons(artifacts.definitions, options.cron)
     // Other hosts get the same cleanup as a build without Schedules, so their stale Schedule output goes away.
-    const hostDefinitions = (host: DeploymentPreset) => options.host === undefined || options.host === host ? artifacts.definitions : []
+    const hostDefinitions = (host: ViteHubHost) => options.host === undefined || options.host === host ? artifacts.definitions : []
     options.signal?.throwIfAborted()
     if (hostDefinitions("deno").length > 0) {
       const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`

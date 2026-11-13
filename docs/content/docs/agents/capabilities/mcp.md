@@ -68,14 +68,73 @@ export default defineAgent({
 
 No `if` around the Capability list is needed. Declare optional credentials in Server Env, such as `analyticsToken: env({ optional: true, secret: true })`, and return the server only when they exist:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    env: {
+      server: {
+        analyticsToken: env({ optional: true, secret: true }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        analyticsToken: env({ optional: true, secret: true }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        analyticsToken: env({ optional: true, secret: true }),
+      },
+    },
+  })],
+})
+```
+:::
+::
+
 ```ts [server/agents/support.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { remoteMcpServer } from 'vite-hub/agent/mcp'
 
 export default defineAgent({
-  driver: { model },
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [
     mcp({
       servers: {
@@ -93,6 +152,27 @@ export default defineAgent({
   ],
 })
 ```
+
+## Limit a server to some Channels
+
+Each MCP server adds its tools, with their full input schemas, to every model request of the Invocation. Set `channels` on a server entry to connect it only for Invocations that those Channels start. Use the Channel keys of the Agent's `channels`.
+
+```ts [server/agents/support.ts] fragment
+export default defineAgent({
+  channels: { github: github(), teams: teams() },
+  capabilities: [
+    mcp({
+      servers: {
+        airtable: { connection: 'airtable' },
+        productlane: { connection: 'productlane', channels: ['teams'] },
+      },
+      unavailableNotice: true,
+    }),
+  ],
+})
+```
+
+A pull request Invocation from `github` gets only the `airtable` tools. ViteHub does not connect to `productlane` for it and records no unavailable warning or notice. An Invocation that no Channel starts, such as a direct `runAgent()` call, also leaves the server out. A server without `channels` applies to every Invocation. A resolver can also return `channels` with its config.
 
 ## Extend the parent's servers
 
@@ -250,8 +330,8 @@ Before each run, `mcp()` connects to each server and lists its tools.
 - Normalized tool names get a `mcp_<server>_` prefix. Duplicate normalized names are rejected.
 - Use a resolver or config when the run owns the connection, and a static client when your app owns it.
 - An absent entry adds no tools and creates no client.
-- A temporary transport failure marks only that server unavailable.
-- Authentication, configuration, cancellation, protocol, integrity, cleanup, and other resolver failures stop the run.
+- A server that fails, including one that rejects its credential, is marked unavailable and the run continues without it.
+- Configuration, cancellation, protocol, integrity, cleanup, and other resolver failures stop the run.
 
 Client configs set `protocolVersionDiscovery` to `false` by default, so older servers that expect `initialize` first work. Set `true` when the server supports discovery.
 
@@ -311,12 +391,12 @@ Each server is fingerprinted separately, before renaming. Fingerprints cover too
 
 The server owns its credentials, availability, and tool behavior.
 
-A temporary failure during resolution or discovery makes only that server unavailable:
+A server that fails during resolution or discovery is left out, and the run continues with the other servers:
 
-- Temporary means HTTP 408, 409, 429, and 5xx, recognized network errors, and bounded timeouts.
-- Each adds an entry at `vitehub.mcp.warnings` in the input context, with server, phase, and HTTP status when available. Inspection marks the server `Unavailable`.
+- A failure is any HTTP error from the server, including 401 and 403 for an expired or revoked credential, a Connection that cannot authorize (`CONNECTIONS_NEEDS_RECONNECT`, `CONNECTIONS_NOT_CONNECTED`, `CONNECTIONS_PROVIDER_FAILED`, `CONNECTIONS_UNAVAILABLE`), recognized network errors, and bounded timeouts.
+- Each adds an entry at `vitehub.mcp.warnings` in the input context, with server, phase, and the HTTP status or Connection error code when available. Inspection marks the server `Unavailable`.
 
-Authentication, configuration, cancellation, protocol errors, duplicate tools, and integrity drift stop the run.
+Configuration errors, including a Connection whose access denies the Agent, cancellation, protocol errors, duplicate tools, and integrity drift stop the run.
 
 ## Driver support
 
@@ -342,6 +422,7 @@ Integrity checks run before each run. Static inspection does not connect to serv
 | `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, optional absent values, or resolvers keyed by server name. |
 | `servers.<name>.connection` | `string` | none | Connection in `server/connections/` for an `http` or `sse` config. Without `transport.url`, uses the provider's `mcp` endpoint. |
 | `servers.<name>.optional` | `boolean` | `false` | With `connection`, leave the server out until the Connection is connected. |
+| `servers.<name>.channels` | `string[]` | every Invocation | Connect the server only for Invocations that these Channels start. Other Invocations leave it out, without an unavailable notice. |
 | `servers.<name>.tools` | `string[]` | every tool | Expose only these server tool names. |
 | `inherit` | `boolean` | `true` | With `extends`, `false` replaces the parent's `mcp()`. |
 | `servers.<name>.skills` | `boolean` | `true` | Install the server's `skill://` Skills at `.agents/skills/<name>/`. |

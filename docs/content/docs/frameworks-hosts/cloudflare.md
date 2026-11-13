@@ -6,12 +6,12 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-cloudflare
 ---
 
-The `cloudflare` preset deploys your app as a Cloudflare Worker. A production
+The `cloudflare` host deploys your app as a Cloudflare Worker. A production
 build writes the Worker and its `wrangler.json`, with the bindings your
 features need, under `.output/server`. Definitions and Runtime Helpers stay
 host-neutral. Cloudflare details stay in the config and generated output.
 
-| Feature | Default on the `cloudflare` preset |
+| Feature | Default on the `cloudflare` host |
 | --- | --- |
 | Blob | R2 bucket named after the app |
 | KV | Workers KV binding `KV` |
@@ -21,7 +21,7 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Sandbox | Cloudflare Sandbox |
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
-| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this preset. |
+| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
 
 The app name comes from `vitehub({ name })`, then `WRANGLER_CI_OVERRIDE_NAME`
 in Workers Builds, then the `package.json` name. It is also the Worker name
@@ -37,9 +37,9 @@ unless `nitro.cloudflare.wrangler.name` is set.
 | Runtime context | Runtime Host Context from the host integration, not global app state. |
 | Agent state | Agent state provider configuration when you select Cloudflare state. |
 
-## Configure the preset
+## Configure the host
 
-Select the `cloudflare` preset and turn on the features you use.
+Select the `cloudflare` host and turn on the features you use.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -47,7 +47,7 @@ Select the `cloudflare` preset and turn on the features you use.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: true,
     queue: true,
   },
@@ -64,7 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: true,
       queue: true,
     }),
@@ -82,7 +82,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: true,
       queue: true,
     }),
@@ -125,7 +125,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 `.output/server` can hold Worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package runtime imports.
 
-In Nuxt, the preset turns on Nitro's `cloudflare.deployConfig` by default, so a
+In Nuxt, the host turns on Nitro's `cloudflare.deployConfig` by default, so a
 local production build writes `.output/server/wrangler.json`.
 `nitro.cloudflare.deployConfig: false` turns that file off.
 
@@ -150,11 +150,9 @@ Container duplicates must agree on `scheduling_policy`, which defaults to `defau
 
 ### Node.js compatibility in Nuxt
 
-The Nuxt `cloudflare` preset turns on Nitro's `cloudflare.nodeCompat`, which adds `nodejs_compat` to `wrangler.json`. Nitro 2 also adds `no_nodejs_compat_v2` unless the config names `nodejs_compat_v2`, and that drops Node modules Workspaces import. ViteHub sets `nodejs_compat_v2` during the Nitro build, then swaps it back to `nodejs_compat` after the project Wrangler config is merged. Wrangler refuses both flags together.
+With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns on, Nitro adds `nodejs_compat` to the generated `wrangler.json` for compatibility dates before 2026-08-04. From that date, Workers turn it on by default. ViteHub leaves the flags as the app wrote them in `nitro.cloudflare.wrangler.compatibility_flags` or in its project Wrangler config.
 
-When the app names `nodejs_compat_v2` or `no_nodejs_compat_v2` in `nitro.cloudflare.wrangler.compatibility_flags` or its project Wrangler config, ViteHub keeps the app's flags. `nodejs_compat_v2` alone gives `node:http` and `node:child_process` only from compatibility date 2026-08-04.
-
-An explicit `no_nodejs_compat` in either config turns off Nitro's `cloudflare.nodeCompat` and skips ViteHub's rewrite, so the app opts out of Node.js compatibility completely.
+An explicit `no_nodejs_compat` in either configuration disables Nitro's `cloudflare.nodeCompat`, preserving the app's full Node.js compatibility opt-out.
 
 Check the output before you deploy. `wrangler deploy --dry-run` validates the config. `wrangler dev` starts the Worker and catches a Node module that the date and flags leave out:
 
@@ -194,7 +192,7 @@ A new Worker has no secrets yet, so `wrangler secret put` cannot set the values 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     cloudflare: { secretsFile: '.env' },
   },
 })
@@ -210,7 +208,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       cloudflare: { secretsFile: '.env' },
     }),
     nitro(),
@@ -227,7 +225,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       cloudflare: { secretsFile: '.env' },
     }),
   ],
@@ -250,7 +248,7 @@ Do not build with a local secrets file and deploy that `.output` from another ma
 
 ### Rate Limiting bindings
 
-With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
+With `vitehub({ host: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
 To use the Rate Limit integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider, and Nitro writes the bindings to `wrangler.json`.
 
@@ -284,7 +282,7 @@ Workspace adds an Artifacts binding when its Store selects Cloudflare Artifacts:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     workspace: {
       store: {
         provider: 'cloudflare-artifacts',
@@ -306,7 +304,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -329,7 +327,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -356,7 +354,7 @@ Register the Browser integration when trusted server code needs Browser Run sess
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: true,
   },
 })
@@ -372,7 +370,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: true,
     }),
     nitro(),
@@ -389,7 +387,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: true,
     }),
   ],
@@ -401,6 +399,39 @@ export default defineConfig({
 ViteHub writes the `browser` binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag. Browser Definitions import helpers from `vite-hub/browser`. Do not import provider modules or the generated `wrangler.json`.
 
 `wrangler dev` can run Browser Run against a local browser. Set `browser: { remote: true }` to run Worker code locally with the Browser binding on Cloudflare, for example to test the hosted service.
+
+## Read a binding
+
+Use a ViteHub primitive when one covers the feature. For a Cloudflare feature that no primitive covers, such as a
+Range request on an R2 bucket or a `send_email` binding, read the raw binding with `getHostBinding()` from
+`vite-hub/runtime`. Declare the binding in the project `wrangler.json`, and run `wrangler types` so that the result
+has the type of the binding.
+
+This route uses the `VIDEOS` R2 binding and the generated `Cloudflare.Env` types.
+
+```ts [server/routes/videos/[file].ts] fragment
+import { defineEventHandler, getRouterParam } from "h3";
+import { getHostBinding } from "vite-hub/runtime";
+
+export default defineEventHandler(async (event) => {
+  const [error, bucket] = getHostBinding("VIDEOS", event);
+  if (error) return new Response(null, { status: 404 });
+  const object = await bucket.get(`videos/${getRouterParam(event, "file")}`);
+  return object ? new Response(object.body) : new Response(null, { status: 404 });
+});
+```
+
+`getHostBinding()` also works in Schedules, Queues, and Workflows, which have no request event. Call it without
+`event` there. It returns an error instead of throwing, so the same code can use another source in `vite dev` on Node.
+
+### RUNTIME_HOST_BINDINGS_UNAVAILABLE
+
+The code runs without host bindings, for example on Node, Vercel, or Netlify. Only Cloudflare Workers give bindings.
+Build with the `cloudflare` preset, or handle the error.
+
+### RUNTIME_HOST_BINDING_NOT_FOUND
+
+The Worker has no binding with this name. Add it to the Wrangler config of the project, then run `wrangler types`.
 
 ## Production notes
 
@@ -414,9 +445,9 @@ Agent Definitions run on Cloudflare through generated output when the Agent inte
 
 ### Console on Workers
 
-Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call`, so it needs no session affinity or memory state. With session-based `auth`, the access policy checks the session cookie on each call. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
+Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc`, so it needs no session affinity or memory state. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
 
-Protect a production Console with `console: { auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker checks the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite`, so it does not work on Workers. See [Protect the Console route](/docs/development/console#protect-the-console-route).
+To open the Worker in the Console, set `console: true`, link the Worker URL in the Console, and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows with `wrangler secret put`. See [Protect the Console route](/docs/development/console#protect-the-console-route).
 
 ## Next steps
 

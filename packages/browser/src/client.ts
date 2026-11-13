@@ -14,7 +14,7 @@ import type {
   BrowserSessionState,
   CreateBrowserOptions,
 } from "./types.ts"
-import type { Lease, TraceEvent } from "@vite-hub/runtime"
+import type { TraceEvent } from "@vite-hub/runtime"
 
 import {
   browserLiveHandoffUnsupportedError,
@@ -71,7 +71,6 @@ interface HandoffRecord<TConnection> {
   cleanup?: Promise<void>
   expiresAt: number
   features: BrowserFeatures
-  lease?: Lease
   providerSession: BrowserProviderSession<TConnection>
   publicId: string
   timer: ReturnType<typeof setTimeout>
@@ -111,26 +110,9 @@ function traceEvent(name: string, attributes: Record<string, unknown>): TraceEve
 }
 
 async function releaseResource<TConnection>(record: {
-  lease?: Lease
   providerSession: BrowserProviderSession<TConnection>
 }): Promise<void> {
-  let closeError: unknown
-  try {
-    await record.providerSession.close()
-  }
-  catch (error) {
-    closeError = error
-  }
-  try {
-    await record.lease?.release()
-  }
-  catch (error) {
-    if (closeError) {
-      throw new AggregateError([closeError, error], "[vitehub:browser] Browser Session close and lease release failed.")
-    }
-    throw error
-  }
-  if (closeError) throw closeError
+  await record.providerSession.close()
 }
 
 class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
@@ -150,7 +132,6 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     private readonly owner: BrowserClientImpl<TConnection>,
     private readonly providerSession: BrowserProviderSession<TConnection>,
     private readonly features: BrowserFeatures,
-    private readonly lease: Lease | undefined,
     options: { claimed?: boolean, publicId?: string } = {},
   ) {
     this.claimed = options.claimed === true
@@ -281,7 +262,6 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
     const ref = this.owner.createHandoff({
       audience: options.audience,
       features: this.features,
-      lease: this.lease,
       providerSession: this.providerSession,
       publicId: this.id,
       ttl: options.ttl,
@@ -314,7 +294,7 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
           await rollback.release()
         }
         if (!this.resourceReleased) {
-          await releaseResource({ lease: this.lease, providerSession: this.providerSession })
+          await releaseResource({ providerSession: this.providerSession })
           this.resourceReleased = true
         }
         this.state = "closed"
@@ -357,20 +337,10 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
 
   async open(options: BrowserProviderOpenOptions = {}): Promise<BrowserSession<TConnection>> {
     const idleTimeoutMs = options.idleTimeoutMs ?? this.options.policy?.idleTimeoutMs
-    const lease = await this.options.leaseStore?.acquire(`browser:${this.provider.name}`, {
-      ttl: idleTimeoutMs,
-    })
-    let providerSession: BrowserProviderSession<TConnection>
-    try {
-      providerSession = await this.provider.open({ ...options, idleTimeoutMs })
-    }
-    catch (error) {
-      await lease?.release()
-      throw error
-    }
+    const providerSession = await this.provider.open({ ...options, idleTimeoutMs })
     const features = mergedFeatures(this.provider.features, providerSession.features)
-    const session = new BrowserSessionImpl(this, providerSession, features, lease)
-    await this.emitAcquisition("browser.session.acquire", session, { lease, providerSession })
+    const session = new BrowserSessionImpl(this, providerSession, features)
+    await this.emitAcquisition("browser.session.acquire", session, { providerSession })
     return session
   }
 
@@ -423,7 +393,6 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       this,
       record.providerSession,
       record.features,
-      record.lease,
       { claimed: true, publicId: record.publicId },
     )
     await this.emitAcquisition("browser.session.claim", session, record, { "browser.handoff.audience_bound": true })
@@ -433,7 +402,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
   private async emitAcquisition(
     name: "browser.session.acquire" | "browser.session.claim",
     session: BrowserSessionImpl<TConnection>,
-    resource: Pick<HandoffRecord<TConnection>, "lease" | "providerSession">,
+    resource: Pick<HandoffRecord<TConnection>, "providerSession">,
     attributes: Record<string, unknown> = {},
   ): Promise<void> {
     try {

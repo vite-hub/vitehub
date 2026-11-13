@@ -1,4 +1,5 @@
 import { computed, defineComponent, h, type PropType } from "vue";
+import { initials } from "../internal/format.ts";
 
 // Named after the presence stacks of Liveblocks, Kibo UI, and Supabase UI, which all call it `AvatarStack`.
 // `max` counts the "+N" item, as in Liveblocks.
@@ -14,13 +15,6 @@ export interface AvatarStackPerson {
 
 export type AvatarStackSize = "sm" | "default" | "lg";
 export type AvatarStackVariant = "default" | "outline";
-
-function initials(name: string) {
-  // An email address names its local part, so `ana.lopez@vitehub.dev` becomes `AL`.
-  const words = name.replace(/@.*/, "").trim().split(/[\s._-]+/).filter(Boolean);
-  // SAFETY: `words.at(-1)` exists when `words.length > 1`.
-  return ((words[0]?.[0] ?? "") + (words.length > 1 ? words.at(-1)![0] : (words[0]?.[1] ?? ""))).toUpperCase() || "?";
-}
 
 export const AvatarStack = defineComponent({
   name: "AvatarStack",

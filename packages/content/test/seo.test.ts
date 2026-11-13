@@ -35,7 +35,7 @@ async function historyWorkspace(): Promise<string> {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `seo-${++workspaces}`
@@ -135,7 +135,7 @@ describe("document urls", () => {
     expect((await content.collection("posts").list({ ref: "draft" })).items.map(item => item.url)).toEqual(["/blog/news/2026/hello%20world", null])
     expect(content.collections().map(collection => [collection.name, collection.routable])).toEqual([["posts", true], ["pages", true], ["home", true], ["notes", false]])
     // The Console editor gets the URL for canonical placeholders and previews.
-    const actions = createContentConsoleActions({ content: { ...content, can: async () => true } })
+    const actions = createContentConsoleActions({ default: { ...content, can: async () => true } })
     expect(await actions.get({ collection: "home", id: "home" }, { user: null })).toMatchObject({ url: "/" })
     expect(await actions.get({ collection: "notes", id: "a" }, { user: null })).not.toHaveProperty("url")
   })
@@ -432,7 +432,7 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect((await app.request("/robots.txt")).status).toBe(404)
     const markdown = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
     expect(await (await markdown.request("/blog/hello.md")).text()).toBe("page")
-    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true or false/)
+    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true, false, or \{ prefix/)
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { site: "example.com" } })).toThrow(/absolute http\(s\) URL/)
     // Disallowed paths start with /.
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { robots: { disallow: ["admin"] } } })).toThrow(/disallow/)

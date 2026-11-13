@@ -1,10 +1,6 @@
 import { expect, it, vi } from "vitest"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../../agent/src/invocations.ts"
-import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
-import { allowed } from "./support/console-access.ts"
-import { consoleEvent } from "./console-event.ts"
-
-const invocationsHandler = allowed(invocationsHandlerRoute)
+import { listConsoleInvocations } from "../src/console/runtime/server/invocations.get.ts"
 
 const getConsoleInvocations = vi.hoisted(() => vi.fn())
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations }))
@@ -36,11 +32,8 @@ it.each(["list", "ids"])("polls 50 session summaries using only finish observati
   }
   const get = vi.spyOn(store, "get")
   getConsoleInvocations.mockReturnValue(defineAgentInvocations({ store }))
-  const url = new URL("http://localhost/invocations")
-  if (mode === "ids") {
-    for (let index = 0; index < 50; index++) url.searchParams.append("id", `session-${index}`)
-  }
-  const result = await invocationsHandler(consoleEvent({ url: url.href }))
+  const id = mode === "ids" ? Array.from({ length: 50 }, (_, index) => `session-${index}`) : undefined
+  const result = await listConsoleInvocations({ id })
   expect(result.invocations).toHaveLength(50)
   for (const summary of result.invocations) {
     expect(summary).toMatchObject({ usage: { totalTokens: 42 } })

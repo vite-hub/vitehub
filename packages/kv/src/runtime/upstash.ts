@@ -14,7 +14,7 @@ function isMaskedValue(value: string | undefined) {
 function assertRuntimeValue(value: string | undefined, envNames: readonly string[]) {
   if (isMaskedValue(value)) {
     const names = envNames.map(name => `\`${name}\``).join(" or ")
-    throw kvErrorDiagnostics.KV_MISSING_ENV({ names })
+    throw kvErrorDiagnostics.KV_MISSING_ENV({ driver: "upstash", names })
   }
 }
 

@@ -17,7 +17,15 @@ const document: { body: { innerHTML: string }, querySelector(selector: string): 
 interface SubmittedForm { target: string, isConnected: boolean, querySelector(selector: string): { value: string } | null }
 const formPrototype: { submit(): void } = Reflect.get(Reflect.get(globalThis, "HTMLFormElement"), "prototype")
 
-const stubs = { UButton, UTooltip: { template: "<slot />" }, UIcon: true }
+interface TabItem { label?: string, name?: string, value: string }
+const UTabs = defineComponent({
+  props: { items: { type: Array as () => TabItem[], required: true }, modelValue: String },
+  emits: ["update:modelValue"],
+  setup: (props, { emit }) => () => h("div", { role: "tablist" }, props.items.map(item =>
+    h("button", { role: "tab", "aria-selected": String(item.value === props.modelValue), onClick: () => emit("update:modelValue", item.value) }, item.label ?? item.name))),
+})
+
+const stubs = { UBadge: true, UButton, UTabs, UTooltip: { template: "<slot />" }, UIcon: true }
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -96,7 +104,7 @@ describe("Console document preview renders", () => {
     const late = deferred<PreviewToken>()
     const { wrapper, state } = setup([late.promise])
     await flushPromises()
-    await wrapper.get('[role="radio"]:nth-child(2)').trigger("click")
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === "Published")!.trigger("click")
     expect(state.view).toBe("published")
     await flushPromises()
     const [published] = frames(wrapper)

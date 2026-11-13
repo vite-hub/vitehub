@@ -1,4 +1,5 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, useId } from "vue";
+import { useCopy } from "../components/copy-button.ts";
 import { icon } from "./icons.ts";
 
 export type UnsupportedBrowser = "safari" | "unknown";
@@ -36,7 +37,8 @@ export const BrowserSupportNotice = defineComponent({
     const mounted = ref(false);
     const detected = ref<UnsupportedBrowser>("unknown");
     const why = ref(false);
-    const copied = ref(false);
+    // The notice keeps its own buttons, so it shares only the clipboard logic of CopyButton.
+    const { copied, copy: copyText } = useCopy();
     const whyId = useId();
     const root = ref<HTMLElement | null>(null);
 
@@ -52,15 +54,8 @@ export const BrowserSupportNotice = defineComponent({
 
     async function copy() {
       const url = props.url ?? location.href;
-      try {
-        await navigator.clipboard.writeText(url);
-        copied.value = true;
-        setTimeout(() => { copied.value = false; }, 2000);
-        emit("copied", url);
-      }
-      catch {
-        // Some browsers block the clipboard. The link is still in the address bar.
-      }
+      // Some browsers block the clipboard. The link is still in the address bar.
+      if (await copyText(url)) emit("copied", url);
     }
 
     return () => {

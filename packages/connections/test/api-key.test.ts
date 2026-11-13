@@ -279,7 +279,7 @@ describe("API key management", () => {
     }
     const fetcher: typeof fetch = async (input, init) => {
       requests.push(init ?? {})
-      return await handler(new Request(input, init))
+      return await handler.fetch(new Request(input, init))
     }
     return { output, requests, run: (args: string[]) => runConnectionsCli("set-key", args, context, { fetch: fetcher, stdin }) }
   }
@@ -287,7 +287,7 @@ describe("API key management", () => {
   it("sets the key through the management route", async () => {
     const test = harness()
     const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime })
-    const response = await handler(new Request(`${origin}/_vitehub/connections`, {
+    const response = await handler.fetch(new Request(`${origin}/_vitehub/connections`, {
       body: JSON.stringify({ action: "set-key", key: KEY, name: "executor" }),
       headers: { "content-type": "application/json", origin },
       method: "POST",

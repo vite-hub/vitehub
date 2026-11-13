@@ -8,7 +8,6 @@ import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
@@ -786,8 +785,8 @@ async function writeStartupIndex(store: WorkspaceStore, key: string, value: stri
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
-  if (!hasRuntimeType(value, "object") || value === null) return false
-  // SAFETY: hasRuntimeType establishes an object record before private metadata fields are read.
+  if (typeof value !== "object" || value === null) return false
+  // SAFETY: The typeof check establishes an object record before private metadata fields are read.
   const source = value as Record<string, unknown>
   return readStringMeta(source, "key") !== undefined && readStringMeta(source, "mountPath") !== undefined
 }

@@ -18,6 +18,7 @@ test-results
 .vitehub
 .sandcastle
 .fallow
+.vite-doctor
 .wrangler
 **/.nuxt
 **/.output

@@ -84,7 +84,7 @@ const cell = (status: SupportLevel, detail: string, display?: string): SupportMa
   status,
 });
 
-/** The catalog host of each column. Nitro is not a ViteHub preset, so its cells are written by hand. */
+/** The catalog host of each column. Nitro is not a ViteHub host, so its cells are written by hand. */
 export const supportMatrixCatalogHosts: Record<Exclude<SupportHost, "nitro">, FeatureHost> = {
   local: "dev",
   cloudflare: "cloudflare",
@@ -151,7 +151,7 @@ const serverPrimitives: SupportMatrixGroup = {
   rows: [
     featureRow("browser", "Provider-backed browser operations", cell(
       "none",
-      "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
+      "Browser Definitions require ViteHub's Cloudflare host, not a generic Nitro preset.",
       "—",
     )),
     featureRow("blob", "Object storage", cell(
@@ -191,7 +191,7 @@ const serverPrimitives: SupportMatrixGroup = {
     ), "rate-limit"),
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",
-      "Cloudflare Nitro output uses Durable Objects. A single-process Node server can select memory explicitly.",
+      "Cloudflare Nitro output uses Durable Objects. Node servers share rooms through Postgres or Redis.",
       "Host authority",
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(
@@ -248,12 +248,12 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console routes run in the Nitro output of the selected preset.",
+      "The Console endpoint runs in the Nitro output of the selected host. The Console at console.vitehub.dev calls it with signed requests.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(
       "package",
-      "Variables are validated at build and in the Nitro output of the selected preset.",
+      "Variables are validated at build and in the Nitro output of the selected host.",
       "Nitro runtime",
     )),
     featureRow("i18n", "Source-text messages in the request locale", cell(
@@ -261,14 +261,14 @@ const applicationFeatures: SupportMatrixGroup = {
       "Requires Nitro 3 with request async context, or Nuxt 5.",
       "Nitro 3",
     )),
-    featureRow("logs", "Log sources and the development buffer", cell(
+    featureRow("mcp", "The app's own MCP server", cell(
       "package",
-      "Logs read the log source that the app configures for the deployment host.",
-      "Host source",
+      "The MCP route runs in the Nitro output of the selected host.",
+      "Nitro route",
     )),
-    featureRow("observability", "Agent telemetry and request logs", cell(
+    featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
       "package",
-      "Evlog runs in the Nitro output of the selected preset.",
+      "Evlog runs in the Nitro output of the selected host.",
       "Evlog",
     )),
   ],
@@ -289,11 +289,11 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "package",
-            "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent add package-owned support.",
+            "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace have Cloudflare providers. Browser and Agent add package-owned support.",
           ),
           vercel: cell(
             "package",
-            "Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have separate package output.",
+            "Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace have Vercel providers. Agent routes have separate package output.",
           ),
           netlify: cell(
             "package",
@@ -324,11 +324,11 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "package",
-            "Pull requests build Cloudflare output and run the primitive playground locally. Browser has output contract tests.",
+            "CI on main builds Cloudflare output and runs the primitive playground locally. Browser has output contract tests.",
           ),
           vercel: cell(
             "package",
-            "Pull requests build Vercel output and run the primitive playground against local service adapters.",
+            "CI on main builds Vercel output and runs the primitive playground against local service adapters.",
           ),
           netlify: cell("package", "CI runs the real-project fixture through Netlify CLI."),
           deno: cell(

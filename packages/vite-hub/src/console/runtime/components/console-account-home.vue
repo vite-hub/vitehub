@@ -1,0 +1,360 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, shallowRef, watch } from "vue";
+
+import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
+import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
+import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { consoleProjectHost } from "../client/projects";
+import ConsoleAccountSnippet from "./console-account-snippet.vue";
+import ConsoleAccountUnlink from "./console-account-unlink.vue";
+
+/**
+ * Home of an `account` Console. Until the team has a connected app, it is the setup checklist, and the first app is
+ * linked here without a dialog. After that, it lists the apps.
+ */
+const props = defineProps<{ status: Record<string, ConsoleAccountAppStatus> }>();
+
+const projects = useConsoleProjects();
+const account = computed(() => projects.account.value);
+const team = computed(() => account.value?.teams.find(item => item.id === account.value?.teamId));
+const teamName = computed(() => team.value?.name ?? "This team");
+const apps = computed(() => account.value?.projects ?? []);
+const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
+const firstName = computed(() => account.value?.user.name.split(/\s+/)[0] ?? "");
+const shared = ref(false);
+
+// The app whose Unlink dialog is open. Home is the place to unlink an app that works, so the app switcher stays navigation.
+const unlinking = shallowRef<ConsoleAccountProject>();
+const unlinkOpen = ref(false);
+
+function askUnlink(app: ConsoleAccountProject): void {
+  unlinking.value = app;
+  unlinkOpen.value = true;
+}
+
+const url = ref("");
+const busy = ref(false);
+const problem = ref<string>();
+
+const linked = computed(() => apps.value.length > 0);
+const connected = computed(() => apps.value.some(app => props.status[app.id] === "connected"));
+const checking = computed(() => apps.value.some(app => props.status[app.id] === "checking"));
+// The app that step 3 opens: one that is not connected and not still being checked.
+const setupApp = computed(() => apps.value.find(app => ["setup", "unconfigured", "unreachable"].includes(props.status[app.id] ?? "checking")));
+// The required steps. Inviting people is optional, so it is not a step and does not count.
+const steps = computed(() => [
+  { id: "account", done: true },
+  { id: "link", done: linked.value },
+  { id: "connect", done: connected.value },
+] as const);
+const doneCount = computed(() => steps.value.filter(step => step.done).length);
+const active = computed(() => steps.value.find(step => !step.done)?.id);
+// After setup, Home is the app list. Links and invitations have their own places: the Apps header and Members.
+// This browser remembers that the team finished setup, so a returning visit shows the list while the checks run, and
+// an app that stops answering shows its status there instead of the first-time steps.
+const doneKey = computed(() => `vitehub-console:setup-done:${account.value?.teamId ?? ""}`);
+const finished = ref(readFinished());
+const setupDone = computed(() => linked.value && (connected.value || finished.value));
+
+function readFinished(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(doneKey.value) === "1";
+  }
+  catch {
+    return false;
+  }
+}
+
+watch(connected, (value) => {
+  if (!value) return;
+  finished.value = true;
+  try {
+    globalThis.localStorage?.setItem(doneKey.value, "1");
+  }
+  catch {}
+}, { immediate: true });
+
+/** A plain click opens the app in place. A click with a modifier key opens its address as the browser does. */
+function openApp(event: MouseEvent, id: string): void {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+  event.preventDefault();
+  openAccountProject(id);
+}
+
+onMounted(async () => {
+  const details = await loadConsoleTeam().catch(() => undefined);
+  shared.value = Boolean(details && (details.members.length > 1 || details.invitations.length > 0));
+});
+
+function name(app: ConsoleAccountProject): string {
+  return consoleProjectDisplayName(app);
+}
+
+function stepLabel(index: number, done: boolean): string {
+  return done ? "Completed:" : `Step ${index + 1} of ${steps.value.length}:`;
+}
+
+async function link(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  problem.value = undefined;
+  try {
+    await linkAccountProject(url.value);
+  }
+  catch (error) {
+    problem.value = error instanceof Error ? error.message : "Try again.";
+    busy.value = false;
+  }
+}
+</script>
+
+<template>
+  <div class="grid max-w-2xl gap-10">
+    <header v-if="!setupDone" class="grid gap-1">
+      <div class="flex items-baseline justify-between gap-4">
+        <h2 class="text-xl font-semibold text-balance text-highlighted">{{ firstName ? `Welcome, ${firstName}` : "Welcome" }}</h2>
+        <span class="shrink-0 text-xs tabular-nums text-muted">{{ doneCount }} of {{ steps.length }} done</span>
+      </div>
+      <p class="text-sm text-pretty text-muted">
+        <template v-if="linked">One step left. When the app accepts its token, its Console opens here for everyone in {{ teamName }}.</template>
+        <template v-else-if="manage">{{ teamName }} is ready. Link an app to open its Console here, for everyone in the team, in any browser.</template>
+        <template v-else>{{ teamName }} has no apps yet. Ask an owner or admin of the team to link one. It then opens here for you.</template>
+      </p>
+    </header>
+
+    <section v-if="setupDone" class="grid gap-3" aria-labelledby="vitehub-home-apps">
+      <div class="flex items-center justify-between gap-2">
+        <h2 id="vitehub-home-apps" class="text-sm font-semibold text-highlighted">Apps</h2>
+        <UButton v-if="manage" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Link an app" @click="projects.linkOpen.value = true" />
+      </div>
+      <ul class="vitehub-account-list">
+        <li v-for="app in apps" :key="app.id" class="vitehub-account-list__item">
+          <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" data-focus-inset @click="openApp($event, app.id)">
+            <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
+            <span class="grid min-w-0 flex-1 text-start">
+              <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
+              <span v-if="name(app) !== consoleProjectHost(app)" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
+            </span>
+            <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
+            <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+          </a>
+          <UDropdownMenu v-if="manage" :items="[[{ icon: 'i-lucide-unlink', label: 'Unlink app', color: 'error', onSelect: () => askUnlink(app) }]]" :content="{ align: 'end' }">
+            <UButton class="me-2 shrink-0" icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="sm" :aria-label="`More actions for ${name(app)}`" />
+          </UDropdownMenu>
+        </li>
+      </ul>
+      <ConsoleAccountUnlink v-if="unlinking" v-model:open="unlinkOpen" :project-id="unlinking.id" :name="name(unlinking)" />
+    </section>
+
+    <section v-if="!setupDone" aria-label="Setup steps">
+      <ol class="vitehub-account-steps">
+        <li class="vitehub-account-step" data-done>
+          <div class="vitehub-account-step__track" aria-hidden="true">
+            <span class="vitehub-account-step__mark"><UIcon name="i-lucide-check" class="size-3.5" /></span>
+            <span class="vitehub-account-step__line" />
+          </div>
+          <div class="vitehub-account-step__body">
+            <h3 class="vitehub-account-step__title"><span class="sr-only">{{ stepLabel(0, true) }} </span>Create your account</h3>
+          </div>
+        </li>
+
+        <li class="vitehub-account-step" :data-done="steps[1].done || undefined" :data-active="active === 'link' || undefined" :aria-current="active === 'link' ? 'step' : undefined">
+          <div class="vitehub-account-step__track" aria-hidden="true">
+            <span class="vitehub-account-step__mark"><UIcon v-if="steps[1].done" name="i-lucide-check" class="size-3.5" /><template v-else>2</template></span>
+            <span class="vitehub-account-step__line" />
+          </div>
+          <div class="vitehub-account-step__body">
+            <h3 class="vitehub-account-step__title"><span class="sr-only">{{ stepLabel(1, steps[1].done) }} </span>Link an app</h3>
+            <p v-if="!steps[1].done" class="vitehub-account-step__text">
+              <template v-if="manage">Enable Console access, deploy your app, then enter its URL.</template>
+              <template v-else>Only owners and admins of {{ teamName }} link apps. Ask one of them to link yours.</template>
+            </p>
+            <template v-if="active === 'link' && manage">
+              <ConsoleAccountSnippet class="vitehub-account-step__wide" />
+              <form class="vitehub-account-step__wide grid gap-1.5" @submit.prevent="link">
+                <div class="flex flex-wrap gap-2">
+                  <UInput v-model="url" type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" aria-label="App URL" required :aria-invalid="problem ? true : undefined" :aria-describedby="problem ? 'vitehub-home-link-problem' : undefined" class="min-w-0 flex-1 basis-56" />
+                  <UButton type="submit" icon="i-lucide-link" label="Link app" class="justify-center max-sm:w-full" :loading="busy" />
+                </div>
+                <p v-if="problem" id="vitehub-home-link-problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
+              </form>
+            </template>
+          </div>
+        </li>
+
+        <li class="vitehub-account-step" :data-done="steps[2].done || undefined" :data-active="active === 'connect' || undefined" :aria-current="active === 'connect' ? 'step' : undefined">
+          <div class="vitehub-account-step__track" aria-hidden="true">
+            <span class="vitehub-account-step__mark"><UIcon v-if="steps[2].done" name="i-lucide-check" class="size-3.5" /><template v-else>3</template></span>
+          </div>
+          <div class="vitehub-account-step__body">
+            <h3 class="vitehub-account-step__title"><span class="sr-only">{{ stepLabel(2, steps[2].done) }} </span>Connect your app</h3>
+            <p v-if="!steps[2].done" class="vitehub-account-step__text">
+              <template v-if="active === 'connect' && checking">Checking the app…</template>
+              <template v-else>Set one environment variable on the app, then redeploy.</template>
+            </p>
+            <UButton v-if="active === 'connect' && setupApp" class="justify-self-start" icon="i-lucide-key-round" :label="status[setupApp.id] === 'setup' ? `Show the variable for ${name(setupApp)}` : `Open ${name(setupApp)}`" @click="openAccountProject(setupApp.id)" />
+          </div>
+        </li>
+
+      </ol>
+
+      <div v-if="!shared" class="vitehub-account-invite">
+        <UIcon name="i-lucide-user-plus" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+        <p class="min-w-0 flex-1 text-[13px] leading-5 text-muted"><span class="font-medium text-highlighted">Invite your team.</span> Optional. People in {{ teamName }} open the same apps.</p>
+        <UButton size="sm" color="neutral" variant="outline" label="Invite people" @click="showConsoleAccountPage('team')" />
+      </div>
+    </section>
+  </div>
+</template>
+
+<style>
+.vitehub-account-steps {
+  display: grid;
+}
+
+.vitehub-account-step {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+}
+
+/* The rail joins the marks, like a timeline. Each step leaves 1.75rem before the next mark. */
+.vitehub-account-step__track {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+}
+
+.vitehub-account-step__line {
+  background: var(--ui-border);
+  flex: 1;
+  margin-block: 0.375rem;
+  min-height: 1rem;
+  width: 1px;
+}
+
+.vitehub-account-step[data-done] .vitehub-account-step__line {
+  background: var(--ui-border-accented);
+}
+
+.vitehub-account-step__mark {
+  align-items: center;
+  border: 1px solid var(--ui-border-accented);
+  border-radius: 999px;
+  color: var(--ui-text-muted);
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  height: 1.5rem;
+  justify-content: center;
+  width: 1.5rem;
+}
+
+.vitehub-account-step[data-active] .vitehub-account-step__mark {
+  background: var(--ui-bg-inverted);
+  border-color: var(--ui-bg-inverted);
+  color: var(--ui-bg);
+}
+
+.vitehub-account-step[data-done] .vitehub-account-step__mark {
+  background: var(--ui-bg-accented);
+  border-color: transparent;
+  color: var(--ui-text-highlighted);
+}
+
+.vitehub-account-step__body {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding-bottom: 1.75rem;
+}
+
+/* A completed step is one line, so the open step and its form come first. */
+.vitehub-account-step[data-done] .vitehub-account-step__body {
+  padding-bottom: 0.75rem;
+}
+
+.vitehub-account-invite {
+  align-items: center;
+  border-top: 1px solid var(--ui-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+}
+
+/* On a phone, the code and the form use the width under the step number too, so the open step has no rail. */
+@media (max-width: 639px) {
+  .vitehub-account-step__wide {
+    margin-inline-start: -2.5rem;
+  }
+
+  .vitehub-account-step[data-active] .vitehub-account-step__line {
+    visibility: hidden;
+  }
+}
+
+.vitehub-account-step:last-child .vitehub-account-step__body {
+  padding-bottom: 0;
+}
+
+.vitehub-account-step__title {
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.vitehub-account-step__title + .vitehub-account-step__text {
+  margin-top: -0.625rem;
+}
+
+.vitehub-account-step__text {
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  text-wrap: pretty;
+}
+
+.vitehub-account-step[data-done] .vitehub-account-step__title {
+  color: var(--ui-text-muted);
+  font-weight: 500;
+}
+
+/* Rows, not a table: one bordered list, a hairline between rows. */
+.vitehub-account-list {
+  border: 1px solid var(--ui-border);
+  border-radius: 0.625rem;
+  overflow: hidden;
+}
+
+.vitehub-account-list > li + li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.vitehub-account-list__row {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.5rem 0.875rem;
+  width: 100%;
+}
+
+a.vitehub-account-list__row:hover {
+  background: var(--ui-bg-elevated);
+}
+
+/* An app row: the link fills the row, and the menu of its actions sits at the end. The whole row takes the hover. */
+.vitehub-account-list__item {
+  align-items: center;
+  display: flex;
+}
+
+.vitehub-account-list__item:hover {
+  background: var(--ui-bg-elevated);
+}
+</style>

@@ -65,7 +65,7 @@ describe("TraceRun", () => {
     cyclic.self = cyclic;
     const wrapper = mount(TraceRun, { attachTo: document.body, global, props: { defaultOpen: true, run: run("completed", [step("loop", "completed", cyclic)]) } });
     await wrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
-    expect(wrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
+    expect(wrapper.get("[data-slot=code-block-content]").text()).toContain('"self": "[Circular]"');
     wrapper.unmount();
 
     const throwingKeys = new Proxy({ value: 1 }, { ownKeys: () => { throw new Error("cannot inspect attributes"); } });
@@ -75,7 +75,7 @@ describe("TraceRun", () => {
     proxyWrapper.vm.$forceUpdate();
     await proxyWrapper.vm.$nextTick();
     await proxyWrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
-    expect(proxyWrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
+    expect(proxyWrapper.get("[data-slot=code-block-content]").text()).toBe("[Unable to display payload: cannot inspect attributes]");
     proxyWrapper.unmount();
   });
 });

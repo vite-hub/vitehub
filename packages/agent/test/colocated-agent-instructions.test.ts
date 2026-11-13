@@ -11,6 +11,7 @@ import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { markDiscoveredAgentName, readDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
+import { installAgentInvocations, resolveDefaultAgentInvocations } from "../src/invocations/app.ts"
 
 import type { ViteDevServer } from "vite"
 import type { DiscoveredAgentDefinition } from "../src/index.ts"
@@ -163,32 +164,29 @@ describe("colocated Agent instructions", () => {
     expect(agentWithColocatedInstructions(explicit, "Workspace instructions.")).toBe(explicit)
   })
 
-  it.each([true, false])("binds the Console journal without reconfiguring a preset (explicit: %s)", async (explicit) => {
+  it.each([true, false])("binds the app-wide journal without reconfiguring a preset (explicit: %s)", async (explicit) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-preset-"))
     try {
       const handler = join(root, "agent.ts")
       await writeFile(handler, "export default {}", "utf8")
-      const fallback = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      installAgentInvocations({ default: "memory" })
       const configure = vi.fn(() => defineAgent({ driver: { run: () => "done" }, runtime: false,
         ...(explicit ? { invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }) } : {}),
       }))
       const authored = defineAgent({ options: {}, configure })
       const original = authored.invocations
-      const facade = vi.fn((options: Parameters<typeof defineAgent>[0]) => {
-        const agent = defineAgent(options as never)
-        if (agent.invocations === undefined) Object.defineProperty(agent, "invocations", { configurable: true, get: () => fallback })
-        return agent
-      })
-      const server = { config: { plugins: [{ name: "vite-hub/console" }] },
-        ssrLoadModule: async (id: string) => id === "vite-hub/agent" ? { defineAgent: facade } : { default: authored },
-      } as unknown as ViteDevServer
+      const ssrLoadModule = vi.fn(async () => ({ default: authored }))
+      const server = { config: { plugins: [{ name: "vite-hub/console" }] }, ssrLoadModule } as unknown as ViteDevServer
       const loaded = await loadViteAgent(server, { name: "support", handler })
       expect(configure).toHaveBeenCalledOnce()
-      expect(loaded?.agent.invocations).toBe(explicit ? original : fallback)
-      if (explicit) expect(facade).not.toHaveBeenCalled()
-      else expect(facade).toHaveBeenCalledWith({ driver: { run: expect.any(Function) }, runtime: false })
+      expect(loaded?.agent.invocations).toBe(explicit ? original : resolveDefaultAgentInvocations())
+      // The Agent package applies the journal itself, so the loader does not load the vite-hub facade.
+      expect(ssrLoadModule).not.toHaveBeenCalledWith("vite-hub/agent")
     }
-    finally { await rm(root, { force: true, recursive: true }) }
+    finally {
+      installAgentInvocations({})
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("loads instructions in the Vite Agent Dev Loop", async () => {

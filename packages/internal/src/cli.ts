@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { createInterface } from "node:readline/promises"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
 import type { HostCliRun } from "./host-credentials.ts"
@@ -344,6 +345,58 @@ export function readViteHubDevTargetOption(
   if (arg.startsWith("--timeout=")) {
     target.timeout = parseViteHubDevTimeout(arg.slice("--timeout=".length), errors.invalidInlineTimeout)
     return 0
+  }
+}
+
+/**
+ * Reads `--<name> <value>` or `--<name>=<value>` at `args[index]`. Returns the value and the number of extra arguments
+ * that the option used (`0` or `1`), or `undefined` when `args[index]` is another argument. Throws `error` when the value
+ * is missing.
+ */
+export function readCliOptionValue(
+  args: readonly string[],
+  index: number,
+  name: string,
+  error: (message: string) => Error,
+): { consumed: number, value: string } | undefined {
+  const arg = args[index]!
+  if (arg === `--${name}`) {
+    const value = args[index + 1]
+    if (value === undefined || value.startsWith("--")) throw error(`--${name} needs a value.`)
+    return { consumed: 1, value }
+  }
+  if (arg.startsWith(`--${name}=`)) return { consumed: 0, value: arg.slice(name.length + 3) }
+}
+
+/** Reads the value of `--<name>` as an integer from 1. Throws `error` for any other value. */
+export function parseCliPositiveInteger(name: string, value: string | undefined, error: (message: string) => Error): number {
+  const number = Number(value)
+  if (!value || !Number.isInteger(number) || number < 1) throw error(`--${name} must be a positive integer.`)
+  return number
+}
+
+/** A command failure. `code` and `fix` show only when the caller has them. */
+export interface ViteHubCliFailure {
+  code?: string
+  fix?: string
+  message: string
+}
+
+/** Writes a command failure: as `{ error }` JSON on stdout with `--json`, else the message and fix on stderr. Returns exit code 1. */
+export function writeCliFailure(json: boolean, streams: ViteHubCliStreams, failure: ViteHubCliFailure): number {
+  if (json) streams.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
+  else streams.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
+  return 1
+}
+
+/** Asks a question on the terminal through stderr. Only `y` or `yes`, in any case, is a yes. */
+export async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
   }
 }
 

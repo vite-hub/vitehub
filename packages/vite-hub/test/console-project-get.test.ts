@@ -9,6 +9,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { taskOperations } from "../src/task/operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleProject } from "../src/console/runtime/server/project.ts"
 
@@ -20,12 +21,12 @@ const kvOperations = [fixtureOperation("kv.list", "kv"), fixtureOperation("kv.ge
 const contentOperations = [fixtureOperation("content.list", "content")]
 
 async function project(): Promise<{ status: number, value?: ConsoleProject }> {
-  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input: {}, operation: "project.get" }),
+  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody("project.get", {}),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
-  const body = await response.json() as { value?: ConsoleProject }
+  const body = await operationRpcResponseResult(response) as { value?: ConsoleProject }
   return { status: response.status, value: body.value }
 }
 

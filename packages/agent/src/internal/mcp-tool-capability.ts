@@ -1,6 +1,6 @@
 import { hasAgentToolStandardSchema } from "../tool-schema.ts"
 import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
-import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { safeAgentTelemetryMetadata } from "./agent-telemetry.ts"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
@@ -98,8 +98,8 @@ function mcpToolDefinitionDriftError(server: string, drift: McpToolDrift, integr
 
 function isMcpClient(value: unknown): value is McpClient {
   return isRuntimeRecord(value)
-    && hasRuntimeType(value.tools, "function")
-    && hasRuntimeType(value.close, "function")
+    && typeof value.tools === "function"
+    && typeof value.close === "function"
 }
 
 function isMcpClientConfig(value: unknown): value is McpClientConfig {
@@ -125,8 +125,8 @@ function sanitizeMetadataUrl(value: string | URL): string {
 }
 
 export function sanitizeMcpMetadata(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (hasRuntimeType(value, "function")) return "[function]"
-  if (hasRuntimeType(value, "string")) return sanitizeMetadataUrl(value)
+  if (typeof value === "function") return "[function]"
+  if (typeof value === "string") return sanitizeMetadataUrl(value)
   if (!isRuntimeObject(value)) return value
   if (value instanceof URL) return sanitizeMetadataUrl(value)
   if (seen.has(value)) return "[circular]"
@@ -141,7 +141,7 @@ export function sanitizeMcpMetadata(value: unknown, seen = new WeakSet<object>()
 
 async function assertMcpToolIntegrity(server: string, tools: Record<string, unknown>, baseline: McpToolFingerprints, integrityLabel: string): Promise<void> {
   const aiSdk = await loadAiSdk()
-  if (!hasRuntimeType(aiSdk.fingerprintTools, "function") || !hasRuntimeType(aiSdk.detectToolDrift, "function")) {
+  if (typeof aiSdk.fingerprintTools !== "function" || typeof aiSdk.detectToolDrift !== "function") {
     throw agentDiagnostics.AGENT_R0561({ message: `[vitehub] ${integrityLabel} requires ai 7.0.19 or newer.` })
   }
   // SAFETY: MCP client tool discovery returns AI SDK tool definitions, while the public adapter keeps their generic shape opaque.
@@ -154,26 +154,49 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
 
 function mcpFailureStatus(error: unknown): number | undefined {
   if (!isRuntimeRecord(error)) return undefined
-  const sseStatus = error.name === "MCPClientError" && hasRuntimeType(error.message, "string")
+  const sseStatus = error.name === "MCPClientError" && typeof error.message === "string"
     ? /^MCP SSE Transport Error: (\d{3}) [^\r\n]*$/.exec(error.message)?.[1]
     : undefined
   const statusCode = Number(error.statusCode ?? error.status ?? sseStatus)
   return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : undefined
 }
 
+/** Connection errors about the account or the provider. A person fixes them in the Console, not in code. */
+const connectionAvailabilityCodes = new Set([
+  "CONNECTIONS_NEEDS_RECONNECT",
+  "CONNECTIONS_NOT_CONNECTED",
+  "CONNECTIONS_PROVIDER_FAILED",
+  "CONNECTIONS_UNAVAILABLE",
+])
+
+function connectionFailureCode(error: unknown, seen = new Set<unknown>()): string | undefined {
+  if (!isRuntimeRecord(error) || seen.has(error)) return undefined
+  seen.add(error)
+  if (typeof error.code === "string" && connectionAvailabilityCodes.has(error.code)) return error.code
+  return connectionFailureCode(error.cause, seen)
+}
+
+/**
+ * A failure that leaves one server out of the Invocation instead of failing it: the server answered
+ * with an HTTP error, including a rejected or expired credential, its Connection cannot authorize,
+ * the network failed, or a bounded timer ran out. Cancellation, protocol, and configuration errors
+ * still fail the Invocation.
+ */
 function isMcpAvailabilityFailure(error: unknown, seen = new Set<unknown>()): boolean {
   if (!isRuntimeRecord(error) || seen.has(error)) return false
   seen.add(error)
   if (error.name === "AbortError") return false
-  if (error.name === "MCPClientError" && hasRuntimeType(error.message, "string")) {
-    if (/\baborted\b/.test(error.message) || hasRuntimeType(error.code, "number")) return false
+  // The SDK throws this after a 401 when OAuth requires user reauthorization, without a status.
+  if (error.name === "UnauthorizedError") return true
+  if (error.name === "MCPClientError" && typeof error.message === "string") {
+    if (/\baborted\b/.test(error.message) || typeof error.code === "number") return false
     // The SDK has no structured timeout code for these two bounded timers.
     if (/^(?:MCP client initialization|Request) timed out after \d+(?:\.\d+)?ms$/.test(error.message)) return true
   }
-  const status = mcpFailureStatus(error)
-  if (status !== undefined) return status === 408 || status === 409 || status === 429 || status >= 500
+  if (typeof error.code === "string" && connectionAvailabilityCodes.has(error.code)) return true
+  if (mcpFailureStatus(error) !== undefined) return true
   if (error.name === "TimeoutError") return true
-  if (hasRuntimeType(error.code, "string") && ["ECONNREFUSED", "ECONNRESET", "EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
+  if (typeof error.code === "string" && ["ECONNREFUSED", "ECONNRESET", "EPIPE", "ConnectionRefused", "ConnectionClosed", "FailedToOpenSocket", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET"].includes(error.code)) return true
   if (error.cause !== undefined) return isMcpAvailabilityFailure(error.cause, seen)
   return error.name === "TypeError" && error.message === "fetch failed"
 }
@@ -189,10 +212,12 @@ function recordMcpAvailabilityWarning(
     ? input.context
     : {}
   const statusCode = mcpFailureStatus(error)
+  const code = connectionFailureCode(error)
   const warning = {
     server,
     phase,
     ...(statusCode ? { statusCode } : {}),
+    ...(code ? { code } : {}),
   }
   const currentWarnings = Array.isArray(currentContext["vitehub.mcp.warnings"])
     ? currentContext["vitehub.mcp.warnings"]
@@ -228,6 +253,7 @@ async function readMcpRequestBody(request: Request): Promise<string> {
 /** The config without the ViteHub server options that the MCP client does not read. */
 function withoutServerOptions(config: McpClientConfig | McpConnectionServerConfig): Omit<McpClientConfig, "connection" | "tools" | "transport"> {
   const rest: Record<string, unknown> = { ...config }
+  delete rest.channels
   delete rest.connection
   delete rest.optional
   delete rest.skills
@@ -251,7 +277,7 @@ export function connectionMcpTransport(server: string, config: McpClientConfig |
   if (transport === undefined) return { type: "http" }
   const type = isRuntimeRecord(transport) ? transport.type ?? "http" : undefined
   if (!isRuntimeRecord(transport) || (type !== "http" && type !== "sse") || transport.authProvider !== undefined
-    || hasRuntimeType(transport.start, "function") || (transport.url !== undefined && !hasRuntimeType(transport.url, "string"))) {
+    || typeof transport.start === "function" || (transport.url !== undefined && typeof transport.url !== "string")) {
     throw agentDiagnostics.AGENT_R0082({ message: `[vitehub] MCP server "${server}" uses a connection, so it requires an http or sse transport config without authProvider.` })
   }
   return { ...transport, type }
@@ -264,8 +290,8 @@ export function connectionMcpTransport(server: string, config: McpClientConfig |
  */
 export async function connectionMcpServerConfig(server: string, config: McpClientConfig | McpConnectionServerConfig, connection: McpServerConnection): Promise<McpClientConfig> {
   const configured = connectionMcpTransport(server, config)
-  const url = hasRuntimeType(configured.url, "string") ? configured.url : await connection.endpoint()
-  if (!hasRuntimeType(url, "string")) {
+  const url = typeof configured.url === "string" ? configured.url : await connection.endpoint()
+  if (typeof url !== "string") {
     throw agentDiagnostics.AGENT_R0082({ message: `[vitehub] MCP server "${server}" uses Connection "${connection.name}", which declares no mcp endpoint. Set the provider's mcp or transport.url.` })
   }
   const fetch: typeof globalThis.fetch = async (input, init) => {

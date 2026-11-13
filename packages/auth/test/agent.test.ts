@@ -7,7 +7,7 @@ import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/
 
 const serverMocks = vi.hoisted(() => ({
   findUserById: vi.fn(),
-  getAuthForRequest: vi.fn(),
+  useAuth: vi.fn(),
   getSession: vi.fn(),
 }))
 
@@ -18,7 +18,7 @@ vi.mock("../src/internal/server.ts", () => ({
       getSession: serverMocks.getSession,
     },
   }),
-  getAuthForRequest: serverMocks.getAuthForRequest,
+  useAuth: serverMocks.useAuth,
 }))
 
 const defaultInvoker = {
@@ -61,8 +61,8 @@ async function resolve(options: AgentInvokerOptions, context = createContext()) 
 describe("authenticated", () => {
   beforeEach(() => {
     serverMocks.getSession.mockReset()
-    serverMocks.getAuthForRequest.mockReset()
-    serverMocks.getAuthForRequest.mockReturnValue({
+    serverMocks.useAuth.mockReset()
+    serverMocks.useAuth.mockReturnValue({
       api: {
         getSession: serverMocks.getSession,
       },
@@ -337,7 +337,7 @@ describe("authenticated", () => {
       message: "Better Auth returned an invalid session response.",
     })
 
-    serverMocks.getAuthForRequest.mockReturnValueOnce({ api: {} })
+    serverMocks.useAuth.mockReturnValueOnce({ api: {} })
     await expect(resolve(authenticated(), createContext({ request }))).rejects.toMatchObject({
       code: "AUTH_R0011",
       message: "Better Auth did not expose api.getSession().",
@@ -436,7 +436,7 @@ describe("agentAuth", () => {
   })
 
   it("follows authenticated() from the chat request to the Auth user, and gives anonymous and Channel Actors null", async () => {
-    serverMocks.getAuthForRequest.mockReturnValue({ api: { getSession: serverMocks.getSession } })
+    serverMocks.useAuth.mockReturnValue({ api: { getSession: serverMocks.getSession } })
     serverMocks.findUserById.mockImplementation(async (id: string) => id === "user_1" ? { email: "editor@example.com", id, role: "editor" } : null)
 
     // A signed-in chat request: the session becomes the Actor, and agentAuth reads its user again from the database.

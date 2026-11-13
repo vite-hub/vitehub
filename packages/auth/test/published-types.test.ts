@@ -36,7 +36,7 @@ async function runPnpm(args: string[], cwd: string, timeout = childProcessTimeou
   try {
     const npmExecPath = process.env.npm_execpath
     if (npmExecPath?.includes("pnpm")) {
-      await execFileAsync(process.execPath, [npmExecPath, ...args], {
+      await execFileAsync(npmExecPath, args, {
         cwd,
         killSignal: "SIGKILL",
         timeout,

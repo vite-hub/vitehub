@@ -10,11 +10,11 @@ icon: i-lucide-cloud-cog
 
 | Path | Provider | Host support |
 | --- | --- | --- |
-| Browser Definitions and actions | Cloudflare Browser Run | Cloudflare preset only. `browser: true` with another preset fails the build. |
+| Browser Definitions and actions | Cloudflare Browser Run | Cloudflare host only. `browser: true` with another host fails the build. |
 | `createBrowser()` with `cloudflareBrowser()` | Cloudflare Browser Run | Cloudflare Workers with a Browser binding. |
 | `createBrowser()` with `localBrowser()` | Local Chromium | Trusted Node hosts. `browser: true` never picks it. |
 
-The Cloudflare preset writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. `vitehub()` and `hubBrowser()` keep your other Wrangler fields.
+The Cloudflare host writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. `vitehub()` and `hubBrowser()` keep your other Wrangler fields.
 
 The Cloudflare Worker `quickAction()` needs remote mode in local development. Set `remote: true` so local Wrangler can call Browser Run. This needs a Cloudflare account and network access.
 
@@ -22,11 +22,11 @@ With `engine: 'chromium'`, install `@cloudflare/playwright` and `playwright-core
 
 ## Builds without Browser
 
-An app that deploys to several hosts can import Browser on all of them. A build without Browser still builds, but calls fail with `BROWSER_UNAVAILABLE`. The message names the preset, the reason, and the fix. Call `isBrowserAvailable()` first to branch:
+An app that deploys to several hosts can import Browser on all of them. A build without Browser still builds, but calls fail with `BROWSER_UNAVAILABLE`. The message names the host, the reason, and the fix. Call `isBrowserAvailable()` first to branch:
 
 ```ts [server/api/example-html.get.ts]
 import { defineEventHandler } from 'h3'
-import { isBrowserAvailable, runBrowserContent } from 'vite-hub/browser/actions'
+import { isBrowserAvailable, runBrowserContent } from 'vite-hub/browser'
 
 export default defineEventHandler(async () => {
   if (!isBrowserAvailable()) return { html: null }

@@ -3,7 +3,6 @@ import type {
   WorkspaceMaterializeSourcesProgressEvent,
   WorkspacePrepareSessionProgressEvent,
 } from "@vite-hub/workspace"
-import { hasRuntimeType } from "./runtime-type.ts"
 
 interface WorkspaceSetupObserversOptions {
   invocationId?: string
@@ -125,9 +124,9 @@ export function createWorkspaceSetupObservers(options: WorkspaceSetupObserversOp
       }))
     },
     async preparation(event) {
-      const bytes = hasRuntimeType(event.data?.bytes, "number") ? event.data.bytes : undefined
-      const files = hasRuntimeType(event.data?.files, "number") ? event.data.files : undefined
-      const revision = hasRuntimeType(event.data?.revision, "string") ? event.data.revision : undefined
+      const bytes = typeof event.data?.bytes === "number" ? event.data.bytes : undefined
+      const files = typeof event.data?.files === "number" ? event.data.files : undefined
+      const revision = typeof event.data?.revision === "string" ? event.data.revision : undefined
       const stepId = `vitehub.${event.id}`
       await append(options.traceLog, correlatedEvent(options, {
         attributes: {

@@ -20,8 +20,8 @@ export interface DocsAppPage {
   layout: DocsLayout
   tutorial?: "project" | "quickstart"
   codePanel?: boolean
-  /** Whether the navigation sidebar shows on this page. */
-  sidebar: boolean
+  /** Whether the navigation sidebar shows on this page. `"collapsed"` starts it as a narrow strip that the reader opens. */
+  sidebar: boolean | "collapsed"
   /** Whether the "On this page" outline shows on this page. */
   toc: boolean
   kind: string | null

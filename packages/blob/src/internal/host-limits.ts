@@ -24,6 +24,7 @@ export function getBlobRequestBodyLimit(): number | undefined {
 const encoder = /*#__PURE__*/ new TextEncoder()
 
 /** The error that a driver throws for a pathname above its host limit. `blobResult()` returns it as `BLOB_PATHNAME_TOO_LONG`. */
+// Internal invariant: blobResult() maps this class to BLOB_PATHNAME_TOO_LONG.
 export class BlobPathnameTooLongError extends Error {
   constructor(bytes: number, limit: number) {
     super(`The pathname is ${bytes} bytes in UTF-8. Cloudflare R2 accepts object keys of at most ${limit} bytes.`)
@@ -53,6 +54,6 @@ export function withHostPathnameLimits<TOptions>(driver: BlobDriverAdapter<TOpti
     ...(createMultipartUpload ? { createMultipartUpload: (pathname, options) => createMultipartUpload.call(driver, assertR2Key(pathname), options) } : {}),
     ...(getStream ? { getStream: (pathname, options) => getStream.call(driver, assertR2Key(pathname), options) } : {}),
     ...(resumeMultipartUpload ? { resumeMultipartUpload: (pathname, uploadId) => resumeMultipartUpload.call(driver, assertR2Key(pathname), uploadId) } : {}),
-    ...(sign ? { sign: (pathname, options) => sign.call(driver, assertR2Key(pathname), options) } : {}),
+    ...(sign ? { sign: (pathname, options, context) => sign.call(driver, assertR2Key(pathname), options, context) } : {}),
   }
 }

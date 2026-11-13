@@ -1,7 +1,11 @@
-import type { Source as SourcePackageSource, SourceContext as SourcePackageSourceContext, SourceRevision } from "@vite-hub/source"
-import type { FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
-import type { GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
-import type { GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
+import type {
+  FileSourceOptions as SourcePackageFileSourceOptions,
+  GitHubSourceOptions as SourcePackageGitHubSourceOptions,
+  GlobSourceOptions as SourcePackageGlobSourceOptions,
+  Source as SourcePackageSource,
+  SourceContext as SourcePackageSourceContext,
+  SourceRevision,
+} from "@vite-hub/source"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source/mcp"
 import type { ExecutionAuthority } from "@vite-hub/runtime"
 
@@ -227,6 +231,8 @@ export interface ExecResult {
 
 export interface WorkspaceSession {
   readonly executionAuthority: ExecutionAuthority
+  /** Retained revision used to materialize this Session, when the Store provides one. */
+  readonly revision?: string
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
@@ -325,8 +331,12 @@ export interface WorkspaceRevision {
   createdAt: string
   message?: string
   metadata?: Record<string, unknown>
-  files: number
-  bytes: number
+  /**
+   * How many files the revision has, and their total size. The GitHub Store leaves both out of `list()` and `head()`,
+   * because counting needs one more request per commit. `open(id)` reports them.
+   */
+  files?: number
+  bytes?: number
 }
 
 export interface WorkspaceHistoryRefOptions {
@@ -407,6 +417,11 @@ export interface WorkspaceRevisionView {
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
+  /**
+   * Read many files of the revision at once, so that `readFile()` of each path needs no request. The GitHub Store reads
+   * them from one archive of the commit. Stores without it read each file on its own.
+   */
+  preload?(paths: readonly string[]): Promise<void>
 }
 
 /** An open pull request on a forge, for a Store whose refs are branches. */
@@ -912,7 +927,7 @@ export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {
   name?: never
 }
 
-export interface WorkspaceModuleOptions {
+export interface WorkspaceOptions {
   root?: string
   projectRoot?: string
   assets?: boolean | string[]

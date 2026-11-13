@@ -1,0 +1,108 @@
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { createOpenAI } from '@ai-sdk/openai'
+import { useServerEnv } from '#vitehub/env/server'
+import { defineAgent } from 'vite-hub/agent'
+import { discord as discordChannel } from 'vite-hub/agent/channels'
+import type { DiscordAdapterOptions } from 'vite-hub/agent/channels'
+import { gmail, progressSummary, schedule, title, transcribe } from 'vite-hub/agent/capabilities'
+
+const codexAuth = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json')
+
+export default defineAgent({
+  box: {
+    runtime: { kind: 'trusted-host', stateRoot: resolve('.data/boxes') },
+    home: {
+      files: existsSync(codexAuth) ? {
+        '.codex/auth.json': { contents: () => readFile(codexAuth) },
+        '.codex/config.toml': { contents: 'cli_auth_credentials_store = "file"\n' },
+      } : {},
+    },
+  },
+  runtime: false,
+  driver: {
+    kind: 'codex',
+    instructions: '{{ workspace.instructions }}',
+    model: 'model',
+    reasoningEffort: 'high',
+  },
+  channels: {
+    discord: discordChannel({
+      adapter: {
+        applicationId: useServerEnv().discord.applicationId,
+        respondToChannelIds: [useServerEnv().discord.channelId],
+        botToken: useServerEnv().discord.botToken,
+        longContent: { mode: 'split' },
+        publicKey: useServerEnv().discord.publicKey,
+        userName: 'mini',
+      } as DiscordAdapterOptions,
+      messages: {
+        concurrency: 'queue',
+        delivery: 'manual',
+        errorFallbackText: 'The work did not finish. Send the message again.',
+        fallbackStreamingPlaceholderText: 'Thinking…',
+        lockScope: 'agent',
+        timeout: 240_000,
+        threadHistory: { maxMessages: 25 },
+        triggerHistory: { maxMessages: 25, source: 'thread' },
+        userName: 'mini',
+      },
+    }),
+  },
+  capabilities: [
+    progressSummary({
+      driver: {
+        kind: 'codex',
+        model: 'model',
+        reasoningEffort: 'low',
+      },
+      intervalMs: 5000,
+    }),
+    gmail({ operations: ['search', 'read', 'draft'] }),
+    schedule({
+      allowSelfTarget: true,
+      delivery: 'origin',
+      mode: 'write',
+      timeZone: 'Europe/Stockholm',
+    }),
+    title({
+      driver: {
+        kind: 'codex',
+        model: 'model',
+        reasoningEffort: 'low',
+      },
+      maxLength: 35,
+    }),
+    transcribe(() => {
+      const { bitacora, openai } = useServerEnv()
+      const root = bitacora.discordInputRoot.replace(/^\/+|\/+$/g, '') || 'inputs/discord-audio'
+
+      return {
+        maxBytes: 25 * 1024 * 1024,
+        model: createOpenAI({
+          apiKey: openai.apiKey.unseal(),
+        }).transcription(openai.transcriptionModel),
+        artifacts: {
+          audio: true,
+          transcript: {
+            path: ({ date, stem }) => `${root}/${date}/${stem}.md`,
+            mediaType: 'text/markdown',
+          },
+        },
+      }
+    }),
+  ],
+  workspace: {
+    bindings: { instructions: { path: 'AGENTS.md' } },
+    commit: 'chore: update journal',
+    mode: 'write',
+    store: {
+      branch: 'main',
+      provider: 'github',
+      repository: 'example/journal',
+      root: '/',
+    },
+  },
+})

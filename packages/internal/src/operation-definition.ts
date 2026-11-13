@@ -1,11 +1,9 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { standardJsonSchema } from "./standard-schema.ts"
 import { withValibotJsonSchema } from "./valibot.ts"
+import { isRecordOrFunction as isObject } from "./object.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-
-// The definition contract of an operation. `@vite-hub/runtime/operations` publishes it, so it must not import Node
-// or build code. The registry, the RPC, and the CLI live in `./operations.ts`.
 
 /** `read` never changes state. `write` changes state. `destructive` deletes or publishes. */
 export type OperationKind = "read" | "write" | "destructive"
@@ -54,8 +52,9 @@ export interface OperationContext {
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
   /**
-   * The server event of the HTTP request that carries the call, such as an H3 event, when there is one. Operations
-   * hand it to app hooks that read the request's own session, such as `identify` of Comments.
+   * The request event of the HTTP request that carries the call, when there is one: the Request of the Console route,
+   * with its Standard Context. Operations hand it to app hooks that read the request's own session, such as `identify`
+   * of Comments.
    */
   event?: unknown
   /** Operations set a success status here, such as 202 for an accepted call. */
@@ -103,14 +102,8 @@ export interface OperationDefinition<Input, Output> {
     positional?: string[]
     /** Human output, written verbatim. Without it the CLI prints JSON. `--json` always prints JSON. */
     format?: (output: Output) => string
-    /** `vitehub <namespace>` runs this command when no command is named, such as `vitehub usage`. */
+    /** `vitehub <namespace>` runs this command when no command is named. */
     default?: boolean
-    /**
-     * Route of the app that takes a signed dispatch of this operation, such as `/_vitehub/schedules/run`. With `--url`
-     * and a dispatch key in the environment (`VITEHUB_DISPATCH_KEY`), the command signs the input and posts it there, so
-     * a CI job needs no Console credentials. Without a key it calls the RPC.
-     */
-    dispatch?: string
   }
   /** Largest request body in bytes. It can raise the 64 KiB default but not lower it. */
   maxRequestBytes?: number
@@ -119,8 +112,13 @@ export interface OperationDefinition<Input, Output> {
    * confirmation, and agents run it without approval. Without it, every call of a `destructive` operation asks.
    */
   readOnlyWhen?: (input: Input) => boolean
-  /** `false`: MCP does not offer the operation as a tool, such as an editor transport that only the Console uses. */
-  mcp?: false
+  /**
+   * How MCP offers the operation as a tool. `false`: MCP does not offer it, such as an editor transport that only the
+   * Console uses. `title`: the short title that clients show, instead of the name in words. `format`: the text of a
+   * result for the Agent, such as a list of lines. The result stays the structured content. Without `format`, the text
+   * is the result as JSON.
+   */
+  mcp?: false | { title?: string, format?: (output: NoInfer<Output>) => string }
   /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
   user?: false
   /**
@@ -132,9 +130,10 @@ export interface OperationDefinition<Input, Output> {
 }
 
 /** An operation of any input and output, as a registry holds it. */
-export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
+export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "mcp" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
   readOnlyWhen?: (input: never) => boolean
-  cli?: { namespace?: string, command?: string, default?: boolean, dispatch?: string, positional?: string[], format?: (output: never) => string }
+  cli?: { namespace?: string, command?: string, default?: boolean, positional?: string[], format?: (output: never) => string }
+  mcp?: false | { title?: string, format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1
   run: (input: never, context: OperationContext) => unknown
@@ -159,10 +158,6 @@ export type OperationResult<Output = unknown> =
 const nameFormat = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 const kinds: ReadonlySet<string> = new Set<OperationKind>(["read", "write", "destructive"])
 
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
 export function invalidDefinition(name: unknown, reason: string): Error {
   return internalErrorDiagnostics.INTERNAL_R0020({ message: `[vitehub] Operation ${JSON.stringify(name)} is invalid: ${reason}` })
 }
@@ -184,10 +179,21 @@ function checkDefinition(definition: unknown): void {
     throw invalidDefinition(name, `maxRequestBytes can only raise the limit above ${defaultRequestBytes} bytes (64 KiB).`)
   }
   if (definition.readOnlyWhen !== undefined && !(definition.readOnlyWhen instanceof Function)) throw invalidDefinition(name, "readOnlyWhen must be a function.")
+  const { mcp } = definition
+  if (mcp !== undefined && mcp !== false && (!isObject(mcp)
+    || (mcp.title !== undefined && (String(mcp.title) !== mcp.title || !mcp.title))
+    || (mcp.format !== undefined && !(mcp.format instanceof Function)))) {
+    throw invalidDefinition(name, "mcp must be false, or an object with a title string and a format function.")
+  }
 }
 
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
+/** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]
+
+/** CLI namespaces owned by built-in commands. */
+export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
 
 /** Input keys that the generated CLI commands read themselves. */
 export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
@@ -220,7 +226,7 @@ export function isOperation(value: unknown): value is AnyOperation {
 
 /** The contribution of one plugin: operations, or a module that exports them. */
 export interface OperationContributionEntry {
-  /** Module the app imports, such as `@vite-hub/content/operations`. */
+  /** The absolute path of the module that generated code imports, such as `ownModule(import.meta.url, "operations")`. */
   module: string
   /** Named export that holds an operation or an array of operations. Defaults to `default`. */
   export?: string
@@ -237,6 +243,7 @@ export interface OperationContributingPlugin {
   name?: string
   vitehub?: { operations?: OperationContributions }
 }
+
 
 export function isSectionId(section: unknown): section is string {
   return typeof section === "string" && section !== "" && !section.includes(":")

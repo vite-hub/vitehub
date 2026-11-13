@@ -31,10 +31,6 @@ vi.mock("../src/console/runtime/components/console-page-header.vue", async () =>
   const { defineComponent, h } = await import("vue")
   return { default: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.()]) }) }
 })
-vi.mock("../src/console/runtime/components/console-status.vue", async () => {
-  const { defineComponent, h } = await import("vue")
-  return { default: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.()]) }) }
-})
 
 import ConsoleChannels from "../src/console/runtime/components/console-channels.vue"
 

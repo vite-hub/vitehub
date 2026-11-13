@@ -12,7 +12,7 @@
             variant="ghost"
             size="xs"
             square
-            icon="i-ph-check-light"
+            icon="i-lucide-check"
             aria-label="Read on Jan 5, 2026 at 4:32 PM"
           />
         </UTooltip>

@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
 import { createBetterAuthOptions, getAuthConsoleForRequest, getAuthEvents, handleAuthRequest } from "../src/internal/server.ts"
-import { readAuthEventConsoleRecords } from "../src/runtime/console.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthEventsConfiguration, AuthEventStore } from "../src/events.ts"
 
@@ -23,15 +22,13 @@ it("resolves events and the provider once with the same Console request context"
   } finally { sqlite.close() }
 })
 
-it("exposes the same store through the runtime reader and returns no records when disabled", async () => {
-  expect(await readAuthEventConsoleRecords()).toEqual([])
+it("returns the configured store, and no store when the log is off", () => {
+  expect(getAuthEvents()).toBeUndefined()
   const { db, sqlite } = eventDatabase()
   try {
     const store = createDatabaseAuthEventStore({ db })
     state.events = { store }
     expect(getAuthEvents()).toBe(store)
-    await store.append({ id: "a", time: new Date().toISOString(), type: "user.banned", actor: "user:admin", userId: "user", metadata: {} })
-    expect(await readAuthEventConsoleRecords()).toMatchObject([{ id: "a", cells: { type: "user.banned", actor: "user:admin", user: "user" } }])
   }
   finally { sqlite.close() }
 })

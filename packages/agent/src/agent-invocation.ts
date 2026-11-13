@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentRunInput } from "./types.ts"
 
 export type AgentInvocationStatus = "pending" | "running" | "completed" | "failed" | "cancelled"
@@ -101,7 +100,7 @@ export function createAgentInvocationController<
   adapter: AgentInvocationControllerAdapter<TOutput, CALL_OPTIONS>,
   result: Promise<unknown>,
 ): AgentInvocationController<TOutput, CALL_OPTIONS> {
-  const resolveSupport = () => hasRuntimeType(adapter.support, "function") ? adapter.support() : adapter.support
+  const resolveSupport = () => typeof adapter.support === "function" ? adapter.support() : adapter.support
   const support: AgentInvocationInputSupport = Object.freeze({
     get followUp() {
       return resolveSupport()?.followUp === true

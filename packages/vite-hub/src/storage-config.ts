@@ -12,7 +12,7 @@ import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   if (options.dataDir === undefined) return options
   if (typeof options.dataDir !== "string" || !options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
-  if (options.preset !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts." })
+  if (options.host !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node host and a persistent filesystem. Configure remote stores for other hosts." })
   const root = resolve(options.dataDir)
   const file = (name: string) => pathToFileURL(join(root, name)).href
   const kvStore = (store: KVStoreConfig, name?: string): KVStoreConfig => store.driver === "fs-lite"
@@ -28,7 +28,6 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
-  const consoleOptions = options.console === true ? { auth: "app" as const } : options.console
   return {
     ...options,
     ...(cache ? { cache } : {}),
@@ -42,23 +41,14 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent ? {
       agent: {
         ...agent,
-        ...(state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
-          providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        ...(state !== false && (!state?.driver || ["auto", "sqlite", "libsql"].includes(state.driver)) ? {
+          providers: { ...agent.providers, state: { ...state, driver: state?.driver ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
         } : {}),
         ...(isDefaultAgentJournal(agent.invocations) ? {
           invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },
         } : {}),
       },
     } : {}),
-    ...(consoleOptions === undefined ? {} : {
-      console: consoleOptions === false ? false : {
-        ...consoleOptions,
-        auth: consoleOptions.auth instanceof Object && "provider" in consoleOptions.auth && consoleOptions.auth.provider === "github" ? {
-          ...consoleOptions.auth,
-          databasePath: consoleOptions.auth.databasePath ?? join(root, "console-auth.sqlite"),
-        } : consoleOptions.auth,
-      },
-    }),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
@@ -71,7 +61,7 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
  * Read the binding of the default or only Database Definition before integration defaults.
  */
 export function defaultDatabaseD1Binding(
-  preset: string,
+  host: string,
   database: ViteHubOptions["database"],
   definitions?: {
     /** Use the implicit default Database when the app has no Database Definition, as the Vite Database plugin does. */
@@ -80,7 +70,7 @@ export function defaultDatabaseD1Binding(
     serverDirs?: string[]
   },
 ): string | undefined {
-  if (preset !== "cloudflare" || !database) return
+  if (host !== "cloudflare" || !database) return
   if (!definitions) return
   const { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } = requireOptionalOwner(ownerModules.databaseConfig, "database")
   const options = database === true ? undefined : database

@@ -12,6 +12,5 @@ export default defineConfig(({ mode }) => ({
       input: resolve(import.meta.dirname, mode === "client" ? "index.html" : "src/server.ts"),
     },
   },
-  plugins: [hubEnv()],
-  env: envSchema(new URL("./.env.example", import.meta.url)),
+  plugins: [hubEnv(envSchema(new URL("./.env.example", import.meta.url)))],
 }));

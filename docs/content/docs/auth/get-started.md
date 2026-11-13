@@ -19,10 +19,10 @@ In this tutorial, you sign up a user with an email and a password. Then you use 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Auth and Better Auth to your app:
+Add Auth, Better Auth, and Drizzle to your app. Auth uses the `drizzle-orm` of your app, so the app has one copy:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/auth better-auth
+pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5
 ```
 
 Add `auth: true` to the ViteHub options of your app. Keep the other options of your app.
@@ -32,7 +32,7 @@ Add `auth: true` to the ViteHub options of your app. Keep the other options of y
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', auth: true },
+  vitehub: { host: 'node', auth: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', auth: true }), nitro()],
+  plugins: [vitehub({ host: 'node', auth: true }), nitro()],
 })
 ```
 ::::
@@ -55,7 +55,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', auth: true })],
+  plugins: [vitehub({ host: 'node', auth: true })],
 })
 ```
 ::::
@@ -135,6 +135,10 @@ Keep users in a database, set the secret, and add rate limits.
 
 :::card{title="Server API" icon="i-lucide-code" to="/docs/auth/server-api"}
 Protect your routes so that only signed-in users can use them.
+:::
+
+:::card{title="Abilities" icon="i-lucide-shield-check" to="/docs/auth/abilities"}
+Write each permission rule once and check it on the server and in Vue.
 :::
 
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/auth/hosts"}

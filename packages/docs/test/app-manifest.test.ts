@@ -16,7 +16,7 @@ async function appManifest(files: Record<string, string>): Promise<{ full: DocsM
       mkdirSync(dirname(join(dir, file)), { recursive: true })
       writeFileSync(join(dir, file), contents)
     }
-    const full = createDocsManifest({ dir, base: "/docs" })
+    const full = await createDocsManifest({ dir, base: "/docs" })
     writeFileSync(join(dir, "app-manifest.mjs"), docsAppManifestSource(full))
     // SAFETY: the module default-exports the app manifest that docsAppManifestSource() writes.
     const app = (await import(join(dir, "app-manifest.mjs")) as { default: DocsManifest<DocsAppPage> }).default

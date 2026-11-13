@@ -5,7 +5,7 @@ export type Framework = typeof frameworks[number]
 // comark-ui's tabs keep the label of the synced tab here, and Nuxt UI's prose tabs keep its index.
 const comarkKey = "comark-tabs:framework"
 const nuxtUiKey = "tabs-framework"
-const tabSelector = '.ct[data-tabs-sync="framework"] > .ct-list > [role="tab"]'
+const tabSelector = '.ct[data-tabs-sync="framework"] > .ct-list > [role=tab]'
 
 export function isFramework(value: unknown): value is Framework {
   return frameworks.some(framework => framework === value)

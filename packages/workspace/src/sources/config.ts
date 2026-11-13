@@ -32,6 +32,7 @@ import type {
   WorkspaceValidateMode,
 } from "../core/types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
@@ -276,7 +277,7 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
 }
 
 function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): Error {
-  return workspaceErrorDiagnostics.WORKSPACE_C0005({ message: `[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.` })
+  return workspaceErrorDiagnostics.WORKSPACE_C0005({ message: `[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A Source helper call, for example github(...) or custom(...), makes the source kind explicit.` })
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {
@@ -291,7 +292,11 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
   const livePaths = inferredLivePaths(family, input)
 
   async function loadSource() {
-    sourcePromise ||= loadInferredWorkspaceSource(family, input)
+    // A failed load lets the next call try again.
+    sourcePromise ||= loadInferredWorkspaceSource(family, input).catch((error: unknown) => {
+      sourcePromise = undefined
+      throw error
+    })
     return await sourcePromise
   }
 
@@ -514,10 +519,6 @@ function isExplicitSourceBinding(input: WorkspaceSourceInput): input is Workspac
 
 function hasSourceMethods(input: Record<string, unknown>) {
   return typeof input.getKeys === "function" && typeof input.getItem === "function"
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function hasOwn(input: Record<string, unknown>, key: string) {

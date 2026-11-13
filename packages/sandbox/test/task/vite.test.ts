@@ -7,11 +7,19 @@ import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
 import { build as viteBuild, type AliasOptions } from "vite"
 
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
 
 const tempDirs: string[] = []
+
+function idHook(hook: unknown): (id: string) => string | undefined | Promise<string | undefined> {
+  const handler: unknown = typeof hook === "function" ? hook : Reflect.get(Object(hook), "handler")
+  if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
+  // SAFETY: The Sandbox Task state hooks take an id and return a resolved id or module source.
+  return handler as (id: string) => string | undefined | Promise<string | undefined>
+}
 const realpathMock = vi.hoisted(() => ({ windowsSeparators: false }))
 const runtimePreparationMock = vi.hoisted(() => ({
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
@@ -120,7 +128,7 @@ async function createViteRoot(parentDir = tmpdir()) {
   await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
     `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
     ``,
-    `export default defineSandboxTask({ run: async () => ({ ok: true }) })`,
+    `export default defineSandboxTask({ handler: async () => ({ ok: true }) })`,
     ``,
   ].join("\n"))
   return rootDir
@@ -134,12 +142,12 @@ afterEach(async () => {
 })
 
 describe("hubSandboxTask", () => {
-  it.each(["plugin", "config"] as const)("omits Sandbox Task Definitions disabled through %s", async (disabledBy) => {
+  it("omits Sandbox Task Definitions when the plugin is disabled", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask(disabledBy === "plugin" ? false : undefined)
+    const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
-    await configHook({ root: rootDir, ...(disabledBy === "config" ? { sandboxTask: false } : {}) }, { command: "build", mode: "production" })
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
 
     const inspectors = await collectViteHubDefinitionInspectors([plugin])
     expect(inspectors).toEqual([])
@@ -156,14 +164,14 @@ describe("hubSandboxTask", () => {
     } as never)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     const configResult = await configHook({
       root: rootDir,
-      sandboxTask: {
+      [VITEHUB_FEATURES]: { sandboxTask: {
         provider: "vercel",
-      },
+      } },
     }, {
       command: "serve",
       mode: "development",
@@ -174,6 +182,10 @@ describe("hubSandboxTask", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
+    const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
+    const ids = ["#vitehub/sandbox-task", resolvedId as string, "#vitehub/sandbox-task-registry", "#vitehub/sandbox-task/state", "@vite-hub/sandbox/task", "/app/server/api/run.ts"]
+    expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/sandbox-task", "\0vitehub:sandbox-task:state"])
+    expect(ids.filter(id => idFilter(plugin.load).test(id))).toEqual(["#vitehub/sandbox-task", "\0vitehub:sandbox-task:state"])
     const alias = (configResult as { resolve: { alias: AliasOptions } }).resolve.alias
     const registryAlias = readAlias(alias, "#vitehub-sandbox-task-registry")!
     const providerLoaderAlias = readAlias(alias, "vitehub-sandbox-task-provider-loader")!
@@ -187,7 +199,7 @@ describe("hubSandboxTask", () => {
     expect(providerImportAliases["vite-hub/sandbox/task"]).toBe(sandboxTaskAlias)
     expect(providerImportAliases["vitehub-sandbox-task-provider-loader"]).toBe(providerLoaderAlias)
 
-    await configHook({ root: rootDir, sandboxTask: false }, { command: "serve", mode: "development" })
+    await configHook({ root: rootDir, [VITEHUB_FEATURES]: { sandboxTask: false } }, { command: "serve", mode: "development" })
     await configResolved({ root: rootDir, resolve: { alias: [] } })
     expect(providerImportAliases).not.toHaveProperty("@vite-hub/sandbox/task")
     expect(providerImportAliases).not.toHaveProperty("vite-hub/sandbox/task")
@@ -232,7 +244,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     await writeFile(join(rootDir, "src/__proto__.sandbox-task.ts"), [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ timeout: 5000, run: async () => ({ message: "prototype sandbox" }) })`,
+      `export default defineSandboxTask({ timeout: 5000, handler: async () => ({ message: "prototype sandbox" }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -257,7 +269,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     await writeFile(join(rootDir, "src/tools/unrelated.sandbox-task.ts"), [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => ({ unrelated: true }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ unrelated: true }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -291,8 +303,8 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({
       root: rootDir,
@@ -352,10 +364,10 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
-    await configHook({ root: rootDir, preset: "vercel" }, { command: "serve", mode: "development" })
+    await configHook({ root: rootDir, nitro: { preset: "vercel" } }, { command: "serve", mode: "development" })
 
     const resolvedId = await resolveId("#vitehub/sandbox-task")
     const code = await load(resolvedId as string)
@@ -374,7 +386,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
       `import { message } from "@/lib/message"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -416,7 +428,7 @@ describe("hubSandboxTask", () => {
       `import { basename } from "node:path"`,
       `import { message } from "../lib/message.ts"`,
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => ({ message, name: basename("/tmp/value") }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message, name: basename("/tmp/value") }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -458,7 +470,7 @@ describe("hubSandboxTask", () => {
       `import kleur from "kleur"`,
       `export default defineSandboxTask({`,
       `  project: false,`,
-      `  async run(path: string) {`,
+      `  async handler(path: string) {`,
       `    await readFile(path)`,
       `    return kleur.green("ready")`,
       `  },`,
@@ -467,7 +479,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(rootDir, "src/tools/forced-project.sandbox-task.ts"), [
       `const definition = defineSandboxTask({`,
       `  project: true,`,
-      `  run: async () => "project",`,
+      `  handler: async () => "project",`,
       `})`,
       `export default definition`,
     ].join("\n"))
@@ -517,7 +529,7 @@ describe("hubSandboxTask", () => {
     }, null, 2))
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
       `import kleur from "kleur"`,
-      `export default defineSandboxTask({ run: async () => ({ message: kleur.green("ready") }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message: kleur.green("ready") }) })`,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "vercel" })
@@ -548,7 +560,7 @@ describe("hubSandboxTask", () => {
       `import { version } from "@/lib/version"`,
       `import { processAlias } from "process/"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ processAlias, version, node: execFileSync(process.execPath, ["--version"]).toString() }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ processAlias, version, node: execFileSync(process.execPath, ["--version"]).toString() }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -644,8 +656,8 @@ describe("hubSandboxTask", () => {
     const plugin = hubSandboxTask()
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
     const userConfig = {
       root: rootDir,
       nitro: { preset: "cloudflare-module" } as Record<string, any>,
@@ -755,8 +767,9 @@ describe("hubSandboxTask", () => {
       rollupConfig: {
         external: unknown
         plugins: Array<{
-          load: (id: string) => string
+          load: { filter: { id: RegExp }, handler: (id: string) => string }
           name: string
+          resolveId: { filter: { id: RegExp } }
           renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => { code: string }
         }>
       }
@@ -765,7 +778,10 @@ describe("hubSandboxTask", () => {
     expect(configuredNitro.rollupConfig.external).toEqual(["application-runtime", "cloudflare:workers"])
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-task-cloudflare-exports:Sandbox")
-    const exportsModule = rollupPlugin.load("\0virtual:vitehub-sandbox-task-cloudflare-exports")
+    const exportsModule = rollupPlugin.load.handler("\0virtual:vitehub-sandbox-task-cloudflare-exports")
+    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
+    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare"])
+    expect(ids.filter(id => rollupPlugin.load.filter.id.test(id))).toEqual(["\0virtual:vitehub-sandbox-task-cloudflare-exports"])
     expect(exportsModule).toContain("import { DurableObject } from 'cloudflare:workers'")
     expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")
     expect(exportsModule)
@@ -1122,8 +1138,7 @@ describe("hubSandboxTask", () => {
     const userConfig = {
       root: rootDir,
       plugins: [{ name: "nitro:main" }],
-      preset,
-      nitro: {},
+      nitro: { preset },
     }
     await configHook(userConfig, { command: "build", mode: "production" })
     const runNitroBuildBefore = createSandboxTaskNitroLifecycle(plugin, [/existing/])
@@ -1149,7 +1164,7 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir, nitro: {}, preset: "vercel" }
+    const userConfig = { root: rootDir, nitro: {} }
     await configHook(userConfig, { command: "build", mode: "production" })
     const runNitroBuildBefore = createSandboxTaskNitroLifecycle(plugin, [/existing/])
 
@@ -1212,7 +1227,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
       `import { message } from "#late/message"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -1246,14 +1261,14 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({
       root: rootDir,
-      sandboxTask: {
+      [VITEHUB_FEATURES]: { sandboxTask: {
         provider: "vercel",
-      },
+      } },
     }, {
       command: "serve",
       mode: "development",
@@ -1271,8 +1286,8 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
-    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const resolveId = idHook(plugin.resolveId)
+    const load = idHook(plugin.load)
 
     await configHook({
       root: rootDir,
@@ -1452,7 +1467,7 @@ describe("hubSandboxTask", () => {
     await writeFile(definition, [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message: "updated" }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message: "updated" }) })`,
       ``,
     ].join("\n"))
     await handleHotUpdate({
@@ -1488,7 +1503,7 @@ describe("hubSandboxTask", () => {
     expect(resolve(dirname(currentResolvedRegistry), definitionImport)).toBe(currentResolvedDefinition)
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
 
-    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'latest' }) }\n")
     await handleHotUpdate({
       file: definition,
       server: {
@@ -1552,12 +1567,12 @@ describe("hubSandboxTask", () => {
       }
     }
 
-    await writeFile(definition, "export default { run: async () => ({ message: 'first' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'first' }) }\n")
     const firstUpdate = handleHotUpdate(context)
     await firstPrepared.promise
     const firstGenerationSandbox = await realpath(sandboxTaskAlias)
 
-    await writeFile(definition, "export default { run: async () => ({ message: 'second' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'second' }) }\n")
     const secondUpdate = handleHotUpdate(context)
     releaseFirst.resolve()
     await secondStarted.promise
@@ -1609,7 +1624,7 @@ describe("hubSandboxTask", () => {
     }) => Promise<void>
 
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
-    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'updated' }) }\n")
     realpathMock.windowsSeparators = separators === "Windows"
     await handleHotUpdate({
       file: definition,
@@ -1692,7 +1707,7 @@ describe("hubSandboxTask", () => {
     await rm(join(rootDir, "src/tools/release-notes.sandbox-task.ts"))
     await writeFile(join(rootDir, "src/tools/next.sandbox-task.ts"), [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => ({ next: true }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ next: true }) })`,
       ``,
     ].join("\n"))
     await configResolved({ root: rootDir, resolve: { alias: [] } })
@@ -1726,9 +1741,9 @@ describe("hubSandboxTask", () => {
     await expect(readFile(stableDefinition, "utf8")).resolves.toContain("release-notes")
 
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
-    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'updated' }) }\n")
     await prepareSandboxTaskRuntime(options)
-    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'latest' }) }\n")
     await prepareSandboxTaskRuntime(options)
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -1758,7 +1773,7 @@ describe("hubSandboxTask", () => {
     const generated = join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/tools__release-notes.mjs")
     const previous = await readFile(generated, "utf8")
     expect((await lstat(join(rootDir, ".vitehub/sandbox-task/runtime"))).isSymbolicLink()).toBe(true)
-    await writeFile(definition, "export default { run: async () => {\n")
+    await writeFile(definition, "export default { handler: async () => {\n")
 
     await expect(configResolved({ root: rootDir, resolve: { alias: [] } })).rejects.toThrow()
     await expect(readFile(generated, "utf8")).resolves.toBe(previous)
@@ -1868,7 +1883,7 @@ describe("hubSandboxTask", () => {
     }))
     await writeFile(definition, [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ project: true, run: async () => ({ ok: true }) })`,
+      `export default defineSandboxTask({ project: true, handler: async () => ({ ok: true }) })`,
       ``,
     ].join("\n"))
 
@@ -1936,7 +1951,7 @@ describe("hubSandboxTask", () => {
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
       `import { message } from "./message"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -1996,7 +2011,7 @@ describe("hubSandboxTask", () => {
     await writeFile(helper, `export const message = "initial"\n`)
     await writeFile(definition, [
       `import { message } from "./message"`,
-      `export default { run: async () => ({ message }) }`,
+      `export default { handler: async () => ({ message }) }`,
       ``,
     ].join("\n"))
 
@@ -2028,7 +2043,7 @@ describe("hubSandboxTask", () => {
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
     await writeFile(definition, [
       `import { readdir } from "node:fs/promises"`,
-      `export default { run: async () => readdir("./prompts") }`,
+      `export default { handler: async () => readdir("./prompts") }`,
       ``,
     ].join("\n"))
 

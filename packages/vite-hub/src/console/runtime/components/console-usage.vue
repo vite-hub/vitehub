@@ -1,11 +1,11 @@
 <script setup lang="ts">
+import { consoleNumber } from "../client/format";
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import * as v from "valibot";
 
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
-import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
@@ -32,7 +32,7 @@ import {
 
 type UsageBreakdown = "model" | "time";
 type UsageSection = "overview" | "sessions" | "accounts";
-type UsageWindow = "24h" | "7d" | "30d" | "90d";
+type UsageWindow = "24h" | "7d" | "14d" | "30d" | "90d";
 const usageTotalsEntries = {
   cacheWriteTokens: v.number(),
   cacheWriteTokensAvailable: v.boolean(),
@@ -152,7 +152,7 @@ function setFilter(key: string, value: string) {
 }
 const window = computed<UsageWindow>({
   get: () => {
-    const parsed = v.safeParse(v.picklist(["24h", "7d", "30d", "90d"]), route.query.window);
+    const parsed = v.safeParse(v.picklist(["24h", "7d", "14d", "30d", "90d"]), route.query.window);
     return parsed.success ? parsed.output : "30d";
   },
   set: value => setFilter("window", value),
@@ -169,7 +169,7 @@ const section = computed<UsageSection>({
 // An explicit choice stays in the query. Without one, the page shows cost when the Agents record it.
 const metric = computed<UsageMetric>({
   get: () => {
-    const parsed = v.safeParse(v.picklist(["cost", "tokens"]), route.query.metric);
+    const parsed = v.safeParse(v.picklist(["cost", "sessions", "tokens"]), route.query.metric);
     const requested = parsed.success ? parsed.output : costSupported.value ? "cost" : "tokens";
     return requested === "cost" && !costSupported.value ? "tokens" : requested;
   },
@@ -263,7 +263,7 @@ const totals = computed(() => {
   const value = summary.value;
   if (!value) return [];
   const items = [
-    { label: "Sessions", text: `${value.sessionCount.toLocaleString("en")}${value.totals.invocationsAvailable ? "" : " recorded"}` },
+    { label: "Sessions", text: `${consoleNumber(value.sessionCount)}${value.totals.invocationsAvailable ? "" : " recorded"}` },
     { label: "Tokens", text: formatTokenEvidence(value.totals.totalTokens, value.totals.totalTokensAvailable) },
   ];
   if (costSupported.value) {
@@ -316,16 +316,38 @@ function previousRuns() {
 
 let request: AbortController | undefined;
 
+// The range picker offers the common views. A link can still ask for 24 hours or 90 days.
 const windowOptions: Array<{ label: string; value: UsageWindow }> = [
-  { label: "24 hours", value: "24h" },
   { label: "7 days", value: "7d" },
+  { label: "14 days", value: "14d" },
   { label: "30 days", value: "30d" },
-  { label: "90 days", value: "90d" },
 ];
+const windowLabels: Record<UsageWindow, string> = { "24h": "24 hours", "7d": "7 days", "14d": "14 days", "30d": "30 days", "90d": "90 days" };
+const spendLabel = computed(() => summary.value?.totals.costEstimated === false ? "Spend" : "Est. spend");
 const metricOptions = computed<Array<{ label: string; value: UsageMetric }>>(() => [
-  ...(costSupported.value ? [{ label: "Cost", value: "cost" as const }] : []),
+  { label: "Sessions", value: "sessions" },
   { label: "Tokens", value: "tokens" },
+  ...(costSupported.value ? [{ label: spendLabel.value, value: "cost" as const }] : []),
 ]);
+// The big numbers of the period. Each one also picks the metric of the chart and the ranking.
+const headline = computed(() => {
+  const value = summary.value;
+  if (!value) return [];
+  return metricOptions.value.map(option => ({
+    ...option,
+    note: option.value === "cost" && value.totals.costEstimated ? "models.dev prices" : undefined,
+    text: option.value === "sessions"
+      ? `${consoleNumber(value.sessionCount)}${value.totals.invocationsAvailable ? "" : " recorded"}`
+      : formatConsoleUsageValue(value.totals, option.value).replace(/^~/, ""),
+  }));
+});
+/** Neutral steps from the text color, so the share bar reads by rank and never looks like a status color. */
+const shareColors = [100, 72, 52, 36, 24, 16].map(percent => `color-mix(in oklab, var(--ui-text-highlighted) ${percent}%, var(--ui-bg))`);
+const modelSegments = computed(() => breakdownModels.value
+  .map((model, index) => ({ color: shareColors[Math.min(index, shareColors.length - 1)]!, key: model.model, label: model.model, value: consoleUsageMetricValue(model, metric.value) }))
+  .filter(segment => segment.value > 0));
+const updatedAt = computed(() => summary.value ? formatTimestamp(summary.value.generatedAt) : undefined);
+const agentRows = computed(() => (summary.value?.agents ?? []).map(row => ({ agent: row.agent, count: row.invocations })));
 const breakdownOptions = computed<Array<{ label: string; value: UsageBreakdown }>>(() => [
   { label: "Model", value: "model" },
   { label: summary.value?.resolution === "hour" ? "Hour" : "Day", value: "time" },
@@ -335,7 +357,7 @@ const chartPoints = computed<ConsoleUsageChartPoint[]>(() =>
     consoleUsageChartPoint(bucket.start, bucket, metric.value, summary.value?.resolution ?? "day")),
 );
 const partialChart = computed(() => chartPoints.value.some(point => point.evidence === "partial"));
-const chartTitle = computed(() => `${summary.value?.resolution === "hour" ? "Hourly" : "Daily"} ${metric.value === "cost" ? "cost" : "tokens"}`);
+const chartTitle = computed(() => `${summary.value?.resolution === "hour" ? "Hourly" : "Daily"} ${metric.value === "cost" ? "spend" : metric.value}`);
 // Unknown cost is not zero. When no period has cost evidence, offer the token trend instead.
 const tokenEvidence = computed(() => Boolean(summary.value && (summary.value.totals.totalTokensAvailable || summary.value.totals.totalTokens > 0)));
 const breakdownBuckets = computed(() =>
@@ -394,6 +416,7 @@ function formatValue(totals: UsageTotals): string {
 }
 
 function formatMetricNumber(value: number): string {
+  if (metric.value === "sessions") return value.toLocaleString("en");
   return metric.value === "cost" ? formatCost(String(value)) : formatTokens(value);
 }
 
@@ -472,97 +495,127 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 </script>
 
 <template>
-  <UDashboardPanel id="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
+  <UDashboardPanel id="console-usage" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
     <template #header>
       <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
         <template #right>
+          <span v-if="updatedAt" class="hidden text-xs text-dimmed tabular-nums sm:inline">Updated {{ updatedAt }}</span>
           <UButton class="md:hidden" aria-label="Open agent sessions" color="neutral" icon="i-lucide-list" label="Sessions" size="sm" variant="ghost" @click="emit('open-sessions')" />
-          <USelect v-model="window" aria-label="Usage period" class="w-28" size="sm" value-key="value" :items="windowOptions" />
-          <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
+          <UTooltip text="Refresh usage">
+            <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="refresh(); loadStatus();" />
+          </UTooltip>
         </template>
       </UDashboardNavbar>
-      <ConsolePageToolbar role="search" aria-label="Session history filters" width="6xl">
-        <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-72" size="sm" />
-        <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
-        <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
-        <UButton v-if="filtered" label="Clear" color="neutral" variant="ghost" size="sm" @click="clearFilters" />
-      </ConsolePageToolbar>
     </template>
     <template #body>
-      <main class="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6" :aria-busy="loading">
-        <ConsoleState v-if="error" compact :error="error" title="Could not load session history" :retry="load" />
-        <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
-          <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          Some usage is unavailable. Recorded totals include only the evidence received.
-        </p>
-        <template v-if="summary">
-          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-default bg-(--ui-border)" :class="costSupported ? 'sm:grid-cols-4' : 'sm:grid-cols-2'" aria-label="Session history totals">
-            <div v-for="total in totals" :key="total.label" class="bg-default px-4 py-3">
-              <dt class="text-xs text-muted">{{ total.label }}</dt>
-              <dd class="mt-1 flex items-baseline gap-1.5 tabular-nums">
-                <span class="text-lg font-semibold text-highlighted">{{ total.value }}</span>
-                <span v-if="total.note" class="text-xs text-muted">{{ total.note }}</span>
-              </dd>
+      <div class="usage-page">
+        <main class="usage-page__main" :aria-busy="loading">
+          <div class="usage-page__controls">
+            <nav class="usage-toggles" aria-label="Usage sections">
+              <button v-for="item in sections" :key="item.value" type="button" :data-tab="item.value" :aria-current="section === item.value ? 'page' : undefined" @click="section = item.value as UsageSection">{{ item.label }}</button>
+            </nav>
+            <span class="usage-toggles__divider" aria-hidden="true" />
+            <div class="usage-toggles" role="group" aria-label="Usage period">
+              <button v-for="option in windowOptions" :key="option.value" type="button" :aria-pressed="window === option.value" @click="window = option.value">{{ option.label }}</button>
             </div>
-          </dl>
-        </template>
-        <p v-else-if="loading" class="py-5 text-sm text-muted" role="status">Loading session history…</p>
-        <UTabs
-          v-model="section"
-          :items="sections"
-          aria-label="Usage sections"
-          color="neutral"
-          size="sm"
-          :ui="{
-            root: 'items-stretch gap-3',
-            list: 'w-fit gap-1 bg-transparent p-0',
-            indicator: 'hidden',
-            trigger: 'rounded-md px-2.5 data-[state=inactive]:text-muted data-[state=inactive]:hover:text-highlighted data-[state=active]:bg-elevated data-[state=active]:text-highlighted',
-          }"
-        >
-          <template #overview>
+          </div>
+          <ConsoleState v-if="error" compact :error="error" title="Could not load usage" :retry="load" />
+          <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
+            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            Some usage is unavailable. Recorded totals include only the evidence received.
+          </p>
+          <!-- The skeleton has the height of the numbers, so they do not push the page down when they arrive. -->
+          <div v-if="!summary && loading" class="usage-headline" role="status" aria-label="Loading usage">
+            <div v-for="index in 3" :key="index" class="grid gap-1.5">
+              <USkeleton class="h-3.5 w-16" />
+              <USkeleton class="h-10 w-28" />
+              <USkeleton class="h-3 w-20" />
+            </div>
+          </div>
+
+          <template v-if="section === 'overview'">
             <UEmpty v-if="summary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />
-            <div v-if="summary?.available" class="mt-3 flex flex-col gap-8">
-              <section class="flex flex-col gap-4">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 class="text-sm font-semibold">{{ chartTitle }}</h2>
-                    <p class="mt-0.5 text-xs text-muted">
-                      {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
-                      <span v-if="partialChart" class="ms-2 inline-flex items-center gap-1.5 text-default">
-                        <span class="size-1.5 rounded-full bg-warning" aria-hidden="true" /> Partial points
-                      </span>
-                    </p>
-                  </div>
-                  <div class="flex gap-1" role="group" aria-label="Usage metric">
-                    <UButton v-for="option in metricOptions" :key="option.value" :label="option.label" color="neutral" size="xs" :variant="metric === option.value ? 'soft' : 'ghost'" :aria-pressed="metric === option.value" @click="metric = option.value" />
-                  </div>
-                </div>
-                <ConsoleUsageChart
-                  :points="chartPoints"
-                  :format="formatMetricNumber"
-                  :title="chartTitle"
-                  :value-label="metric === 'cost' ? 'Cost' : 'Tokens'"
-                  :empty="`No recorded ${metric} for this period`"
-                  :unavailable="metric === 'cost' ? 'Cost is unavailable for this period' : 'Token usage is unavailable for this period'"
-                  :from="formatPeriod(summary.from, summary.resolution)"
-                  :to="formatPeriod(summary.to, summary.resolution)"
+            <template v-if="summary?.available">
+              <!-- Big numbers with small labels. Each one picks the metric of the chart and the ranking below. -->
+              <div class="usage-headline" role="group" aria-label="Usage metric">
+                <button
+                  v-for="item in headline"
+                  :key="item.value"
+                  type="button"
+                  class="usage-headline__item"
+                  :aria-pressed="metric === item.value"
+                  @click="metric = item.value"
                 >
-                  <template #unavailable>
-                    <UButton
-                      v-if="metric === 'cost' && tokenEvidence"
-                      label="Show tokens"
-                      color="neutral"
-                      variant="outline"
-                      size="xs"
-                      @click="metric = 'tokens'"
-                    />
-                  </template>
-                </ConsoleUsageChart>
+                  <span class="usage-headline__label">{{ item.label }}</span>
+                  <span class="usage-headline__value">{{ item.text.replace(/ recorded$/, "") }}</span>
+                  <span class="usage-headline__note">{{ item.text.endsWith(" recorded") ? "recorded" : item.note ?? "" }}&nbsp;</span>
+                </button>
+              </div>
+              <p class="usage-page__caption">
+                {{ windowLabels[window] }} · {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
+                <span v-if="partialChart" class="ms-2 inline-flex items-center gap-1.5 text-default">
+                  <span class="size-1.5 rounded-full bg-warning" aria-hidden="true" /> Partial points
+                </span>
+              </p>
+
+              <section v-if="metric !== 'sessions' && modelSegments.length > 1" aria-label="Share by model" class="usage-share">
+                <div role="img" :aria-label="`Share of ${metric === 'cost' ? 'spend' : metric} by model: ${breakdownModels.map(model => `${model.model} ${modelShare(model)}`).join(', ')}`" class="usage-share__bar">
+                  <span v-for="segment in modelSegments" :key="segment.key" :style="{ flex: `${segment.value} 1 0`, backgroundColor: segment.color }" :title="`${segment.label} · ${formatMetricNumber(segment.value)}`" />
+                </div>
               </section>
 
-              <!-- The bar splits input into uncached, cache read, and cache write. Without a consistent split, the totals per type show instead. -->
-              <section v-if="tokenSegments?.segments.length && summary.totals.totalTokens > 0" aria-label="Usage mix" class="flex flex-col gap-2">
+              <ConsoleUsageChart
+                :points="chartPoints"
+                :format="formatMetricNumber"
+                :title="chartTitle"
+                :value-label="metric === 'cost' ? spendLabel : metric === 'sessions' ? 'Sessions' : 'Tokens'"
+                :empty="`No recorded ${metric === 'cost' ? 'spend' : metric} for this period`"
+                :unavailable="metric === 'cost' ? 'Spend is unavailable for this period' : 'Usage is unavailable for this period'"
+                :from="formatPeriod(summary.from, summary.resolution)"
+                :to="formatPeriod(summary.to, summary.resolution)"
+              >
+                <template #unavailable>
+                  <UButton v-if="metric === 'cost' && tokenEvidence" label="Show tokens" color="neutral" variant="outline" size="xs" @click="metric = 'tokens'" />
+                </template>
+              </ConsoleUsageChart>
+
+              <section class="usage-ranked" aria-labelledby="usage-ranked-heading">
+                <header>
+                  <h2 id="usage-ranked-heading">{{ breakdown === "model" ? "Models" : summary.resolution === "hour" ? "Hours" : "Days" }}</h2>
+                  <div class="usage-toggles usage-toggles--small" role="group" aria-label="Usage breakdown">
+                    <button v-for="option in breakdownOptions" :key="option.value" type="button" :aria-pressed="breakdown === option.value" @click="breakdown = option.value">{{ option.label }}</button>
+                  </div>
+                </header>
+                <ol v-if="breakdown === 'model' && summary.models.length" data-slot="usage-model-breakdown">
+                  <li class="usage-ranked__head" aria-hidden="true">
+                    <span /><span>Model</span><span>Sessions</span><span>{{ metric === "sessions" ? "Tokens" : metricOptions.find(option => option.value === metric)?.label }}</span><span v-if="metric !== 'sessions'">Share</span>
+                  </li>
+                  <li v-for="(model, index) in breakdownModels" :key="model.model">
+                    <span class="usage-ranked__rank">{{ index + 1 }}</span>
+                    <span class="usage-ranked__name">
+                      <button type="button" :aria-label="`${model.model} usage details`" @click="selectedModelName = model.model">{{ model.model }}</button>
+                      <span aria-hidden="true" class="usage-ranked__bar" :style="{ width: modelBarWidth(model) }" />
+                    </span>
+                    <span>{{ formatTokenEvidence(model.invocations, model.invocationsAvailable) }}</span>
+                    <span class="text-highlighted">{{ metric === "sessions" ? formatTokenEvidence(model.totalTokens, model.totalTokensAvailable) : formatValue(model).replace(/^~/, "") }}</span>
+                    <span v-if="metric !== 'sessions'">{{ modelShare(model) }}</span>
+                  </li>
+                </ol>
+                <ol v-else-if="breakdown === 'time' && summary.buckets.length">
+                  <li class="usage-ranked__head" aria-hidden="true">
+                    <span /><span>{{ summary.resolution === "hour" ? "Hour (UTC)" : "Day (UTC)" }}</span><span>Sessions</span><span>Tokens</span><span>{{ costSupported ? spendLabel : "" }}</span>
+                  </li>
+                  <li v-for="bucket in breakdownBuckets" :key="bucket.start">
+                    <span class="usage-ranked__rank" />
+                    <span class="usage-ranked__name">{{ formatPeriod(bucket.start, summary.resolution) }}</span>
+                    <span>{{ formatTokenEvidence(bucket.invocations, bucket.invocationsAvailable) }}</span>
+                    <span class="text-highlighted">{{ formatTokenEvidence(bucket.totalTokens, bucket.totalTokensAvailable) }}</span>
+                    <span>{{ costSupported ? formatCostEvidence(bucket.costUsd, bucket.costEstimated, bucket.costAvailable) : "" }}</span>
+                  </li>
+                </ol>
+              </section>
+
+              <section v-if="tokenSegments?.segments.length && summary.totals.totalTokens > 0" aria-label="Tokens by type">
                 <ConsoleUsageShareBar
                   label="Tokens by type"
                   :segments="tokenSegments.segments"
@@ -573,174 +626,41 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     <span class="text-xs text-muted">Cache hit <span class="text-highlighted tabular-nums">{{ formatConsoleUsageShare(cacheHitRate) }}</span></span>
                   </template>
                 </ConsoleUsageShareBar>
-                <p v-if="summary.totals.reasoningTokens > 0" class="text-xs text-muted">
+                <p v-if="summary.totals.reasoningTokens > 0" class="mt-2 text-xs text-muted">
                   Output includes {{ formatTokenEvidence(summary.totals.reasoningTokens, summary.totals.reasoningTokensAvailable) }} reasoning tokens.
                 </p>
               </section>
-              <section v-else aria-labelledby="usage-token-types-heading" class="flex flex-col gap-3">
-                <h2 id="usage-token-types-heading" class="text-sm font-semibold">Tokens by type</h2>
-                <dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
-                  <div v-for="stat in tokenTypeStats" :key="stat.label">
-                    <dt class="text-xs text-muted">{{ stat.label }}</dt>
-                    <dd class="mt-1 font-semibold tabular-nums">{{ formatTokenEvidence(stat.value, stat.available) }}</dd>
-                    <dd v-if="stat.note" class="mt-0.5 text-xs text-muted">{{ stat.note }}</dd>
-                  </div>
-                </dl>
-              </section>
 
-              <section class="flex flex-col gap-3">
-                <div class="flex items-center justify-between gap-3">
-                  <h2 class="text-sm font-semibold">Breakdown</h2>
-                  <div class="flex gap-1" role="group" aria-label="Usage breakdown">
-                    <UButton
-                      v-for="option in breakdownOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      color="neutral"
-                      size="xs"
-                      :variant="breakdown === option.value ? 'soft' : 'ghost'"
-                      :aria-pressed="breakdown === option.value"
-                      @click="breakdown = option.value"
-                    />
-                  </div>
-                </div>
-                <div class="overflow-x-auto rounded-md border border-default">
-                  <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-xl text-xs" data-slot="usage-model-breakdown">
-                    <thead class="bg-elevated/30 text-left text-muted">
-                      <tr>
-                        <th class="h-9 w-10 pr-2 pl-3 font-medium" scope="col">#</th>
-                        <th class="h-9 pr-3 font-medium" scope="col">Model</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Sessions</th>
-                        <th v-if="costSupported" class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Share</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="(model, index) in breakdownModels"
-                        :key="model.model"
-                        class="relative border-t border-default transition-colors hover:bg-elevated/50 has-focus-visible:bg-elevated/50"
-                      >
-                        <td class="py-2.5 pr-2 pl-3 text-muted tabular-nums">{{ index + 1 }}</td>
-                        <td class="py-2.5 pr-3">
-                          <!-- The button overlay makes the whole row open the model. Focus shows as the row fill. -->
-                          <button
-                            type="button"
-                            class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
-                            :aria-label="`${model.model} usage details`"
-                            @click="selectedModelName = model.model"
-                          >
-                            {{ model.model }}
-                          </button>
-                          <div aria-hidden="true" class="mt-1.5 h-0.5 max-w-48">
-                            <div class="h-full rounded-full bg-primary" :style="{ width: modelBarWidth(model) }" />
-                          </div>
-                        </td>
-                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ formatTokenEvidence(model.invocations, model.invocationsAvailable) }}</td>
-                        <td v-if="costSupported" class="px-3 py-2.5 text-right tabular-nums" :class="model.pricedInvocations ? '' : 'text-muted'">{{ formatCostEvidence(model.costUsd, model.costEstimated, model.costAvailable) }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ modelShare(model) }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums">{{ formatTokenEvidence(model.totalTokens, model.totalTokensAvailable) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <table v-else-if="breakdown === 'time' && summary.buckets.length" class="w-full min-w-xl text-xs">
-                    <thead class="bg-elevated/30 text-left text-muted">
-                      <tr>
-                        <th class="h-9 px-3 font-medium" scope="col">{{ summary.resolution === "hour" ? "Hour (UTC)" : "Day (UTC)" }}</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Sessions</th>
-                        <th v-if="costSupported" class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="bucket in breakdownBuckets" :key="bucket.start" class="border-t border-default">
-                        <td class="px-3 py-2.5 font-medium">{{ formatPeriod(bucket.start, summary.resolution) }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ formatTokenEvidence(bucket.invocations, bucket.invocationsAvailable) }}</td>
-                        <td v-if="costSupported" class="px-3 py-2.5 text-right tabular-nums">{{ formatCostEvidence(bucket.costUsd, bucket.costEstimated, bucket.costAvailable) }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums">{{ formatTokenEvidence(bucket.totalTokens, bucket.totalTokensAvailable) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+              <section v-if="costSupported && summary.expensive.length" class="usage-ranked" aria-labelledby="usage-expensive-heading">
+                <header>
+                  <h2 id="usage-expensive-heading">Most expensive sessions</h2>
+                  <span class="text-xs text-dimmed">{{ summary.totals.pricedInvocations }} of {{ summary.totals.invocations }} sessions priced</span>
+                </header>
+                <ol>
+                  <li v-for="(run, index) in summary.expensive" :key="run.id">
+                    <span class="usage-ranked__rank">{{ index + 1 }}</span>
+                    <span class="usage-ranked__name">
+                      <RouterLink v-if="runRoute(run)" :to="runRoute(run)!" :title="run.id">{{ run.usage?.model || run.agent }}</RouterLink>
+                      <span v-else :title="run.id">{{ run.usage?.model || run.agent }}</span>
+                      <small><time :datetime="run.at" :title="formatDateTime(run.at)">{{ formatTimestamp(run.at) }}</time> · {{ run.agent }}</small>
+                    </span>
+                    <span class="capitalize">{{ run.status }}</span>
+                    <span>{{ run.usage?.totalTokens === undefined ? "Unavailable" : formatTokens(run.usage.totalTokens) }}</span>
+                    <span class="text-highlighted">{{ run.usage?.cost ? formatCost(run.usage.cost.usd, run.usage.cost.estimated) : "Unavailable" }}</span>
+                  </li>
+                </ol>
               </section>
-
-              <section v-if="costSupported && summary.totals.pricedInvocations" class="flex flex-col gap-3">
-                <div>
-                  <h2 class="text-sm font-semibold">Average cost per session</h2>
-                  <p class="mt-0.5 text-xs text-muted">
-                    {{ summary.totals.pricedInvocations }} of {{ summary.totals.invocations }} sessions have
-                    cost evidence. Averages use priced sessions. ~ indicates estimated cost.
-                  </p>
-                </div>
-                <div class="overflow-x-auto rounded-md border border-default">
-                  <table class="w-full min-w-lg text-xs">
-                    <thead class="bg-elevated/30 text-left text-muted">
-                      <tr>
-                        <th class="h-9 px-3 font-medium" scope="col">Agent or model</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Priced sessions</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Average</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Recorded cost</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="item in averageRows" :key="item.key" class="border-t border-default">
-                        <td class="px-3 py-2.5"><span class="font-medium text-highlighted">{{ item.label }}</span> <span class="text-muted">{{ item.kind }}</span></td>
-                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ item.pricedInvocations }} / {{ item.invocations }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums">{{ item.averageCostUsd === undefined ? "Unavailable" : formatCost(item.averageCostUsd, item.costEstimated) }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums">{{ item.pricedInvocations ? formatCost(item.costUsd, item.costEstimated) : "Unavailable" }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section v-if="costSupported && summary.expensive.length" class="flex flex-col gap-3">
-                <div class="flex items-baseline justify-between gap-3">
-                  <h2 class="text-sm font-semibold">Most expensive sessions</h2>
-                  <span class="text-xs text-muted">Top 10 with cost evidence</span>
-                </div>
-                <div class="overflow-x-auto rounded-md border border-default">
-                  <table class="w-full min-w-xl text-xs">
-                    <thead class="bg-elevated/30 text-left text-muted">
-                      <tr>
-                        <th class="h-9 px-3 font-medium" scope="col">Session</th>
-                        <th class="h-9 px-3 font-medium" scope="col">Agent / model</th>
-                        <th class="h-9 px-3 font-medium" scope="col">Status</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
-                        <th class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="run in summary.expensive" :key="run.id" class="border-t border-default">
-                        <td class="px-3 py-2.5">
-                          <RouterLink v-if="runRoute(run)" :to="runRoute(run)!" class="font-medium text-highlighted underline-offset-4 hover:underline" :title="run.id">{{ run.id.length > 24 ? `${run.id.slice(0, 20)}…` : run.id }}</RouterLink>
-                          <span v-else class="font-medium" :title="run.id">{{ run.id.length > 24 ? `${run.id.slice(0, 20)}…` : run.id }}</span>
-                          <p class="mt-0.5 text-muted"><time :datetime="run.at" :title="formatDateTime(run.at)">{{ formatTimestamp(run.at) }}</time></p>
-                        </td>
-                        <td class="px-3 py-2.5">
-                          {{ run.agent }}
-                          <p class="mt-0.5 text-muted">{{ run.usage?.model || "Model unavailable" }}</p>
-                        </td>
-                        <td class="px-3 py-2.5 text-muted capitalize">{{ run.status }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums">{{ run.usage?.totalTokens === undefined ? "Unavailable" : formatTokens(run.usage.totalTokens) }}</td>
-                        <td class="px-3 py-2.5 text-right tabular-nums">{{ run.usage?.cost ? formatCost(run.usage.cost.usd, run.usage.cost.estimated) : "Unavailable" }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
+            </template>
           </template>
-          <template #sessions>
+          <template v-else-if="section === 'sessions'">
             <section v-if="summary" aria-labelledby="session-history-heading">
               <div class="mb-3 flex items-baseline justify-between gap-3">
                 <h2 id="session-history-heading" ref="historyHeading" class="scroll-mt-4 text-sm font-semibold outline-none" tabindex="-1">Session history</h2>
                 <span class="text-xs text-muted">Newest first</span>
               </div>
-              <div v-if="summary.sessions.length" class="overflow-x-auto rounded-md border border-default">
+              <div v-if="summary.sessions.length" class="overflow-x-auto">
                 <table class="w-full min-w-[42rem] table-fixed text-xs" data-slot="session-history">
-                  <thead class="bg-elevated/30 text-left text-muted">
+                  <thead class="text-left text-dimmed">
                     <tr>
                       <th class="h-9 w-[34%] px-3 font-medium" scope="col">Session</th>
                       <th class="h-9 w-[19%] px-3 font-medium" scope="col">Agent / model</th>
@@ -776,7 +696,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </div>
             </section>
           </template>
-          <template #accounts>
+          <template v-else>
             <section aria-labelledby="usage-accounts-heading">
               <h2 id="usage-accounts-heading" class="text-sm font-semibold">Provider accounts</h2>
               <p class="mt-0.5 mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
@@ -785,11 +705,11 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
                 {{ statusError }}
               </p>
-              <div v-else class="grid gap-3 lg:grid-cols-2">
+              <div v-else class="grid gap-x-8 lg:grid-cols-2">
                 <article
                   v-for="status in accounts"
                   :key="status.account?.id || status.agent"
-                  class="space-y-3 rounded-md border border-default p-4"
+                  class="space-y-3 border-t border-default py-4"
                 >
                   <div class="flex items-center justify-between gap-3">
                     <div>
@@ -852,7 +772,6 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </div>
             </section>
           </template>
-        </UTabs>
         <USlideover
           v-model:open="modelDetailOpen"
           :title="selectedModel?.model || 'Model'"
@@ -873,7 +792,381 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             />
           </template>
         </USlideover>
-      </main>
+        </main>
+
+        <!-- A quiet column for filters, like the sidebar of a usage dashboard. -->
+        <aside class="usage-filters" aria-label="Usage filters">
+          <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search sessions" size="sm" variant="ghost" class="w-full" :ui="{ base: 'text-base sm:text-sm' }" />
+          <section aria-labelledby="usage-filter-agents">
+            <h2 id="usage-filter-agents"><span>Agents</span><small v-if="agentRows.length">{{ agentRows.length }}</small></h2>
+            <ul>
+              <li>
+                <button type="button" :aria-pressed="selectedAgent === 'all'" @click="selectedAgent = 'all'">
+                  <span class="usage-filters__check" aria-hidden="true" /><span class="usage-filters__name">All agents</span>
+                  <span class="usage-filters__count">{{ summary?.sessionCount ?? "" }}</span>
+                </button>
+              </li>
+              <li v-for="row in agentRows" :key="row.agent">
+                <button type="button" :aria-pressed="selectedAgent === `agent:${row.agent}`" @click="selectedAgent = `agent:${row.agent}`">
+                  <span class="usage-filters__check" aria-hidden="true" /><span class="usage-filters__name" :title="row.agent">{{ row.agent }}</span>
+                  <span class="usage-filters__count">{{ row.count }}</span>
+                </button>
+              </li>
+            </ul>
+          </section>
+          <section aria-labelledby="usage-filter-status">
+            <h2 id="usage-filter-status"><span>Status</span></h2>
+            <ul>
+              <li v-for="option in statusOptions" :key="option.value">
+                <button type="button" :aria-pressed="status === option.value" @click="status = option.value">
+                  <span class="usage-filters__check" aria-hidden="true" /><span class="usage-filters__name">{{ option.label }}</span>
+                </button>
+              </li>
+            </ul>
+          </section>
+          <button v-if="filtered" type="button" class="usage-filters__clear" @click="clearFilters">Clear filters</button>
+          <p class="usage-filters__note">Filters apply to every view. Est. spend adds the cost that each session recorded, estimated or reported. <code>vitehub agent usage</code> reads the same data.</p>
+        </aside>
+      </div>
     </template>
   </UDashboardPanel>
 </template>
+
+<style>
+/* Usage reads like a dashboard of numbers: text toggles, big tabular figures, hairline rows, and no boxed cards. */
+.usage-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.usage-page__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  margin-inline: auto;
+  max-width: 64rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem 3rem;
+  width: 100%;
+}
+
+.usage-page__controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.usage-toggles {
+  display: flex;
+  gap: 1rem;
+}
+
+.usage-toggles button {
+  border-block-end: 1px solid transparent;
+  position: relative;
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+  padding-block: 0.25rem;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+/* The text toggles are short. The hit area grows to 40 px tall and stays inside the 1 rem gap to the next one. */
+.usage-toggles button::before {
+  content: "";
+  inset: -0.5rem -0.375rem;
+  position: absolute;
+}
+
+.usage-toggles button:hover {
+  color: var(--ui-text-highlighted);
+}
+
+.usage-toggles button:is([aria-pressed="true"], [aria-current="page"]) {
+  border-block-end-color: var(--ui-text-highlighted);
+  color: var(--ui-text-highlighted);
+}
+
+.usage-toggles--small button {
+  font-size: 0.75rem;
+}
+
+.usage-toggles__divider {
+  background: var(--ui-border);
+  height: 1rem;
+  width: 1px;
+}
+
+.usage-headline {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+}
+
+.usage-headline__item {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  text-align: start;
+}
+
+.usage-headline__label {
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+}
+
+.usage-headline__value {
+  color: var(--ui-text-dimmed);
+  font-size: 2.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 2.5rem;
+  transition: color 150ms ease;
+}
+
+.usage-headline__item:hover .usage-headline__value,
+.usage-headline__item[aria-pressed="true"] .usage-headline__value {
+  color: var(--ui-text-highlighted);
+}
+
+.usage-headline__item[aria-pressed="true"] .usage-headline__label {
+  color: var(--ui-text-highlighted);
+}
+
+.usage-headline__note {
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+}
+
+.usage-page__caption {
+  color: var(--ui-text-dimmed);
+  font-size: 0.75rem;
+  margin-block-start: -1rem;
+}
+
+.usage-share__bar {
+  display: flex;
+  gap: 2px;
+  height: 0.375rem;
+}
+
+.usage-share__bar > span {
+  min-width: 0.25rem;
+  user-select: none;
+}
+
+.usage-share__bar > span:first-child {
+  border-end-start-radius: 9999px;
+  border-start-start-radius: 9999px;
+}
+
+.usage-share__bar > span:last-child {
+  border-end-end-radius: 9999px;
+  border-start-end-radius: 9999px;
+}
+
+.usage-ranked > header {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-block-end: 0.5rem;
+}
+
+.usage-ranked h2 {
+  color: var(--ui-text-highlighted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.usage-ranked ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.usage-ranked li {
+  align-items: center;
+  border-block-start: 1px solid var(--ui-border);
+  color: var(--ui-text-muted);
+  column-gap: 1rem;
+  display: grid;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  grid-template-columns: 1.5rem minmax(0, 1fr) 5rem 7rem 4.5rem;
+  min-height: 2.75rem;
+  padding-block: 0.5rem;
+}
+
+.usage-ranked li > span:nth-child(n + 3) {
+  text-align: end;
+}
+
+.usage-ranked li.usage-ranked__head {
+  border-block-start: 0;
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+  min-height: 1.5rem;
+  padding-block: 0;
+}
+
+.usage-ranked__rank {
+  color: var(--ui-text-dimmed);
+  font-size: 0.75rem;
+}
+
+.usage-ranked__name {
+  display: grid;
+  gap: 0.375rem;
+  justify-items: start;
+  min-width: 0;
+}
+
+.usage-ranked__name > :is(button, a, span:not(.usage-ranked__bar)) {
+  color: var(--ui-text-highlighted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-ranked__name > :is(button, a):hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.usage-ranked__name small {
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+}
+
+.usage-ranked__bar {
+  background: var(--ui-text-highlighted);
+  pointer-events: none;
+  border-radius: 9999px;
+  height: 2px;
+  max-width: 12rem;
+}
+
+.usage-filters {
+  border-inline-start: 1px solid var(--ui-border);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1rem 2rem;
+}
+
+.usage-filters h2 {
+  align-items: baseline;
+  color: var(--ui-text-highlighted);
+  display: flex;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  gap: 0.375rem;
+  margin-block-end: 0.375rem;
+}
+
+.usage-filters h2 small {
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.usage-filters ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.usage-filters li button {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 0.5rem;
+  min-height: 2rem;
+  text-align: start;
+  transition: color 150ms ease;
+  width: 100%;
+}
+
+.usage-filters li button:hover,
+.usage-filters li button[aria-pressed="true"] {
+  color: var(--ui-text-highlighted);
+}
+
+.usage-filters__check {
+  border: 1px solid var(--ui-border-accented);
+  border-radius: 0.1875rem;
+  flex: none;
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+[aria-pressed="true"] > .usage-filters__check {
+  background: var(--ui-text-highlighted);
+  border-color: var(--ui-text-highlighted);
+}
+
+.usage-filters__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-filters__count {
+  color: var(--ui-text-dimmed);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-filters__clear {
+  align-self: start;
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.usage-filters__note {
+  border-block-start: 1px solid var(--ui-border);
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  padding-block-start: 1rem;
+}
+
+/* A narrow screen stacks the filters under the numbers, and the whole page scrolls. */
+@media (max-width: 64rem) {
+  .usage-page {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .usage-page__main,
+  .usage-filters {
+    overflow: visible;
+  }
+
+  .usage-filters {
+    border-block-start: 1px solid var(--ui-border);
+    border-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-toggles button,
+  .usage-headline__value,
+  .usage-filters li button {
+    transition: none;
+  }
+}
+</style>

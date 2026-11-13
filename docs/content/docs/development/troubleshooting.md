@@ -51,11 +51,11 @@ for the host). Dry-run provisioning, then build and inspect the output.
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
-A build also fails when the preset cannot give a feature you turned on. For
-example, `queue: true` fails on `node`, `netlify`, and `deno`, and
+A build also fails when the host cannot give a feature you turned on. For
+example, `queue: true` fails on `netlify` and `deno`, and
 `rateLimit: true` fails on `vercel`, `netlify`, and `deno`. Turn the feature off
 or set a provider in its package. The
 [support matrix](/docs/frameworks-hosts/support-matrix) lists providers per host.
@@ -65,7 +65,7 @@ or set a provider in its package. The
 Tell runtime failures apart from model behavior. Use `vitehub agent dev` to
 inspect one run. Use Agent Evals when the bad behavior repeats. If the check
 times out before it reaches the failure, raise the dev-loop inactivity
-`--timeout` or `agent.eval.testTimeout` in `vite.config.ts`.
+`--timeout` or `agent.eval.testTimeout` in `nuxt.config.ts` or `vite.config.ts`.
 
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json

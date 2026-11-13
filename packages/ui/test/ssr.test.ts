@@ -78,7 +78,6 @@ describe("UI server rendering", () => {
   it("keeps raw HTML disabled when callers request the HTML plugin", async () => {
     const app = createSSRApp({
       render: () => h(Markdown, {
-        options: { html: true },
         plugins: [html()],
         value: '<script>globalThis.__vitehubXss = true</script>message',
       }),
@@ -97,6 +96,15 @@ describe("UI server rendering", () => {
     const html = await renderToString(app);
     expect(html).toContain('type="checkbox"');
     expect(html).toContain("completed");
+  });
+
+  it("links bare URLs", async () => {
+    const app = createSSRApp({
+      render: () => h(Markdown, { value: "See https://vitehub.dev/docs for details." }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).toMatch(/<a [^>]*href="https:\/\/vitehub\.dev\/docs"/);
   });
 
   it("renders Nuxt UI components without registering them on the app", async () => {

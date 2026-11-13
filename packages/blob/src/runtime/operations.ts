@@ -118,6 +118,7 @@ export interface BlobOperationInput {
 }
 
 /** A failure with the fields that every surface reports. */
+// Internal invariant: the CLI and Console read its status, code, and fix. Changing the class changes their output.
 export class BlobOperationError extends Error {
   constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
     super(redactInspectionText(message))
@@ -183,7 +184,7 @@ async function headOrUndefined(storage: BlobStorage, pathname: string): Promise<
 
 function selectStore(stores: readonly BlobDevStore[], name = "default"): { name: string, storage: BlobStorage } {
   if (stores.length === 0) {
-    throw new BlobOperationError("Blob is disabled in this runtime. Configure `hubBlob()` without `blob: false`.", 409, "BLOB_DISABLED", "Enable Blob with hubBlob() or vitehub({ blob: true }).")
+    throw new BlobOperationError("Blob is disabled in this runtime.", 409, "BLOB_DISABLED", "Set `blob` in `vitehub()` to `true` or to a Blob config. With `@vite-hub/blob` alone, add `hubBlob()` to the Vite plugins and do not pass `false` to it.")
   }
   if (!stores.some(entry => entry.name === name)) {
     throw new BlobOperationError(`Blob store "${name}" was not found. Stores: ${stores.map(entry => entry.name).join(", ")}.`, 404, "BLOB_STORE_NOT_FOUND")
@@ -227,7 +228,7 @@ function encodeBase64(bytes: Uint8Array): string {
  * Runs one `blob.*` operation against the Blob stores of this runtime. The Nitro runtime owns the stores and their
  * bindings, so this runs where the app does.
  */
-export async function runBlobOperation(operation: "list" | "head" | "get" | "put" | "del" | "media" | "variants", input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
+export async function runBlobOperation(operation: "list" | "head" | "get" | "put" | "delete" | "media" | "variants", input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
   const available = stores ?? await listBlobDevStores()
   const selected = selectStore(available, input.store)
   switch (operation) {
@@ -312,11 +313,11 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       const result: BlobDevVariantsResult = { pathname, store: selected.name, variants: unwrap(await selected.storage.media.variants(pathname)) }
       return result
     }
-    case "del": {
+    case "delete": {
       const pathname = requirePathname(operation, input)
       requireWritablePath(operation, pathname)
       const existed = await headOrUndefined(selected.storage, pathname)
-      unwrap(await selected.storage.del(pathname))
+      unwrap(await selected.storage.delete(pathname))
       const result: BlobDevDeleteResult = { deleted: Boolean(existed), pathname, store: selected.name }
       return result
     }

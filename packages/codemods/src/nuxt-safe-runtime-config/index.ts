@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
 import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
+import { isRecord } from "@vite-hub/internal/object"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
@@ -24,10 +25,6 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 import type { EnvSource } from "./config-edit.ts"
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
 import type { StaticOptions } from "./nuxt-config.ts"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 interface ResolvedOptions {
   envSchema?: { file: string, paths: Record<string, string> }
@@ -234,7 +231,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (schemaFile && label !== undefined) return { file: schemaFile, line: lines.get(label), message }
     return { file: config.fileName, line: edited.lineOf(["vitehub", "env"]), message }
   })
-  if (edited.presetNote) configFollowUps.push({ file: config.fileName, line: edited.lineOf(["vitehub", "preset"]), message: edited.presetNote })
+  if (edited.hostNote) configFollowUps.push({ file: config.fileName, line: edited.lineOf(["vitehub", "host"]), message: edited.hostNote })
 
   const secretFollowUps: FollowUp[] = []
   for (const field of fields.filter(entry => entry.secret)) {

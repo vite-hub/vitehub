@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 import { cancelConsoleWorkflow, isConsoleWorkflowRunActive, parseConsoleWorkflowPayload, readConsoleWorkflow, resumeConsoleWorkflow, startConsoleWorkflow } from "../src/console/runtime/client/workflow.ts"
+import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 const base = "/app/_vitehub/api/workflow"
 const calls: Array<{ input: unknown, operation: string }> = []
@@ -9,11 +10,11 @@ let answer: unknown
 
 beforeEach(() => {
   calls.length = 0
-  vi.stubGlobal("fetch", vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-    calls.push(JSON.parse(String(init?.body)))
+  vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(operationRpcRequest(init?.body))
     const result = answer as { ok: boolean, status?: number }
     return Response.json(result, { status: result.ok ? 200 : result.status })
-  }))
+  })))
 })
 
 afterEach(() => vi.unstubAllGlobals())

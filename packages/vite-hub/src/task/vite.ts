@@ -1,3 +1,4 @@
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { existsSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
@@ -5,6 +6,7 @@ import { dirname, resolve } from "node:path"
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { discoverTaskDefinitions } from "./discovery.ts"
 import { renderTaskRegistryPlugin } from "./registry.ts"
@@ -20,10 +22,6 @@ interface TaskViteConfig {
   root?: string
   [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
   [VITEHUB_SERVER_DIRS]?: string[]
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 /**
@@ -81,7 +79,7 @@ export function viteHubTaskPlugin(): Plugin & { vitehub: ViteHubInspectionPlugin
     vitehub: {
       // The app imports the operations through `vite-hub`. Without tasks there is nothing to list or run.
       operations: () => active
-        ? [{ export: "taskOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).taskOperations, module: "vite-hub/_internal/task/operations" }]
+        ? [{ export: "taskOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).taskOperations, module: ownModule(import.meta.url, "task/operations") }]
         : [],
       inspect: () => ({
         definitions: [{

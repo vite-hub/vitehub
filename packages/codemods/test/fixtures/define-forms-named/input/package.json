@@ -1,0 +1,10 @@
+{
+  "name": "named-databases",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vite-hub/database": "0.1.0",
+    "@vite-hub/sandbox": "0.1.0",
+    "vite-hub": "0.1.0"
+  }
+}

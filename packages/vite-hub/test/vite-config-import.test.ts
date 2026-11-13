@@ -34,7 +34,7 @@ const config = {
   root: process.cwd(),
   plugins: [vitehub({
     // Queue and Sandbox require a preset that provides both capabilities.
-    preset: "cloudflare",
+    host: "cloudflare",
     agent: true,
     auth: true,
     blob: true,
@@ -79,7 +79,6 @@ describe("vite-hub config import", () => {
       const viteEntry = import.meta.resolve("vite")
       const { stdout } = await execFileAsync(process.execPath, [probeFile, entry, viteEntry], {
         cwd: root,
-        env: { ...process.env, VITEHUB_CONSOLE_FIXTURE: "" },
         timeout: 60_000,
       })
       const loaded: unknown = JSON.parse(stdout)

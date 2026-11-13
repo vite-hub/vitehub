@@ -339,19 +339,6 @@ export function useConsoleDocumentSessions(options: { client: ConsoleDocumentsCl
   }
 }
 
-/** Initials for an avatar without an image, such as `AL` for Ada Lovelace. */
-export function consoleInitials(name: string): string {
-  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean)
-  return (parts.length > 1 ? `${parts[0]![0]}${parts.at(-1)![0]}` : (parts[0] ?? "?").slice(0, 2)).toUpperCase()
-}
-
-/** A clock time such as `10:42`, for "Editing since 10:42" and "Your changes up to 10:42 are saved". */
-export function consoleClockTime(value: string | null | undefined): string {
-  if (!value) return ""
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })
-}
-
 /** The names in a live session row, such as `Ana, Ben`. */
 export function consoleLiveNames(session: Pick<ConsoleDocumentSession, "user">): string[] {
   return session.user.name.split(",").map(name => name.trim()).filter(Boolean)

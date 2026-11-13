@@ -6,6 +6,7 @@ import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { hubSchedule } from "../src/vite.ts"
 import "../src/runtime.ts"
 import registry from "#vitehub/schedule/registry"
+import type { LeaseStore } from "@vite-hub/runtime"
 import type { ProcessScheduleRuntimeOptions, ScheduleRuntimeController } from "../src/runtime/process.ts"
 import type { ScheduleProcessRuntimeOptions } from "../src/vite.ts"
 import type { ScheduleDefinitionRegistry, ScheduleRunStore } from "../src/types.ts"
@@ -31,9 +32,12 @@ it("types the defineSchedule helper signature", () => {
     },
   })
 
-  const positional = defineSchedule("0 9 * * *", async context => context.id, { manual: true })
-  expectTypeOf(positional.cron).toEqualTypeOf<string>()
-  expectTypeOf(positional.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
+  const manual = defineSchedule({ cron: "0 9 * * *", manual: true, handler: async context => context.id })
+  expectTypeOf(manual.cron).toEqualTypeOf<string>()
+  expectTypeOf(manual.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
+
+  // @ts-expect-error the positional form was removed.
+  defineSchedule("0 9 * * *", () => {})
 
   // Without cron, only startSchedule() runs the Definition. The handler reads what startSchedule() stored.
   defineSchedule({ handler: async (context) => {
@@ -53,7 +57,7 @@ it("types the defineSchedule helper signature", () => {
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, allowRuntimeSchedules: true })
 
   expectTypeOf(defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Copenhagen" }).timeZone).toEqualTypeOf<string | undefined>()
-  defineSchedule("0 9 * * *", () => {}, { timeZone: "Europe/Copenhagen" })
+  defineSchedule({ cron: "0 9 * * *", timeZone: "Europe/Copenhagen", handler: () => {} })
 
   // @ts-expect-error timeZone must be a string when provided.
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: 1 })
@@ -79,8 +83,11 @@ it("types the Process Schedule Runtime", () => {
     catchUpMs?: number
     concurrency?: number
     intervalMs?: number
+    leaseTtlMs?: number
+    leases?: LeaseStore
     now?: () => Date
     onError?: (error: unknown) => void
+    prefix?: string
     registry: ScheduleDefinitionRegistry
     scheduleRunStore: ScheduleRunStore
     timings?: Readonly<Record<string, { cron: string, timeZone?: string }>>
@@ -95,6 +102,7 @@ it("types generated Nitro Process Runtime options", () => {
     concurrency?: number
     driver: "process"
     intervalMs?: number
+    leaseTtlMs?: number
     prefix?: string
   }>()
   hubSchedule({ runtime: { catchUpMs: 0, concurrency: 2, driver: "process", intervalMs: 5_000, prefix: "app:schedule" } })

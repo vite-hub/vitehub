@@ -62,7 +62,7 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       nitroOwnsPaths: true,
       projectRoot: root,
       root,
-      runtimeImport: fileURLToPath(import.meta.resolve("@vite-hub/schedule/runtime/static")),
+      runtimeImport: fileURLToPath(new URL("../dist/runtime/static.js", import.meta.url)),
     } as Parameters<typeof createScheduleNitroConfig>[0]
     let instance: Nitro | undefined
     // Database registers its migration writer after Schedule's configured Nitro module in direct Vite apps.
@@ -150,7 +150,7 @@ describe("Netlify scheduled functions in a Nitro build", () => {
   ] as const)("validates colliding names only for a resolved Netlify build ($command, $preset)", async ({ command, preset }) => {
     vi.stubEnv("NITRO_PRESET", undefined)
     vi.stubEnv("SERVER_PRESET", undefined)
-    vi.stubEnv("VITEHUB_HOSTING", undefined)
+    vi.stubEnv("VITEHUB_HOST", undefined)
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-names-"))
     roots.push(root)
     await mkdir(join(root, "server", "schedules"), { recursive: true })

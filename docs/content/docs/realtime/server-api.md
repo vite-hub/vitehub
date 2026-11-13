@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `RealtimeDocumentConflict` from `vite-hub/realtime` | Throw from a document adapter when `ifDigest` no longer matches. |
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read a room document's `body`, `fields`, and `status` root types. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
@@ -45,21 +45,49 @@ Workspace working tree. To store documents elsewhere, pass an adapter object.
 Realtime calls it with plain snapshots. Your storage stays a copy synced from
 the room.
 
+This adapter stores pages in the `pages` table of the default Database:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    pages: sqliteTable('pages', {
+      id: text('id').primaryKey(),
+      title: text('title').notNull(),
+      body: text('body').notNull(),
+      version: text('version').notNull(),
+      editedBy: text('edited_by'),
+    }),
+  },
+})
+```
+
 ```ts [server/realtime/pages.ts]
+import { and, eq } from 'drizzle-orm'
+import { useDatabase } from 'vite-hub/database'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
   document: {
     kind: 'pages',
     async load({ documentId }) {
-      const page = await db.pages.find(documentId)
+      const { db, schema } = useDatabase('default')
+      const [page] = await db.select().from(schema.pages).where(eq(schema.pages.id, documentId))
       if (!page) return { body: '', digest: null }
       return { body: page.body, digest: page.version, fields: { title: page.title } }
     },
     async save({ documentId }, { body, fields }, { ifDigest, user }) {
-      const version = await db.pages.update(documentId, { body, title: fields.title, editedBy: user?.id }, { ifVersion: ifDigest })
-      if (!version) throw new RealtimeDocumentConflict()
-      return { digest: version, issues: fields.title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
+      const { db, schema } = useDatabase('default')
+      const title = String(fields?.title ?? '')
+      const page = { body, title, version: crypto.randomUUID(), editedBy: user?.id ?? null }
+      // `ifDigest: null` saves a page that does not exist yet.
+      const saved = ifDigest === null
+        ? await db.insert(schema.pages).values({ id: documentId, ...page }).onConflictDoNothing().returning()
+        : await db.update(schema.pages).set(page).where(and(eq(schema.pages.id, documentId), eq(schema.pages.version, ifDigest))).returning()
+      if (!saved.length) throw new RealtimeDocumentConflict()
+      return { digest: page.version, issues: title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
     },
   },
 })
@@ -69,16 +97,18 @@ export default defineRealtime({
 | --- | --- |
 | `load(context)` | Returns `{ body, fields?, digest }`. `digest: null` means the document does not exist yet. Called when a room opens and on `refresh()`. |
 | `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`. Else throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
-| `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. |
+| `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. An interrupted shared save can reset the room; see below. |
 | `issues` | Validation problems that did not block the save. They show in the room `status` map. |
 | `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
 | `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to hold a lease. A thrown error shows in the room `status` until a later call works. |
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
 
-`context` is `{ authority, definition, documentId }`. `authority` is `memory`
-or `cloudflare`, so an adapter can refuse a temporary store behind a durable
-room. `options` is `{ ifDigest, reason, user, editors }`:
+`context` is `{ authority, definition, documentId }`. `authority` is `memory`,
+`cloudflare`, `postgres`, or `redis`, so an adapter can refuse a temporary store
+behind a durable or shared room. With `postgres` or `redis`, several instances
+call `save()` for one room, one at a time, and `ifDigest` is the digest of the
+last save of any instance. `options` is `{ ifDigest, reason, user, editors }`:
 
 - `reason` is `idle`, `leave`, or `request`.
 - `user` is the latest identified editor.
@@ -87,6 +117,25 @@ room. `options` is `{ ifDigest, reason, user, editors }`:
 
 Adapters run inside the room authority. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
+
+### Interrupted normalizing saves
+
+On Postgres and Redis, the adapter save and the shared room-record write are
+separate operations. If the record write fails, the saving instance keeps the
+exact stored Yjs state and digest and retries that record before its next save.
+It does not use body equality to recognize its own completed save.
+An existing room on another instance retries for at least ten seconds before
+treating an unmatched pending save as an outside write.
+
+If that instance stops, or another instance recovers the pending record before
+the saver retries, only the submitted snapshot and the loaded document remain.
+A normalized body or changed fields cannot be distinguished from an outside
+write. Realtime then re-seeds with `source-changed`, rather than guessing and
+overwriting an outside change. The Vue reset event includes the old Y.Doc as
+`previous`; copy its contents in an `onReset` listener to recover edits made
+after the interrupted save. The composable destroys that Y.Doc after the
+listeners return. A pending save whose submitted body and fields match the
+loaded document recovers without a reset.
 
 ### Blob documents
 
@@ -146,6 +195,31 @@ A lossless codec gives `toMarkdown(fromMarkdown(x)) === x` for your users'
 documents. Realtime converts only at seed and save time, so a lossy codec
 changes stored formatting on the first save, not on every keystroke.
 
+### Change the schema safely
+
+TipTap deletes the nodes that its schema does not know from the shared Yjs
+document, for every client and the server. Give the codec a `version`, and
+change it when a new `extensions()` or codec cannot read the Yjs state of the
+previous one, such as when you remove or rename a node type:
+
+```ts [shared/editor.ts] fragment
+export const pagesEditor = defineRealtimeEditor({
+  version: '2',
+  extensions: () => [/* ... */],
+  fromMarkdown,
+  toMarkdown,
+})
+```
+
+- A Durable Object room restores its Yjs state only when the stored digest and
+  the version both match. Otherwise it seeds from the stored Markdown with a
+  new epoch, as after an outside write. Unsaved Yjs edits of the old version
+  are lost, so the first version you set also re-seeds each persisted room once.
+- `useRealtimeTiptap('pages', id, { editor: pagesEditor })` sends the version
+  with the connection. A connection with another version, or without one, is
+  read-only with `readOnlyReason` `version`. The server drops its document
+  updates and keeps it open for live updates. Ask the user to reload to edit.
+
 ### Guard documents the codec cannot keep
 
 Most codecs normalize some Markdown and lose some. For example, a codec can
@@ -178,6 +252,10 @@ stored document, `refresh()` re-seeds the room, so it can become writable.
 
 Realtime also guards every save, with or without `verify()`:
 
+- It builds the ProseMirror document from the room with the schema of
+  `extensions()` and checks it. If the room holds a node or content that the
+  schema does not allow, it does not save. The room stays dirty, `status.error`
+  explains why, and `save()` answers `422` with `REALTIME_INVALID_DOCUMENT`.
 - It parses the Markdown it is about to save. If `fromMarkdown(toMarkdown(doc))`
   differs from the room body, it saves anyway and adds an entry to
   `status.issues`.
@@ -202,12 +280,14 @@ const realtime = useRealtimeTiptap('pages', 'about')
 realtime.fields.value?.set('title', 'About us')
 realtime.saveStatus.value // { digest, error, issues, savedAt, savedBy }
 realtime.readOnly.value // true when the server rejects edits from this connection
-realtime.readOnlyReason.value // 'access', 'document', or null
+realtime.readOnlyReason.value // 'access', 'document', 'version', or null
 ```
 
-`readOnlyReason` is `access` when `authorize` denied write, and `document`
-when `verify()` returned `writable: false`. Pass `editable: !readOnly` to the
-editor, and show `saveStatus.error` for the `document` reason.
+`readOnlyReason` is `access` when `authorize` denied write, `document`
+when `verify()` returned `writable: false`, and `version` when the browser runs
+another editor `version` than the server. Pass `editable: !readOnly` to the
+editor, show `saveStatus.error` for the `document` reason, and ask the user to
+reload for the `version` reason.
 
 `status` lives in the Yjs document, so it arrives in order with its content,
 survives a Durable Object restart, and plain Yjs can read it.
@@ -231,7 +311,8 @@ export default defineRealtime({
 
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403, unless `origins` accepts it. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect to a definition with `identify`, such as a script that sites load from your app. Return `true` to accept `origin`. A cross-site handshake carries cookies too, so `identify` must then trust only what the page sends, such as a ticket in `params`. See [From another site](#from-another-site). |
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
@@ -283,8 +364,8 @@ carets out.
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
 ```ts fragment
-import { connectRealtimeRoom } from '@vite-hub/realtime/client'
-import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
 
 const page = normalizeCommentPage(location.pathname)
 const room = connectRealtimeRoom('comments', commentRoom(page), { changes: true, params: { page } })
@@ -309,6 +390,28 @@ room.onChange(change => reload(change))
 
 > [!WARNING]
 > The definition must check that context against the requested document before it grants access.
+
+### From another site
+
+A script that other sites load from your app, such as a review toolbar, joins rooms on your app with `origin`. Its definition lets those pages in with `origins` and identifies people by a ticket the script got from your app, never by cookies:
+
+```ts fragment
+// On the other site's page
+const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.example.com', params: { ticket } })
+```
+
+```ts fragment
+// server/realtime/presence.ts
+export default defineRealtime({
+  origins: ({ origin }) => allowedSites.has(origin),
+  identify: ({ request }) => readTicket(new URL(request.url).searchParams.get('ticket')),
+  authorize: ({ user, mode }) => Boolean(user) && mode === 'read',
+  document: { kind: 'presence', load: async () => ({ body: '', digest: null }), save: async () => ({ digest: 'presence' }) },
+  persistence: false,
+})
+```
+
+The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
 
 ## Saves, refresh, and resets
 

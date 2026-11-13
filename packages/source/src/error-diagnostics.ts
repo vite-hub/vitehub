@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SOURCE_R0010.
 export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/source/diagnostics",
   codes: {
@@ -18,7 +19,6 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_R0007: dynamicError,
     SOURCE_R0008: dynamicError,
     SOURCE_R0009: dynamicError,
-    SOURCE_R0010: dynamicError,
     SOURCE_R0011: dynamicError,
     SOURCE_R0012: dynamicError,
     SOURCE_R0013: dynamicError,
@@ -41,6 +41,10 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_R0031: dynamicError,
     SOURCE_R0032: dynamicError,
     SOURCE_R0033: dynamicError,
+    SOURCE_R0034: {
+      why: ({ endpoint, status }: { endpoint: string; status: number }) => `[vitehub] Collection request to ${endpoint} failed with status ${status}.`,
+      fix: "Check the Collection route and server logs for this HTTP status, correct the request or server error, then refresh the Collection.",
+    },
     SOURCE_B0001: dynamicError,
     SOURCE_B0002: dynamicError,
     SOURCE_B0003: dynamicError,
@@ -49,5 +53,9 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_B0006: dynamicError,
     SOURCE_B0007: dynamicError,
     SOURCE_B0008: dynamicError,
+    SOURCE_B0009: {
+      ...dynamicError,
+      fix: "Write `export default defineContent({ ... })` in server/content.ts. Run `npx @vite-hub/codemods define-forms` to move the export and the imports of it.",
+    },
   },
 })

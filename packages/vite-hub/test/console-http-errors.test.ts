@@ -6,10 +6,10 @@ import { H3, HTTPError, type H3Config } from "h3"
 import { expect, it } from "vitest"
 
 import "./support/console-access.ts"
-import consolePage from "../src/console/runtime/server/page.get.ts"
 import { consoleHttpError } from "../src/console/runtime/server/http-error.ts"
 import { consoleRequestError } from "../src/console/runtime/server/request.ts"
 import usageRoute from "../src/console/runtime/server/usage.get.ts"
+import { failure } from "../src/console/runtime/server/workspace-history.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 
 // H3 2 marks a thrown error that is not its `HTTPError` as unhandled, and Nitro's error handler then answers 500.
@@ -23,7 +23,9 @@ const app = new H3({ onError })
   .get("/diagnostic", () => {
     throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0071({ message: "Invalid usage window" }))
   })
-  .all("/_vitehub/**", consolePage)
+  .get("/workspace", () => {
+    throw failure(404, "This Workspace has no retained history.")
+  })
 
 async function call(path: string, init?: RequestInit) {
   const response = await app.fetch(new Request(`http://localhost${path}`, init))
@@ -42,8 +44,8 @@ it("answers a Console request error with its status and diagnostic", async () =>
 })
 
 it("answers Console route errors with their 4xx status", async () => {
-  await expect(call("/_vitehub", { method: "PUT" })).resolves.toMatchObject({ status: 405, body: { code: "CONSOLE_REQUEST_INVALID", message: "Method not allowed" } })
   await expect(call("/_vitehub/api/usage?window=bogus")).resolves.toMatchObject({ status: 400, body: { code: "VITE_HUB_R0071", message: "Invalid usage window" } })
+  await expect(call("/workspace")).resolves.toMatchObject({ status: 404, body: { code: "VITE_HUB_C0001", message: "This Workspace has no retained history." } })
 })
 
 it("keeps the diagnostic fields on the thrown error", () => {

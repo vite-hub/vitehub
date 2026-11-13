@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { validateGitHubInstallInputs } from "../src/github/install-inputs.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError } from "../src/github/install.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError, readGitHubDependencyStatus } from "../src/github/install.ts";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -22,12 +22,29 @@ async function fixture() {
 }
 it("classifies malformed installation inputs separately from host failures", async () => {
   const root = await fixture();
-  await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: {}\n");
+  await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: [\n");
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ retryable: false });
   await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
   await expect(installGitHubPullRequestWorkspace(root, undefined, async () => {
     throw new Error("Registry temporarily unavailable.");
   })).rejects.toMatchObject({ retryable: true });
+});
+
+it("validates pnpm 12 package-manager and project lockfile documents", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@12.16.1" }));
+  await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpm:\n        version: 12.16.1\n---\nlockfileVersion: '9.0'\nimporters: {}\n");
+  await expect(installGitHubPullRequestWorkspace(root)).resolves.toBeUndefined();
+  await expect(assertGitHubDependenciesCurrent(root)).resolves.toBeUndefined();
+});
+
+it.each([0, 1])("rejects unsafe sources in pnpm lockfile document %s before execution", async unsafeDocument => {
+  const root = await fixture();
+  const documents = ["lockfileVersion: '9.0'", "lockfileVersion: '9.0'"];
+  documents[unsafeDocument] += "\npackages:\n  unsafe@1.0.0:\n    resolution:\n      tarball: file:/srv/unsafe.tgz";
+  await writeFile(join(root, "pnpm-lock.yaml"), documents.join("\n---\n"));
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/Host-local/);
+  await expect(readFile(join(root, ".git", "args.txt"))).rejects.toThrow();
 });
 
 it.each(["validation", "publication", "cleanup"])("retries host %s failures after the package-manager command succeeds", async phase => {
@@ -162,10 +179,18 @@ it.each([
   "peerDependencyRules:\n  allowedVersions:\n    react: '19'\n",
   "minimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - '@vite-hub/*'\n",
   "trustPolicy: no-downgrade\ntrustPolicyExclude:\n  - semver@6.3.1\ntrustPolicyIgnoreAfter: 1440\n",
+  "blockExoticSubdeps: false\n",
+  "blockExoticSubdeps: true\n",
 ])("accepts pnpm workspace settings that run no code: %s", async settings => {
   const root = await fixture();
   await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - .\n${settings}`);
   await expect(installGitHubPullRequestWorkspace(root)).resolves.toBeUndefined();
+});
+
+it("rejects non-boolean exotic dependency settings", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "blockExoticSubdeps: /srv/unsafe\n");
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/Unsupported project pnpm configuration: blockExoticSubdeps/);
 });
 
 it.each(["trustPolicy: /etc/passwd\n", "trustPolicyIgnoreAfter: ~/.cache\n"])("rejects pnpm trust settings with unknown values: %s", async settings => {
@@ -707,13 +732,14 @@ it.each(["file:./local", "./local"])("validates referenced local packages from %
 });
 
 
-it("accepts checkout-relative pnpm patches and fingerprints their contents", async () => {
+it.each(["legacy", "pnpm12"])("accepts checkout-relative %s patches and fingerprints their contents", async format => {
   const root = await fixture();
   await mkdir(join(root, "patches"));
   const patch = join(root, "patches", "safe.patch");
   await writeFile(patch, "first patch\n");
   await writeFile(join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  safe@1.0.0: patches/safe.patch\n");
-  await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\npatchedDependencies:\n  safe@1.0.0:\n    hash: abc\n    path: patches/safe.patch\n");
+  const patchEntry = format === "pnpm12" ? ` ${"a".repeat(64)}\n` : "\n    hash: abc\n    path: patches/safe.patch\n";
+  await writeFile(join(root, "pnpm-lock.yaml"), `lockfileVersion: '9.0'\npatchedDependencies:\n  safe@1.0.0:${patchEntry}`);
   await expect(installGitHubPullRequestWorkspace(root)).resolves.toBeUndefined();
   await writeFile(patch, "second patch\n");
   await expect(assertGitHubDependenciesCurrent(root)).rejects.toThrow(/refreshDependencies/);
@@ -986,4 +1012,45 @@ it("ignores workspace npmrc files during root npm installs but validates root co
   await expect(assertGitHubDependenciesCurrent(root)).resolves.toBeUndefined();
   await writeFile(join(root, ".npmrc"), "cache=/outside\n");
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/configuration/);
+});
+
+it("installs a hook-checksummed pnpm lockfile without the hook and leaves the checkout lockfile alone", async () => {
+  // pnpm records pnpmfileChecksum when a repository has a .pnpmfile.cjs. The host runs with
+  // --ignore-pnpmfile, so the frozen install rejected every such lockfile as out of date.
+  const root = await fixture();
+  const lockfile = "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpm:\n        version: 10.34.6\n---\nlockfileVersion: '9.0'\npnpmfileChecksum: sha256-abc\nimporters: {}\n";
+  await writeFile(join(root, "pnpm-lock.yaml"), lockfile);
+  await writeFile(join(root, ".pnpmfile.cjs"), "throw new Error('repository hook executed');\n");
+  let installed = "";
+  await installGitHubPullRequestWorkspace(root, undefined, async ({ cwd, command }) => {
+    expect(command).toContain("--ignore-pnpmfile");
+    installed = await readFile(join(cwd, "pnpm-lock.yaml"), "utf8");
+    await mkdir(join(cwd, "node_modules"));
+  });
+  expect(installed).not.toContain("pnpmfileChecksum");
+  expect(installed).toContain("version: 10.34.6");
+  expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe(lockfile);
+  await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(true);
+});
+
+it("names a missing pnpm patch file and does not retry it", async () => {
+  // The manifest names a patch that the PR deleted. Its ENOENT used to retry every five minutes.
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  left-pad@1.3.0: patches/left-pad@1.3.0.patch\n");
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({
+    retryable: false,
+    message: expect.stringContaining("Dependency patch patches/left-pad@1.3.0.patch does not exist in this checkout"),
+  });
+});
+
+it("reports the dependency inputs that changed since the last install", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+  await expect(readGitHubDependencyStatus(root)).resolves.toMatchObject({ current: false, changedInputs: ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"] });
+  await installGitHubPullRequestWorkspace(root);
+  await expect(readGitHubDependencyStatus(root)).resolves.toEqual({ current: true, changedInputs: [] });
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n# changed\n");
+  const status = await readGitHubDependencyStatus(root);
+  expect(status).toMatchObject({ current: false, changedInputs: ["pnpm-workspace.yaml"] });
+  expect(status.reason).toMatch(/Call refreshDependencies before validation/);
 });

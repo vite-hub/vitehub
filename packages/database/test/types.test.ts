@@ -1,4 +1,3 @@
-import type { UserConfig } from "vite"
 
 import { env } from "@vite-hub/env"
 import "../src/virtual.ts"
@@ -6,10 +5,10 @@ import { defineDatabase } from "../src/index.ts"
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { CloudflareD1HttpConfig, DBModulePublicOptions } from "../src/index.ts"
+import type { CloudflareD1HttpConfig, DatabaseOptions } from "../src/index.ts"
 import type { DatabaseContribution, DatabaseUseContribution } from "../src/contributions.ts"
 
-type DrizzleModule = typeof import("../src/drizzle.ts")
+type DrizzleModule = typeof import("../src/runtime/registry.ts")
 
 describe("types", () => {
   it("allows static table names only on table contributions", () => {
@@ -17,31 +16,29 @@ describe("types", () => {
     expectTypeOf<"tables">().not.toMatchTypeOf<keyof DatabaseUseContribution>()
   })
 
-  it("augments vite user config with database options", () => {
-    const config: UserConfig = {
-      database: {
-        cli: {
-          generate: false,
-        },
-        connection: {
-          authToken: "token",
-          url: "libsql://database.example.turso.io",
-        },
+  it("types database options", () => {
+    const options: DatabaseOptions = {
+      cli: {
+        generate: false,
+      },
+      connection: {
+        authToken: "token",
+        url: "libsql://database.example.turso.io",
       },
     }
 
-    expectTypeOf(config.database).toMatchTypeOf<DBModulePublicOptions | undefined>()
+    expectTypeOf(options).toMatchTypeOf<DatabaseOptions>()
   })
 
   it("accepts Runtime Env declarations for hosted connections", () => {
-    const config: DBModulePublicOptions = {
+    const config: DatabaseOptions = {
       connection: {
         authToken: env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") }),
         url: env({ source: env.source("TURSO_DATABASE_URL") }),
       },
     }
 
-    expectTypeOf(config).toMatchTypeOf<DBModulePublicOptions>()
+    expectTypeOf(config).toMatchTypeOf<DatabaseOptions>()
   })
 
   it("accepts explicit D1 HTTP transport configuration", () => {

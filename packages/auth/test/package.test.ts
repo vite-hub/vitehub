@@ -12,6 +12,7 @@ describe("@vite-hub/auth package contract", () => {
   it("exposes only the documented public entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       ".",
+      "./abilities",
       "./agent",
       "./cli",
       "./console",
@@ -33,19 +34,21 @@ describe("@vite-hub/auth package contract", () => {
 
   it("keeps setters, factories, and access helpers out of the server API", async () => {
     expect(Object.keys(await import("../src/server.ts")).sort()).toEqual([
+      "AbilityError",
       "aggregateAuthEvents",
       "auth",
+      "can",
       "createAuthHandler",
       "default",
       "getAuth",
       "getAuthConsoleForRequest",
       "getAuthEvents",
-      "getAuthForRequest",
-      "getAuthorization",
       "handleAuth",
       "listAuthEvents",
+      "requireAbility",
       "requireAuth",
       "requireAuthorization",
+      "useAuth",
       "withAnonymousAuthorization",
       "withAuth",
       "withAuthorization",

@@ -22,7 +22,7 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
@@ -147,16 +147,21 @@ async function requiredPeerSpecs() {
     ...agentCatalog,
     ...browserCatalog,
     ...chatCatalog,
+    ...await catalogDependencySpecs("nuxt", ["nuxt"]),
     ...vercelCatalog,
     ...workflowCatalog,
+    "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
+    "@comark/vue": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
+    comark: await installedVersion(join(repoRoot, "packages/docs/node_modules/comark/package.json")),
+    "comark-ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/comark-ui/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
-    nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
+    nitro: await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/nitro/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
@@ -626,6 +631,7 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
+    "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
     "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
     "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
@@ -710,7 +716,7 @@ async function packageModulesDiagnostics(
   if (nodeDeclarationTypes.size !== 1) throw new Error(`${packageName} modules must share one declaration types configuration`)
   const ambientModules: Record<string, readonly string[]> = {
     "@vite-hub/blob": ["#vitehub/blob/config"],
-    "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults"],
+    "@vite-hub/database": ["#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/migrations", "#vitehub/database/definition-defaults"],
     "@vite-hub/env": ["#vitehub/env/public", "#vitehub/env/server"],
     "@vite-hub/kv": ["#vitehub/kv/config"],
   }
@@ -972,8 +978,8 @@ describe("published declaration diagnostics", () => {
     expect(fixtureSpecs).toMatchObject({
       "@aws-sdk/client-s3": peerSpecs["@aws-sdk/client-s3"],
       "@azure/storage-blob": peerSpecs["@azure/storage-blob"],
+      "@google-cloud/storage": peerSpecs["@google-cloud/storage"],
       "@types/node": "1.0.0",
-      uploadthing: peerSpecs.uploadthing,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })

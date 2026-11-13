@@ -1,6 +1,7 @@
-import { statSync } from "node:fs"
+import { readFileSync, realpathSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { NuxtServerDirOptions } from "./paths.ts"
 import type { ConfigEnv, EnvironmentOptions } from "vite"
@@ -133,6 +134,28 @@ export function loadsViteHubPackagesNatively(name: string, env: { command: strin
   return env.command === "serve" && name === "nitro"
 }
 
+// The installed dist files of the packages that Node loads in `vite dev`. A linked workspace package is outside
+// `node_modules`, and Vite inlines it, so its files keep loading through Vite.
+const nativePackageDistFile = /\/node_modules\/@vite-hub\/(?:agent|connections|runtime|workspace)\/dist\/.+\.js$/
+
+/**
+ * Generated code imports the runtime files of its owner by path. Vite gives Node only bare package names, so in the
+ * Nitro environment of `vite dev` it would inline a second copy of a package that Node already loaded, with its own
+ * registries. This returns a module that lets Node load the file instead, so the app and the generated code share one
+ * instance. Use it as the `load` hook result for the file. It returns nothing for other files and environments.
+ */
+export function loadNativePackageModule(id: string, environmentName: string | undefined, command: string): string | undefined {
+  if (!environmentName || !loadsViteHubPackagesNatively(environmentName, { command })) return
+  // A dynamic import that Vite cannot analyze reaches the hook as a `file:` URL.
+  const file = id.startsWith("file:") ? fileURLToPath(id) : id
+  if (!nativePackageDistFile.test(file.replace(/\\/g, "/"))) return
+  const url = JSON.stringify(pathToFileURL(realpathSync(file)).href)
+  const hasDefault = /\bexport default\b|\bas default\b/.test(readFileSync(file, "utf8"))
+  // Vite's module runner gives a `data:` import to Node unchanged, and Node resolves its absolute `file:` import.
+  const native = JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${url}${hasDefault ? `\nexport { default } from ${url}` : ""}`)}`)
+  return `export * from ${native}\n${hasDefault ? `export { default } from ${native}\n` : ""}`
+}
+
 /** A generated module, and the package export that receives it when Node loads the package in `vite dev`. */
 export interface NativePackageInstall {
   /** The generated module, such as `./registry.mjs`. Omit it to clear a previous installation. */
@@ -169,8 +192,6 @@ interface NitroVercelConfig {
 }
 
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
-/** Nitro used by the Nuxt host, independently of ViteHub's own Nitro dependency. */
-export const VITEHUB_NITRO_MAJOR_VERSION = "__vitehubNitroMajorVersion" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
 /** The application's mount path, which can differ from Nuxt's Vite asset base. */
@@ -180,6 +201,41 @@ export const VITEHUB_APP_BASE_URL = "__vitehubAppBaseURL" as const
  * Later entries are Nuxt layers in Nuxt priority order.
  */
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
+/**
+ * Server Env declarations that ViteHub features add before `hubEnv()` builds the registry, such as the Server Env of
+ * discovered Channels. The application's `env.server` wins field by field.
+ */
+export const VITEHUB_ENV_SERVER = "__vitehubEnvServer" as const
+/** The deployment host that `vitehub()` selected, such as `"cloudflare"`. */
+export const VITEHUB_DEPLOYMENT_HOST = "__vitehubDeploymentHost" as const
+/**
+ * Feature options that `vitehub()` and `vite-hub/nuxt` resolve for owner plugins during config hooks, such as the Queue
+ * provider of the host. Apps set features only in `vitehub()`, so this key is private.
+ */
+export const VITEHUB_FEATURES = "__vitehubFeatures" as const
+
+/** The features whose resolved options ViteHub passes to their owner plugins through the Vite config. */
+export type ViteHubResolvedFeature = "blob" | "database" | "queue" | "rateLimit" | "sandboxTask"
+
+/** The options that ViteHub resolved for a feature on this Vite config. The owner plugin names their type. */
+export function getResolvedFeatureOptions<T>(config: object, feature: ViteHubResolvedFeature): T | undefined {
+  const features: unknown = Reflect.get(config, VITEHUB_FEATURES)
+  if (!features || typeof features !== "object") return undefined
+  // SAFETY: Only ViteHub writes this private key, with the option type of the owner plugin for each feature.
+  return Reflect.get(features, feature) as T | undefined
+}
+
+/** Passes resolved options of a feature to its owner plugin. Call it from a config hook, before the owner reads them. */
+export function setResolvedFeatureOptions(config: object, feature: ViteHubResolvedFeature, value: unknown): void {
+  const features: unknown = Reflect.get(config, VITEHUB_FEATURES)
+  Reflect.set(config, VITEHUB_FEATURES, { ...(features && typeof features === "object" ? features : {}), [feature]: value })
+}
+
+/** The deployment host that `vitehub()` selected on this Vite config. */
+export function getDeploymentHost(config: object): string | undefined {
+  const host: unknown = Reflect.get(config, VITEHUB_DEPLOYMENT_HOST)
+  return typeof host === "string" ? host : undefined
+}
 /**
  * Set by `vite-hub/nuxt` when it replays Vite config hooks for `nuxt prepare`. Prepare uses `command: "build"` to write
  * the same types as the build, but it builds nothing.
@@ -240,7 +296,7 @@ export function resolveNitroVercelFunctionName(
   const clientOutDir = config.environments?.client?.build?.outDir
   const vercel = preset
     ? preset.startsWith("vercel")
-    : env.VITEHUB_HOSTING === "vercel"
+    : env.VITEHUB_HOST === "vercel"
       || Boolean(env.VERCEL)
       || Boolean(clientOutDir && /(^|[/\\])\.vercel[/\\]output([/\\]|$)/.test(clientOutDir))
   return nitro && vercel
@@ -248,8 +304,8 @@ export function resolveNitroVercelFunctionName(
     : undefined
 }
 
-export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
-  return command === "serve" || mode === "e2e"
+export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined): boolean {
+  return command === "serve"
 }
 
 // Vite concatenates arrays when it merges a config hook result. Return only the missing pattern.

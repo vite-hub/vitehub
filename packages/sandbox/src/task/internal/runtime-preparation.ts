@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
-import { VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
+import { getResolvedFeatureOptions, VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
 import { normalizeHosting, resolveHostPreset } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
@@ -35,7 +35,7 @@ const builtinModuleSet = new Set([
 ])
 
 type AliasMap = Record<string, string>
-type SandboxTaskPublicOptions = AgentSandboxTaskConfig | false
+type SandboxTaskOptions = AgentSandboxTaskConfig | false
 type SandboxTaskRuntimeConfig = {
   hosting?: string
   sandboxTask: AgentSandboxTaskConfig | false
@@ -54,7 +54,7 @@ function readNodeErrorCode(error: unknown) {
   return error instanceof Error && 'code' in error ? error.code : undefined
 }
 
-function normalizeSandboxTaskOptions(options: SandboxTaskPublicOptions): AgentSandboxTaskConfig | false {
+function normalizeSandboxTaskOptions(options: SandboxTaskOptions): AgentSandboxTaskConfig | false {
   if (options === false)
     return false
   if (!isPlainObject(options))
@@ -91,17 +91,17 @@ async function readSandboxTaskWorkspaceDeps(rootDir: string) {
 }
 
 async function resolveSandboxTaskViteContext(
-  integrationOptions: SandboxTaskPublicOptions | undefined,
+  integrationOptions: SandboxTaskOptions | undefined,
   userConfig: Record<string, unknown>,
   env: ConfigEnv,
   hasDefinitions: boolean,
 ): Promise<SandboxTaskViteContext> {
-  const configOptions = userConfig.sandboxTask as SandboxTaskPublicOptions | undefined
+  const configOptions = getResolvedFeatureOptions<SandboxTaskOptions>(userConfig, 'sandboxTask')
   const options = normalizeSandboxTaskOptions(
     typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
   )
   const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
-  const hosting = normalizeHosting(resolveHostPreset({ hosting: userConfig.preset, nitro })) || undefined
+  const hosting = normalizeHosting(resolveHostPreset({ nitro })) || undefined
   const config = options === false
     ? false
     : hasDefinitions
@@ -402,7 +402,7 @@ async function writeSandboxTaskArtifactsLocked(
 }
 
 export async function prepareSandboxTaskRuntime(options: {
-  integrationOptions?: SandboxTaskPublicOptions
+  integrationOptions?: SandboxTaskOptions
   userConfig: Record<string, unknown>
   env: ConfigEnv
   resolvedConfig?: ResolvedConfig
@@ -414,7 +414,7 @@ export async function prepareSandboxTaskRuntime(options: {
   const rootDir = typeof configuredProjectRoot === 'string'
     ? resolve(configuredProjectRoot)
     : resolvedRoot
-  const configOptions = options.userConfig.sandboxTask as SandboxTaskPublicOptions | undefined
+  const configOptions = getResolvedFeatureOptions<SandboxTaskOptions>(options.userConfig, 'sandboxTask')
   const disabled = typeof configOptions === 'undefined'
     ? options.integrationOptions === false
     : configOptions === false

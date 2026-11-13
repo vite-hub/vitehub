@@ -10,11 +10,12 @@
 
 ```ts
 // server/content.ts
-import { defineContent, documents } from "vite-hub/content"
+import { defineContent } from "vite-hub/content"
+import { documents } from "vite-hub/content/collections"
 import cms from "vite-hub/cms"
 import * as v from "valibot"
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts: documents({ path: "posts/**/*.md", fields: { title: v.string() } }) },
 })
@@ -32,7 +33,7 @@ At build time `hubCms()` reads `server/content.ts` without running it, so import
 
 ## GitHub store
 
-`extends: [cms, { repo: "owner/name" }]` keeps documents in a Git repository. `repo` selects the GitHub store; `store: "github"` without `repo` reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. `root` (default `""`, the repository root) is the folder that holds the collection paths. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request. The GitHub store needs a Database for editor sessions and no Blob store. It cannot schedule publishes, so the Console does not ask for a `content.publishDue()` runner.
+`extends: [cms, { repo: "owner/name" }]` keeps documents in a Git repository. `repo` selects the GitHub store; `store: "github"` without `repo` reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. `root` (default `""`, the repository root) is the folder that holds the collection paths. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request. With `defineContent({ previews: true })` and a `github()` Source of the same repository, the publish result has `previews`: a signed `/pr/<number>/<url>` link of each document, valid for one hour, because publish branches are private. The GitHub store needs a Database for editor sessions and no Blob store. It cannot schedule publishes, so the Console does not ask for a `content.publishDue()` runner.
 
 ## Roles
 

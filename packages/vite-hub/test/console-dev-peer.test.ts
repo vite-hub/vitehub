@@ -1,4 +1,3 @@
-import { defineHandler } from "h3"
 import * as v from "valibot"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
@@ -7,11 +6,11 @@ import { addViteHubDevPeerDevHandler, signViteHubDevPeer, useViteHubDevPeerKey, 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { operationRpcBody } from "../../internal/test-utils/operation-rpc.ts"
 
 const greet = defineOperation({
   description: "Greet someone.",
@@ -22,7 +21,7 @@ const greet = defineOperation({
   section: "fixture",
 })
 
-const rpcPath = "/_vitehub/rpc/__call"
+const rpcPath = "/_vitehub/rpc"
 const remote = "192.168.0.38"
 // What a remote client sends to look local: the dev server's own Host, and the proxy headers of a local peer.
 const forgedLocal = { "host": "localhost:3000", "x-forwarded-for": "127.0.0.1", "x-forwarded-host": "localhost:3000", "x-real-ip": "127.0.0.1" }
@@ -30,26 +29,17 @@ const forgedLocal = { "host": "localhost:3000", "x-forwarded-for": "127.0.0.1", 
 /** Run the front process's dev handler on a Node request, and return the headers that its proxy forwards. */
 async function throughFront(remoteAddress: string | undefined, headers: Record<string, string> = {}, path = rpcPath): Promise<Record<string, string>> {
   const req = { headers: { host: "localhost:3000", ...headers }, method: "POST", socket: { remoteAddress }, url: path }
-  await viteHubDevPeerDevHandler({ node: { req } })
+  await viteHubDevPeerDevHandler({ runtime: { node: { req } } })
   return Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
 /** The Console RPC in the worker. Behind the front process's Unix-socket proxy, the worker sees no peer address. */
 function rpc(headers: Record<string, string>, remoteAddress?: string, path = rpcPath) {
   return handleConsoleRpcRequest(new Request(`http://localhost:3000${path}`, {
-    body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
+    body: operationRpcBody("fixture.greet", { name: "Ada" }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }), { remoteAddress })
-}
-
-function mcp(headers: Record<string, string>) {
-  const request = new Request("http://localhost:3000/_vitehub/mcp", {
-    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }),
-    headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", ...headers },
-    method: "POST",
-  })
-  return defineHandler(consoleMcpHandler).fetch(request)
 }
 
 beforeEach(() => {
@@ -75,14 +65,12 @@ describe.each(["local", "open"] as const)("the %s development Console behind a d
     expect((await rpc(await throughFront("127.0.0.1"))).status).toBe(200)
     expect((await rpc(await throughFront("::1"))).status).toBe(200)
     expect((await rpc(await throughFront("::ffff:127.0.0.1"))).status).toBe(200)
-    expect((await mcp(await throughFront("127.0.0.1", {}, "/_vitehub/mcp"))).status).toBe(200)
   })
 
   it("refuses a remote peer that sends Host: localhost and x-forwarded-for: 127.0.0.1", async () => {
     const response = await rpc(await throughFront(remote, forgedLocal))
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth"), ok: false })
-    expect((await mcp(await throughFront(remote, forgedLocal, "/_vitehub/mcp"))).status).toBe(403)
     // A Unix socket or another proxy in front gives the front process no address either.
     expect((await rpc(await throughFront(undefined, forgedLocal))).status).toBe(403)
   })
@@ -119,7 +107,6 @@ describe.each(["local", "open"] as const)("the %s development Console behind a d
     const response = await rpc(await throughFront("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }))
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY" })
-    expect((await mcp(await throughFront("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }, "/_vitehub/mcp"))).status).toBe(403)
     const forwarders: Array<Record<string, string>> = [{ "cf-connecting-ip": "203.0.113.9", "cf-ray": "9a0b1c2d3e4f5a6b-MAD" }, { forwarded: "for=203.0.113.9" }, { "tailscale-user-login": "alice@example.com" }, { "x-real-ip": "203.0.113.9" }]
     for (const headers of forwarders) {
       expect((await rpc(await throughFront("127.0.0.1", headers))).status, JSON.stringify(headers)).toBe(403)
@@ -162,7 +149,7 @@ describe("a production Console", () => {
   })
 
   it("adds the front dev handler only to a development Nitro", async () => {
-    const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node" })
+    const plugin = consoleVitePlugin({ console: { auth: false } })
     const setup = (dev: boolean) => {
       const devHandlers: Array<{ handler?: unknown, route?: string }> = []
       // SAFETY: The Console's Nitro module reads only these options.

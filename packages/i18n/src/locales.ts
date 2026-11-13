@@ -12,6 +12,12 @@ export interface I18nOptions {
    * @default "locale"
    */
   cookie?: string
+  /**
+   * Name of a Workspace with retained history that stores the translations. The server reads its `published` ref,
+   * so a published translation is live without a deploy. Without it, translations are records in `locales/<locale>/`.
+   * @example "translations"
+   */
+  workspace?: string
 }
 
 /** The resolved locale settings that the runtime gets. */

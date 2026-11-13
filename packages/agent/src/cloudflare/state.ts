@@ -2,7 +2,6 @@ import type { AgentStateCacheMutation } from "../internal/state-lock.ts"
 import { DurableObject } from "cloudflare:workers"
 
 import { parseAgentStateQueueEntry } from "../internal/state-queue.ts"
-import { isRuntimeNumber, isRuntimeString } from "../internal/runtime-value.ts"
 
 import type { Lock } from "chat"
 
@@ -77,7 +76,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
 
   cacheGet(key: string): string | null {
     const rows = this.sql.exec("SELECT value FROM cache WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)", key, Date.now()).toArray()
-    return isRuntimeString(rows[0]?.value) ? rows[0].value : null
+    return typeof rows[0]?.value === "string" ? rows[0].value : null
   }
 
   cacheSet(key: string, value: string, ttlMs?: number): void {
@@ -109,7 +108,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
       const row = rows[0]
       if (!row) return null
       this.sql.exec("DELETE FROM queue WHERE id = ?", row.id)
-      return isRuntimeString(row.value) ? row.value : null
+      return typeof row.value === "string" ? row.value : null
     })
   }
 
@@ -136,7 +135,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
     return this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
       const row = this.sql.exec("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC LIMIT 1", threadId).toArray()[0]
-      return isRuntimeString(row?.value) ? row.value : null
+      return typeof row?.value === "string" ? row.value : null
     })
   }
 
@@ -144,9 +143,9 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
     const replaced = this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
       const queue = this.sql.exec("SELECT value FROM queue WHERE thread_id = ? ORDER BY id ASC", threadId).toArray()
-      const current = isRuntimeString(queue[0]?.value) ? queue[0].value : null
+      const current = typeof queue[0]?.value === "string" ? queue[0].value : null
       if (current !== expected) return false
-      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (isRuntimeString(row.value) ? [row.value] : []))
+      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (typeof row.value === "string" ? [row.value] : []))
       const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
       this.sql.exec("DELETE FROM queue WHERE thread_id = ?", threadId)
       for (const value of next) {
@@ -210,7 +209,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
     return this.sql
       .exec("SELECT value FROM lists WHERE key = ? ORDER BY id ASC", key)
       .toArray()
-      .map((row: { value?: unknown }) => (isRuntimeString(row.value) ? row.value : JSON.stringify(row.value)))
+      .map((row: { value?: unknown }) => (typeof row.value === "string" ? row.value : JSON.stringify(row.value)))
   }
 
   queueDepth(threadId: string): number {
@@ -324,7 +323,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
         now,
       )
       .one()
-    return isRuntimeNumber(row.next_expiry) ? row.next_expiry : null
+    return typeof row.next_expiry === "number" ? row.next_expiry : null
   }
 
   private scheduleCleanupIfNeeded(): void {

@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on `host: 'node'`, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -21,15 +21,21 @@ Set `queue: true` in your ViteHub config, then import from `vite-hub/queue`. Rou
 | `createQueueMessageId` from `vite-hub/queue` | Make a message id, with an optional prefix. |
 | `QueueErrorCode`, `CloudflareQueueErrorCode`, `VercelQueueErrorCode` from `vite-hub/queue` | Types of the `error.code` that a send returns. See [Queue errors](/docs/queue/limits-and-errors). |
 | `ViteHubError` and `getViteHubErrorShape` from `vite-hub/runtime` | Throw app failures from a handler and read their code. |
-| `createCloudflareQueueBatchHandler` from `vite-hub/queue` | Build a Cloudflare batch handler outside the generated Nitro plugin. |
-| `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `vite-hub/queue` | Read generated provider names. Do not store them as app identifiers. |
-| `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `vite-hub/queue` | Host helpers for generated output. Install `@vercel/functions` if you import the Vercel runtime. |
+| `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted` | Host helper for generated output. Install `@vercel/functions` if you import the Vercel runtime. |
 
-`vite-hub/queue` also exports the option, client, job, provider, registry, and result types. `@vite-hub/queue` has the same APIs for owner packages, with `hubQueue` from `@vite-hub/queue/vite`. `vite-hub` sets these up for apps. Nuxt apps use `vite-hub/nuxt`. Generated output uses `@vite-hub/queue/internal/runtime/*` subpaths. Do not import them in app code.
+`vite-hub/queue` also exports the option, client, job, provider, registry, and result types. `@vite-hub/queue` has the same APIs for owner packages, with `hubQueue` from `@vite-hub/queue/vite`. `vite-hub` sets these up for apps. Nuxt apps use `vite-hub/nuxt`. Generated output imports the Queue runtime modules by file path. They are not package exports.
 
 ## Queue job
 
-The handler gets one job in the same shape on every provider.
+The handler gets one job in the same shape on every provider. The examples on this page enqueue the `welcome-email` Definition from Get started:
+
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload, id }) => {
+  console.log(`Processing welcome job ${id} for ${payload.email}`)
+})
+```
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -47,7 +53,7 @@ Providers can retry a failed delivery, so a handler must be safe to run again af
 | Provider | Default | Override |
 | --- | --- | --- |
 | Cloudflare | Success acknowledges the message. Failure retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`, or `void` for the default. |
-| Local | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
+| Local and postgres | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
 | Vercel | Vercel decides. When the callback returns `undefined`, ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), and Vercel retries the rest. | Return a directive from `callbackOptions.retry`, or `void` for the default. |
 
 In `vite dev`, Cloudflare and Vercel apps run jobs with the local provider and their provider's retry rules, without `onError` or `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
@@ -134,7 +140,7 @@ Cloudflare accepts the shared options and `contentType`. Guard side effects that
 
 ### Vercel options
 
-Vercel only. The app needs `preset: 'vercel'`, Queue on, `@vercel/queue`, and a deployed Queue callback. See [Vercel](/docs/frameworks-hosts/vercel) and [Queue hosts](/docs/queue/hosts).
+Vercel only. The app needs `host: 'vercel'`, Queue on, `@vercel/queue`, and a deployed Queue callback. See [Vercel](/docs/frameworks-hosts/vercel) and [Queue hosts](/docs/queue/hosts).
 
 | Option | Type | Description |
 | --- | --- | --- |

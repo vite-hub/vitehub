@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { normalizeWorkspacePath } from "../core/path.ts"
 
 export interface WorkspaceSourceSyncStatePath {
@@ -37,17 +36,17 @@ export function readWorkspaceSourceSyncState(value: unknown): WorkspaceSourceSyn
     const entry = state.paths[path]
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return
     if (typeof entry.digest !== "string" || typeof entry.sourcePath !== "string") return
-    if (entry.mountPath !== undefined && !hasRuntimeType(entry.mountPath, "string")) return
+    if (entry.mountPath !== undefined && typeof entry.mountPath !== "string") return
   }
 
   if (state.claims !== undefined) {
-    if (!state.claims || !hasRuntimeType(state.claims, "object") || Array.isArray(state.claims)) return
+    if (!state.claims || typeof state.claims !== "object" || Array.isArray(state.claims)) return
     for (const [path, claims] of Object.entries(state.claims)) {
       if (!state.paths[path] || !Array.isArray(claims) || claims.length === 0) return
       const mounts = new Set<string>()
       for (const claim of claims) {
-        if (!claim || !hasRuntimeType(claim, "object") || Array.isArray(claim)) return
-        if (!hasRuntimeType(claim.digest, "string") || !hasRuntimeType(claim.sourcePath, "string") || !hasRuntimeType(claim.mountPath, "string")) return
+        if (!claim || typeof claim !== "object" || Array.isArray(claim)) return
+        if (typeof claim.digest !== "string" || typeof claim.sourcePath !== "string" || typeof claim.mountPath !== "string") return
         if (mounts.has(claim.mountPath)) return
         mounts.add(claim.mountPath)
       }

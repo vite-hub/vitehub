@@ -11,13 +11,12 @@ import { defineCollection } from "@vite-hub/source"
 
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 import type { AgentRunContext } from "@vite-hub/agent"
-import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
-import { consoleEvent, nodeResponse } from "./console-event.ts"
-import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
-import "./support/console-access.ts"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receipt" }]
 
@@ -58,38 +57,17 @@ function labeller() {
   return { agent, label, get runContext() { return runContext } }
 }
 
-function replayEvent(body: unknown, headers: Record<string, string> = { "content-type": "application/json" }): ConsoleRequestEvent {
-  return consoleEvent({ body: body === undefined ? "" : body, headers, method: "POST", url: "https://app.test/_vitehub/channels/replay" })
+/** One `channels.replay` call through the Console RPC. */
+async function replay(input: unknown, headers: Record<string, string> = {}, sign: (request: Request) => Promise<Request> = async request => request): Promise<{ body: Record<string, unknown>, status: number }> {
+  const response = await handleConsoleRpcRequest(await sign(new Request("https://app.test/_vitehub/rpc", {
+    body: operationRpcBody("channels.replay", input),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
+    method: "POST",
+  })))
+  return { body: Object(await operationRpcResponseResult(response)), status: response.status }
 }
 
-function nodeReplayEvent(body: unknown): ConsoleRequestEvent {
-  return nodeReplayPayloadEvent(JSON.stringify(body))
-}
-
-/** An H3 1 event, as Nuxt 4 passes it, with Standard Context set by the ViteHub Nitro plugin. */
-function nodeReplayPayloadEvent(payload: string): ConsoleRequestEvent {
-  const event = {
-    node: {
-      req: {
-        headers: { "content-type": ["application/json"], host: "app.test" },
-        method: "POST",
-        url: "/_vitehub/channels/replay",
-        async *[Symbol.asyncIterator]() {
-          yield payload
-        },
-      },
-      res: nodeResponse(),
-    },
-  }
-  installStandardContext(event)
-  return event
-}
-
-function fetchReplayPayloadEvent(payload: string): ConsoleRequestEvent {
-  return consoleEvent({ body: payload, headers: { "content-type": "application/json" }, method: "POST", url: "https://app.test/_vitehub/channels/replay" })
-}
-
-describe("Console Channel replay route", () => {
+describe("Console Channel replay operation", () => {
   let root: string
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vitehub-console-replay-"))
@@ -98,68 +76,35 @@ describe("Console Channel replay route", () => {
     await rm(root, { force: true, recursive: true })
   })
 
-  describe.each([
-    ["Fetch", fetchReplayPayloadEvent],
-    ["Node", nodeReplayPayloadEvent],
-  ])("%s request bodies", (_host, event) => {
-    it("returns 413 for oversized replay requests before invoking the Agent", async () => {
-      const { agent, label } = labeller()
-      installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
-      const payload = JSON.stringify({ agent: "labeller", channel: "mailbox", padding: "x".repeat(64 * 1024) })
-
-      const response = await channelReplayHandler(event(payload))
-
-      expect(response.status).toBe(413)
-      expect(response.headers.get("cache-control")).toBe("no-store")
-      expect(label).not.toHaveBeenCalled()
-    })
-
-    it("keeps malformed JSON as 400", async () => {
-      const response = await channelReplayHandler(event('{"agent":'))
-      expect(response.status).toBe(400)
-      await expect(response.json()).resolves.toEqual({ message: "Malformed Channel replay payload." })
-    })
-  })
-
   it("describes and replays Channel history when Console invocation is enabled", async () => {
     const { agent, label } = labeller()
     installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
 
-    const description = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox", describe: true }))
+    const description = await replay({ agent: "labeller", channel: "mailbox", describe: true })
     expect(description.status).toBe(200)
-    await expect(description.json()).resolves.toMatchObject({ query: { properties: { folder: expect.any(Object) } }, trigger: "received" })
+    expect(description.body).toMatchObject({ ok: true, value: { query: { properties: { folder: expect.any(Object) } }, trigger: "received" } })
 
-    const response = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox", dryRun: true, limit: 5 }))
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ nextCursor: null, processed: 2 })
+    const dryRun = await replay({ agent: "labeller", channel: "mailbox", dryRun: true, limit: 5 })
+    expect(dryRun).toMatchObject({ body: { ok: true, value: { nextCursor: null, processed: 2 } }, status: 200 })
     expect(label).not.toHaveBeenCalled()
 
-    const live = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox" }))
-    await expect(live.json()).resolves.toMatchObject({ processed: 2, skipped: 0 })
+    const live = await replay({ agent: "labeller", channel: "mailbox" })
+    expect(live.body).toMatchObject({ ok: true, value: { processed: 2, skipped: 0 } })
     expect(label.mock.calls).toEqual([["Finance"], ["Finance"]])
-  })
-
-  it("accepts headers from a path-only Nitro Node request", async () => {
-    const { agent } = labeller()
-    installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
-
-    const response = await channelReplayHandler(nodeReplayEvent({ agent: "labeller", channel: "mailbox", dryRun: true }))
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ processed: 2 })
   })
 
   it("passes the verified Console user and request headers to Channel replay", async () => {
     const fixture = labeller()
     installConsoleAgentDefinitions([{ definition: { default: fixture.agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
-    installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "console-user" }) })
+    const signer = await signedConsoleAccess()
     try {
-      const response = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox" }, { "content-type": "application/json", cookie: "session=verified" }))
-      expect(response.status).toBe(200)
-      await expect(response.json()).resolves.toMatchObject({ processed: 2 })
+      const result = await replay({ agent: "labeller", channel: "mailbox" }, { cookie: "session=verified" }, request => signer.sign(request, { id: "console-user" }))
+      expect(result).toMatchObject({ body: { ok: true, value: { processed: 2 } }, status: 200 })
       expect(fixture.runContext?.request?.headers.get("cookie")).toBe("session=verified")
-      expect(fixture.runContext?.actor).toMatchObject({ id: "console-user", kind: "authUser" })
+      expect(fixture.runContext?.invoker).toMatchObject({ id: "console-user", kind: "authUser" })
     }
     finally {
+      signer.restore()
       installConsoleAccess({ mode: "open" })
     }
   })
@@ -167,20 +112,26 @@ describe("Console Channel replay route", () => {
   it("stays unavailable while Console invocation is disabled", async () => {
     const { agent } = labeller()
     installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { projectRoot: root })
-    const response = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox" }))
-    expect(response.status).toBe(404)
+    const result = await replay({ agent: "labeller", channel: "mailbox" })
+    expect(result).toMatchObject({ body: { message: expect.stringContaining("Enable Console invocation"), ok: false }, status: 404 })
   })
 
-  it("rejects cross-site and malformed requests before replay", async () => {
+  it("keeps the code of an Agent failure", async () => {
+    const { agent } = labeller()
+    installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
+    const result = await replay({ agent: "labeller", channel: "missing" })
+    expect(result).toMatchObject({ body: { code: "AGENT_R0931", ok: false }, status: 404 })
+  })
+
+  it("rejects cross-site and malformed calls before replay", async () => {
     const { agent, label } = labeller()
     installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
     const body = { agent: "labeller", channel: "mailbox" }
 
-    expect((await channelReplayHandler(replayEvent(body, { "content-type": "application/json", origin: "https://evil.test" }))).status).toBe(403)
-    expect((await channelReplayHandler(replayEvent(body, { "content-type": "text/plain" }))).status).toBe(415)
-    expect((await channelReplayHandler(replayEvent({ channel: "mailbox" }))).status).toBe(400)
-    expect((await channelReplayHandler(replayEvent({ ...body, query: { folder: 1 } }))).status).toBe(400)
-    expect((await channelReplayHandler(consoleEvent({ method: "GET", url: "https://app.test/_vitehub/channels/replay" }))).status).toBe(405)
+    expect((await replay(body, { origin: "https://evil.test" })).status).toBe(403)
+    expect((await replay({ channel: "mailbox" })).status).toBe(400)
+    expect((await replay({ ...body, query: { folder: 1 } })).status).toBe(400)
+    expect((await replay({ ...body, unknown: true })).status).toBe(400)
     expect(label).not.toHaveBeenCalled()
   })
 })

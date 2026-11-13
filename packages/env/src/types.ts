@@ -5,7 +5,8 @@ import type { SecretEnv } from "./secret.ts"
 export type EnvDiagnostics = "off" | "summary" | "trace"
 export type EnvMode = "build" | "runtime"
 
-export interface EnvIntegrationOptions {
+/** Options of `vitehub({ env })` and `hubEnv()`: the Env declarations and how ViteHub resolves them. */
+export interface EnvOptions extends EnvDeclarations {
   diagnostics?: EnvDiagnostics
   /**
    * Prefix of canonical variable names. Every env-backed declaration first reads the prefix plus its
@@ -142,6 +143,18 @@ export type EnvValueSchema =
   | { kind: "array", items?: EnvValueSchema }
   | { kind: "object", properties?: Record<string, EnvValueSchema> }
 
+/**
+ * A Standard Schema that the server build imports from a module. Server Env runs it on the raw value when it resolves,
+ * so refinements and transforms work. Create it with `env.schemaFrom()`.
+ */
+export interface EnvSchemaModuleReference {
+  kind: "schema-module"
+  /** Module specifier. A relative path resolves from the project root, like `hubEnv({ providers })`. */
+  module: string
+  /** Name of the export that holds the schema. */
+  export: string
+}
+
 export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]
 
 type EnvBuildConfigValue = EnvBuildConfigOptions | EnvBuildStaticValue | EnvVariableDeclaration
@@ -150,9 +163,13 @@ export interface EnvBuildConfigOptions {
   [key: string]: EnvBuildConfigValue
 }
 
-export interface EnvViteConfigOptions {
+/** Declarations of Public Env, Server Env, and build-time replacements. */
+export interface EnvDeclarations {
+  /** Values that replace identifiers at build time. */
   define?: Record<string, EnvBuildConfigValue>
+  /** Public Env, resolved at build time and readable in browser code. Each declaration uses `mode: "build"`. */
   public?: Record<string, EnvVariableDeclaration>
+  /** Server Env, resolved at runtime and readable only in server code. */
   server?: EnvRuntimeConfigOptions
 }
 
@@ -164,11 +181,6 @@ export interface EnvRuntimeConfigOptions {
   [key: string]: EnvRuntimeConfigValue
 }
 
-export type EnvConfigOptions = EnvViteConfigOptions
-
-export interface EnvViteUserConfig {
-  env?: EnvViteConfigOptions
-}
 
 export interface EnvDiagnosticEntry {
   exposed: string
@@ -193,6 +205,7 @@ interface EnvRegistryEntry {
   default?: unknown
   required: boolean
   schema?: EnvValueSchema
+  schemaModule?: EnvSchemaModuleReference
   secret: boolean
   source: Extract<EnvSource, { kind: "env" | "provider" }>
 }
@@ -211,10 +224,11 @@ export interface EnvRuntimeRegistry<TServerEnv extends Record<string, unknown> =
   readonly [serverEnvType]?: (value: TServerEnv) => void
 }
 
-export interface ServerEnv {
-  [key: string]: unknown
-}
-export type PublicEnv = Record<string, unknown>
+/** Server Env. ViteHub generates its fields from the Env declarations into `.vitehub/types/`. */
+export interface ServerEnv {}
+/** Public Env. ViteHub generates its fields from the Env declarations into `.vitehub/types/`. */
+export interface PublicEnv {}
+export type ReadonlyServerEnv = DeepReadonly<ServerEnv>
 
 export interface EnvProviderContext<TEnv extends Record<string, unknown> = Record<string, unknown>> {
   env: DeepReadonly<TEnv>

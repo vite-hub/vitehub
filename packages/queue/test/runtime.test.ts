@@ -816,7 +816,7 @@ describe("cloudflare queue runtime", () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it("uses Node request Cloudflare context for deferred dispatch", async () => {
+  it("uses request runtime Cloudflare context for deferred dispatch", async () => {
     const send = vi.fn(async () => {})
     const waitUntil = vi.fn()
 
@@ -826,13 +826,11 @@ describe("cloudflare queue runtime", () => {
     })
 
     await runWithQueueRuntimeEvent({
-      node: {
-        req: {
-          runtime: {
-            cloudflare: {
-              context: { waitUntil },
-              env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } },
-            },
+      req: {
+        runtime: {
+          cloudflare: {
+            context: { waitUntil },
+            env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } },
           },
         },
       },
@@ -883,46 +881,11 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    expect(await (await handleHostedVercelQueueCallback(request, "welcome", definition)).json()).toBe("handled")
     expect(captured).toBe(request)
     expect(request.bodyUsed).toBe(state === "consumed")
     reader?.releaseLock()
     if (state !== "consumed") expect(await request.text()).toBe("payload")
-  })
-
-  it("converts spoofed Request-shaped objects through H3", async () => {
-    const request = runInNewContext(`
-      const headers = { get() { return null } }
-      const request = { headers, method: "POST", url: "https://queue.example.test/callback" }
-      Object.defineProperty(request, Symbol.toStringTag, { value: "Request" })
-      request
-    `, { Symbol })
-    let captured: unknown
-    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
-      captured = values[0]
-      return "handled"
-    })
-    const definition = { handler: async () => undefined }
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
-    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
-
-    const h3Request = new Request("https://queue.example.test/callback", {
-      headers: { "content-type": "text/plain" },
-      method: "POST",
-      body: "payload",
-    })
-    await expect(handleHostedVercelQueueCallback({
-      method: "POST",
-      req: h3Request,
-      request,
-    } as never, "welcome", definition)).resolves.toBe("handled")
-    expect(captured).not.toBe(request)
-    expect(captured).toBeInstanceOf(Request)
-    const normalized = captured as Request
-    expect(normalized.url).toBe(h3Request.url)
-    expect(normalized.method).toBe("POST")
-    expect(normalized.headers.get("content-type")).toBe("text/plain")
-    expect(await normalized.text()).toBe("payload")
   })
 
   it("uses the sdk send and callback contract", async () => {
@@ -1279,11 +1242,11 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    const result = await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
     expect(acknowledge).not.toHaveBeenCalled()
     expect(retry).toHaveBeenCalledWith(expect.objectContaining({ message: `Queue handler returned HTTP ${status}`, status }), metadata)
-    expect(result).toEqual({ afterSeconds: 30 })
+    expect(await result.json()).toEqual({ afterSeconds: 30 })
   })
 
   it.each([undefined, 200, 204])("accepts a successful Vercel handler with status %s", async (status) => {
@@ -1295,7 +1258,7 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await expect(handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)).resolves.toBe("acknowledged")
+    expect(await (await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)).json()).toBe("acknowledged")
   })
 
   it.each([
@@ -1318,7 +1281,7 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
     expect(cancel).toHaveBeenCalledTimes(1)
     expect(acknowledge).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
@@ -1347,9 +1310,9 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    const result = await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
-    expect(result).toBeUndefined()
+    expect(result.status).toBe(204)
     expect(retry).toHaveBeenCalledTimes(1)
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[1]).toMatchObject({
@@ -1383,9 +1346,9 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+    const result = await handleHostedVercelQueueCallback(new Request("https://example.com"), "welcome", definition)
 
-    expect(result).toEqual({ afterSeconds: 30 })
+    expect(await result.json()).toEqual({ afterSeconds: 30 })
     expect(retry).toHaveBeenCalledTimes(1)
   })
 
@@ -1405,8 +1368,8 @@ describe("vercel provider", () => {
     }))
   })
 
-  it("infers the sdk region from Nitro node request headers", async () => {
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::iad1::request" } } } }, async () => {
+  it("infers the sdk region from Nitro request headers", async () => {
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "fra1::iad1::request" } } }, async () => {
       const client = await createVercelQueueClient({
         provider: "vercel",
         topic: "topic--77656c636f6d65",
@@ -1424,9 +1387,9 @@ it("does not cache regions inferred from Vercel requests", async () => {
       welcome: async () => ({ handler: async () => {} }),
     })
 
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "fra1::request" } } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "fra1::request" } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
-    await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "iad1::request" } } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
+    await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "iad1::request" } } }, () => sendQueue("welcome", { email: "ava@example.com" }))
     expect(vercelQueueMock.options).toEqual({ region: "iad1" })
   })
 
@@ -1440,7 +1403,7 @@ it("does not cache regions inferred from Vercel requests", async () => {
     setQueueRuntimeConfig({ provider: "vercel", region: explicit }, createVercelQueueRuntimeClient);
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => {} }) });
     const first = await runWithQueueRuntimeEvent({ request: new Request("https://example.com", { headers: { "ce-vqsregion": "ams1" } }) }, () => dynamicQueue.use("welcome"));
-    const second = await runWithQueueRuntimeEvent({ node: { req: { headers: { "x-vercel-id": "hnd1::request" } } } }, () => dynamicQueue.use("welcome"));
+    const second = await runWithQueueRuntimeEvent({ req: { headers: { "x-vercel-id": "hnd1::request" } } }, () => dynamicQueue.use("welcome"));
     expect(first).toBe(second);
     expect(vercelQueueMock.options).toEqual({ region: expected });
   });
@@ -1503,72 +1466,4 @@ it("falls back to Vercel ID when a request has no queue-region header", () => {
     headers: { "x-vercel-id": "iad1::request" },
   })
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "iad1" })
-})
-
-it("reads regions when the branding probe header is present", () => {
-  const request = new Request("https://example.com", {
-    headers: {
-      "x-vitehub-brand-probe": "present",
-      "ce-vqsregion": "ams1",
-    },
-  })
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
-})
-
-it("reads headers through a deep Fetch prototype chain", () => {
-  const request = new Request("https://example.com", {
-    headers: { "ce-vqsregion": "ams1" },
-  })
-  let prototype = Object.getPrototypeOf(request)
-  for (let index = 0; index < 300; index++) {
-    const layer = Object.create(prototype)
-    prototype = layer
-  }
-  Object.setPrototypeOf(request, prototype)
-
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
-})
-
-it("ignores proxies around ordinary header methods", () => {
-  const get = new Proxy(() => "evil", {})
-  const request = { headers: { get } }
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
-})
-
-it("rejects receiver-dependent header method proxies", () => {
-  const headers = Object.create(Headers.prototype) as Headers
-  const get = new Proxy(() => "evil", {
-    apply(_target, thisArg) {
-      if (thisArg === headers) return "evil"
-      throw new TypeError("invalid receiver")
-    },
-  })
-  Object.defineProperty(headers, "get", { value: get })
-  const request = { headers }
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
-})
-it("rejects header proxies that only impersonate real receivers", () => {
-  const headers = Object.create(Headers.prototype) as Headers
-  const get = new Proxy(() => null, {
-    apply(_target, thisArg) {
-      if (thisArg === headers) return "evil"
-      if (thisArg && Object.getPrototypeOf(thisArg) === Headers.prototype) return null
-      throw new TypeError("invalid receiver")
-    },
-  })
-  Object.defineProperty(headers, "get", { value: get })
-  const request = { headers }
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
-})
-
-
-it("ignores request objects that only spoof Web API brands", () => {
-  const request = runInNewContext(`({
-    headers: {
-      get: () => "evil",
-      get [Symbol.toStringTag]() { return "Headers" },
-    },
-    get [Symbol.toStringTag]() { return "Request" },
-  })`)
-  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
 })

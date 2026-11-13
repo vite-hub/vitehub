@@ -1,20 +1,22 @@
-// The Auth server API of an app. Generated routes, the Console, and sibling packages import the setters, the
-// factories, and the Console entries from `@vite-hub/auth/internal/server`.
+// App Auth API. Generated code and sibling packages use the private server entry.
 export {
+  AbilityError,
   aggregateAuthEvents,
   auth,
+  can,
   createAuthHandler,
   default,
   getAuth,
   getAuthConsoleForRequest,
   getAuthEvents,
-  getAuthForRequest,
-  getAuthorization,
   handleAuth,
   listAuthEvents,
+  requireAbility,
   requireAuth,
   requireAuthorization,
+  useAuth,
   withAnonymousAuthorization,
   withAuth,
   withAuthorization,
 } from "./internal/server.ts"
+export type { AbilityErrorData } from "./internal/server.ts"

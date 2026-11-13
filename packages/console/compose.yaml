@@ -1,0 +1,20 @@
+# Build on Linux with glibc and Node.js 24, matching the image's CPU architecture:
+# VITEHUB_DATA_DIR=/data vp build && docker compose up -d --build
+# Put TLS in front, such as Caddy, and set BETTER_AUTH_URL to the public URL of the Console.
+services:
+  console:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set BETTER_AUTH_URL to the public URL of the Console}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Create one with openssl rand -hex 32}
+      VITEHUB_CONSOLE_SECRET: ${VITEHUB_CONSOLE_SECRET:?Create one with openssl rand -hex 32}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      VITEHUB_CONSOLE_ALLOW_PRIVATE: ${VITEHUB_CONSOLE_ALLOW_PRIVATE:-false}
+    volumes:
+      - console-data:/data
+volumes:
+  console-data:

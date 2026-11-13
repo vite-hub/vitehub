@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure Env
 
-Declare values in `env` in the Vite config, or in `vitehub.env` in Nuxt. `env.public` is browser-safe Public Env. `env.define` becomes Vite replacements. `env.server` is Server Env, for server code only.
+Declare values in `vitehub({ env })`, in `vitehub.env` in Nuxt, or in `hubEnv(options)` without `vite-hub`. `env.public` is browser-safe Public Env. `env.define` becomes Vite replacements. `env.server` is Server Env, for server code only.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -18,7 +18,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -45,20 +45,22 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    define: {
-      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      define: {
+        __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -70,20 +72,22 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    define: {
-      __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      define: {
+        __BUILD_TARGET__: env({ default: 'preview', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
@@ -91,7 +95,7 @@ export default defineConfig({
 
 ## Integration options
 
-Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.env` in Nuxt.
+Pass these to the `env` option of `vitehub({ host: 'node' })`, or to `vitehub.env` in Nuxt.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -99,8 +103,10 @@ Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.
 | `prefix` | `string \| false` | `'VITEHUB_'` | Prefix of [canonical variable names](#variable-names). `false` disables canonical names. |
 | `projectRoot` | `string` | ViteHub project root | Custom root for generated files and package import updates. |
 | `providers` | `Record<string, string>` | None | Maps runtime provider names to app modules. Relative paths start at the ViteHub project root. |
-| `runtimeImports.secret` | `string` | `@vite-hub/env/secret` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
-| `runtimeImports.server` | `string` | `@vite-hub/env/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `EnvAccessContext` type. Also export `createServerEnvManagement` to get credential management. |
+| `runtimeImports.secret` | `string` | `@vite-hub/env` | Replaces the `SecretEnv` type import in generated Server Env modules, for framework integrations. |
+| `runtimeImports.server` | `string` | `@vite-hub/env/internal/server` | Replaces the runtime module of generated Server Env modules, for framework integrations. It must export `resolveServerEnv`, `loadServerEnv`, `inspectServerEnv`, and the `ViteHubContext` and `EnvAccessContext` types. Also export `createServerEnvManagement` to get credential management, and `bindServerEnvSchemas` when declarations use `env.schemaFrom()`. |
+
+To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime facade, re-export `deriveSecret` and `createSealing` from `@vite-hub/env/internal/server`. The generated module uses these to read the project's development secret. Also re-export `seal` and `unseal` for their public types in generated declarations. Existing Env resolution and inspection operations do not require these sealing exports.
 
 ## Env config sections
 
@@ -108,7 +114,7 @@ Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.
 | --- | --- | --- | --- |
 | `env.public` | Build | Yes | Browser-safe Public Env through `#vitehub/env/public`. |
 | `env.define` | Build transform | Yes in bundled code | Vite compile-time replacements. |
-| `env.server` | Server runtime | No | Server Env through `#vitehub/env/server`. |
+| `env.server` | Server runtime | No | Server Env through `useServerEnv()` from `vite-hub/env`. |
 
 ## Env Declaration options
 
@@ -121,9 +127,9 @@ Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.
 | `required` | `boolean` | `true` unless `optional` is set | Throws when the runtime value is missing. Server Env checks all values at once, so one missing value fails every read. |
 | `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
 | `mode` | `EnvMode` | `runtime` | Build Env or Runtime Env: `build` or `runtime`. |
-| `schema` | Standard Schema-compatible parser | string parser | Parses `env.public` and `env.define` values. `env.server` takes only the built-in parsers below, because the runtime must serialize them. |
+| `schema` | Standard Schema-compatible parser, or `env.schemaFrom()` | string parser | Parses `env.public` and `env.define` values. `env.server` accepts the built-in parsers below, or a schema from a module through [`env.schemaFrom()`](#validate-server-env-with-your-own-schema). |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
-| `type` | `string` | Inferred | Overrides the generated type label in `env.public` and `env.define`. In `env.server`, it must match the parser. |
+| `type` | `string` | Inferred | Overrides the generated type label in `env.public` and `env.define`. In `env.server`, it must match the parser, and `env.schemaFrom()` does not accept it. |
 
 ## Typed values
 
@@ -137,7 +143,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -161,17 +167,19 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    server: {
-      labeller: {
-        dryRun: env.boolean({ default: true }),
-        minConfidence: env.number({ default: 0.6 }),
-        mode: env.enum(['draft', 'send'], { default: 'draft' }),
-        apiKey: env({ secret: true }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        labeller: {
+          dryRun: env.boolean({ default: true }),
+          minConfidence: env.number({ default: 0.6 }),
+          mode: env.enum(['draft', 'send'], { default: 'draft' }),
+          apiKey: env({ secret: true }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -183,24 +191,26 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    server: {
-      labeller: {
-        dryRun: env.boolean({ default: true }),
-        minConfidence: env.number({ default: 0.6 }),
-        mode: env.enum(['draft', 'send'], { default: 'draft' }),
-        apiKey: env({ secret: true }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        labeller: {
+          dryRun: env.boolean({ default: true }),
+          minConfidence: env.number({ default: 0.6 }),
+          mode: env.enum(['draft', 'send'], { default: 'draft' }),
+          apiKey: env({ secret: true }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 :::
 ::
 
 ```ts [server/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 const { labeller } = useServerEnv()
 if (!labeller.dryRun && labeller.mode === 'send') {
@@ -221,6 +231,96 @@ Error details hold the declaration path and source kind, never the rejected valu
 
 The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
 
+## Validate Server Env with your own schema
+
+Use `env.schemaFrom(module, exportName)` when a Server Env value needs more than the built-in parsers, such as a pattern, a custom refinement, or a transform. Export a [Standard Schema](https://standardschema.dev) from a module. The server build imports that module, and Server Env runs the schema on the raw value each time it resolves.
+
+```ts [server/env.schema.ts]
+import { z } from 'zod'
+
+export const apiUrl = z.url().refine(url => url.startsWith('https://'), 'Use an https URL.')
+export const retries = z.coerce.number().int().min(1).max(5)
+export const tags = z.string().transform(value => value.split(','))
+export const token = z.string().min(20)
+```
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
+        retries: env({ default: '2', schema: env.schemaFrom('./server/env.schema.ts', 'retries') }),
+        tags: env({ schema: env.schemaFrom('./server/env.schema.ts', 'tags') }),
+        token: env({ secret: true, schema: env.schemaFrom('./server/env.schema.ts', 'token') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+`useServerEnv().retries` is a `number`, `tags` is a `string[]`, and `token` is a `SecretEnv<string>`. The generated types read the output type of each export, or use `unknown` when the schema has no type metadata.
+
+- A relative module path resolves from the project root, as `providers` does. `exportName` defaults to `default`.
+- The schema gets the raw host string, or the default as written. Use coercion, such as `z.coerce.number()`, for other types.
+- The schema must be synchronous. An async schema fails with `ENV_RUNTIME_VALUE_INVALID`.
+- An export that is not a Standard Schema fails when the server module loads, with `ENV_DECLARATION_INVALID`.
+- For a non-secret value, the error cause contains the schema issue messages. For a secret value, it contains only the path, because issue messages can quote the input.
+- `env.schemaFrom()` works only in `env.server`. In `env.public` and `env.define`, pass the schema object directly: those values resolve during the build, where the config can run it.
+
 ## Import an environment schema
 
 Opt in with `envSchema()` to get typed accessors and runtime checks from a committed `.env.example`. Code declarations still work.
@@ -233,7 +333,7 @@ import { envSchema } from '@vite-hub/env/vite'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   },
 })
@@ -248,8 +348,10 @@ import { vitehub } from 'vite-hub'
 import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: envSchema(new URL('./.env.example', import.meta.url)),
+  plugins: [vitehub({
+    host: 'node',
+    env: envSchema(new URL('./.env.example', import.meta.url)),
+  }), nitro()],
 })
 ```
 :::
@@ -261,8 +363,10 @@ import { vitehub } from 'vite-hub'
 import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: envSchema(new URL('./.env.example', import.meta.url)),
+  plugins: [vitehub({
+    host: 'node',
+    env: envSchema(new URL('./.env.example', import.meta.url)),
+  })],
 })
 ```
 :::
@@ -284,7 +388,7 @@ VITEHUB_API_TOKEN=
 
 This example gives `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so prepare and build do not need a deployment-only secret.
 
-It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
+It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions. To move an app from that module, run the [`nuxt-safe-runtime-config` codemod](/docs/codemods/nuxt-modules#nuxt-safe-runtime-config).
 
 The [schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) builds a browser bundle and a Node server from one schema. Its production test checks types, startup failures, redaction, browser output, and server values that change between restarts. Public Env values are fixed at build.
 
@@ -344,7 +448,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -366,15 +470,17 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-  env: {
-    server: {
-      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
-      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
-      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
-      logLevel: env({ default: 'info' }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+        // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+        logLevel: env({ default: 'info' }),
+      },
     },
-  },
+  }), nitro()],
 })
 ```
 :::
@@ -386,15 +492,17 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
-  env: {
-    server: {
-      // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
-      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
-      // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
-      logLevel: env({ default: 'info' }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
+        github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+        // Reads VITEHUB_LOG_LEVEL, then LOG_LEVEL.
+        logLevel: env({ default: 'info' }),
+      },
     },
-  },
+  })],
 })
 ```
 :::
@@ -432,7 +540,7 @@ On Cloudflare, the Wrangler config lists a required secret only when it has one 
 
 ## Provider output
 
-Env writes generated modules to `.vitehub/env/` and types to `.vitehub/types/`. In app code, import `#vitehub/env/public` and `#vitehub/env/server`, not generated file paths or virtual modules.
+`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `useServerEnv()` and `usePublicEnv()` from `vite-hub/env` in server code and `#vitehub/env/public` in browser code, not generated file paths or integration virtual modules.
 
 Add the type directory to `tsconfig.json` to type each field.
 

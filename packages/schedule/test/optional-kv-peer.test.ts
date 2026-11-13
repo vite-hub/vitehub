@@ -40,7 +40,7 @@ async function run(command: string, args: string[], cwd: string) {
 async function runPnpm(args: string[], cwd: string) {
   const npmExecPath = process.env.npm_execpath
   return npmExecPath?.includes("pnpm")
-    ? await run(process.execPath, [npmExecPath, ...args], cwd)
+    ? await run(npmExecPath, args, cwd)
     : await run("corepack", ["pnpm", ...args], cwd)
 }
 
@@ -75,7 +75,7 @@ async function installConsumer(root: string, dependencies: Record<string, string
       `${JSON.stringify(
         {
           dependencies,
-          packageManager: "pnpm@10.33.0",
+          packageManager: "pnpm@12.16.1",
           private: true,
           type: "module",
         },
@@ -119,7 +119,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
       {
         "@vite-hub/schedule": `file:${scheduleTarball}`,
         vite: "8.0.8",
-        nitropack: "2.13.4",
+        nitro: "3.0.261103-rc",
       },
       {
         "@vite-hub/runtime": `file:${runtimeTarball}`,
@@ -171,10 +171,10 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
       export default () => definition.cron
     `, "utf8")
     await run(process.execPath, ["--input-type=module", "--eval", `
-      import { build, createNitro, prepare } from "nitropack"
+      import { build, createNitro, prepare } from "nitro/builder"
       const nitro = await createNitro({
         rootDir: process.cwd(),
-        srcDir: "server",
+        serverDir: "server",
         preset: "cloudflare_module",
         noExternals: true,
         compatibilityDate: "2026-01-01",
@@ -217,7 +217,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
       const values = new Map()
       const injected = createKVScheduleRunStore({
         kvStore: {
-          del: key => values.delete(key),
+          delete: key => values.delete(key),
           get: key => values.get(key),
           has: key => values.has(key),
           keys: base => [...values.keys()].filter(key => !base || key.startsWith(base)),

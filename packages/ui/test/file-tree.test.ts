@@ -2,7 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
-import { FileTree, useFileTree } from "../src/components/file-tree.ts";
+import { FileTree, type FileTreeModel, useFileTree } from "../src/components/file-tree.ts";
 
 describe("FileTree", () => {
   it("names the tree and its search input, and keeps the names when Pierre re-renders", async () => {
@@ -78,6 +78,47 @@ describe("FileTree", () => {
       await wrapper.setProps({ options: { search: true, initialExpansion: "open" } });
       expect(getInput()).not.toBe(input);
       expect(getInput()?.getAttribute("aria-label")).toBe("Search workspace files");
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it("selects the file of selectedPath, opens its folders, and reports the viewer's selection", async () => {
+    const wrapper = mount(FileTree, {
+      props: {
+        options: { initialExpansion: "closed" },
+        paths: ["src/chat/Message.vue", "src/index.ts", "README.md"],
+        selectedPath: "src/chat/Message.vue",
+      },
+    });
+    const model: FileTreeModel = wrapper.vm.$.exposed?.getModel();
+    const expanded = (path: string) => {
+      const folder = model.getItem(path);
+      return folder && "isExpanded" in folder ? folder.isExpanded() : undefined;
+    };
+
+    try {
+      expect(model.getSelectedPaths()).toEqual(["src/chat/Message.vue"]);
+      expect([expanded("src"), expanded("src/chat")]).toEqual([true, true]);
+
+      await wrapper.setProps({ selectedPath: "README.md" });
+      expect(model.getSelectedPaths()).toEqual(["README.md"]);
+      expect(wrapper.emitted("update:selectedPath")).toBeUndefined();
+
+      // The viewer selects another file. A folder is not a file, so it reports nothing.
+      model.getItem("README.md")?.deselect();
+      model.getItem("src")?.select();
+      model.getItem("src/index.ts")?.select();
+      await vi.waitFor(() => expect(wrapper.emitted("update:selectedPath")).toEqual([["src/index.ts"]]));
+      await wrapper.setProps({ selectedPath: "src/index.ts" });
+      expect(model.getSelectedPaths()).toEqual(["src/", "src/index.ts"]);
+
+      await wrapper.setProps({ selectedPath: "deleted.ts" });
+      expect(model.getSelectedPaths()).toEqual([]);
+
+      // New paths can bring the selected file.
+      await wrapper.setProps({ paths: ["deleted.ts", "README.md"] });
+      expect(model.getSelectedPaths()).toEqual(["deleted.ts"]);
     } finally {
       wrapper.unmount();
     }

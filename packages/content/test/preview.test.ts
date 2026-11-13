@@ -4,9 +4,6 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { createServer, request as httpRequest } from "node:http"
-import { Readable } from "node:stream"
-import type { AddressInfo } from "node:net"
 import { H3, redirect } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
@@ -20,8 +17,7 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { shouldBypassCache } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { documents } from "../src/collections.ts"
-import { contentPreviewErrorName } from "../src/client.ts"
-import { contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
+import { contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -40,7 +36,7 @@ async function historyWorkspace() {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `preview-${++workspaces}`
@@ -82,94 +78,8 @@ async function titleOf(response: Response): Promise<unknown> {
   return Reflect.get(Object(Reflect.get(Object(body), "data")), "title")
 }
 
-interface ServerResponseLike {
-  body?: unknown
-  headers: Record<string, string>
-  headersSent: boolean
-  setHeader(name: string, value: string): void
-}
-
-function serverResponse(): ServerResponseLike {
-  return {
-    headers: {},
-    headersSent: false,
-    setHeader(name, value) {
-      this.headers[name.toLowerCase()] = value
-    },
-  }
-}
-
 function contentApp(content: Awaited<ReturnType<typeof setup>>["content"]) {
   return new H3().all("/api/content/**", defineContentHandler(content))
-}
-
-interface NodePage {
-  status?: number
-  headers?: Record<string, string | string[]>
-  body?: string | ReadableStream<Uint8Array>
-}
-
-interface NodeRequestLike {
-  method?: string
-  url?: string
-  headers: Record<string, string | string[] | undefined>
-}
-
-/**
- * A Nitro 2 app on a real Node server: an h3 v1 app handler that `render` answers through the Node response, and the
- * `localCall()` that runs that handler in process with a recorded response, the way Nitro 2 does.
- */
-async function nitro2Server(render: (request: NodeRequestLike) => NodePage | Promise<NodePage>) {
-  interface NodeResponseLike { statusCode: number, socket?: unknown, _data?: unknown, setHeader(name: string, value: string | string[]): void, end(body?: string): void }
-  const nitroApp = {
-    h3App: {
-      async handler(event: { node: { req: NodeRequestLike, res: NodeResponseLike } }) {
-        const page = await render(event.node.req)
-        event.node.res.statusCode = page.status ?? 200
-        for (const [name, value] of Object.entries(page.headers ?? {})) event.node.res.setHeader(name, value)
-        if (typeof page.body === "string" || page.body === undefined) {
-          event.node.res.end(page.body ?? "")
-          return
-        }
-        // h3 v1 sendStream(): without a socket, as in localCall(), the stream stays as the body of the response.
-        if (!event.node.res.socket) {
-          event.node.res._data = page.body
-          return
-        }
-        for await (const chunk of page.body) Reflect.apply(Reflect.get(event.node.res, "write") as (chunk: Uint8Array) => void, event.node.res, [chunk])
-        event.node.res.end()
-      },
-    },
-    hooks: { hook: () => undefined },
-    calls: [] as Array<{ url: string, method: string, headers: Record<string, unknown>, protocol: string }>,
-    async localCall(request: { url: string, method: string, headers: Record<string, string>, protocol: string }) {
-      nitroApp.calls.push(request)
-      const recorded = { statusCode: 200, statusMessage: "", headers: {} as Record<string, string | string[]>, body: "" as unknown }
-      const res = {
-        get statusCode() { return recorded.statusCode },
-        set statusCode(value: number) { recorded.statusCode = value },
-        set _data(value: unknown) { recorded.body = value },
-        setHeader: (name: string, value: string | string[]) => { recorded.headers[name.toLowerCase()] = value },
-        end: (body?: string) => { recorded.body = body ?? "" },
-      }
-      // SAFETY: The plugin replaced the handler with one that takes an h3 v1 event.
-      await (nitroApp.h3App.handler as (event: unknown) => Promise<unknown>)({ node: { req: { ...request, socket: { encrypted: request.protocol === "https" } }, res } })
-      return { status: recorded.statusCode, statusText: recorded.statusMessage, headers: recorded.headers, body: recorded.body }
-    },
-  }
-  return nitroApp
-}
-
-/** Serves a Nitro 2 app on 127.0.0.1 and returns its base URL. */
-async function listen(nitroApp: { h3App: { handler: unknown } }): Promise<string> {
-  // SAFETY: The plugin replaced the handler with one that takes an h3 v1 event.
-  const server = createServer((req, res) => void (nitroApp.h3App.handler as (event: unknown) => Promise<unknown>)({ node: { req, res } }))
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-  cleanup.push(() => new Promise<void>((resolve) => {
-    server.closeAllConnections()
-    server.close(() => resolve())
-  }))
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
 /** The form a preview frame posts, for `token`, with `title` on screen for posts/hello. */
@@ -318,37 +228,73 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(shouldBypassCache()).toBe(false)
   })
 
-  it("scopes whole Nitro 2 requests through the generated plugin, isolated per request", async () => {
-    const { content, posts } = await setup()
-    const cookie = await previewCookie(content)
-    const beforeResponse: Array<(event: unknown) => void> = []
-    // The shape of a Nitro 2 app: h3 v1 middleware has no next(), so the plugin wraps the app handler.
-    const nitroApp = {
-      h3App: {
-        async handler(event: { node: { req: { headers: Record<string, string> }, res: ServerResponseLike } }) {
-          await new Promise(resolve => setTimeout(resolve, Math.random() * 5))
-          const title = (await posts.get("hello"))?.data.title
-          event.node.res.setHeader("cache-control", "s-maxage=60")
-          for (const hook of beforeResponse) hook(event)
-          event.node.res.body = { bypass: shouldBypassCache(), title }
-        },
-      },
-      hooks: { hook: (name: string, hook: (event: unknown) => void) => name === "beforeResponse" && beforeResponse.push(hook) },
-    }
+  it("keeps a request with a signed ref link out of Nitro's cache", async () => {
+    const { content } = await setup()
+    const app = new H3().get("/preview/feat", (event) => {
+      event.res.headers.set("cache-control", "public, max-age=3600, s-maxage=3600")
+      return { bypass: shouldBypassCache() }
+    })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
     defineContentPreviewPlugin(content)(nitroApp)
 
-    const results = await Promise.all(Array.from({ length: 24 }, async (_, index) => {
-      const preview = index % 2 === 0
-      const headers: Record<string, string> = preview ? { cookie } : {}
-      const event = { node: { req: { headers }, res: serverResponse() } }
-      await nitroApp.h3App.handler(event)
-      return { preview, body: event.node.res.body, cacheControl: event.node.res.headers["cache-control"] }
-    }))
-    for (const result of results) {
-      expect(result).toEqual(result.preview
-        ? { preview: true, body: { bypass: true, title: "Draft" }, cacheControl: "private, no-store" }
-        : { preview: false, body: { bypass: false, title: "Published" }, cacheControl: "s-maxage=60" })
+    const signed = await nitroApp.fetch(new Request(`https://site.test/preview/feat?${contentRefTokenParameter}=v1.0.x.y`))
+    expect(await signed.json()).toEqual({ bypass: true })
+    expect(signed.headers.get("cache-control")).toBe("private, no-store")
+    const plain = await nitroApp.fetch(new Request("https://site.test/preview/feat"))
+    expect(await plain.json()).toEqual({ bypass: false })
+    expect(plain.headers.get("cache-control")).toBe("public, max-age=3600, s-maxage=3600")
+    expect(shouldBypassCache()).toBe(false)
+  })
+
+  it("loads the Content runtime on the first preview request when the plugin gets a loader", async () => {
+    const { content, posts } = await setup()
+    const cookie = await previewCookie(content)
+    const app = new H3().get("/blog/hello", async () => ({ bypass: shouldBypassCache(), title: (await posts.get("hello"))?.data.title }))
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    const load = vi.fn(async () => content)
+    defineContentPreviewPlugin(load)(nitroApp)
+
+    // The generated plugin passes a loader, so a server without preview requests never loads server/content.ts.
+    expect(await (await nitroApp.fetch(new Request("https://site.test/blog/hello"))).json()).toEqual({ bypass: false, title: "Published" })
+    expect(shouldBypassCache()).toBe(false)
+    expect(load).not.toHaveBeenCalled()
+
+    const previews = await Promise.all([1, 2].map(async () => await nitroApp.fetch(new Request("https://site.test/blog/hello", { headers: { cookie } }))))
+    for (const preview of previews) {
+      expect(await preview.json()).toEqual({ bypass: true, title: "Draft" })
+      expect(preview.headers.get("cache-control")).toBe("private, no-store")
     }
+    const published = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewPublishedParameter}`, { headers: { cookie } }))
+    expect(await published.json()).toEqual({ bypass: true, title: "Published" })
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries a Content runtime loader that failed", async () => {
+    const { content } = await setup()
+    const cookie = await previewCookie(content)
+    const nitroApp = { fetch: (_request: Request) => new Response("page") }
+    const load = vi.fn<() => Promise<typeof content>>()
+      .mockRejectedValueOnce(new Error("server/content.ts failed"))
+      .mockResolvedValue(content)
+    defineContentPreviewPlugin(load)(nitroApp)
+
+    const request = () => nitroApp.fetch(new Request("https://site.test/", { headers: { cookie } }))
+    await expect(request()).rejects.toThrow("server/content.ts failed")
+    expect(await (await request()).text()).toBe("page")
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects apps without Nitro 3's fetch entry for eager and lazy Content runtimes", async () => {
+    const { content } = await setup()
+    const load = vi.fn(async () => content)
+    const handler = vi.fn()
+    const nitroApp = { h3App: { handler } }
+
+    for (const host of [content, load]) {
+      expect(() => defineContentPreviewPlugin(host)(nitroApp)).toThrow(expect.objectContaining({ code: "CONTENT_R0008" }))
+    }
+    expect(load).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it("renders a preview frame form with its document in place of the draft, and stores nothing", async () => {
@@ -704,216 +650,6 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(foreign.read).toEqual({ pulls: 0, cancelled: true })
   })
 
-  it("stops reading a Nitro 2 frame body over 1 MiB, and reads no body from another site", async () => {
-    const { content } = await setup()
-    const handler = vi.fn(async (_event: unknown) => undefined)
-    const nitroApp = { h3App: { handler }, hooks: { hook: () => undefined } }
-    defineContentPreviewPlugin(content)(nitroApp)
-    function nodeRequest(chunks: number, headers: Record<string, string> = {}) {
-      const read = { chunks: 0, destroyed: false }
-      const request = Object.assign(Readable.from((function* () {
-        for (; read.chunks < chunks; read.chunks++) yield new Uint8Array(64 * 1024).fill(0x61)
-      })(), { highWaterMark: 1 }), { method: "POST", url: `/blog/hello?${contentPreviewFrameParameter}`, headers: { host: "site.test", "sec-fetch-site": "same-origin", ...headers } })
-      request.on("close", () => {
-        read.destroyed = true
-      })
-      return { read, request }
-    }
-    const response = () => Object.assign(serverResponse(), { statusCode: 200, end: vi.fn((_body: unknown, done: () => void) => done()) })
-
-    const large = nodeRequest(40)
-    const largeResponse = response()
-    await nitroApp.h3App.handler({ node: { req: large.request, res: largeResponse } })
-    expect(largeResponse.statusCode).toBe(403)
-    expect(largeResponse.headers.connection).toBe("close")
-    expect(large.read.chunks).toBeLessThanOrEqual(19)
-    await new Promise(resolve => setImmediate(resolve))
-    expect(large.read.destroyed).toBe(true)
-    const foreign = nodeRequest(1, { "sec-fetch-site": "cross-site" })
-    const foreignResponse = response()
-    await nitroApp.h3App.handler({ node: { req: foreign.request, res: foreignResponse } })
-    expect(foreignResponse.statusCode).toBe(403)
-    expect(foreign.read.chunks).toBe(0)
-    expect(handler).not.toHaveBeenCalled()
-  })
-
-  it("closes a Nitro 2 connection after refusing a slow upload from another site, without reading it", async () => {
-    const { content } = await setup()
-    const handler = vi.fn(async () => undefined)
-    const nitroApp = { h3App: { handler }, hooks: { hook: () => undefined } }
-    defineContentPreviewPlugin(content)(nitroApp)
-    let serverRequest: import("node:http").IncomingMessage | undefined
-    // SAFETY: The plugin replaced the handler with one that takes an h3 v1 event.
-    const server = createServer((req, res) => {
-      serverRequest = req
-      void (nitroApp.h3App.handler as (event: unknown) => Promise<unknown>)({ node: { req, res } })
-    })
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-    cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())))
-    const { port } = server.address() as AddressInfo
-    // A chunked upload that never ends on its own: 16 KiB every 10 ms.
-    const outcome = await new Promise<{ status?: number, closed: boolean, sentKiB: number }>((resolve) => {
-      let sent = 0
-      let status: number | undefined
-      const upload = httpRequest({ host: "127.0.0.1", port, method: "POST", path: `/blog/hello?${contentPreviewFrameParameter}`, headers: { "transfer-encoding": "chunked", "sec-fetch-site": "cross-site" } }, (response) => {
-        status = response.statusCode
-        response.resume()
-      })
-      const timer = setInterval(() => {
-        sent += 16
-        upload.write(new Uint8Array(16 * 1024))
-      }, 10)
-      const done = (closed: boolean) => {
-        clearInterval(timer)
-        upload.destroy()
-        resolve({ status, closed, sentKiB: sent })
-      }
-      upload.on("close", () => done(true))
-      upload.on("error", () => undefined)
-      setTimeout(() => done(false), 3000)
-    })
-    expect(outcome.status).toBe(403)
-    expect(outcome.closed).toBe(true)
-    expect(serverRequest?.destroyed).toBe(true)
-    expect(handler).not.toHaveBeenCalled()
-  })
-
-  it("renders preview frames on Nitro 2 as an in-process GET of the page, answered once on the connection", async () => {
-    const { content, posts } = await setup()
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const seen: Array<{ method?: string, url?: string, contentType: unknown, title: unknown }> = []
-    const nitroApp = await nitro2Server(async (request) => {
-      seen.push({ method: request.method, url: request.url, contentType: request.headers["content-type"], title: (await posts.get("hello"))?.data.title })
-      return { headers: { "content-type": "application/json" }, body: JSON.stringify({ title: (await posts.get("hello"))?.data.title }) }
-    })
-    defineContentPreviewPlugin(content)(nitroApp)
-    const base = await listen(nitroApp)
-    const response = await fetch(`${base}/blog/hello?lang=en&${contentPreviewFrameParameter}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" }, body: frameForm(token) })
-    expect(response.status).toBe(200)
-    expect(response.headers.get("cache-control")).toBe("private, no-store")
-    expect(await response.json()).toEqual({ title: "On screen" })
-    expect(seen).toEqual([{ method: "GET", url: "/blog/hello?lang=en", contentType: undefined, title: "On screen" }])
-    expect(nitroApp.calls).toMatchObject([{ method: "GET", url: "/blog/hello?lang=en", protocol: "http" }])
-  })
-
-  it("answers same-origin redirects of a Nitro 2 preview frame with a 307 on the connection, and refuses another site before it", async () => {
-    const { content, posts } = await setup()
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    let base = ""
-    const pages: Record<string, (request: NodeRequestLike) => NodePage | Promise<NodePage>> = {
-      // A Nuxt route rule redirect and h3 sendRedirect() write the head and an HTML body on the Node response.
-      "/blog/old": () => ({ status: 301, headers: { location: "/en/blog/hello" }, body: "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0; url=/en/blog/hello\"></head></html>" }),
-      "/en/blog/hello": () => ({ status: 302, headers: { location: `${base}/account?lang=en#top`, "set-cookie": ["session=abc; Path=/; HttpOnly", "locale=en; Path=/; Max-Age=600"] } }),
-      "/account": async (request): Promise<NodePage> => {
-        const cookie = String(request.headers.cookie ?? "")
-        if (!cookie.includes("session=abc")) return { status: 302, headers: { location: "/blog/old" } }
-        return { headers: { "content-type": "text/html;charset=utf-8" }, body: `<html><head></head><body><h1>${(await posts.get("hello"))?.data.title}</h1><p>${cookie}</p></body></html>` }
-      },
-      "/blog/away": () => ({ status: 302, headers: { location: "https://other.test/blog/hello", "set-cookie": "away=1; Path=/" } }),
-      "/blog/loop": () => ({ status: 307, headers: { location: "/blog/loop" } }),
-      // A handler that returns a Web Response, which h3 v1 sends as a stream.
-      "/blog/stream": async () => ({ headers: { "content-type": "text/html" }, body: new Response(`<html><head></head><body>${(await posts.get("hello"))?.data.title}</body></html>`).body! }),
-    }
-    const nitroApp = await nitro2Server(request => pages[String(request.url).split("?", 1)[0]!]?.(request) ?? { status: 404 })
-    defineContentPreviewPlugin(content)(nitroApp)
-    base = await listen(nitroApp)
-    const frame = (url: string, cookie?: string) => fetch(url.startsWith("/") ? `${base}${url}` : url, {
-      method: "POST",
-      redirect: "manual",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: base, ...cookie ? { cookie } : {} },
-      body: frameForm(token),
-    })
-
-    const first = await frame(`/blog/old?${contentPreviewFrameParameter}`, "prefs=1")
-    expect(first.status).toBe(307)
-    expect(first.headers.get("cache-control")).toBe("private, no-store")
-    expect(first.headers.get("location")).toBe(`${base}/en/blog/hello?${contentPreviewFrameParameter}=1`)
-    const second = await frame(first.headers.get("location")!, "prefs=1")
-    expect(second.status).toBe(307)
-    expect(second.headers.get("location")).toBe(`${base}/account?lang=en&${contentPreviewFrameParameter}=2#top`)
-    // The browser gets the cookies of the redirect itself and sends them with the next post.
-    expect(second.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly", "locale=en; Path=/; Max-Age=600"])
-    const last = await frame(second.headers.get("location")!, "prefs=1; session=abc; locale=en")
-    expect(last.status).toBe(200)
-    expect(await last.text()).toBe("<html><head></head><body><h1>On screen</h1><p>prefs=1; session=abc; locale=en</p></body></html>")
-    // Each page ran as a GET of its own URL with the Cookie header of its own request only.
-    expect(nitroApp.calls.map(call => [call.method, call.url, call.headers.cookie, call.headers["content-type"]])).toEqual([
-      ["GET", "/blog/old", "prefs=1", undefined],
-      ["GET", "/en/blog/hello", "prefs=1", undefined],
-      ["GET", "/account?lang=en", "prefs=1; session=abc; locale=en", undefined],
-    ])
-
-    expect(await (await frame(`/blog/stream?${contentPreviewFrameParameter}`)).text()).toBe("<html><head></head><body>On screen</body></html>")
-
-    const away = await frame(`/blog/away?${contentPreviewFrameParameter}`)
-    expect(away.status).toBe(502)
-    expect(away.headers.get("location")).toBeNull()
-    expect(away.headers.getSetCookie()).toEqual(["away=1; Path=/"])
-    expect(await away.text()).toContain(`<meta name="${contentPreviewErrorName}"`)
-    expect((await frame(`/blog/loop?${contentPreviewFrameParameter}=5`)).status).toBe(502)
-    expect((await frame(`/blog/loop?${contentPreviewFrameParameter}=4`)).status).toBe(307)
-
-    // Concurrent frames and ordinary requests on the same connection pool stay apart.
-    const reads = await Promise.all(Array.from({ length: 12 }, async (_, index) => {
-      if (index % 2) return { frame: false, text: await (await fetch(`${base}/account`, { headers: { cookie: "session=abc" } })).text() }
-      return { frame: true, text: await (await frame(`/account?${contentPreviewFrameParameter}=2`, "session=abc")).text() }
-    }))
-    for (const read of reads) expect(read.text).toContain(read.frame ? "<h1>On screen</h1>" : "<h1>Published</h1>")
-  })
-  it("keeps the Nuxt payload of a Nitro 2 frame page inline: its route rules lose cache, swr, and isr", async () => {
-    const { content } = await setup()
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const seen: unknown[] = []
-    const rules = { cache: { swr: true, maxAge: 60 }, swr: 60, isr: false, headers: { "x-rule": "1" } }
-    const nitroApp = await nitro2Server(() => ({ body: "page" }))
-    const handler = nitroApp.h3App.handler
-    // Nitro 2 reads the route rules of a request into event.context._nitro.routeRules, as Nuxt's renderer does.
-    nitroApp.h3App.handler = async (event: { context?: { _nitro?: { routeRules?: unknown } } } & Parameters<typeof handler>[0]) => {
-      event.context ??= {}
-      event.context._nitro ??= {}
-      event.context._nitro.routeRules ??= structuredClone(rules)
-      seen.push(structuredClone(event.context._nitro.routeRules))
-      return await handler(event)
-    }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const base = await listen(nitroApp)
-    const frame = await fetch(`${base}/post?${contentPreviewFrameParameter}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: base }, body: frameForm(token) })
-    expect(frame.status).toBe(200)
-    expect((await fetch(`${base}/post`)).status).toBe(200)
-    expect(seen).toEqual([{ headers: { "x-rule": "1" } }, rules])
-  })
-
-  it("checks a Nitro 2 frame Origin against the public protocol, from TLS or a proxy, and never from Origin", async () => {
-    const { content } = await setup()
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const rendered = vi.fn(() => ({ body: "page" }))
-    const nitroApp = await nitro2Server(rendered)
-    defineContentPreviewPlugin(content)(nitroApp)
-    const body = new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token }) }).toString()
-    async function post(headers: Record<string, string>, encrypted: boolean) {
-      rendered.mockClear()
-      const request = Object.assign(Readable.from([new TextEncoder().encode(body)]), { method: "POST", url: `/blog/hello?${contentPreviewFrameParameter}`, socket: { encrypted }, headers: { host: "site.test", "sec-fetch-site": "same-origin", ...headers } })
-      const response = Object.assign(serverResponse(), { statusCode: 0, end: vi.fn((_body: unknown, done: () => void) => done()) })
-      // SAFETY: The plugin replaced the handler with one that takes an h3 v1 event.
-      await (nitroApp.h3App.handler as (event: unknown) => Promise<unknown>)({ node: { req: request, res: response } })
-      return rendered.mock.calls.length === 1 ? response.statusCode : response.statusCode === 403 ? 403 : 0
-    }
-    // Direct TLS, and HTTPS that a reverse proxy ends before a plain HTTP socket.
-    expect(await post({ origin: "https://site.test" }, true)).toBe(200)
-    expect(nitroApp.calls.at(-1)).toMatchObject({ url: "/blog/hello", protocol: "https", headers: { host: "site.test" } })
-    expect(await post({ origin: "https://site.test", "x-forwarded-proto": "https" }, false)).toBe(200)
-    expect(await post({ origin: "http://site.test" }, false)).toBe(200)
-    // Another site, another protocol, or another port is refused, whatever the Origin claims.
-    expect(await post({ origin: "https://evil.test" }, true)).toBe(403)
-    expect(await post({ origin: "https://evil.test", "x-forwarded-proto": "https" }, false)).toBe(403)
-    expect(await post({ origin: "http://site.test" }, true)).toBe(403)
-    expect(await post({ origin: "http://site.test", "x-forwarded-proto": "https" }, false)).toBe(403)
-    expect(await post({ origin: "https://site.test" }, false)).toBe(403)
-    expect(await post({ origin: "https://site.test", "x-forwarded-proto": "http" }, true)).toBe(403)
-    expect(await post({ origin: "https://site.test:8443" }, true)).toBe(403)
-    expect(await post({ origin: "https://site.test", "sec-fetch-site": "cross-site" }, true)).toBe(403)
-  })
-
   it("sets and clears a secure, HttpOnly, SameSite=Strict cookie through an H3 event", async () => {
     const { content } = await setup()
     const app = new H3()
@@ -1099,52 +835,6 @@ describe("published reads with a whole-site preview cookie", { timeout: 30_000 }
     })
   })
 
-  it("keeps Node redirects of a published request published on Nitro 2, with the host of a proxy", async () => {
-    const { content, posts, cookie } = await publishedSite()
-    const handler = async (event: { node: { req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse } }) => {
-      const { req, res } = event.node
-      const path = req.url!.split("?", 1)[0]
-      // h3 v1 sendRedirect(): the status and Location, then end().
-      if (path === "/old") {
-        res.statusCode = 302
-        res.setHeader("location", "/page?lang=en#top")
-        return res.end("<meta http-equiv=\"refresh\" content=\"0; url=/page?lang=en\">")
-      }
-      if (path === "/en") return res.writeHead(301, { Location: "/old" }).end()
-      if (path === "/public") return res.writeHead(308, { location: "https://site.test/page" }).end()
-      if (path === "/away") return res.writeHead(302, { location: "https://other.test/page" }).end()
-      // Node also takes the headers as one flat list of names and values.
-      if (path === "/raw") return res.writeHead(302, ["Location", "/page", "X-Hop", "raw"]).end()
-      if (path === "/raw-away") return res.writeHead(302, ["location", "https://other.test/page"]).end()
-      res.setHeader("content-type", "application/json")
-      res.end(JSON.stringify({ url: req.url, active: content.preview.active(), a: (await posts.get("a"))?.data.title, b: (await content.preview.run(event, async () => (await posts.get("b"))?.data.title)) }))
-    }
-    const nitroApp = { h3App: { handler }, hooks: { hook: () => undefined } }
-    defineContentPreviewPlugin(content)(nitroApp)
-    // SAFETY: The plugin replaced the handler with one that takes the same event.
-    const server = createServer((req, res) => void (nitroApp.h3App.handler as typeof handler)({ node: { req, res } }))
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-    cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())))
-    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-    const marked = contentPreviewPublishedParameter
-    const location = async (path: string, headers: Record<string, string> = {}) =>
-      (await fetch(`${origin}${path}`, { headers: { cookie, ...headers }, redirect: "manual" })).headers.get("location")
-    expect(await location(`/en?${marked}`)).toBe(`/old?${marked}`)
-    expect(await location(`/old?${marked}`)).toBe(`/page?lang=en&${marked}#top`)
-    expect(await location(`/public?${marked}`)).toBe("https://site.test/page")
-    expect(await location(`/public?${marked}`, { "x-forwarded-host": "site.test", "x-forwarded-proto": "https" })).toBe(`https://site.test/page?${marked}`)
-    expect(await location(`/away?${marked}`)).toBe("https://other.test/page")
-    expect(await location(`/raw?${marked}`)).toBe(`/page?${marked}`)
-    expect(await location(`/raw-away?${marked}`)).toBe("https://other.test/page")
-    expect(await location("/en")).toBe("/old")
-    expect(await location("/raw")).toBe("/page")
-    // fetch() follows the redirects with the cookie, as a browser does.
-    const followed = await fetch(`${origin}/en?${marked}`, { headers: { cookie } })
-    expect(followed.headers.get("cache-control")).toBe("private, no-store")
-    expect(await followed.json()).toEqual({ url: `/page?lang=en&${marked}`, active: false, a: "A published", b: "B published" })
-    expect(await (await fetch(`${origin}/en`, { headers: { cookie } })).json()).toEqual({ url: "/page?lang=en", active: true, a: "A draft", b: "B draft" })
-  })
-
   it("keeps a draft frame of A to its one document, even with the whole-site cookie and nested preview runs", async () => {
     const { content, cookie, nitroApp, published } = await publishedSite()
     const { token } = await content.preview.sign({ collection: "posts", id: "a" })
@@ -1175,32 +865,5 @@ describe("published reads with a whole-site preview cookie", { timeout: 30_000 }
       body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token: "v1.1.x", document: { collection: "posts", id: "b", data: { title: "Forged" } } }) }),
     }))
     expect(forged.status).toBe(403)
-  })
-
-  it("reads published on Nitro 2 with the cookie, isolated from preview requests of the same cookie", async () => {
-    const { content, posts, cookie } = await publishedSite()
-    const nitroApp = {
-      h3App: {
-        async handler(event: { node: { req: { url: string, headers: Record<string, string> }, res: ServerResponseLike } }) {
-          await new Promise(resolve => setTimeout(resolve, Math.random() * 5))
-          const nested = await content.preview.run(event, async () => (await posts.get("b"))?.data.title)
-          event.node.res.body = { url: event.node.req.url, active: content.preview.active(), a: (await posts.get("a"))?.data.title, nested }
-        },
-      },
-      hooks: { hook: () => undefined },
-    }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const results = await Promise.all(Array.from({ length: 16 }, async (_, index) => {
-      const url = index % 2 === 0 ? `/page?${contentPreviewPublishedParameter}` : "/page"
-      const event = { node: { req: { url, headers: { host: "site.test", cookie } }, res: serverResponse() } }
-      await nitroApp.h3App.handler(event)
-      return { body: event.node.res.body, cacheControl: event.node.res.headers["cache-control"], url }
-    }))
-    for (const result of results) {
-      expect(result.cacheControl).toBe("private, no-store")
-      expect(result.body).toEqual(result.url === "/page"
-        ? { url: "/page", active: true, a: "A draft", nested: "B draft" }
-        : { url: result.url, active: false, a: "A published", nested: "B published" })
-    }
   })
 })

@@ -1,4 +1,3 @@
-import { defineHandler, H3Event } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
@@ -17,6 +16,8 @@ import { installConsoleProjectRoot } from "../src/console/runtime/server/project
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // A plugin of the app contributes this operation, as `@vite-hub/content` contributes `content.*`.
 const greet = defineOperation({
@@ -40,15 +41,30 @@ const secret = defineOperation({
 })
 
 /** A Console RPC request. `remoteAddress` is the peer address that the host reports, as plain `vite dev` does. `null` is no address. */
-function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc/__call", remoteAddress: string | null = "127.0.0.1") {
-  return handleConsoleRpcRequest(new Request(url, {
-    body: JSON.stringify({ input, operation }),
+/** Signs each call while a test takes only signed calls. */
+let signAs: ((request: Request) => Promise<Request>) | undefined
+
+async function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc", remoteAddress: string | null = "127.0.0.1") {
+  const request = new Request(url, {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
-  }), { remoteAddress: remoteAddress ?? undefined })
+  })
+  return handleConsoleRpcRequest(signAs ? await signAs(request) : request, { remoteAddress: remoteAddress ?? undefined })
+}
+
+/** Take only signed calls in this test, signed as the Console for `user`, or as the CLI. */
+async function signedCalls(user?: { id: string }): Promise<() => void> {
+  const signer = await signedConsoleAccess()
+  signAs = request => signer.sign(request, user)
+  return () => {
+    signAs = undefined
+    signer.restore()
+  }
 }
 
 afterEach(() => {
+  signAs = undefined
   vi.unstubAllEnvs()
   installConsoleDevelopment("/work/app", false)
   installConsoleAccess({ mode: "open" })
@@ -63,10 +79,10 @@ describe("operations that run app code", () => {
       expect(getStandardContext(event).req.headers.get("cookie")).toBe("sid=ada")
       return { entries: [] }
     })
-    installConsoleEnv("/work/app", { entries: [] }, undefined, inspect)
+    installConsoleEnv("/work/app", { entries: [] }, inspect)
     const response = await call("env.get", { status: true }, { cookie: "sid=ada" })
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { entries: [], status: [] } })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { entries: [], status: [] } })
     expect(inspect).toHaveBeenCalledOnce()
   })
 
@@ -89,10 +105,10 @@ describe("operations that run app code", () => {
 
     installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
     expect(consoleOperationRegistry().get("fixture.start")).toBeDefined()
-    await expect((await call("fixture.start")).json()).resolves.toEqual({ ok: true, value: { started: true } })
+    await expect(operationRpcResponseResult(await call("fixture.start"))).resolves.toEqual({ ok: true, value: { started: true } })
   })
 
-  it("hands them the server event of the request, for app hooks that read its session", async () => {
+  it("hands them the request event, the Request with its Standard Context, for app hooks that read its session", async () => {
     let seen: unknown
     const probe = defineOperation({
       description: "Keep the event.",
@@ -107,20 +123,21 @@ describe("operations that run app code", () => {
     })
     installConsoleSections("/work/app", ["fixture"])
     installConsoleOperations([{ operations: [probe], plugin: "fixture-plugin" }])
-    const response = await defineHandler(consoleRpcHandler).fetch(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: {}, operation: "fixture.event" }),
+    const response = await consoleRpcHandler.fetch(new Request("http://vitehub.local/_vitehub/rpc", {
+      body: operationRpcBody("fixture.event", {}),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1", cookie: "sid=ada" },
       method: "POST",
     }))
     expect(response.status).toBe(200)
-    expect(seen).toBeInstanceOf(H3Event)
-    expect((seen as H3Event).req.headers.get("cookie")).toBe("sid=ada")
+    expect(seen).toBeInstanceOf(Request)
+    expect(seen).toHaveProperty("~standard")
+    expect((seen as Request).headers.get("cookie")).toBe("sid=ada")
   })
 
   async function advertised(): Promise<unknown> {
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    return ((await response.json()) as { value: { operations?: string[] } }).value.operations
+    return ((await operationRpcResponseResult(response)) as { value: { operations?: string[] } }).value.operations
   }
 
   it("tells the pages which of them this access may run, so they hide the rest", async () => {
@@ -139,23 +156,24 @@ describe("operations that run app code", () => {
   it.each([
     { grant: "fixture", operations: ["fixture.start"], readOnly: undefined },
     { grant: "fixture:read", operations: undefined, readOnly: ["fixture"] },
-  ])("advertises app Auth and permitted actions for $grant access", async ({ grant, operations, readOnly }) => {
+  ])("advertises the permitted actions for $grant access", async ({ grant, operations, readOnly }) => {
     installConsoleSections("/work/app", ["fixture"])
     installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
-    installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => ({ sections: [grant] }) })
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: [grant] }) })
 
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    const { value } = await response.json() as { value: { auth?: true, operations?: string[], readOnly?: string[] } }
-    expect(value.auth).toBe(true)
+    const { value } = await operationRpcResponseResult(response) as { value: { auth?: unknown, operations?: string[], readOnly?: string[] } }
+    expect(value).not.toHaveProperty("auth")
     expect(value.operations).toEqual(operations)
     expect(value.readOnly).toEqual(readOnly)
   })
 
   it("marks the workflow, queue, task, and schedule operations that start app code", async () => {
-    const { workflowOperations } = await import("@vite-hub/workflow/operations")
-    const { queueOperations } = await import("@vite-hub/queue/operations")
-    const { scheduleOperations } = await import("@vite-hub/schedule/operations")
+    const { workflowOperations } = await import("../../workflow/dist/operations.js")
+    // Generated code imports the Queue operations by file path. They are not a package export.
+    const { queueOperations } = await import("../../queue/src/operations.ts")
+    const { scheduleOperations } = await import("../../schedule/dist/operations.js")
     const { taskOperations } = await import("../src/task/operations.ts")
     const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()
     expect(invoking).toEqual(["queue.jobs-retry", "queue.send", "schedule.run", "schedule.start", "task.run", "workflow.resume", "workflow.start"])
@@ -175,10 +193,10 @@ describe("contributed operations over the Console RPC", () => {
     expect(await parseOperationInput(operation, {})).toEqual({ dryRun: true })
     dryRun = false
     const denied = await call(operation.name, {}, { "x-vitehub-surface": "cli", "x-vitehub-confirmation": "required" })
-    await expect(denied.json()).resolves.toMatchObject({ ok: false, status: 409, code: "INTERNAL_R0026", fix: expect.stringContaining("--yes") })
+    await expect(operationRpcResponseResult(denied)).resolves.toMatchObject({ ok: false, status: 409, code: "INTERNAL_R0026", fix: expect.stringContaining("--yes") })
     expect(run).not.toHaveBeenCalled()
     const confirmed = await call(operation.name, {}, { "x-vitehub-surface": "cli", "x-vitehub-confirmation": "confirmed" })
-    await expect(confirmed.json()).resolves.toMatchObject({ ok: true, value: { dryRun: false } })
+    await expect(operationRpcResponseResult(confirmed)).resolves.toMatchObject({ ok: true, value: { dryRun: false } })
     expect(run).toHaveBeenCalledOnce()
     // The Console and the Content CLI adapter retain their own confirmation flow.
     expect((await call(operation.name)).status).toBe(200)
@@ -214,7 +232,7 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleOperations([{ operations: [greet, secret], plugin: "fixture-plugin" }])
     const response = await call("fixture.greet", { name: "Ada" })
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ ok: true, value: { greeting: "Hello Ada", surface: "console", user: null } })
+    await expect(operationRpcResponseResult(response)).resolves.toEqual({ ok: true, value: { greeting: "Hello Ada", surface: "console", user: null } })
     expect(consoleOperationRegistry().list().map(operation => operation.name)).toContain("fixture.greet")
   })
 
@@ -222,23 +240,23 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleDevelopment("/work/app", true)
     vi.stubEnv("NODE_ENV", "production")
     installConsoleOperations([{ operations: [greet] }])
-    expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc/__call")).status).toBe(403)
+    expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc")).status).toBe(403)
     installConsoleDevelopment("/work/app", false)
     vi.stubEnv("NODE_ENV", "development")
-    expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc/__call")).status).toBe(200)
+    expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc")).status).toBe(200)
   })
 
   it("tells an operation that the CLI made the call", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     const response = await call("fixture.greet", { name: "Ada" }, { "x-vitehub-surface": "cli" })
-    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { surface: "cli" } })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { surface: "cli" } })
   })
 
   it("checks the input against the schema and names the fields", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     const response = await call("fixture.greet", { name: 1, extra: true })
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("Invalid input for fixture.greet"), ok: false, status: 400 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("Invalid input for fixture.greet"), ok: false, status: 400 })
   })
 
   it("denies the operation without access to its section", async () => {
@@ -246,7 +264,7 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleAccess({ authorize: () => ({ sections: ["kv"] }), mode: "open" })
     const denied = await call("fixture.greet", { name: "Ada" })
     expect(denied.status).toBe(403)
-    await expect(denied.json()).resolves.toMatchObject({ ok: false, status: 403 })
+    await expect(operationRpcResponseResult(denied)).resolves.toMatchObject({ ok: false, status: 403 })
     installConsoleAccess({ authorize: () => ({ sections: ["fixture"] }), mode: "open" })
     expect((await call("fixture.greet", { name: "Ada" })).status).toBe(200)
   })
@@ -255,7 +273,7 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleOperations([{ operations: [secret], plugin: "fixture-plugin" }])
     const response = await call("fixture.fail")
     expect(response.status).toBe(409)
-    await expect(response.json()).resolves.toEqual({ code: "FIXTURE_R0001", details: { id: 7 }, fix: "Create one first.", message: "Nothing to do.", ok: false, status: 409 })
+    await expect(operationRpcResponseResult(response)).resolves.toEqual({ code: "FIXTURE_R0001", details: { id: 7 }, fix: "Create one first.", message: "Nothing to do.", ok: false, status: 409 })
   })
 
   it("answers 404 for an operation that no plugin contributed", async () => {
@@ -282,10 +300,13 @@ describe("contributed operations over the Console RPC", () => {
   it("loads the Console runtime once, on the first accepted request or agent tool", async () => {
     const load = vi.fn(async () => () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
     try {
-      installConsoleAccess({ check: async () => new Response("no", { status: 401 }), mode: "auth" })
+      // An unsigned call to an app that takes only signed calls.
+      const restore = await signedCalls()
+      signAs = undefined
       installConsoleRuntime(load)
       expect((await call("fixture.greet", { name: "Ada" })).status).toBe(401)
       expect(load).not.toHaveBeenCalled()
+      restore()
 
       installConsoleAccess({ mode: "open" })
       const [first, second] = await Promise.all([call("fixture.greet", { name: "Ada" }), call("fixture.greet", { name: "Grace" })])
@@ -326,26 +347,26 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleDevelopment("/work/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://localhost:5173/_vitehub/rpc/__call")).status).toBe(200)
-      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://127.0.0.1:5173/_vitehub/rpc/__call")).status).toBe(200)
-      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://[::1]:5173/_vitehub/rpc/__call")).status).toBe(200)
-      const lan = await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc/__call")
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://localhost:5173/_vitehub/rpc")).status).toBe(200)
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://127.0.0.1:5173/_vitehub/rpc")).status).toBe(200)
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://[::1]:5173/_vitehub/rpc")).status).toBe(200)
+      const lan = await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc")
       expect(lan.status).toBe(403)
-      await expect(lan.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth"), ok: false })
-      const tunnel = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-host": "abc.trycloudflare.com" }, "http://localhost:5173/_vitehub/rpc/__call")
+      await expect(operationRpcResponseResult(lan)).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth"), ok: false })
+      const tunnel = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-host": "abc.trycloudflare.com" }, "http://localhost:5173/_vitehub/rpc")
       expect(tunnel.status).toBe(403)
-      const rebound = await call("fixture.greet", { name: "Ada" }, { host: "attacker.example" }, "http://localhost:5173/_vitehub/rpc/__call")
+      const rebound = await call("fixture.greet", { name: "Ada" }, { host: "attacker.example" }, "http://localhost:5173/_vitehub/rpc")
       expect(rebound.status).toBe(403)
       // A dev worker behind a proxy sees no peer address. Without the front process's evidence, it refuses.
-      const unknown = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-for": "127.0.0.1" }, "http://localhost:5173/_vitehub/rpc/__call", null)
+      const unknown = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-for": "127.0.0.1" }, "http://localhost:5173/_vitehub/rpc", null)
       expect(unknown.status).toBe(403)
     }
   })
 
   it("checks the peer address when the host exposes it, and leaves production alone", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
-    const handle = (remoteAddress: string) => handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
+    const handle = (remoteAddress: string) => handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc", {
+      body: operationRpcBody("fixture.greet", { name: "Ada" }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { remoteAddress })
@@ -356,35 +377,42 @@ describe("contributed operations over the Console RPC", () => {
     vi.stubEnv("NODE_ENV", "development")
     // A production server with `console: { auth: false }` is open by choice and serves any host.
     installConsoleDevelopment("/work/app", false)
-    expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc/__call")).status).toBe(200)
+    expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc")).status).toBe(200)
   })
 
-  it("does not apply the loopback rule to a signed-in Console", async () => {
+  it("does not apply the loopback rule to signed calls", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     installConsoleDevelopment("/work/app", true)
-    installConsoleAccess({ check: async () => undefined, mode: "auth" })
-    expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc/__call")).status).toBe(200)
+    const restore = await signedCalls()
+    try {
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc", "192.168.1.30")).status).toBe(200)
+    }
+    finally {
+      restore()
+    }
   })
 
   it("gives a development server without sign-in the local developer as the user, and production none", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
-    const user = async (url: string) => (await (await call("fixture.greet", { name: "Ada" }, {}, url)).json() as { value: { user: string | null } }).value.user
+    const user = async (url: string) => (await operationRpcResponseResult(await call("fixture.greet", { name: "Ada" }, {}, url)) as { value: { user: string | null } }).value.user
     installConsoleDevelopment("/work/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      expect(await user("http://localhost:5173/_vitehub/rpc/__call"), mode).toBe("local")
+      expect(await user("http://localhost:5173/_vitehub/rpc"), mode).toBe("local")
     }
-    // A signed-in Console keeps its own user, or none.
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ id: "ada" }) as never })
-    expect(await user("http://localhost:5173/_vitehub/rpc/__call")).toBe("ada")
-    installConsoleAccess({ check: async () => undefined, mode: "auth" })
-    expect(await user("http://localhost:5173/_vitehub/rpc/__call")).toBeNull()
+    // A signed call keeps the person that the Console signed, or none from the CLI.
+    let restore = await signedCalls({ id: "ada" })
+    expect(await user("http://localhost:5173/_vitehub/rpc")).toBe("ada")
+    restore()
+    restore = await signedCalls()
+    expect(await user("http://localhost:5173/_vitehub/rpc")).toBeNull()
+    restore()
     installConsoleDevelopment("/work/app", false)
     vi.stubEnv("NODE_ENV", "development")
     installConsoleAccess({ mode: "local" })
     expect((await call("fixture.greet", { name: "Ada" })).status).toBe(403)
     installConsoleAccess({ mode: "open" })
-    expect(await user("https://app.example.com/_vitehub/rpc/__call")).toBeNull()
+    expect(await user("https://app.example.com/_vitehub/rpc")).toBeNull()
   })
 
   it("names the project of the local dev RPC in a response header", async () => {
@@ -392,7 +420,7 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleProjectRoot("/work/app")
     installConsoleAccess({ mode: "local" })
     installConsoleDevelopment("/work/app", true)
-    const local = await call("fixture.greet", { name: "Ada" }, {}, "http://localhost:5173/_vitehub/rpc/__call")
+    const local = await call("fixture.greet", { name: "Ada" }, {}, "http://localhost:5173/_vitehub/rpc")
     expect(local.headers.get(operationRootHeader)).toBe(projectRootHash("/work/app"))
     installConsoleAccess({ mode: "open" })
     expect((await call("fixture.greet", { name: "Ada" })).headers.has(operationRootHeader)).toBe(false)

@@ -18,7 +18,6 @@ import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../src/sources/materialization.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -93,9 +92,9 @@ function createTarGz(files: Record<string, string>) {
 }
 
 function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
-  const apiStatus = hasRuntimeType(options, "number") ? options : options.apiStatus ?? 200
-  const archiveStatus = hasRuntimeType(options, "number") ? options : options.archiveStatus ?? 200
-  const defaultBranch = hasRuntimeType(options, "number") ? "main" : options.defaultBranch ?? "main"
+  const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
+  const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
+  const defaultBranch = typeof options === "number" ? "main" : options.defaultBranch ?? "main"
 
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
@@ -1165,7 +1164,7 @@ describe("sources and loaders", () => {
       get(target, property, receiver) {
         if (property !== "rm") {
           const value = Reflect.get(target, property, receiver)
-          return hasRuntimeType(value, "function") ? value.bind(target) : value
+          return typeof value === "function" ? value.bind(target) : value
         }
         return async (path: string, options?: RmOptions) => {
           removalStarted()

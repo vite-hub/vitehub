@@ -4,7 +4,7 @@ import { join, relative } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { glob } from "../../src/glob.ts"
+import { glob } from "../../src/index.ts"
 
 const tempDirs: string[] = []
 

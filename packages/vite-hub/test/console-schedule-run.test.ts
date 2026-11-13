@@ -3,48 +3,32 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { H3Event } from "h3"
 import type { Plugin } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
-import { scheduleOperations } from "@vite-hub/schedule/operations"
+import { scheduleOperations } from "../../schedule/dist/operations.js"
 import { createMemoryScheduleRunStore, resetScheduleRuntime } from "@vite-hub/schedule/runtime"
-import { readScheduleConsoleRecords } from "@vite-hub/schedule/runtime/console"
+import { readScheduleConsoleRecords } from "../../schedule/dist/runtime/console.js"
 import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/process"
-import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
-import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
+import { consoleSchedulesKey, consoleStateKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
+import { listConsoleDefinitions } from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
-import scheduleRunRoute, { handleDispatchScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import { allowed } from "./support/console-access.ts"
+import { consoleAccess } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
-import { consoleEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
-const definitionsHandler = allowed(definitionsHandlerRoute)
+const schedules = async () => listConsoleDefinitions({ section: "schedules" }, await consoleAccess())
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
-const symbols = [
-  consoleDefinitionsKey,
-  consoleDefinitionsRegistryKey,
-  consoleDefinitionsRootKey,
-  consoleSchedulesKey,
-  consoleSchedulesRegistryKey,
-  consoleSchedulesRootKey,
-  consoleSectionsKey,
-  consoleSectionsRegistryKey,
-  consoleSectionsRootKey,
-]
 
 const temporaryRoots: string[] = []
 
@@ -56,10 +40,8 @@ async function temporaryRoot(prefix: string): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
-  for (const key of symbols) {
-    Reflect.deleteProperty(scope, key)
-    Reflect.deleteProperty(process, key)
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
+  Reflect.deleteProperty(globalThis, consoleSchedulesKey)
   resetScheduleRuntime()
   installConsoleOperations([])
 })
@@ -76,25 +58,17 @@ function installSchedules(handler: (context: { scheduledAt: Date }) => unknown =
   installConsoleSections("/schedule-run", ["schedules"])
   installConsoleDefinitions("/schedule-run", { schedules: { definitions: [scheduleSummary("sync"), scheduleSummary("nightly")], kind: "definition-catalog" } })
   installConsoleSchedules("/schedule-run", {
-    sync: async () => ({ default: defineSchedule("*/5 * * * *", handler, { manual: true }) }),
+    sync: async () => ({ default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler }) }),
   })
 }
 
 async function call(operation: string, input: Record<string, unknown>): Promise<unknown> {
-  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))
-  return response.json()
-}
-
-function runRequest(body: unknown, headers: Record<string, string> = {}) {
-  return new Request("https://app.example/_vitehub/schedules/run", {
-    body: JSON.stringify(body),
-    headers: { "content-type": "application/json", ...headers },
-    method: "POST",
-  })
+  return operationRpcResponseResult(response)
 }
 
 describe("Console Schedule runs", () => {
@@ -104,13 +78,13 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/sync.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("sync")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "sync" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
     const invokeEnabled = await readFile(plugin, "utf8")
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
     const invokeDisabled = await readFile(plugin, "utf8")
 
     expect(invokeEnabled).toContain(`{ installConsoleDefinitions, installConsoleSchedules }`)
-    expect(invokeEnabled).toContain(`import("vite-hub/console/definitions")`)
+    expect(invokeEnabled).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
     expect(invokeEnabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["sync"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) })`)
     expect(invokeDisabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, {})`)
     expect(invokeDisabled).not.toContain(pathToFileURL(handler).href)
@@ -122,7 +96,7 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/__proto__.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("__proto__")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "__proto__" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
 
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
   })
@@ -132,7 +106,7 @@ describe("Console Schedule runs", () => {
     await writeFile(join(root, "package.json"), "{}\n")
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, "server/schedules/daily-report.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 8 * * *', manual: true, handler() {} })\n")
-    const plugin = vitehub({ preset: "node", schedule: true }).flat()
+    const plugin = vitehub({ host: "node", schedule: true }).flat()
       .find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/console")
     const hook = plugin?.config
     const config = typeof hook === "function" ? hook : hook?.handler
@@ -161,13 +135,13 @@ describe("Console Schedule runs", () => {
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, "server/schedules/brief.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nconst COPENHAGEN = 'Europe/Copenhagen'\nexport default defineSchedule({ cron: '0 14 * * 1', timeZone: COPENHAGEN, handler() {} })\n")
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
     const generated = await readFile(plugin, "utf8")
     expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
-    expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
+    expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
     expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
-    const timeZone = (): Promise<string[]> => definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))
+    const timeZone = (): Promise<string[]> => schedules()
       .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
     installConsoleDefinitions(root, catalog.content, [], { schedules: readScheduleConsoleRecords })
     expect(await timeZone()).toEqual(["0 14 * * 1 (Not a static string) / Not a static string"])
@@ -188,7 +162,7 @@ describe("Console Schedule runs", () => {
   it("marks runnable Schedule Definitions in the catalog", async () => {
     installSchedules()
 
-    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
+    expect(await schedules()).toEqual({
       definitions: [{ ...scheduleSummary("sync"), runnable: true }, scheduleSummary("nightly")],
       kind: "definition-catalog",
       section: "schedules",
@@ -199,13 +173,13 @@ describe("Console Schedule runs", () => {
     installSchedules()
     // The Schedule package writes these cells for each Schedule Definition record.
     const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
-      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
+      cells: { manual: "Enabled", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))
     installConsoleDefinitions("/schedule-run", { schedules: { kind: "record-table", records } })
 
-    expect(await definitionsHandler(consoleEvent({ url: "http://localhost/_vitehub/api/definitions?section=schedules" }))).toEqual({
+    expect(await schedules()).toEqual({
       kind: "record-table",
       records: [{ ...records[0], runnable: true }, records[1], records[2]],
       section: "schedules",
@@ -263,136 +237,6 @@ describe("Console Schedule runs", () => {
         },
       },
     })
-  })
-
-  it("runs a signed dispatch request without a Console session and rejects a replay or a bad signature", async () => {
-    installSchedules()
-    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
-    const body = JSON.stringify({ name: "sync" })
-    const key = await resolveViteHubDispatchKey(env)
-    const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body, key: key!, operation: "schedule.run" }) }
-    const request = () => new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" })
-
-    const signed = await handleDispatchScheduleRunRequest(request(), env)
-    const replay = await handleDispatchScheduleRunRequest(request(), env)
-    const otherDeployment = await handleDispatchScheduleRunRequest(request(), { VITEHUB_SECRET: "another-root-secret-at-least-32-characters" })
-
-    expect(signed.status).toBe(200)
-    expect(await signed.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
-    expect([replay.status, otherDeployment.status]).toEqual([401, 401])
-    expect(await replay.json()).toEqual({ message: "Dispatch nonce was already used." })
-  })
-
-  it("runs a signed dispatch as if the cron fired at `at`, and rejects a bad time", async () => {
-    const seen: string[] = []
-    installSchedules(({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) })
-    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
-    const key = await resolveViteHubDispatchKey(env)
-    async function dispatch(input: Record<string, unknown>) {
-      const body = JSON.stringify(input)
-      const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body, key: key!, operation: "schedule.run" }) }
-      return await handleDispatchScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }), env)
-    }
-
-    const signed = await dispatch({ at: "2026-02-28T23:59:00Z", name: "sync" })
-    expect(await signed.json()).toMatchObject({ run: { scheduledAt: "2026-02-28T23:59:00.000Z", status: "succeeded" } })
-    const invalid = await dispatch({ at: "2026-02-30T00:00:00Z", name: "sync" })
-    const wrongType = await dispatch({ at: 1_769_903_940_000, name: "sync" })
-    expect([invalid.status, wrongType.status]).toEqual([400, 400])
-    expect(await invalid.json()).toEqual({ message: "Schedule scheduledAt value is invalid." })
-    expect(seen).toEqual(["2026-02-28T23:59:00.000Z"])
-  })
-
-  it("uses the request Cloudflare environment for the generated route", async () => {
-    installSchedules()
-    const env = { VITEHUB_SECRET: "cloudflare-dispatch-secret-at-least-32-characters" }
-    const body = JSON.stringify({ name: "sync" })
-    const key = await resolveViteHubDispatchKey(env)
-    const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "worker", body, key: key!, operation: "schedule.run" }) }
-    const response = await scheduleRunRoute(new H3Event(
-      new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }),
-      { cloudflare: { env } },
-    ))
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
-  })
-
-  it("never falls back to Console access for a request with a dispatch signature", async () => {
-    installSchedules()
-    const response = await scheduleRunRoute(Object.assign(Object.create(null), {
-      req: runRequest({ name: "sync" }, { "x-vitehub-dispatch-signature": "v1=forged" }),
-      res: { headers: new Headers() },
-    }))
-
-    expect(response.status).toBe(401)
-    expect(await response.json()).toEqual({ message: expect.stringMatching(/Dispatch is not configured|Malformed dispatch signature/) })
-  })
-
-  it("takes only signed dispatches on the route, and sends everyone else to the operation", async () => {
-    installSchedules()
-    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }), res: { headers: new Headers() } }))
-
-    expect(response.status).toBe(401)
-    expect(await response.json()).toEqual({ message: expect.stringContaining("vitehub schedule run") })
-  })
-
-  it("rejects non-JSON, malformed, and oversized dispatch bodies before reading their full stream", async () => {
-    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
-    const form = await handleDispatchScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", {
-      body: "name=sync",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      method: "POST",
-    }), env)
-    expect(form.status).toBe(415)
-
-    let cancelled = false
-    let reads = 0
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        reads++
-        controller.enqueue(new Uint8Array(17 * 1_024))
-      },
-      cancel() { cancelled = true },
-    }, { highWaterMark: 0 })
-    const request = new Request("https://app.example/_vitehub/schedules/run", {
-      body,
-      headers: { "content-type": "application/json" },
-      method: "POST",
-      duplex: "half",
-    } as RequestInit)
-
-    const response = await handleDispatchScheduleRunRequest(request, env)
-    expect(response.status).toBe(413)
-    await expect(response.json()).resolves.toEqual({ message: "Schedule run request body is too large." })
-    expect(reads).toBe(1)
-    expect(cancelled).toBe(true)
-    expect(body.locked).toBe(false)
-    expect((await handleDispatchScheduleRunRequest(runRequest({ name: "sync" }, { "content-length": "16385" }), env)).status).toBe(413)
-  })
-
-  it("accepts an exact-limit streamed dispatch body and releases the reader", async () => {
-    installSchedules()
-    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
-    const payload = JSON.stringify({ name: "sync", label: "café 🌍" })
-    const text = payload + " ".repeat(16 * 1_024 - new TextEncoder().encode(payload).byteLength)
-    const key = await resolveViteHubDispatchKey(env)
-    const encoded = new TextEncoder().encode(text)
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (let offset = 0; offset < encoded.byteLength; offset += 512) controller.enqueue(encoded.slice(offset, offset + 512))
-        controller.close()
-      },
-    })
-    const request = new Request("https://app.example/_vitehub/schedules/run", {
-      body,
-      headers: { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body: text, key: key!, operation: "schedule.run" }) },
-      method: "POST",
-      duplex: "half",
-    } as RequestInit)
-
-    expect((await handleDispatchScheduleRunRequest(request, env)).status).toBe(200)
-    expect(body.locked).toBe(false)
   })
 
   it("answers 404 through the operation when Console invocation did not install Schedule runs", async () => {

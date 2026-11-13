@@ -15,7 +15,7 @@ export default defineDatabase({
 const query: PrimitiveProjectFile = {
   path: "server/utils/notes.ts",
   language: "typescript",
-  content: `import { useDatabase } from "@vite-hub/database/drizzle"
+  content: `import { useDatabase } from "@vite-hub/database"
 
 export async function readNotes() {
   const { db, schema } = useDatabase("default")
@@ -32,7 +32,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "node", database: true }),
+    vitehub({ host: "node", database: true }),
     nitro(),
   ],
 })`,
@@ -50,8 +50,8 @@ ${nuxt ? "Requires Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+." : "Requires 
 \`\`\`sh
 pnpm add vite-hub @vite-hub/database drizzle-orm
 pnpm add -D @vite-hub/cli drizzle-kit${nuxt ? "" : " vite@^8 nitro@3.0.261102-rc"}
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 pnpm ${nuxt ? "nuxt" : "vite"} dev
 \`\`\`
 
@@ -87,7 +87,7 @@ export const DatabasesLanding = {
       label: "Nitro",
       files: [
         viteConfig,
-        { path: "server/databases/config.ts", language: "typescript", content: definition },
+        { path: "server/databases/default.ts", language: "typescript", content: definition },
         query,
         setup(false),
       ],
@@ -103,10 +103,10 @@ export const DatabasesLanding = {
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node", database: true }]],
+  modules: [[viteHubNuxt, { host: "node", database: true }]],
 })`,
         },
-        { path: "server/databases/config.ts", language: "typescript", content: definition },
+        { path: "server/databases/default.ts", language: "typescript", content: definition },
         query,
         setup(true),
       ],

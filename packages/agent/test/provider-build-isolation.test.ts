@@ -32,8 +32,8 @@ it.each([
   { retainMetadata: false, sameRoot: false, cloneBuild: false },
   { retainMetadata: false, sameRoot: true, cloneBuild: false },
 ])("keeps Agent output in its owning catalog across environment clones %j", async ({ retainMetadata, sameRoot, cloneBuild }) => {
-  vi.stubEnv("VITEHUB_HOSTING", "netlify")
-  const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+  vi.stubEnv("VITEHUB_HOST", "netlify")
+  const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
   const configs: ResolvedConfig[] = []
   for (const name of ["first", "second"]) {
     const root = sameRoot && roots[0] ? roots[0] : await mkdtemp(join(tmpdir(), "vitehub-agent-build-isolation-"))

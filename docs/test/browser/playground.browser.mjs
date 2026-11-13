@@ -118,7 +118,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     await shot(page, "desktop-booting");
 
@@ -218,17 +218,17 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await page.getByRole("button", { name: "Open playground" }).click();
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.close();
   });
 
   await t.test("phone: a card, never a WebContainer", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, acceptDownloads: true });
     await page.goto(playground);
-    await page.getByText("The playground runs a ViteHub app in a desktop browser.").waitFor();
+    await page.getByText("The live playground runs in a desktop browser.").waitFor();
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
-    assert.equal(await page.locator(".vh-playground-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "mobile");
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download files" }).click();
@@ -253,7 +253,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.goto(playground);
     await page.getByText("The live workspace does not run in Safari").waitFor();
     await page.getByRole("button", { name: "Download files" }).waitFor();
-    assert.equal(await page.locator(".vh-playground-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "safari");
     await context.close();
   });
@@ -268,7 +268,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(home?.headers()["cross-origin-opener-policy"], undefined);
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Playground" }).click();
     await page.waitForURL(/\/playground$/);
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the playground loaded as a new isolated document");
     // Playground to docs, through the header.
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Docs" }).click();

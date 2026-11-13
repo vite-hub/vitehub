@@ -31,7 +31,7 @@ Add `i18n` to the ViteHub options. In a Vite app, also add the Vue plugin. Keep 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node", i18n: { locales: ["en", "es"] } },
+  vitehub: { host: "node", i18n: { locales: ["en", "es"] } },
 })
 ```
 ::::
@@ -47,7 +47,7 @@ export default defineConfig({
   server: { port: 3000, strictPort: true },
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
     nitro(),
   ],
 })
@@ -64,7 +64,7 @@ export default defineConfig({
   server: { port: 3000, strictPort: true },
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
   ],
 })
 ```
@@ -147,30 +147,36 @@ You do not pass the event to `t`. Each request has its own locale, and `t` reads
 
 ::
 
-::tutorial-step{title="Collect the messages"}
-## Collect the messages
+::tutorial-step{title="See what is missing"}
+## See what is missing
 
-Run the extract command. It reads the messages in your code and writes one catalog for each locale.
+Run the status command. It reads the messages in your code and compares them with the translations of each locale.
 
-```bash [commands/extract]
-pnpm vitehub i18n extract
+```bash [commands/status]
+pnpm vitehub i18n status
 ```
 
-```text [output/extract.txt]
-en           4 messages  source  locales/en.po
-es           4 messages  0% translated, 4 missing  locales/es.po
+```text [output/status.txt]
+en           4 messages  source
+es           4 messages  0% translated, 4 missing  locales/es
 ```
 
-The command found four messages: two in the page and two in the route. `locales/es.po` is a [PO file](https://www.gnu.org/software/gettext/manual/html_node/PO-Files.html). Each entry has the English text in `msgid` and an empty translation in `msgstr`. The `<Trans>` message is `Read the <0>docs</0> first.`. The `<0>` tag stands for the link, so a translator cannot break its `href`.
+The command found four messages: two in the page and two in the route. The English text is the source, so `en` needs no translations. The `<Trans>` message is `Read the <0>docs</0> first.`. The `<0>` tag stands for the link, so a translator cannot break its `href`.
 
 ::
 
 ::tutorial-step{title="Translate to Spanish"}
 ## Translate to Spanish
 
-Open `locales/es.po` and fill in three of the four translations. Leave the `<Trans>` message empty, to see what happens to a message without a translation.
+Export the Spanish messages as a [PO file](https://www.gnu.org/software/gettext/manual/html_node/PO-Files.html), the format of translation tools such as Poedit:
 
-```diff [locales/es.po]
+```bash [commands/export]
+pnpm vitehub i18n export es --output es.po
+```
+
+Each entry has the English text in `msgid` and an empty translation in `msgstr`. Fill in three of the four translations. Leave the `<Trans>` message empty, to see what happens to a message without a translation.
+
+```diff [es.po]
  msgid "Deploy your agent"
 -msgstr ""
 +msgstr "Despliega tu agente"
@@ -184,15 +190,25 @@ Open `locales/es.po` and fill in three of the four translations. Leave the `<Tra
 +msgstr "{count, plural, one {# artículo} other {# artículos}}"
 ```
 
-Check the coverage:
+Import the file:
 
-```bash [commands/status]
+```bash [commands/import]
+pnpm vitehub i18n import es es.po
+```
+
+```text [output/import.txt]
+Saved 3 translations to locales/es. 0 were already saved.
+```
+
+`locales/es/segments/` now has one JSON record for each translation. Commit the `locales/` folder. You can delete `es.po`. Check the coverage again:
+
+```bash [commands/status-after]
 pnpm vitehub i18n status
 ```
 
-```text [output/status.txt]
-en           4 messages  source  locales/en.po
-es           4 messages  75% translated, 1 missing  locales/es.po
+```text [output/status-after.txt]
+en           4 messages  source
+es           4 messages  75% translated, 1 missing  locales/es
 ```
 
 ::

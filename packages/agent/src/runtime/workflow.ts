@@ -27,7 +27,6 @@ import {
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
 import { markParsedAgentWorkflowInput } from "../internal/workflow-parsed-input.ts"
 import { agentWorkflowRetryRegistrar } from "../internal/workflow-retry.ts"
-import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
 
 import type {
   AgentChannelDeliveryEventInput,
@@ -92,7 +91,7 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   runtimeContext: AgentRuntimeContext<TRuntimeConfig>,
   recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
 ): Promise<void> {
-  if (!agent || !isRuntimeObject(agent) || !("invocations" in agent)) return
+  if (!agent || typeof agent !== "object" || !("invocations" in agent)) return
   const invocations = agent.invocations
   if (!invocations) return
   const journal = await bindAgentInvocations(
@@ -135,10 +134,10 @@ function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRunt
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
 function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
-  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return true
-  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0)
-  if (!value || !isRuntimeObject(value) || seen.has(value)) return false
-  if (Reflect.ownKeys(value).some((key) => isRuntimeSymbol(key))) return false
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true
+  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0)
+  if (!value || typeof value !== "object" || seen.has(value)) return false
+  if (Reflect.ownKeys(value).some((key) => typeof key === "symbol")) return false
   seen.add(value)
   let portable = false
   if (Array.isArray(value)) {
@@ -188,7 +187,7 @@ function nonRetryableAgentWorkflowError(error: unknown): unknown {
   const status = readAgentErrorProperty(retry, "statusCode")
   const permanentProviderRequest =
     name === "AI_LoadAPIKeyError" ||
-    (name === "AI_APICallError" && isRuntimeNumber(status) && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status))
+    (name === "AI_APICallError" && typeof status === "number" && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status))
   const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID" || name === "AI_NoObjectGeneratedError"
   if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedProviderRetries && !exhaustedOutput) return error
 
@@ -218,9 +217,9 @@ function isDateValue(value: unknown): value is Date {
 }
 
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
-  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return value
-  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
-  if (!value || !isRuntimeObject(value)) return unportableWorkflowValue
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value
+  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
+  if (!value || typeof value !== "object") return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
   if (value instanceof Date || isDateValue(value)) return unportableWorkflowValue
   if (seen.has(value)) return unportableWorkflowValue
@@ -269,17 +268,17 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
     const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
     const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-    const isAiSdkTextResult = isRuntimeObject(result)
+    const isAiSdkTextResult = typeof result === "object" && result !== null
       && Object.hasOwn(result, "initialResponseMessages")
       && aiSdkTextResultMarkerKeys.every(key => Object.hasOwn(result, key))
-    if (!result || !isRuntimeObject(result) || (!agentResultKeys.some(key => Object.hasOwn(result, key)) && !isAiSdkTextResult)) unsupportedWorkflowResult()
+    if (!result || typeof result !== "object" || (!agentResultKeys.some(key => Object.hasOwn(result, key)) && !isAiSdkTextResult)) unsupportedWorkflowResult()
     if (!Object.keys(result).every((key) => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
     if (Object.hasOwn(result, "initialResponseMessages")) {
       const prototype = Object.getPrototypeOf(result)
       const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
       if (
         !aiSdkTextResultMarkerKeys.every((key) => Object.hasOwn(result, key)) ||
-        !aiSdkTextResultGetterKeys.every((key) => isRuntimeFunction(Object.getOwnPropertyDescriptor(prototype, key)?.get))
+        !aiSdkTextResultGetterKeys.every((key) => typeof Object.getOwnPropertyDescriptor(prototype, key)?.get === "function")
       )
         unsupportedWorkflowResult()
     }
@@ -304,7 +303,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
     return portable
   } catch (error) {
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    if (error && isRuntimeObject(error) && (error as { isRetryable?: unknown }).isRetryable === false) throw error
+    if (error && typeof error === "object" && (error as { isRetryable?: unknown }).isRetryable === false) throw error
     unsupportedWorkflowResult()
   }
 }
@@ -422,7 +421,7 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
       markParsedAgentWorkflowInput(restoredWorkflowInput, agent)
     }
     markAgentInvocationCallerAbortSignal(restoredWorkflowInput,
-      isRuntimeBoolean(payload.callerAbortSignal) ? payload.callerAbortSignal : undefined)
+      typeof payload.callerAbortSignal === "boolean" ? payload.callerAbortSignal : undefined)
     const inlineResult = await runAgentInline(
       agent,
       runtimeContext,

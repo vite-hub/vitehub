@@ -8,63 +8,66 @@ icon: i-lucide-workflow
 ---
 
 ::product-hero{tagline="Run long tasks in steps, then check their status and result later with a run id." hosts="Cloudflare, Vercel, Node, Docker"}
-  :::code-tree
-  ```ts [server/workflows/onboard-user/index.ts]
-  import { defineWorkflow } from 'vite-hub/workflow'
+  :hero-figure{name="workflows"}
+::
 
-  // Each numbered file in this folder is a step.
-  // They run in the order you call them.
-  export default defineWorkflow<{ email: string }>(
-    async ({ payload, steps }) => {
-      const user = await steps.createUser(payload)
-      return await steps.sendWelcome(user)
-    },
-  )
-  ```
+::code-tree
+```ts [server/workflows/onboard-user/index.ts]
+import { defineWorkflow } from 'vite-hub/workflow'
 
-  ```ts [server/workflows/onboard-user/01.create-user.ts]
-  // Step 1: create the user
-  export default async function createUser(input: {
-    email: string
-  }) {
-    // Save the user in your database here
-    const id = `user:${input.email}`
-    return { id, email: input.email }
-  }
-  ```
+// Each numbered file in this folder is a step.
+// They run in the order you call them.
+export default defineWorkflow(
+  'onboard-user',
+  async (payload: { email: string }, { steps }) => {
+    const user = await steps.createUser(payload)
+    return await steps.sendWelcome(user)
+  },
+)
+```
 
-  ```ts [server/workflows/onboard-user/02.send-welcome.ts]
-  // Step 2: send the welcome message
-  export default async function sendWelcome(user: {
-    id: string
-    email: string
-  }) {
-    return { userId: user.id, welcomeSent: true }
-  }
-  ```
+```ts [server/workflows/onboard-user/01.create-user.ts]
+// Step 1: create the user
+export default async function createUser(input: {
+  email: string
+}) {
+  // Save the user in your database here
+  const id = `user:${input.email}`
+  return { id, email: input.email }
+}
+```
 
-  ```ts [server/api/onboard.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
-  import { startWorkflow } from 'vite-hub/workflow'
+```ts [server/workflows/onboard-user/02.send-welcome.ts]
+// Step 2: send the welcome message
+export default async function sendWelcome(user: {
+  id: string
+  email: string
+}) {
+  return { userId: user.id, welcomeSent: true }
+}
+```
 
-  // Start a run and return its id at once
-  export default defineEventHandler(async (event) => {
-    const body = await readBody<{ email: string }>(event)
-    return startWorkflow('onboard-user', body)
-  })
-  ```
+```ts [server/api/onboard.post.ts]
+import { defineEventHandler, readBody } from 'h3'
+import { startWorkflow } from 'vite-hub/workflow'
 
-  ```ts [server/api/runs/[id].get.ts]
-  import { defineEventHandler, getRouterParam } from 'h3'
-  import { getWorkflowRun } from 'vite-hub/workflow'
+// Start a run and return its id at once
+export default defineEventHandler(async (event) => {
+  const body = await readBody<{ email: string }>(event)
+  return startWorkflow('onboard-user', body)
+})
+```
 
-  // Read the status and result of one run
-  export default defineEventHandler((event) => {
-    const id = getRouterParam(event, 'id')!
-    return getWorkflowRun('onboard-user', id)
-  })
-  ```
-  :::
+```ts [server/api/runs/[id].get.ts]
+import { defineEventHandler, getRouterParam } from 'h3'
+import { getWorkflowRun } from 'vite-hub/workflow'
+
+// Read the status and result of one run
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, 'id')!
+  return getWorkflowRun('onboard-user', id)
+})
+```
 ::
 
 ::product-features

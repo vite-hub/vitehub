@@ -97,7 +97,7 @@ describe("Email outbox runtime reader", () => {
   it("declares a runtime record-table section that the Console renders as text", async () => {
     expect(emailConsoleSection).toMatchObject({
       id: "email",
-      runtime: { export: "readEmailOutboxConsoleRecords", module: "@vite-hub/email/runtime/console" },
+      runtime: { export: "readEmailOutboxConsoleRecords", module: expect.stringMatching(/[\\/]email[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) },
       view: { kind: "record-table" },
     })
     expect(emailConsoleSection.view.columns.map(column => column.key)).toEqual(["subject", "to", "provider", "delivery", "captured"])

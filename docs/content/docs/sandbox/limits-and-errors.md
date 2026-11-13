@@ -30,7 +30,7 @@ The runtime does not retry `session.exec()`, a new process, a file move, or a po
 A task name and payload select work. They do not limit permissions. Code in the Sandbox can use the filesystem, environment, network, credentials, and child processes that the provider gives it. Inspect that access before execution when your policy needs it:
 
 ```ts [server/sandbox-authority.ts]
-import { resolveSandboxTaskRunner } from '@vite-hub/sandbox/task'
+import { resolveSandboxTaskRunner } from 'vite-hub/sandbox/task'
 
 const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)

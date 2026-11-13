@@ -107,6 +107,7 @@ export const CommentList = defineComponent({
                     {
                       "aria-current": comments.openId.value === thread.id ? "true" : undefined,
                       "data-detached": detached ? "true" : undefined,
+                      "data-focus-inset": "",
                       "data-slot": "comment-list-item",
                       "data-status": thread.status,
                       href: comments.link(thread),
@@ -142,7 +143,7 @@ export const CommentToolbar = defineComponent({
           "aria-pressed": String(comments.active.value),
           color: "neutral",
           "data-slot": "comment-toolbar-mode",
-          icon: "i-ph-chat-circle",
+          icon: "i-lucide-message-circle",
           onClick: comments.toggle,
           size: "sm",
           title: "Comment (C)",
@@ -153,7 +154,7 @@ export const CommentToolbar = defineComponent({
           "aria-pressed": String(comments.listOpen.value),
           color: "neutral",
           "data-slot": "comment-toolbar-list",
-          icon: "i-ph-list-bullets",
+          icon: "i-lucide-list",
           label: String(open),
           onClick: () => (comments.listOpen.value = !comments.listOpen.value),
           size: "sm",
@@ -164,7 +165,7 @@ export const CommentToolbar = defineComponent({
           "aria-label": "Comment on page",
           color: "neutral",
           "data-slot": "comment-toolbar-page",
-          icon: "i-ph-note-pencil",
+          icon: "i-lucide-square-pen",
           onClick: () => {
             comments.startDraft("page");
           },

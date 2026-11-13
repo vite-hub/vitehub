@@ -1,7 +1,10 @@
+import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
+import { operationCredentialHint } from "@vite-hub/internal/operations"
 import { describe, expect, it, vi } from "vitest"
 
 import { runAgentInvocationsCli } from "../src/cli.ts"
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 function stream() {
   let value = ""
@@ -29,18 +32,20 @@ interface ConsoleCall {
 function deployedConsole(reply: (call: ConsoleCall) => unknown) {
   const calls: ConsoleCall[] = []
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    const envelope: unknown = JSON.parse(String(init?.body))
-    if (!isRuntimeRecord(envelope) || !isRuntimeRecord(envelope.input) || typeof envelope.operation !== "string") throw new Error("Invalid Console envelope")
+    const envelope = operationRpcRequest(init?.body)
+    if (!isRuntimeRecord(envelope.input)) throw new Error("Invalid Console call")
     const call = { headers: new Headers(init?.headers), input: envelope.input, method: envelope.operation, url }
     calls.push(call)
     const value = reply(call)
-    return value instanceof Response ? value : Response.json({ ok: true, value })
+    return value instanceof Response ? value : operationRpcResponse(init?.body, { ok: true, value })
   })
   // SAFETY: The mock implements the fetch call shape that the CLI uses.
   return { calls, fetch: fetch as unknown as typeof globalThis.fetch }
 }
 
-async function run(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.ProcessEnv = { VITEHUB_CONSOLE_COOKIE: "vitehub_console.session_token=abc" }) {
+const signingKey = { VITEHUB_CONSOLE_PRIVATE_KEY_CI: (await createConsoleKeyPair()).privateKey }
+
+async function run(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.ProcessEnv = signingKey) {
   const stdout = stream()
   const stderr = stream()
   const exitCode = await runAgentInvocationsCli(args, { env, stderr, stdout }, { fetch, sleep: async () => undefined })
@@ -48,25 +53,26 @@ async function run(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.P
 }
 
 describe("vitehub agent invocations with a deployed Console", () => {
-  it("cancels through the Console RPC endpoint with the Console credentials", async () => {
+  it("cancels through the Console RPC endpoint with a signed call", async () => {
     const host = deployedConsole(() => ({ delivery: "local", id: "ainv_1", outcome: "requested", status: "running" }))
     const result = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], host.fetch)
 
     expect(result).toMatchObject({ exitCode: 0, stdout: "ainv_1 cancel requested\n" })
     expect(host.calls).toHaveLength(1)
     const [call] = host.calls
-    expect(call!.url).toBe("https://agent.example.com/_vitehub/rpc/__call")
+    expect(call!.url).toBe("https://agent.example.com/_vitehub/rpc")
     expect(call!.method).toBe("invocations.cancel")
     expect(call!.input).toEqual({ id: "ainv_1" })
     expect(call!.headers.get("x-vitehub-console")).toBe("1")
-    expect(call!.headers.get("cookie")).toBe("vitehub_console.session_token=abc")
+    expect(call!.headers.get("x-vitehub-signature")).toContain("key=CI")
+    expect(call!.headers.has("cookie")).toBe(false)
   })
 
   it.each([
-    ["https://agent.example.com/_vitehub", "https://agent.example.com/_vitehub/rpc/__call"],
-    ["https://agent.example.com/_vitehub/agents/support", "https://agent.example.com/_vitehub/rpc/__call"],
-    ["https://example.com/app/", "https://example.com/app/_vitehub/rpc/__call"],
-    ["http://localhost:3000/_vitehub", "http://localhost:3000/_vitehub/rpc/__call"],
+    ["https://agent.example.com/_vitehub", "https://agent.example.com/_vitehub/rpc"],
+    ["https://agent.example.com/_vitehub/agents/support", "https://agent.example.com/_vitehub/rpc"],
+    ["https://example.com/app/", "https://example.com/app/_vitehub/rpc"],
+    ["http://localhost:3000/_vitehub", "http://localhost:3000/_vitehub/rpc"],
   ])("resolves the Console RPC endpoint from %s", async (url, endpoint) => {
     const host = deployedConsole(() => ({ invocations: [] }))
     expect((await run(["list", "--url", url], host.fetch)).exitCode).toBe(0)
@@ -138,8 +144,8 @@ describe("vitehub agent invocations with a deployed Console", () => {
   })
 
   it.each([
-    [401, { message: "Unauthorized", ok: false, status: 401 }, "Console authentication failed with HTTP 401: Unauthorized. Set VITEHUB_CONSOLE_AUTHORIZATION"],
-    [302, undefined, "Console authentication failed with HTTP 302. Set VITEHUB_CONSOLE_AUTHORIZATION"],
+    [401, { message: "Unauthorized", ok: false, status: 401 }, "Console authentication failed with HTTP 401: Unauthorized. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
+    [302, undefined, "Console authentication failed with HTTP 302. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>"],
     [404, { message: "Invocation not found", ok: false, status: 404 }, "Console request failed with HTTP 404: Invocation not found."],
     [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub Console (HTTP 404)."],
   ])("reports a Console HTTP %s response", async (status, body, message) => {
@@ -152,7 +158,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
   it("adds the credential hint to a 403 only when no Console credential is set", async () => {
     const forbidden = () => Response.json({ message: "Forbidden.", ok: false, status: 403 }, { status: 403 })
     const anonymous = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(forbidden).fetch, {})
-    expect(anonymous.stderr).toBe("Console denied the request with HTTP 403: Forbidden. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.\n")
+    expect(anonymous.stderr).toBe(`Console denied the request with HTTP 403: Forbidden. ${operationCredentialHint}\n`)
     const signedIn = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(forbidden).fetch)
     expect(signedIn.stderr).toBe("Console denied the request with HTTP 403: Forbidden.\n")
   })

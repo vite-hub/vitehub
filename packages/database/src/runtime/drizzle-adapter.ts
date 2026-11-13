@@ -8,7 +8,8 @@ import { useD1Session } from "./d1-sessions.ts"
 import { keepOwnClient, trackD1Database, trackLibsqlClient } from "./request-stats.ts"
 
 import type { Client } from "@libsql/client"
-import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
+import type { AnyRelations } from "drizzle-orm"
+import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig, SchemaRelations } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface D1PreparedStatement {
@@ -28,7 +29,17 @@ interface D1DatabaseLike {
 export interface LibsqlClientFactory {
   createClient: (options: { authToken?: string, url: string }) => Client
   /** Builds Drizzle's libSQL database on the client, as `createLibsqlDrizzle()` does. It must import no libSQL client. */
-  drizzle: (client: Client, config: { casing?: "snake_case" | "camelCase", schema: Record<string, unknown> }) => unknown
+  drizzle: (client: Client, config: { relations: AnyRelations }) => unknown
+}
+
+/**
+ * libSQL for a local SQLite database, from `#vitehub/database/libsql`. A Cloudflare build without a remote libSQL URL
+ * resolves that import to `undefined`, so the Worker ships no libSQL client.
+ */
+export interface LocalSqlite extends LibsqlClientFactory {
+  /** The in-memory database of app tests. See `createTestDatabaseClient()`. */
+  createTestClient: (root: string, migrationsDir: string) => Client
+  resolveLocalUrl: (url: string) => string
 }
 
 interface DrizzleSqliteAdapterOptions {
@@ -43,15 +54,16 @@ export function isRemoteSqliteUrl(url: string) {
   return /^(?:libsql:|https?:\/\/)/i.test(url)
 }
 
-export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknown>>(
+/** `relations` holds every table of the schema, so `db.query.<table>` reads each one. */
+export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknown>, TRelations extends AnyRelations = SchemaRelations<TSchema>>(
   config: RuntimeDrizzleDatabaseConfig,
-  schema: TSchema,
+  relations: TRelations,
   options: DrizzleSqliteAdapterOptions,
 ) {
   // By binding, or by D1 session with read replication.
-  const d1Instances = new WeakMap<D1DatabaseLike, RuntimeDrizzleDatabase<TSchema>>()
-  const getD1HttpDb = createCloudflareD1HttpResolver(config, schema)
-  let libsqlInstance: RuntimeDrizzleDatabase<TSchema> | undefined
+  const d1Instances = new WeakMap<D1DatabaseLike, RuntimeDrizzleDatabase<TSchema, TRelations>>()
+  const getD1HttpDb = createCloudflareD1HttpResolver(config, relations)
+  let libsqlInstance: RuntimeDrizzleDatabase<TSchema, TRelations> | undefined
   let libsqlInstanceToken: string | undefined
   let libsqlInstanceUrl: string | undefined
   let libsqlClient: Client | undefined
@@ -79,10 +91,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
         return cached
       }
 
-      const instance = keepOwnClient(drizzleD1(checkD1Limits(trackD1Database(client)), {
-        casing: config.drizzle.casing,
-        schema,
-      }), client) as RuntimeDrizzleDatabase<TSchema>
+      const instance = keepOwnClient(drizzleD1(checkD1Limits(trackD1Database(client)), { relations }), client) as RuntimeDrizzleDatabase<TSchema, TRelations>
       d1Instances.set(client, instance)
       return instance
     }
@@ -103,14 +112,14 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
       authToken,
       url: options.resolveLocalUrl ? options.resolveLocalUrl(url) : url,
     })
-    let instance: RuntimeDrizzleDatabase<TSchema>
+    let instance: RuntimeDrizzleDatabase<TSchema, TRelations>
     try {
       // SAFETY: The injected libSQL adapters expose the same Drizzle database contract as the runtime schema generic.
       // Local SQLite stands in for the D1 binding in a dev server for Cloudflare, so it rejects what D1 rejects.
       instance = keepOwnClient(Object(options.libsql.drizzle(
         trackLibsqlClient(config.cloudflare && config.localLimits === "d1" ? checkLibsqlD1Limits(client) : client),
-        { casing: config.drizzle.casing, schema },
-      )), client) as RuntimeDrizzleDatabase<TSchema>
+        { relations },
+      )), client) as RuntimeDrizzleDatabase<TSchema, TRelations>
     }
     catch (error) {
       client.close()
@@ -129,11 +138,13 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     return libsqlInstance
   }
 
-  return new Proxy({} as RuntimeDrizzleDatabase<TSchema>, {
+  return new Proxy({} as RuntimeDrizzleDatabase<TSchema, TRelations>, {
     get(_, prop) {
       const instance = getDb()
-      const value = instance[prop as keyof RuntimeDrizzleDatabase<TSchema>]
+      const value = instance[prop as keyof RuntimeDrizzleDatabase<TSchema, TRelations>]
       return typeof value === "function" ? value.bind(instance) : value
     },
-  }) as RuntimeDrizzleDatabase<TSchema>
+    // Drizzle's `is()` reads the prototype, so `is(db, SQLiteAsyncDatabase)` sees the live database.
+    getPrototypeOf: () => Object.getPrototypeOf(getDb()),
+  }) as RuntimeDrizzleDatabase<TSchema, TRelations>
 }

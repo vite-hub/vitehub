@@ -135,6 +135,38 @@ When calls overlap on the same page or server request, the latest selection wins
 
 On the server, `setLocale()` switches only the current request, for example to answer in the locale of a user profile. It does not write a cookie. To save the choice of a person from a server route, set the `locale` cookie in the response.
 
+## useTranslations
+
+`useTranslations()` from `vite-hub/i18n/server` reads, saves, and publishes translations in the Workspace of [`i18n.workspace`](/docs/i18n/configure#store-translations-in-a-workspace). A save goes to the `draft` ref, so people and Agents can prepare translations without changing the site. `publish()` copies the changed drafts to `published` in one revision, and the server uses them on the next request.
+
+```ts [server/routes/translations.post.ts]
+import { useTranslations } from 'vite-hub/i18n/server'
+
+export default async () => {
+  const translations = useTranslations()
+  const [error] = await translations.save({ locale: 'es', source: 'Payment received', translation: 'Pago recibido', by: 'ana' })
+  if (error) return { error }
+  return await translations.publish({ message: 'Spanish checkout' })
+}
+```
+
+| Method | Returns |
+| --- | --- |
+| `save({ locale, source, context?, translation, review?, by? })` | `[error, { id, revision }]`. `review` defaults to `edited`. A translation with broken ICU or other placeholders returns [`I18N_INVALID_TRANSLATION`](/docs/i18n/limits-and-errors#i18n_invalid_translation). |
+| `status()` | For each translated locale: `{ locale, messages, published, drafted, missing }`. |
+| `missing(locale, { limit?, cursor? })` | `[error, { items, total, cursor }]`. Each item has `id`, `source`, `context`, `origins`, and `previous`, the translation of an older version of the message. |
+| `list(locale, { ref? })` | `[error, records]` by message ID. `ref: "draft"` shows the published records with the drafts on top. |
+| `publish({ message? })` | `{ revision, published }`. With no changed drafts, `published` is `0`. |
+| `revision()` | The published revision that the server uses, or `build` before the first publish. |
+
+`save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw. The [`i18n()` Agent Capability](/docs/i18n/agent-capability) calls the same methods.
+
+`save()` keeps the `source`, `context`, and `translation` input names. It stores a Diglot record with `context` as `salt` and `translation` as `text`. New or changed machine text has `origin: "mt"` and `review: "none"`. A human edit has `origin: "human"`. Verification and rejection keep the text's origin and last editor, and record the reviewer in `verifiedBy` or `rejectedBy`. Saving the same text as `machine` does not reset its origin or review. An `edited` save can reopen a rejected record, even with the same text. A rejected record must be edited before it can be verified. A changed verified save edits the text first, then verifies it. A refused Diglot transition throws before any revision is committed.
+
+An empty translation marks the record as rejected and keeps its last text, or the source text if no translation exists. The site then uses its build or source fallback. Rejected records and records with invalid ICU arguments do not override the build catalog.
+
+`status()` and `missing()` count only visible translations. A rejected or invalid record leaves its message missing unless there is a visible published translation or draft.
+
 ## Vue
 
 Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vite-hub/nuxt` and `useLocale()` as an auto-import.
@@ -153,7 +185,8 @@ Message macros in component setup keep the app's instance, including in computed
 
 | Type | Meaning |
 | --- | --- |
-| `I18nOptions` | The `i18n` option: `{ locales, cookie? }`. |
+| `I18nOptions` | The `i18n` option: `{ locales, cookie?, workspace? }`. |
+| `TranslationRecord` | A Diglot record: `{ hash, source, salt?, text, origin, review, derived, updatedAt, by?, verifiedBy?, rejectedBy? }`. |
 | `MessageDescriptor` | What `msg` returns and `translate()` takes. |
 | `MessageValue` | A value in a message: a string, a number, or `{ name: value }`. |
 | `PluralForms` | The forms of `plural()` and `selectOrdinal()`. |

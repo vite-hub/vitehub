@@ -1,22 +1,7 @@
-const blobAccessors = (() => {
-  const prototype = globalThis.Blob?.prototype
-  return {
-    type: prototype && Object.getOwnPropertyDescriptor(prototype, "type")?.get,
-    size: prototype && Object.getOwnPropertyDescriptor(prototype, "size")?.get,
-  }
-})()
-
+// Check the fields that callers read, so Blob and File values from another realm also match.
 export default function isBlob(value: unknown): value is Blob {
-  try {
-    // Calling these accessors validates the Blob internal slots, including for
-    // Blob and File instances created in another realm. Unlike toString(), the
-    // accessors cannot be spoofed with Symbol.toStringTag.
-    if (!blobAccessors.type || !blobAccessors.size) return false
-    blobAccessors.type.call(value)
-    blobAccessors.size.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  return typeof value === "object" && value !== null
+    && "type" in value && typeof value.type === "string"
+    && "size" in value && typeof value.size === "number"
+    && "arrayBuffer" in value && typeof value.arrayBuffer === "function"
 }

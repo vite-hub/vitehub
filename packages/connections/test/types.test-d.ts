@@ -4,12 +4,11 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineConnection } from "../src/definition.ts"
 import { google } from "../src/google.ts"
-import { oauthLogin } from "../src/oauth-login.ts"
 import { useConnection } from "../src/runtime/state.ts"
 
-import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
+import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailDraft, GmailLabel, GmailMessagePartBody, GmailMethods } from "../src/google.ts"
 import type { ConnectionDefinitionName } from "../src/registry-types.ts"
-import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionLoginContext, ConnectionMethod, ConnectionProvider, ConnectionStatus } from "../src/types.ts"
+import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionMethod, ConnectionProvider, ConnectionStatus } from "../src/types.ts"
 
 const connection = defineConnection({
   access: {
@@ -28,7 +27,7 @@ const keyed = defineConnection({
   instances: ["acme", "beta"],
   definition: tenant => ({
     access: { "agent:support": { read: true, write: ["fetch"], approve: false } },
-    provider: oauthLogin({ credentials: () => tenant, login: async ({ url }) => url, mcp: `https://${tenant}.example.com/mcp` }),
+    provider: { authorizationEndpoint: `https://${tenant}.example.com/authorize`, clientId: "id", id: "portal", mcp: `https://${tenant}.example.com/mcp`, tokenEndpoint: `https://${tenant}.example.com/token` },
     scopes: ["openid"],
   }),
 })
@@ -98,6 +97,23 @@ describe("Connection types", () => {
     expectTypeOf(client.gmail.users.messages.modify).toBeFunction()
     // @ts-expect-error users.messages.send is not selected.
     expectTypeOf(client.gmail.users.messages.send).toBeFunction()
+  })
+
+  it("types the Gmail methods that mail automation uses", async () => {
+    const kept: Array<keyof GmailMethods> = [
+      "users.drafts.create", "users.getProfile", "users.history.list", "users.labels.list", "users.messages.attachments.get",
+      "users.messages.get", "users.messages.list", "users.messages.modify", "users.settings.filters.create", "users.threads.list",
+    ]
+    void kept
+    const every = defineConnection({ provider: google({ clientId: "id", clientSecret: "secret" }), scopes: [] })
+    type EveryClient = typeof every extends ConnectionDefinition<infer TApis, infer TSelection> ? ConnectionClient<TApis, TSelection> : never
+    const gmail = ({} as EveryClient).gmail
+    const [, attachment] = await gmail.users.messages.attachments.get({ userId: "me", messageId: "m1", id: "a1" })
+    expectTypeOf(attachment).toEqualTypeOf<GmailMessagePartBody | undefined>()
+    const [, draft] = await gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw: "cmF3" } } })
+    expectTypeOf(draft).toEqualTypeOf<GmailDraft | undefined>()
+    // @ts-expect-error id is required.
+    await gmail.users.messages.attachments.get({ userId: "me", messageId: "m1" })
   })
 
   it("types method input and response", async () => {
@@ -203,17 +219,5 @@ describe("Connection types", () => {
     expectTypeOf(keyed.instances).toEqualTypeOf<readonly ("acme" | "beta")[]>()
     expectTypeOf<"keyedTest">().not.toMatchTypeOf<ConnectionDefinitionName>()
     expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>>()
-  })
-
-  it("types the login context", () => {
-    expectTypeOf<ConnectionLoginContext>().toEqualTypeOf<{
-      url: string
-      redirectUri: string
-      credentials: string
-      fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
-      signal: AbortSignal
-    }>()
-    const login = defineConnection({ provider: oauthLogin({ issuer: "https://auth.example.com", login: async ({ redirectUri }) => redirectUri }) })
-    expectTypeOf(login).toMatchTypeOf<ConnectionDefinition>()
   })
 })

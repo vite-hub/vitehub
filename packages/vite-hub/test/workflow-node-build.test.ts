@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -44,7 +44,7 @@ async function postToBuiltServer(root: string, path: string, body: unknown): Pro
   }
 }
 
-it.each([true, false])("runs a discovered Workflow from only the deployed Node output (initial Workflow: %s)", async (initialWorkflow) => {
+it("runs a discovered Workflow from only the deployed Node output", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-build-"));
   const deploymentRoot = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-deployment-"));
   try {
@@ -57,7 +57,7 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
       [
         `import { defineWorkflow } from "vite-hub/workflow"`,
         ``,
-        `export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {`,
+        `export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {`,
         `  return await steps.createUser(payload)`,
         `})`,
         ``,
@@ -89,15 +89,19 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
     const builder = await createBuilder({
       logLevel: "silent",
-      workflow: initialWorkflow ? { provider: "vercel" } : false,
       plugins: [
         nitro() as never,
-        vitehub({ preset: "node", workflow: true }),
-        { name: "final-workflow-config", config: () => ({ workflow: { provider: "vercel" } }) },
+        vitehub({ host: "node", workflow: { provider: "vercel" } }),
       ],
       root,
     });
     await builder.buildApp();
+    await expect(readFile(join(root, ".vitehub/workflow.d.ts"), "utf8")).resolves.toContain([
+      `declare module "vite-hub/workflow" {`,
+      `  interface WorkflowStepRegistry {`,
+      `    "onboard-user": {`,
+      `      "createUser": typeof import("../server/workflows/onboard-user/01.create-user.ts").default`,
+    ].join("\n"));
 
     await rename(join(root, ".output"), join(deploymentRoot, ".output"));
     await rm(root, { force: true, recursive: true, maxRetries: 3 });

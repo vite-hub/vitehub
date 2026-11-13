@@ -3,7 +3,8 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { formsDiagnostics } from "./errors.ts"
 
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
+import type { AnyRelations } from "drizzle-orm"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 import type { FormAnchor, FormsStore, FormStatus, FormSubmission, FormUser, ListFormSubmissionsOptions } from "./types.ts"
 
 /**
@@ -38,7 +39,7 @@ export const formsTables: readonly string[] = [
 ]
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
-export type FormsDatabase = BaseSQLiteDatabase<"async", unknown, Record<string, unknown>>
+export type FormsDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>
 
 type Row = typeof formSubmissions.$inferSelect
 
@@ -65,7 +66,7 @@ async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
     return await run()
   }
   catch (cause) {
-    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}. Apply the Forms tables with \`vitehub db generate\` and \`vitehub db migrate\`.`, cause })
+    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}. Apply the Forms tables with \`vitehub database generate\` and \`vitehub database migrate\`.`, cause })
   }
 }
 

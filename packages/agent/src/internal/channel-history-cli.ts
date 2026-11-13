@@ -2,12 +2,12 @@ import { createHmac } from "node:crypto"
 import { access, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 import { deployedChannelWebhookUrl, loadChannelTargets, type ChannelTargetSignature, type LoadedChannelTarget } from "./channel-sync-cli.ts"
 import { agentChannelHistoryHeader } from "./channel-history.ts"
 import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { decodeBase64Key } from "../trigger-runtime.ts"
+import { decodeViteHubBase64Key } from "@vite-hub/internal/secret"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -102,14 +102,14 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   const timestamp = Math.floor(Date.now() / 1000)
   const signature: ChannelTargetSignature | undefined = registration.signature === "github-sha256" ? { preset: "hmac-sha256", prefix: "sha256=" } : registration.signature
   let hmacSecret: string | Uint8Array = secret
-  if (signature !== undefined && !hasRuntimeType(signature, "string") && signature.secretEncoding === "base64") {
-    const decoded = decodeBase64Key(secret)
+  if (signature !== undefined && typeof signature !== "string" && signature.secretEncoding === "base64") {
+    const decoded = decodeViteHubBase64Key(secret)
     if (!decoded) throw agentDiagnostics.AGENT_R0524({ message: "Channel history webhook secret is not valid canonical base64." })
     hmacSecret = decoded
   }
   const value = registration.signature === "bearer"
     ? `Bearer ${secret}`
-    : signature !== undefined && !hasRuntimeType(signature, "string")
+    : signature !== undefined && typeof signature !== "string"
     ? `${signature.prefix ?? ""}${createHmac("sha256", hmacSecret).update(body).digest(signature.encoding ?? "hex")}`
     : signature === "stripe-sha256"
       ? `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`
@@ -254,7 +254,7 @@ export async function runAgentChannelHistoryCli(
       const allItems: unknown[] = Array.isArray(historyRecord?.items) ? [...historyRecord.items] : []
       let cursor = historyRecord?.nextCursor
       const seen = new Set<string>()
-      while (hasRuntimeType(cursor, "string") && cursor) {
+      while (typeof cursor === "string" && cursor) {
         if (seen.has(cursor)) throw agentDiagnostics.AGENT_R0534({ message: "Channel history export returned a repeated pagination cursor." })
         seen.add(cursor)
         const nextBody = JSON.stringify({

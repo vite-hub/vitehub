@@ -1,30 +1,22 @@
-import { getStandardContext } from "@vite-hub/runtime/internal/h3"
-import { createError, defineEventHandler } from "h3"
-
 import { CollectionCursorError } from "./core/collection.ts"
 
-import type { H3Event } from "h3"
-import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { cachedSource } from "./cached-source.ts"
 export type { SourceReaderCacheOptions } from "./cached-source.ts"
 
+/** A Collection route as a Fetchable. Mount it as a Nitro route, or call `fetch()` with a Web Request. */
 export interface CollectionHandler {
-  (event: unknown): Promise<unknown>
-  fetch(input: Request | URL | string): Promise<Response>
-}
-
-export interface CollectionHandlerEvent {
-  req: { signal: AbortSignal }
+  fetch(request: Request): Promise<Response>
 }
 
 /** Wraps a Collection handler so it runs only after the request is authorized. Return a `Response` to reject the request. */
-export type CollectionAuthorizationGuard = <TEvent extends ViteHubContext, TResult>(
+export type CollectionAuthorizationGuard = <TResult>(
   authorize: AccessAuthorizeOption,
-  handler: (event: TEvent) => Promise<TResult>,
-) => (event: TEvent) => Promise<TResult | Response>
+  handler: (request: Request) => Promise<TResult>,
+) => (request: Request) => Promise<TResult | Response>
 
 export interface CollectionHandlerOptions {
   /** Required when the Collection declares `authorize`. Generated routes pass Auth's `withAuthorization`. */
@@ -64,12 +56,13 @@ function collectionQuery(query: Record<string, string | string[] | undefined>): 
   return Object.fromEntries(Object.entries(query).filter(([key]) => key !== "cursor" && key !== "limit"))
 }
 
-function invalidRequest(cause: unknown): never {
-  throw createError({
-    cause,
-    statusCode: 400,
-    statusMessage: cause instanceof Error ? cause.message : "Invalid collection request.",
-  })
+/** An error Response with the `status` and `message` fields of an H3 error body. */
+function errorResponse(status: number, message: string): Response {
+  return Response.json({ status, message }, { status })
+}
+
+function invalidRequest(cause: unknown): Response {
+  return errorResponse(400, cause instanceof Error ? cause.message : "Invalid collection request.")
 }
 
 function isJSONContainer(value: unknown): value is object {
@@ -126,16 +119,15 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   options: CollectionHandlerOptions = {},
 ): CollectionHandler {
   assertCollection(collection)
-  if (collection.route === false) throw new TypeError("[vitehub] A server-only Collection cannot be exposed through defineCollectionHandler().")
+  // The build reads only a literal `route: false`. For any other form it writes the route, and the route answers 404.
+  if (collection.route === false) return { fetch: async () => errorResponse(404, "Not Found") }
   const { authorize } = collection
   const { withAuthorization } = options
   if (authorize && !withAuthorization) {
     // Fail closed: without Auth, the route cannot read a session.
     throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
   }
-  const handlePage = async (event: H3Event) => {
-    // The Standard Context request is the one that Auth checked. On H3 1, it keeps the URL that H3 strips.
-    const request = getStandardContext(event).req
+  const handlePage = async (request: Request): Promise<Response> => {
     const parameters = requestQuery(request)
     let cursor: string | undefined
     let limit: number | undefined
@@ -145,21 +137,17 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
       limit = queryLimit(parameters)
       query = await collection.parseQuery(collectionQuery(parameters))
     } catch (cause) {
-      invalidRequest(cause)
+      return invalidRequest(cause)
     }
 
     try {
-      return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: request.signal }))
+      return Response.json(serializeCollectionPage(await collection.page({ cursor, limit, query, signal: request.signal })))
     } catch (cause) {
       if (cause instanceof CollectionCursorError) {
-        if (cause.reason === "stale") {
-          throw createError({ cause, statusCode: 409, statusMessage: cause.message })
-        }
-        invalidRequest(cause)
+        return cause.reason === "stale" ? errorResponse(409, cause.message) : invalidRequest(cause)
       }
       throw cause
     }
   }
-  // SAFETY: CollectionHandler preserves the callable and fetch contracts exposed by H3's handler.
-  return defineEventHandler(authorize && withAuthorization ? withAuthorization(authorize, handlePage) : handlePage) as CollectionHandler
+  return { fetch: authorize && withAuthorization ? withAuthorization(authorize, handlePage) : handlePage }
 }

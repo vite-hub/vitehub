@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { file } from "../src/file.ts"
+import { file } from "../src/index.ts"
 
 describe("file workspace paths", () => {
   it.each(["../outside.txt", "docs/../outside.txt", "/outside.txt", "C:/outside.txt", "C:outside.txt", "..\\outside.txt"])("rejects unsafe workspace path %s", (workspacePath) => {

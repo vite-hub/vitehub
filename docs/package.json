@@ -6,11 +6,11 @@
   "scripts": {
     "clean": "rm -rf .nuxt .output node_modules/.cache",
     "postinstall": "node scripts/postinstall.mjs",
-    "pretest": "nuxi prepare",
+    "pretest": "vp run --cache -t vite-hub#build && nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS=--max-old-space-size=8192 nuxi build",
-    "deploy:cloudflare": "vp run test && vp run build && vp dlx \"wrangler@4.147.0\" deploy --config .output/server/wrangler.json",
-    "test": "vp test --exclude test/artifact.test.ts",
+    "deploy:cloudflare": "vp run test && vp run build && wrangler deploy --config .output/server/wrangler.json",
+    "test": "vp run --cache -t vite-hub#build && vp test --exclude test/artifact.test.ts",
     "test:links": "vp run build",
     "test:snippets": "node scripts/check-snippets.mjs",
     "test:links:external": "node scripts/check-example-links.mjs",
@@ -19,9 +19,11 @@
     "typecheck": "nuxi prepare && node scripts/typecheck.mjs",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
     "preview": "nuxi preview",
-    "preview:cloudflare": "vp run build && vp dlx \"wrangler@4.147.0\" dev --config .output/server/wrangler.json"
+    "preview:cloudflare": "vp run build && wrangler dev --config .output/server/wrangler.json"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown-ui",
+    "@comark/vue": "0.9.0",
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
@@ -33,7 +35,9 @@
     "@vueuse/core": "catalog:ui",
     "agents": "catalog:ai",
     "ai": "catalog:ai",
-    "h3": "catalog:h3-v1-compat",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
+    "h3": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "nuxt-schema-org": "catalog:nuxt",
     "shiki": "^4.5.0",
@@ -41,21 +45,20 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@better-auth/cimd": "catalog:auth",
     "@chat-adapter/slack": "catalog:chat",
     "@iconify-json/lucide": "catalog:ui",
-    "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
     "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
-    "comark-chips": "^0.9.1",
     "playwright-core": "catalog:browser",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue-tsc": "catalog:tooling",
-    "wrangler": "4.147.0"
+    "wrangler": "catalog:"
   },
   "engines": {
     "node": "^22.22.0 || ^24.11.0 || >=26.0.0"

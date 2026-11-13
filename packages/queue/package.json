@@ -8,6 +8,7 @@
     "h3",
     "job-queue",
     "nuxt",
+    "postgres",
     "queue",
     "typescript",
     "vercel",
@@ -30,41 +31,25 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/queue/node-client": {
+      "types": "./dist/internal/runtime/postgres-client.d.ts",
+      "workerd": "./dist/internal/runtime/worker-client.js",
+      "worker": "./dist/internal/runtime/worker-client.js",
+      "browser": "./dist/internal/runtime/worker-client.js",
+      "default": "./dist/internal/runtime/postgres-client.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./internal/runtime/cloudflare-client": {
-      "types": "./dist/internal/runtime/cloudflare-client.d.ts",
-      "import": "./dist/internal/runtime/cloudflare-client.js",
-      "default": "./dist/internal/runtime/cloudflare-client.js"
-    },
-    "./internal/runtime/cloudflare-vite": {
-      "types": "./dist/internal/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/internal/runtime/cloudflare-vite.js",
-      "default": "./dist/internal/runtime/cloudflare-vite.js"
-    },
-    "./internal/runtime/local-client": {
-      "types": "./dist/internal/runtime/local-client.d.ts",
-      "import": "./dist/internal/runtime/local-client.js",
-      "default": "./dist/internal/runtime/local-client.js"
-    },
-    "./internal/runtime/state": {
-      "types": "./dist/internal/runtime/state.d.ts",
-      "import": "./dist/internal/runtime/state.js",
-      "default": "./dist/internal/runtime/state.js"
-    },
-    "./internal/runtime/vercel-client": {
-      "types": "./dist/internal/runtime/vercel-client.d.ts",
-      "import": "./dist/internal/runtime/vercel-client.js",
-      "default": "./dist/internal/runtime/vercel-client.js"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./dist/operations.js",
-      "default": "./dist/operations.js"
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
@@ -82,35 +67,45 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/queue#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/queue#build && vp test"
+    "test": "vp run --cache -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
-    "@types/ws": "^8.18.2",
-    "@vercel/functions": "catalog:vercel",
-    "@vercel/queue": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:tooling",
-    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "pathe": "catalog:unjs",
-    "ws": "^8.22.0",
-    "undici": "8.12.2"
+    "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "undici": "8.12.2",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vercel/functions": "catalog:vercel",
+    "@vercel/queue": "catalog:vercel",
+    "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vercel/functions": {
+      "optional": true
+    },
+    "@vercel/queue": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

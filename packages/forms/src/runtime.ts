@@ -9,7 +9,7 @@ import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
 import type { FormDefinition, FormEmailMessage, FormRateLimit, FormRateLimitDecision, FormServices, FormsStore, FormUser } from "./types.ts"
 
-/** The Database registry of `@vite-hub/database/drizzle`, as the generated handler passes it. */
+/** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
 export type FormsDatabaseRegistry = Record<string, { db: FormsDatabase } | undefined>
 
 /** What the generated route of a ViteHub app passes. Each service is there only when the app has its feature. */
@@ -124,7 +124,14 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   }
   return {
     async fetch(request) {
-      const name = decodeURIComponent(new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? "")
+      const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
+      let name = segment
+      try {
+        name = decodeURIComponent(segment)
+      }
+      catch {
+        // A broken escape, such as `%E0`, names no form: the lookup below answers 404.
+      }
       const form = forms.get(name)
       if (!form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name)}.` }), { status: 404, headers: { "content-type": "application/json" } })
       return await handleFormRequest(name, form, request, services(request))

@@ -3,11 +3,13 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "rootDir": "..",
-    "paths": {
-      "@vite-hub/internal/*": [
-        "../../packages/internal/src/*.ts"
-      ]
-    }
+    // The DOM library is for the Vue component. Workspace packages resolve through their built declarations, so the
+    // Node sources of @vite-hub/internal stay out of this program. tsconfig.build.json bundles them from source.
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
   "include": [
     "src/**/*.ts",

@@ -23,7 +23,7 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 | `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `@vite-hub/ui/headless`. |
 | `vite` and `@vitejs/plugin-vue`           | The `@vite-hub/ui/vite` plugin.                           |
 | `vite-hub`                                | Nuxt. `vite-hub/nuxt` gives the components their Nuxt runtime. |
-| `@iconify-json/lucide`, `@iconify-json/ph` | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
+| `@iconify-json/lucide`                    | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
 
 `@nuxt/ui` and `vite` are optional peers, so an app that uses only the headless entry does not need them.
 
@@ -32,7 +32,7 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 Install the package and its peers:
 
 ```bash [commands/install-nuxt]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Add Nuxt UI and ViteHub to `nuxt.config.ts`. Register Nuxt UI first:
@@ -54,7 +54,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 
 `vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
-Each component family also has its own entry, such as `@vite-hub/ui/chat`. It exports the same components as `@vite-hub/ui` and keeps the dev import graph small.
+For explicit imports, import every component from `@vite-hub/ui`. A production build keeps only the components that the app uses. Only `MarkdownEditor` (`@vite-hub/ui/markdown-editor`) and the workspace parts (`@vite-hub/ui/workspace`) have their own entries, because their dependencies are large. The theme (`@vite-hub/ui/theme`) and the share links (`@vite-hub/ui/playground`) have their own too, because they load without the components.
 
 ## Install in Vue with Vite
 
@@ -183,6 +183,14 @@ app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
 ```
 
 A part uses the component given here first, then a global one with the same name from `app.component()`, then Nuxt UI's.
+
+Parts such as `CopyButton` read their icons from Nuxt UI's `appConfig.ui.icons`. The Nuxt module passes them for you. In Vue with Vite, pass the same icons, or each part falls back to Lucide:
+
+```ts [vite/icons/src/main.ts] fragment
+import { vitehubTheme } from "@vite-hub/ui/theme";
+
+app.use(createViteHubUI({ icons: vitehubTheme.icons }));
+```
 
 ## Theme
 

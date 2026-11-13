@@ -1,4 +1,4 @@
-import { resolveViteHubBundleDefines } from "./esbuild.ts"
+import { resolveViteHubBundleDefines } from "./bundle-options.ts"
 import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 import type { ProviderDeploymentOutputContribution } from "./deployment-output.ts"
 

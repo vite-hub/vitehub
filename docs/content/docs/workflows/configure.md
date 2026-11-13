@@ -46,7 +46,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowModuleOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `workflow` | `boolean` or `WorkflowOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
 | `provider` | `WorkflowProvider` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |
@@ -66,9 +66,9 @@ Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on other s
 A Workflow Definition is a file that names long-running work.
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow<{ email: string }>(async ({ payload }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }) => {
   const user = await createUser(payload.email)
   await sendWelcomeEmail(user.email)
 
@@ -80,30 +80,26 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 
 ## Workflow Definition options
 
-`defineWorkflow(handler, options?)` takes these options. The file name is the workflow name.
+`defineWorkflow(name, handler, options?)` takes these options. `name` is the discovered file or folder name; another name fails with `WORKFLOW_C0019` when the Workflow loads.
 
 | Option | Type | Description |
 | --- | --- | --- |
 | `id` | `string` | Static provider id for the workflow. |
-| `native` | `WorkflowHandler` | Durable entry for Vercel Workflow DevKit. |
+| `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
 
-The handler gets a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, and is empty when there are no step files.
+The handler gets `(payload, context)`. Annotate `payload` to type it. `context` is a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
 
 ### Add a durable Vercel entry
 
-Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. For durable execution on Vercel, add a Workflow DevKit entry:
+Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. First [install `@vercel/functions`](/docs/workflows/hosts#install-vercel-dependencies), which all Vercel definitions require. For durable execution on Vercel, also install the Workflow DevKit packages and add a native entry:
 
-```bash [Terminal]
+```bash pm [Terminal]
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import {
-  defineWorkflow,
-  type WorkflowExecutionContext,
-  type WorkflowProviderContext,
-} from '@vite-hub/workflow'
+import { defineWorkflow, type WorkflowProviderContext } from 'vite-hub/workflow'
 
 interface OnboardPayload {
   email: string
@@ -129,13 +125,13 @@ async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayloa
   return { userId: user.id }
 }
 
-async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+async function inlineOnboard(payload: OnboardPayload) {
   const user = await createUser(payload.email)
   await sendWelcomeEmail(user.email)
   return { userId: user.id }
 }
 
-export default defineWorkflow(inlineOnboard, { native: durableOnboard })
+export default defineWorkflow('onboard-user', inlineOnboard, { native: durableOnboard })
 ```
 
 ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.

@@ -1,6 +1,6 @@
 import { createEnvBridge } from "@vite-hub/env/bridge"
 import { createDatabaseEnvStore } from "@vite-hub/env/database"
-import { importSealKey, unseal } from "@vite-hub/env/seal"
+import { importSealKey, unsealWithKey } from "@vite-hub/env/seal"
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 
@@ -211,7 +211,7 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         const rows = await db.all(sql`SELECT name, provider, account, scopes, payload, revision, status, connected_at, updated_at, expires_at FROM vitehub_connection_grants`)
         for (const row of rows) {
           const grant = v.parse(legacyGrantRow, row)
-          const legacyToken = v.parse(legacyTokenSet, JSON.parse(await unseal(key, new TextEncoder().encode(JSON.stringify(["connection-grant", grant.name, grant.revision])), grant.payload)))
+          const legacyToken = v.parse(legacyTokenSet, JSON.parse(await unsealWithKey(key, new TextEncoder().encode(JSON.stringify(["connection-grant", grant.name, grant.revision])), grant.payload)))
           const token = { ...legacyToken, ...(legacyToken.account ? { accountId: legacyToken.account } : {}) }
           const secretKey = `connection/${grant.name}`
           if (!(await envStore.secrets.inspect(secretKey))) {
@@ -226,7 +226,7 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         const rows = await db.all(sql`SELECT state, name, payload, expires_at, opened FROM vitehub_connection_pending WHERE opened = 1 AND expires_at > ${now}`)
         for (const row of rows) {
           const pending = v.parse(legacyPendingRow, row)
-          const value = v.parse(v.object({ actor: v.object({ id: v.string(), kind: v.string() }), redirectUri: v.string(), verifier: v.string() }), JSON.parse(await unseal(key, new TextEncoder().encode(JSON.stringify(["connection-pending", pending.state])), pending.payload)))
+          const value = v.parse(v.object({ actor: v.object({ id: v.string(), kind: v.string() }), redirectUri: v.string(), verifier: v.string() }), JSON.parse(await unsealWithKey(key, new TextEncoder().encode(JSON.stringify(["connection-pending", pending.state])), pending.payload)))
           await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at) VALUES (${pending.state}, ${pending.name}, ${`${value.actor.kind}:${value.actor.id}`}, ${value.verifier}, ${value.redirectUri}, ${pending.expires_at}) ON CONFLICT (state) DO NOTHING`)
           // Remove migrated rows so a consumed authorization cannot be restored on restart.
           await db.run(sql`DELETE FROM vitehub_connection_pending WHERE state = ${pending.state}`)

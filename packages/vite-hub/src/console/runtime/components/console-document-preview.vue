@@ -194,11 +194,15 @@ const highlightAttribute = "data-vitehub-preview-highlight";
 /** Outlines the fields of this document, and makes clicks on them select or edit their field. */
 function instrument(page: Document): void {
   const style = page.createElement("style");
+  // The page has none of the Console tokens, so the marks take the Console's focus color by value. The marked field
+  // is the one that has focus in the editor.
+  const mark = getComputedStyle(document.documentElement).getPropertyValue("--vh-focus").trim() || "Highlight";
   style.textContent = `
+    :root { --vitehub-preview-mark: ${mark}; }
     [data-content-field] { cursor: ${draft.value ? "pointer" : "default"}; }
-    ${draft.value ? `[data-content-field]:hover { outline: 1px dashed color-mix(in oklab, #3b82f6 70%, transparent); outline-offset: 3px; }` : ""}
-    [${highlightAttribute}] { outline: 2px solid #3b82f6 !important; outline-offset: 3px; }
-    [contenteditable] { outline: 2px solid #3b82f6 !important; outline-offset: 3px; cursor: text; }
+    ${draft.value ? `[data-content-field]:hover { outline: 1px dashed color-mix(in oklab, var(--vitehub-preview-mark) 70%, transparent); outline-offset: 3px; }` : ""}
+    [${highlightAttribute}] { outline: 2px solid var(--vitehub-preview-mark) !important; outline-offset: 3px; }
+    [contenteditable] { outline: 2px solid var(--vitehub-preview-mark) !important; outline-offset: 3px; cursor: text; }
   `;
   page.head.append(style);
   page.addEventListener("click", event => onPageClick(page, event), true);
@@ -315,13 +319,17 @@ async function openInTab(): Promise<void> {
   }
 }
 
-function onRadioKeydown(event: KeyboardEvent, select: (next: "first" | "last" | "other") => void): void {
-  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-  event.preventDefault();
-  select(event.key === "Home" ? "first" : event.key === "End" ? "last" : "other");
-  const group = event.currentTarget instanceof Element ? event.currentTarget.closest('[role="radiogroup"]') : null;
-  void nextTick(() => group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
-}
+const viewItems = [{ label: "Draft", value: "draft" }, { label: "Published", value: "published" }];
+// Icon tabs: the name is read out but not shown, so the leading slot draws the icon with a hidden name.
+const viewportItems = [{ name: "Desktop", icon: "i-lucide-monitor", value: "desktop" }, { name: "Mobile", icon: "i-lucide-smartphone", value: "mobile" }];
+const viewTab = computed({
+  get: () => view.value,
+  set: (next: string | number) => (view.value = next === "published" ? "published" : "draft"),
+});
+const viewportTab = computed({
+  get: () => viewport.value,
+  set: (next: string | number) => (viewport.value = next === "mobile" ? "mobile" : "desktop"),
+});
 
 // Each source compares by value: a save gives the editor a new URL object for the same page, which renders nothing.
 watch([view, () => props.url.href, () => props.reloads], () => void render(), { immediate: true });
@@ -338,69 +346,47 @@ onBeforeUnmount(() => {
 <template>
   <section class="flex min-h-0 min-w-0 flex-col bg-default" aria-label="Page preview">
     <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-default px-2 sm:px-3">
-      <UButton v-if="overlay" variant="ghost" size="sm" icon="i-lucide-arrow-left" label="Editor" @click="emit('close')" />
+      <UButton v-if="overlay" variant="ghost" icon="i-lucide-arrow-left" label="Editor" @click="emit('close')" />
       <UTooltip text="Reload" :content="{ side: 'bottom' }">
-        <UButton variant="ghost" size="sm" icon="i-lucide-rotate-cw" aria-label="Reload the preview" :loading="loading" @click="render" />
+        <UButton variant="ghost" icon="i-lucide-rotate-cw" aria-label="Reload the preview" :loading="loading" @click="render" />
       </UTooltip>
-      <div class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md bg-elevated/60 px-2.5 ring-1 ring-default ring-inset">
+      <div class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md bg-elevated px-2.5">
         <UIcon :name="view === 'published' ? 'i-lucide-globe' : 'i-lucide-eye'" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
         <span class="truncate font-mono text-xs text-muted" :title="address">{{ address || url.pathname }}</span>
-        <span
-          class="ms-auto shrink-0 rounded-sm px-1.5 py-0.5 text-[11px]/none font-medium"
-          :class="view === 'published' ? 'bg-success/10 text-success' : local ? 'bg-warning/10 text-warning' : 'bg-info/10 text-info'"
+        <UBadge
+          class="ms-auto shrink-0"
+          size="sm"
+          :color="view === 'published' ? 'success' : local ? 'warning' : 'info'"
+          :label="label"
           role="status"
-        >{{ label }}</span>
+        />
       </div>
-      <div class="flex items-center rounded-md p-0.5 ring-1 ring-default ring-inset" role="radiogroup" aria-label="Preview">
-        <button
-          v-for="option in [{ label: 'Draft', value: 'draft' }, { label: 'Published', value: 'published' }] as const"
-          :key="option.value"
-          type="button"
-          role="radio"
-          class="h-6 rounded-[4px] px-2 text-xs focus-visible:outline-2"
-          :class="view === option.value ? 'bg-elevated text-highlighted' : 'text-muted hover:text-highlighted'"
-          :aria-checked="view === option.value"
-          :tabindex="view === option.value ? 0 : -1"
-          @click="view = option.value"
-          @keydown="onRadioKeydown($event, (next) => (view = next === 'first' ? 'draft' : next === 'last' ? 'published' : view === 'draft' ? 'published' : 'draft'))"
-        >
-          {{ option.label }}
-        </button>
-      </div>
-      <div class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset sm:flex" role="radiogroup" aria-label="Viewport">
-        <UTooltip v-for="option in [{ label: 'Desktop', value: 'desktop', icon: 'i-lucide-monitor' }, { label: 'Mobile', value: 'mobile', icon: 'i-lucide-smartphone' }] as const" :key="option.value" :text="option.label" :content="{ side: 'bottom' }">
-          <button
-            type="button"
-            role="radio"
-            class="grid size-6 place-items-center rounded-[4px] focus-visible:outline-2"
-            :class="viewport === option.value ? 'bg-elevated text-highlighted' : 'text-muted hover:text-highlighted'"
-            :aria-checked="viewport === option.value"
-            :aria-label="option.label"
-            :tabindex="viewport === option.value ? 0 : -1"
-            @click="viewport = option.value"
-            @keydown="onRadioKeydown($event, (next) => (viewport = next === 'first' ? 'desktop' : next === 'last' ? 'mobile' : viewport === 'desktop' ? 'mobile' : 'desktop'))"
-          >
-            <UIcon :name="option.icon" class="size-3.5" aria-hidden="true" />
-          </button>
-        </UTooltip>
-      </div>
+      <!-- The tabs rest on the bar's bottom border, so the tab line and the border are one line. -->
+      <UTabs v-model="viewTab" :items="viewItems" :content="false" class="self-end" aria-label="Preview" />
+      <UTabs v-model="viewportTab" :items="viewportItems" :content="false" class="hidden self-end sm:flex" aria-label="Viewport">
+        <template #leading="{ item }">
+          <UIcon :name="item.icon" class="size-4" aria-hidden="true" />
+          <span class="sr-only">{{ item.name }}</span>
+        </template>
+      </UTabs>
       <UTooltip text="Open in a new tab" :content="{ side: 'bottom' }">
-        <UButton variant="ghost" size="sm" icon="i-lucide-external-link" aria-label="Open the preview in a new tab" @click="openInTab" />
+        <UButton variant="ghost" icon="i-lucide-external-link" aria-label="Open the preview in a new tab" @click="openInTab" />
       </UTooltip>
       <UTooltip v-if="!overlay" text="Close the preview" :content="{ side: 'bottom' }">
-        <UButton variant="ghost" size="sm" icon="i-lucide-x" aria-label="Close the preview" @click="emit('close')" />
+        <UButton variant="ghost" icon="i-lucide-x" aria-label="Close the preview" @click="emit('close')" />
       </UTooltip>
     </div>
-    <div class="relative min-h-0 flex-1 overflow-auto" :class="viewport === 'mobile' ? 'bg-elevated/40 px-4 py-5' : ''">
+    <div class="relative min-h-0 flex-1 overflow-auto" :class="viewport === 'mobile' ? 'bg-elevated px-4 py-5' : ''">
       <div v-if="failure" class="grid justify-items-start gap-3 p-6" role="alert">
         <p class="text-sm text-muted">{{ failure }}</p>
-        <UButton variant="outline" size="sm" label="Retry" @click="render" />
+        <UButton variant="outline" label="Retry" @click="render" />
       </div>
+      <!-- The site's own page shows on the browser's default light canvas, whatever the Console theme. -->
       <div
         v-else
         ref="frameStack"
-        class="relative mx-auto h-full bg-white"
-        :class="viewport === 'mobile' ? 'overflow-hidden rounded-[1.25rem] shadow-sm ring-1 ring-default' : 'w-full'"
+        class="relative mx-auto h-full bg-[Canvas] scheme-light"
+        :class="viewport === 'mobile' ? 'overflow-hidden rounded-xl ring-1 ring-default' : 'w-full'"
         :style="viewport === 'mobile' ? { width: `${consolePreviewMobileWidth}px`, maxWidth: '100%' } : undefined"
       >
         <iframe

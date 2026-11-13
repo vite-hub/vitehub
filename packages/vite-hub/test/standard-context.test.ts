@@ -1,7 +1,5 @@
-import { createRequire } from "node:module"
-
 import { H3Event } from "h3"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
 import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 import { renderStandardContextNitroPlugin } from "../src/standard-context-vite.ts"
@@ -31,18 +29,6 @@ function requestHook(): RequestHook {
   }
 }
 
-/** Create Nitro 2's real Hookable. */
-function nitro2Hooks() {
-  const require = createRequire(import.meta.url)
-  const { createHooks } = createRequire(require.resolve("nitropack/package.json"))("hookable") as {
-    createHooks: () => {
-      hook: (name: string, callback: RequestHook) => void
-      callHook: (name: string, event: H3Event) => Promise<void>
-    }
-  }
-  return createHooks()
-}
-
 describe("generated Standard Context Nitro plugin", () => {
   it("sets `~standard` on each request event", () => {
     const request = new Request("https://app.test/api")
@@ -50,22 +36,6 @@ describe("generated Standard Context Nitro plugin", () => {
     requestHook()(event)
     expect(event["~standard"].req).toBe(request)
     expect(event["~standard"].vendor).toBe("h3")
-  })
-
-  it("installs before existing consumers with Nitro 2's real Hookable", async () => {
-    const hooks = nitro2Hooks()
-    const event = new H3Event(new Request("https://app.test/api"))
-    hooks.hook("request", request => expect(request["~standard"].req).toBe(request.req))
-    generatedPlugin()({ hooks })
-    await hooks.callHook("request", event)
-  })
-
-  it("installs once per request with Nitro 2's real Hookable", async () => {
-    const hooks = nitro2Hooks()
-    const installer = vi.fn(installStandardContext)
-    generatedPlugin(installer)({ hooks })
-    await hooks.callHook("request", new H3Event(new Request("https://app.test/api")))
-    expect(installer).toHaveBeenCalledOnce()
   })
 
   it("prepends the installer before existing Nitro 3 request hooks", () => {

@@ -1,5 +1,4 @@
 import { H3 } from "h3"
-import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
@@ -45,14 +44,13 @@ describe("defineCollectionHandler", () => {
     }
 
     // Mirrors Auth's withAuthorization contract: the Auth package tests the real session lookup.
-    const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (event) => {
-      const request = getStandardContext(event).req
+    const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (request) => {
       const user = request.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
       if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })
       const result = authorize === true || await authorize({ request, session: {}, user })
       if (result instanceof Response) return result
       if (result !== true) return Response.json({ error: "Forbidden." }, { status: 403 })
-      return handler(event)
+      return handler(request)
     }
 
     it("fails closed when the route has no Auth authorizer", () => {
@@ -335,22 +333,38 @@ describe("defineCollectionHandler", () => {
     expect(response.status).toBe(500)
   })
 
-  it("reads the query of a Nuxt 4 event from its Standard Context request", async () => {
+  it("answers 404 for a Collection with route: false and does not read it", async () => {
+    const load = vi.fn(async () => [{ id: 1 }])
+    const collection = defineCollection(load, {
+      authorize: true,
+      cursor: (item: { id: number }) => item.id,
+      cursorSchema: v.number(),
+      querySchema: v.object({}),
+      route: false,
+    })
+    const handler = defineCollectionHandler(collection)
+
+    const response = await handler.fetch(new Request("http://example.test/api/articles"))
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ status: 404, message: "Not Found" })
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("answers a Web Request as a Fetchable, with JSON error Responses", async () => {
     const collection = defineCollection(
       async ({ limit, query }) => [{ id: 3 }, { id: 2 }, { id: 1 }].filter(item => !query.minimum || item.id >= Number(query.minimum)).slice(0, limit),
       { cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
     )
-    const h3V1Event = (url: string) => ({
-      context: {},
-      // An H3 1 event: `node.req` is Node's request, and the event has no Web URL of its own.
-      node: {
-        req: { headers: { host: "example.test" }, method: "GET", url, async *[Symbol.asyncIterator]() {} },
-        res: { getHeader: () => undefined, getHeaders: () => ({}), removeHeader() {}, setHeader() {}, statusCode: 200 },
-      },
-    })
+    const handler = defineCollectionHandler(collection)
 
-    await expect(defineCollectionHandler(collection)(h3V1Event("/items?limit=1&minimum=2"))).resolves.toMatchObject({ items: [{ id: 3 }] })
-    await expect(defineCollectionHandler(collection)(h3V1Event("/items?limit=1&limit=2"))).rejects.toMatchObject({ statusCode: 400 })
+    const page = await handler.fetch(new Request("http://example.test/base/items?limit=1&minimum=2"))
+    expect(page.status).toBe(200)
+    expect(page.headers.get("content-type")).toBe("application/json")
+    await expect(page.json()).resolves.toEqual({ items: [{ id: 3 }], nextCursor: "Mw" })
+
+    const invalid = await handler.fetch(new Request("http://example.test/items?limit=1&limit=2"))
+    expect(invalid.status).toBe(400)
+    await expect(invalid.json()).resolves.toEqual({ status: 400, message: "[vitehub] Collection query parameter \"limit\" must have one value." })
   })
 
   it("maps malformed limits, queries, and cursors to client errors", async () => {

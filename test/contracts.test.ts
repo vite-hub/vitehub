@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { array, object, optional, parse, record, string } from "valibot"
+import semver from "semver"
+import { array, object, parse, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 import {
@@ -29,16 +30,6 @@ const ignoredGeneratedDirs = new Set([
   "dist",
   "node_modules",
 ])
-
-const showcaseManifestSchema = object({
-  label: optional(string()),
-  frameworks: optional(record(string(), object({
-    modes: optional(record(string(), object({
-      phases: optional(record(string(), string())),
-      supplementalFiles: optional(array(string())),
-    }))),
-  }))),
-})
 
 function exportTargetPath(packageName: PackageName, target: string) {
   return join(packageDir(packageName), target.replace(/^\.\//, ""))
@@ -68,6 +59,14 @@ function publishNameFromSpecifier(specifier: string) {
   if (specifier === "vite-hub" || specifier.startsWith("vite-hub/")) return "vite-hub"
   const match = /^(@vite-hub\/[^/]+)/.exec(specifier)
   return match?.[1]
+}
+
+const workspaceCatalogs = parse(object({ catalog: record(string(), string()), catalogs: record(string(), record(string(), string())) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+
+function catalogRange(name: string, specifier: string) {
+  if (!specifier.startsWith("catalog:")) return specifier
+  const catalog = specifier.slice("catalog:".length)
+  return (catalog ? workspaceCatalogs.catalogs[catalog] : workspaceCatalogs.catalog)?.[name] ?? specifier
 }
 
 function hasGeneratedOutputUnderExampleSurface(path: string) {
@@ -207,16 +206,37 @@ describe("package manifest contracts", () => {
     expect(contact).not.toContain("/security/advisories/new")
   })
 
-  it("declares shared framework peers as ranges that accept the app's copy", () => {
+  it("declares peers that the app also installs as ranges that accept the app's copy", () => {
     // An exact peer makes pnpm install a second Vue next to the app's Vue, and Nuxt pages then render empty.
-    const workspace = parse(object({ catalogs: record(string(), record(string(), string())) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+    // npm stops with ERESOLVE when the app depends on another version of an exact optional peer, such as better-auth.
+    // A second drizzle-orm breaks Drizzle's `is()` checks, such as the Postgres check of Auth.
+    const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "drizzle-kit", "drizzle-orm", "nuxt", "vite", "vue", "workflow"]
     for (const packageName of packageNames) {
       const peers = readPackageManifest(packageName).peerDependencies || {}
-      for (const peer of ["@nuxt/ui", "nuxt", "vite", "vue"]) {
+      for (const peer of appPeers) {
         const specifier = peers[peer]
         if (!specifier) continue
-        const range = specifier.startsWith("catalog:") ? workspace.catalogs[specifier.slice("catalog:".length)]?.[peer] : specifier
-        expect(range, `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+        expect(catalogRange(peer, specifier), `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+      }
+    }
+  })
+
+  it("declares peer ranges that accept the versions that sibling packages depend on", () => {
+    // npm installs one copy for the peer and the sibling's dependency only when the peer range accepts that version.
+    const dependencies = packageNames.flatMap((packageName) => {
+      const manifest = readPackageManifest(packageName)
+      return Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies })
+        .map(([name, specifier]) => ({ packageName, name, range: catalogRange(name, specifier) }))
+    })
+    for (const packageName of packageNames) {
+      for (const [peer, specifier] of Object.entries(readPackageManifest(packageName).peerDependencies || {})) {
+        const peerRange = catalogRange(peer, specifier)
+        if (!semver.validRange(peerRange)) continue
+        for (const dependency of dependencies.filter(dependency => dependency.name === peer)) {
+          const version = semver.validRange(dependency.range) && semver.minVersion(dependency.range)
+          if (!version) continue
+          expect(semver.satisfies(version, peerRange), `${packageName} peer ${peer}@${peerRange} should accept ${dependency.packageName}'s ${dependency.range}`).toBe(true)
+        }
       }
     }
   })
@@ -270,6 +290,12 @@ describe("package manifest contracts", () => {
         if (target.endsWith(".css")) {
           expect(subpath, `${packageName} ${subpath} should expose CSS through a CSS subpath`).toMatch(/\.css$/)
           expect(target, `${packageName} ${subpath} should point to a built CSS asset`).toMatch(/^\.\/dist\/.+\.css$/)
+          continue
+        }
+
+        if (target.endsWith(".json")) {
+          expect(subpath, `${packageName} ${subpath} should expose JSON through a JSON subpath`).toMatch(/\.json$/)
+          expect(target, `${packageName} ${subpath} should point to a built JSON asset`).toMatch(/^\.\/dist\/.+\.json$/)
           continue
         }
 
@@ -389,39 +415,35 @@ describe("playground import contracts", () => {
     )
 
     expect(kvShim).toContain('resolve(kvPackageDir, "src/errors.ts")')
-    for (const operation of ["clear", "del", "get", "has", "keys", "set"]) {
+    for (const operation of ["clear", "delete", "get", "has", "keys", "set"]) {
       expect(kvShim).toContain(String.raw`kvResult(\"${operation}\", \"default\"`)
     }
   })
-})
 
-describe("showcase contracts", () => {
-  it("keeps existing showcase manifests pointed at real files", () => {
-    for (const packageName of packageNames) {
-      const manifestPath = join(packageDir(packageName), "examples", "showcase.json")
-      if (!existsSync(manifestPath)) {
-        continue
-      }
+  // `vite-hub/content` re-exports `@vite-hub/content`, an optional peer. A playground that does not declare it fails
+  // in `vp dev` with "Cannot find module '@vite-hub/content'".
+  it("declares the ViteHub owner packages that each workspace playground imports", () => {
+    const vitehubManifest = readPackageManifest("vite-hub")
+    const optionalOwners = new Set(Object.keys(vitehubManifest.peerDependencies ?? {}).filter(name => name.startsWith("@vite-hub/")))
+    const workspace = parse(object({ packages: array(string()) }), parseYaml(readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8")))
+    const playgrounds = workspace.packages.filter(path => path.startsWith("playground/"))
+    expect(playgrounds).toContain("playground/content")
 
-      const manifest = readJson(showcaseManifestSchema, manifestPath)
+    const importSpecifier = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm
+    const missing = playgrounds.flatMap((playground) => {
+      const manifest = readJson(packageManifestSchema, join(repoRoot, playground, "package.json"))
+      const declared = new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }))
+      const files = execFileSync("git", ["ls-files", "--", playground], { cwd: repoRoot, encoding: "utf8" })
+        .split("\n")
+        .filter(file => /\.(?:[cm]?[jt]sx?|vue)$/.test(file))
+      return files.flatMap(file => [...readFileSync(join(repoRoot, file), "utf8").matchAll(importSpecifier)].flatMap(([, specifier]) => {
+        const match = /^(?:(@vite-hub\/[^/]+)|vite-hub\/([^/]+))/.exec(specifier ?? "")
+        const owner = match?.[1] ?? (match?.[2] && optionalOwners.has(`@vite-hub/${match[2]}`) ? `@vite-hub/${match[2]}` : undefined)
+        return owner && !declared.has(owner) ? [`${file} imports ${specifier}, but ${playground}/package.json does not declare ${owner}`] : []
+      }))
+    })
 
-      expect(manifest.label, `${packageName} showcase should have a label`).toEqual(expect.any(String))
-      expect(manifest.frameworks, `${packageName} showcase should list frameworks`).toEqual(expect.any(Object))
-
-      for (const [framework, frameworkConfig] of Object.entries(manifest.frameworks || {})) {
-        for (const [mode, modeConfig] of Object.entries(frameworkConfig.modes || {})) {
-          const files = [
-            ...Object.values(modeConfig.phases || {}),
-            ...(modeConfig.supplementalFiles || []),
-          ]
-
-          for (const file of files) {
-            const path = join(packageDir(packageName), "examples", framework, file)
-            expect(existsSync(path), `${packageName}/${framework}/${mode} references missing file: ${file}`).toBe(true)
-          }
-        }
-      }
-    }
+    expect([...new Set(missing)]).toEqual([])
   })
 })
 

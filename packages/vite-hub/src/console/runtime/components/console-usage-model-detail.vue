@@ -19,6 +19,8 @@ import {
   type ConsoleUsageMetric,
   type ConsoleUsageModelTotals,
 } from "./console-usage-model";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 const props = defineProps<{
   /** Period totals decide whether a period without this model is zero or unavailable. */
@@ -34,7 +36,7 @@ const props = defineProps<{
 
 const priced = computed(() => props.costSupported && props.model.pricedInvocations > 0);
 // A model without recorded cost has an unknown cost, not a zero cost, so its trend shows tokens.
-const chartMetric = computed<ConsoleUsageMetric>(() => (priced.value ? props.metric : "tokens"));
+const chartMetric = computed<ConsoleUsageMetric>(() => (props.metric === "cost" && !priced.value ? "tokens" : props.metric));
 // Without a recorded cost, the share also follows tokens.
 const share = computed(() => consoleUsageModelShare(props.model, props.totals, chartMetric.value));
 const segments = computed(() => consoleUsageTokenSegments(props.model));
@@ -90,10 +92,11 @@ const points = computed(() =>
   consoleUsageModelChartPoints(props.buckets, props.model.model, chartMetric.value, props.resolution),
 );
 const chartTitle = computed(() =>
-  `${props.resolution === "hour" ? "Hourly" : "Daily"} ${chartMetric.value === "cost" ? "cost" : "tokens"}`,
+  `${props.resolution === "hour" ? "Hourly" : "Daily"} ${chartMetric.value}`,
 );
 
 function formatChartNumber(value: number): string {
+  if (chartMetric.value === "sessions") return value.toLocaleString("en");
   return chartMetric.value === "cost"
     ? formatConsoleUsageCost(String(value))
     : formatConsoleUsageTokens(value);
@@ -107,29 +110,19 @@ function formatChartNumber(value: number): string {
       <template v-else>{{ chartMetric === "cost" ? "Cost" : "Token" }} share unavailable</template>
       · {{ formatConsoleUsagePeriod(from, resolution) }} to {{ formatConsoleUsagePeriod(to, resolution) }} UTC
     </p>
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-4">
-      <div v-for="stat in stats" :key="stat.label" class="min-w-0">
-        <dt class="text-xs text-muted">{{ stat.label }}</dt>
-        <dd class="mt-1 text-lg font-semibold tabular-nums">{{ stat.value }}</dd>
-      </div>
-    </dl>
-    <section class="flex flex-col gap-2">
-      <div class="flex items-baseline justify-between gap-3">
-        <h3 class="text-sm font-semibold">{{ chartTitle }}</h3>
-        <span class="text-xs text-muted">{{ resolution === "hour" ? "UTC hours" : "UTC days" }}</span>
-      </div>
+    <ConsoleStatGrid :items="stats" size="lg" :label="`${model.model} totals`" />
+    <ConsoleSection :level="3" :title="chartTitle" :description="resolution === 'hour' ? 'UTC hours' : 'UTC days'">
       <ConsoleUsageChart
-        class="mt-2"
         :points="points"
         :format="formatChartNumber"
         :title="`${model.model} ${chartTitle.toLowerCase()}`"
-        :value-label="chartMetric === 'cost' ? 'Cost' : 'Tokens'"
+        :value-label="chartMetric === 'cost' ? 'Cost' : chartMetric === 'sessions' ? 'Sessions' : 'Tokens'"
         :empty="`No recorded ${chartMetric} for this model`"
-        :unavailable="chartMetric === 'cost' ? 'Cost is unavailable for this model' : 'Token usage is unavailable for this model'"
+        :unavailable="chartMetric === 'cost' ? 'Cost is unavailable for this model' : chartMetric === 'sessions' ? 'Sessions are unavailable for this model' : 'Token usage is unavailable for this model'"
         :from="formatConsoleUsagePeriod(from, resolution)"
         :to="formatConsoleUsagePeriod(to, resolution)"
       />
-    </section>
+    </ConsoleSection>
     <ConsoleUsageShareBar
       label="Tokens by type"
       :segments="segments.segments"

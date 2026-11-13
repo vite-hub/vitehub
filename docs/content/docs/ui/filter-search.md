@@ -3,7 +3,7 @@ title: Filter Search
 description: "A text box that turns typed words into filter choices. It drives useChoices() and leaves the filters, the request, and the state to your app."
 navigation.order: 26
 navigation.group: Chat
-icon: i-ph-magnifying-glass-light
+icon: i-lucide-search
 ---
 
 `FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.
@@ -15,7 +15,7 @@ Type `suppliers except vak` and press Enter. Type `error` to see the error state
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/filter-search`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { FilterSearch } from "@vite-hub/ui";
@@ -81,11 +81,11 @@ FilterSearch
 
 ## Headless parts
 
-Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/choices-input` or `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
+Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
 
 ```vue
 <script setup lang="ts">
-import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, ChoicesInputStatus } from "@vite-hub/ui/choices-input";
+import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, ChoicesInputStatus } from "@vite-hub/ui/headless";
 </script>
 
 <template>

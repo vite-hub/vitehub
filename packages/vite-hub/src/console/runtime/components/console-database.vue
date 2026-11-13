@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TableColumn, TableRow } from "@nuxt/ui";
+import { CopyButton } from "@vite-hub/ui";
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -9,7 +10,6 @@ import { queryChoice, queryInteger, queryText, useConsoleQuery } from "../client
 import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, consoleDatabaseRowFields, parseConsoleDatabase } from "./console-database-model";
-import { useConsoleToast } from "../client/toast";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -54,7 +54,6 @@ const loading = ref(true);
 const error = ref<unknown>();
 /** The row open in the drawer. Grid cells cut long values, so the drawer shows each value in full. */
 const openRow = ref<Record<string, ConsoleDatabaseCell>>();
-const toast = useConsoleToast();
 let request: AbortController | undefined;
 let filterTimer: ReturnType<typeof setTimeout> | undefined;
 const defaultSort = "__vitehub_default__";
@@ -286,6 +285,17 @@ async function openDatabase(value: unknown): Promise<void> {
   });
 }
 
+// The view tabs follow the route: choosing one navigates, and the route sets the selected tab.
+const viewItems = computed(() => [
+  { label: "Data", value: "data", icon: "i-lucide-table", disabled: !selectedTable.value },
+  { label: "Schema", value: "schema", icon: "i-lucide-share-2" },
+]);
+
+function selectView(value: string | number): void {
+  if (value === "schema") void openSchema();
+  else if (selectedTable.value) void openTable(selectedTable.value.name);
+}
+
 async function openSchema(): Promise<void> {
   const databaseName = database.value?.database ?? routeDatabase.value;
   if (!databaseName) return;
@@ -298,15 +308,6 @@ async function openSchema(): Promise<void> {
 
 function selectRow(_event: Event, row: TableRow<Record<string, string | null>>): void {
   openRow.value = database.value?.rows[row.index];
-}
-
-async function copyValue(column: string, value: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.show({ title: `${column} copied` });
-  } catch {
-    toast.error(`Couldn't copy ${column}.`);
-  }
 }
 
 function applyFilter(): void {
@@ -379,7 +380,6 @@ onBeforeUnmount(() => {
             :items="databaseItems"
             class="w-full"
             aria-label="Database"
-            size="sm"
             @update:model-value="openDatabase"
           />
         </div>
@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
                 <span v-if="!collapsed" class="min-w-0 flex-1 truncate text-start font-mono text-xs">{{ table.name }}</span>
               </button>
             </UTooltip>
-            <p v-if="!collapsed && !database.tables.length" class="px-2 py-1.5 text-xs text-muted">This database has no tables yet.</p>
+            <UEmpty v-if="!collapsed && !database.tables.length" variant="naked" size="xs" icon="i-lucide-table" title="No tables yet" description="Tables show here after a migration creates them." />
           </template>
         </nav>
       </template>
@@ -415,21 +415,16 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="database-inspector" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="database-inspector">
       <ConsolePageHeader
         :title="view === 'schema' ? 'Schema' : selectedTable?.name || 'Database'"
         :description="database?.database"
       >
         <template #right>
           <span class="hidden text-xs text-dimmed sm:inline">Read-only</span>
-          <div class="flex rounded-md ring-1 ring-(--ui-border) ring-inset" role="group" aria-label="View">
-            <UTooltip text="Table data">
-              <UButton size="sm" variant="ghost" icon="i-lucide-table" aria-label="Table data" :aria-pressed="view === 'data'" :class="view === 'data' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="selectedTable && openTable(selectedTable.name)" />
-            </UTooltip>
-            <UTooltip text="Schema diagram">
-              <UButton size="sm" variant="ghost" icon="i-lucide-share-2" aria-label="Schema diagram" :aria-pressed="view === 'schema'" :class="view === 'schema' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="openSchema" />
-            </UTooltip>
-          </div>
+        </template>
+        <template #tabs>
+          <UTabs :model-value="view" :items="viewItems" :content="false" aria-label="View" @update:model-value="selectView" />
         </template>
       </ConsolePageHeader>
 
@@ -449,7 +444,6 @@ onBeforeUnmount(() => {
             class="w-full sm:w-64"
             @update:model-value="offset = 0"
             icon="i-lucide-search"
-            size="sm"
             :placeholder="`Filter ${selectedTable.name}…`"
             aria-label="Filter rows"
           />
@@ -459,14 +453,12 @@ onBeforeUnmount(() => {
               :items="sortItems"
               class="w-40"
               aria-label="Sort column"
-              size="sm"
               @update:model-value="setSort"
             />
             <UTooltip :text="direction === 'asc' ? 'Ascending' : 'Descending'">
               <UButton
                 :aria-label="direction === 'asc' ? 'Sort ascending' : 'Sort descending'"
                 :icon="direction === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : 'i-lucide-arrow-down-wide-narrow'"
-                size="sm"
                 variant="ghost"
                 @click="toggleDirection"
               />
@@ -488,8 +480,8 @@ onBeforeUnmount(() => {
               thead: 'bg-default',
               th: 'whitespace-nowrap border-r border-default font-mono font-normal last:border-r-0',
               td: 'max-w-72 truncate whitespace-nowrap border-r border-default font-mono text-xs last:border-r-0',
-              tr: 'cursor-pointer border-b border-default outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)',
-              empty: 'h-40 border-r-0 text-center text-[13px] text-muted',
+              tr: 'cursor-pointer border-b border-default hover:bg-elevated',
+              empty: 'h-40 border-r-0 text-center text-muted',
             }"
           >
             <template #empty>
@@ -537,11 +529,12 @@ onBeforeUnmount(() => {
             <section
               v-for="table in database.tables"
               :key="table.name"
-              class="schema-table absolute w-[280px] overflow-hidden rounded-md border border-default bg-default shadow-xs"
+              class="schema-table absolute w-[280px] rounded-lg border border-default bg-default"
               :style="{ left: `${table.position.x}px`, top: `${table.position.y}px` }"
             >
+              <!-- The full-width header row of a diagram card, not a standalone action, so it stays a plain button. -->
               <button
-                class="flex h-10 w-full items-center gap-2 border-b border-default px-3 text-left hover:bg-elevated/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)"
+                class="flex h-10 w-full items-center gap-2 rounded-t-md border-b border-default px-3 text-left hover:bg-elevated"
                 type="button"
                 @click="openTable(table.name)"
               >
@@ -553,7 +546,7 @@ onBeforeUnmount(() => {
                 <li
                   v-for="column in table.columns"
                   :key="column.key"
-                  class="flex h-[25px] items-center gap-1.5 border-b border-default/60 px-2.5 last:border-b-0"
+                  class="flex h-[25px] items-center gap-1.5 border-b border-muted px-2.5 last:border-b-0"
                 >
                   <UIcon
                     :name="column.primary ? 'i-lucide-key-round' : column.foreignKey ? 'i-lucide-link' : 'i-lucide-dot'"
@@ -572,7 +565,7 @@ onBeforeUnmount(() => {
       v-model:open="rowOpen"
       :title="rowTitle"
       :description="selectedTable ? `${selectedTable.name} · ${database?.database}` : undefined"
-      :ui="{ content: 'sm:max-w-xl', title: 'truncate font-mono text-sm', description: 'font-mono text-xs' }"
+      :ui="{ content: 'sm:max-w-xl' }"
     >
       <template #body>
         <dl class="divide-y divide-default border-b border-default">
@@ -592,14 +585,11 @@ onBeforeUnmount(() => {
                 <p v-if="field.truncated" class="text-xs text-muted">The Console shows only the start of this value.</p>
               </div>
               <UTooltip v-if="!field.null" text="Copy">
-                <UButton
+                <CopyButton
                   class="-my-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  :value="field.text"
                   :aria-label="`Copy ${field.column.name}`"
-                  color="neutral"
-                  icon="i-lucide-copy"
                   size="xs"
-                  variant="ghost"
-                  @click="copyValue(field.column.name, field.text)"
                 />
               </UTooltip>
             </dd>

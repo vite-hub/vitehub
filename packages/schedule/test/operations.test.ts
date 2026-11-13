@@ -47,8 +47,7 @@ describe("schedule operations", () => {
     ])
   })
 
-  it("lets `schedule run --url` sign a dispatch, and only run and start reach app code", () => {
-    expect(scheduleOperations.find(operation => operation.name === "schedule.run")?.cli?.dispatch).toBe("/_vitehub/schedules/run")
+  it("lets only run and start reach app code", () => {
     expect(scheduleOperations.filter(operation => operation.invoke).map(operation => operation.name)).toEqual(["schedule.run", "schedule.start"])
   })
 
@@ -146,9 +145,9 @@ describe("schedule operations", () => {
   it("run a manual Static Schedule Definition from the installed registry and record the run", async () => {
     const effect = vi.fn()
     installRegistry({
-      fail: async () => defineSchedule("0 9 * * *", () => { throw new Error("Bearer abc.def.ghi rejected") }, { manual: true }),
-      locked: async () => defineSchedule("0 9 * * *", effect),
-      sync: async () => ({ default: defineSchedule("0 9 * * *", effect, { manual: true }) }),
+      fail: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => { throw new Error("Bearer abc.def.ghi rejected") } }),
+      locked: async () => defineSchedule({ cron: "0 9 * * *", handler: effect }),
+      sync: async () => ({ default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: effect }) }),
     })
 
     const succeeded = await call("run", { name: "sync" })
@@ -167,7 +166,7 @@ describe("schedule operations", () => {
 
   it("run a manual Schedule as if it fired at a given time and record that time", async () => {
     const seen: Date[] = []
-    installRegistry({ close: async () => defineSchedule("59 23 * * *", ({ scheduledAt }) => { seen.push(scheduledAt) }, { manual: true }) })
+    installRegistry({ close: async () => defineSchedule({ cron: "59 23 * * *", manual: true, handler: ({ scheduledAt }) => { seen.push(scheduledAt) } }) })
 
     const result = await call("run", { at: "2026-01-31T23:59:00+01:00", name: "close" })
     expect(result).toMatchObject({ ok: true, value: { run: { scheduledAt: "2026-01-31T22:59:00.000Z", status: "succeeded" } } })
@@ -177,7 +176,7 @@ describe("schedule operations", () => {
 
   it.each(["2026-02-30T00:00:00Z", "2026-01-31T23:59:00", "2026-01-31", "tomorrow", "2026-01-31T24:00:00Z", ""])("reject the run time %j with a named error and run nothing", async (at) => {
     const effect = vi.fn()
-    installRegistry({ close: async () => defineSchedule("59 23 * * *", effect, { manual: true }) })
+    installRegistry({ close: async () => defineSchedule({ cron: "59 23 * * *", manual: true, handler: effect }) })
 
     expect(await call("run", { at, name: "close" })).toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", fix: expect.stringContaining("2026-01-31T23:59:00Z"), ok: false, status: 400 })
     expect(effect).not.toHaveBeenCalled()
@@ -195,7 +194,7 @@ describe("schedule operations", () => {
 
   it("let a read-only grant read runs but not run a Schedule", async () => {
     const effect = vi.fn()
-    installRegistry({ sync: async () => defineSchedule("0 9 * * *", effect, { manual: true }) })
+    installRegistry({ sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: effect }) })
     const readOnly: OperationAccess = { mode: "cloudflare-access", sections: ["schedules:read"] }
 
     expect(await call("runs", { id: "sync" }, readOnly)).toMatchObject({ ok: true })

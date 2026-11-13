@@ -11,7 +11,7 @@ Files to change (5):
 Manual follow-ups (5):
   1. server/api/preview.get.ts:5 `checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.
   2. server/api/search.get.ts:3 `installStandardContext` is no longer public. ViteHub sets `event["~standard"]` on each request, and the primitives set it for an event that Nitro did not create. Remove the import and its calls.
-  3. server/utils/auth.ts:1 `getAuthForDefinition` is no longer public. Read the discovered Better Auth instance with `getAuthForRequest(request)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`.
+  3. server/utils/auth.ts:1 `getAuthForDefinition` is no longer public. Read the discovered Better Auth instance with `useAuth(event)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`.
   4. server/utils/auth.ts:1 `setAuthRuntimeEnvResolver` is no longer public. ViteHub sets it in generated code. Remove the call. To read host bindings, use the request event: `getStandardContext(event).runtime.cloudflare.env` from `vite-hub/runtime`.
   5. server/utils/auth.ts:2 `vite-hub/auth/console-runtime` is no longer public. Read users and sessions with `getAuthConsoleForRequest(request)` from `vite-hub/auth/server`.
 

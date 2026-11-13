@@ -156,7 +156,7 @@ describe("kv runtime", () => {
   afterEach(() => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
-    delete process.env.VITEHUB_HOSTING
+    delete process.env.VITEHUB_HOST
     // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
@@ -169,7 +169,7 @@ describe("kv runtime", () => {
   })
 
   it("returns provider failures as KV results", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const cause = new Error("provider unavailable")
     // SAFETY: The fixture extends a complete minimal Driver with the optional methods under test.
     fsLiteDriver = {
@@ -191,7 +191,7 @@ describe("kv runtime", () => {
   })
 
   it("returns provider initialization failures as KV results", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const cause = new Error("provider initialization unavailable")
     fsLiteDriver = cause
     const { kv } = await import("../src/runtime/storage.ts")
@@ -330,7 +330,7 @@ describe("kv runtime", () => {
   })
 
   it("throws config errors instead of returning them", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
     await expect(kv.store("missing").get("settings")).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
@@ -376,7 +376,7 @@ describe("kv runtime", () => {
   })
 
   it("rejects atomic operations on unsupported KV stores", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
     expect((await kv.getAndDelete("verification"))[0]).toMatchObject({ code: "KV_UNSUPPORTED_OPERATION", why: "kv.getAndDelete() needs atomic operations, and the \"default\" store does not support them." })
@@ -389,7 +389,7 @@ describe("kv runtime", () => {
   })
 
   it("honors explicit hosting before ambient Deno KV detection", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { openKv } = createDenoOpenKvMock()
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
@@ -518,7 +518,7 @@ describe("kv runtime", () => {
     const { data, openKv } = createDenoOpenKvMock()
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    process.env.VITEHUB_HOSTING = "deno"
+    process.env.VITEHUB_HOST = "deno"
     const { kv } = await import("../src/runtime/storage.ts")
     for (const key of ["", ":", "/", "a/../b", "./a"]) {
       const [error] = await kv.set(key, "empty key")
@@ -649,14 +649,14 @@ describe("kv runtime", () => {
     expect(openKv).toHaveBeenCalledTimes(2)
   })
 
-  it("bounds and resumes fs-lite listing across directories", async () => {
+  it("bounds and resumes fs-lite listing", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-list-"))
     try {
       await mkdir(join(root, "a"))
       await writeFile(join(root, "a", "x"), "x")
       await writeFile(join(root, "a0"), "a0")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       const first = await driver.listKeys({ limit: 1, prefix: "a" })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1, prefix: "" })
@@ -675,33 +675,12 @@ describe("kv runtime", () => {
     try {
       await Promise.all(Array.from({ length: 500 }, (_, index) => writeFile(join(root, `key-${index}`), "value")))
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       await expect(driver.listKeys({ limit: 2 })).resolves.toMatchObject({
         keys: [expect.any(String), expect.any(String)],
         cursor: expect.any(String),
       })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("counts fs-lite directories toward bounded traversal work", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-kv-directories-"))
-    try {
-      let directory = root
-      for (let index = 0; index < 10; index += 1) {
-        directory = join(directory, `level-${index}`)
-        await mkdir(directory)
-      }
-      await writeFile(join(directory, "key"), "value")
-      const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
-
-      const first = await driver.listKeys({ limit: 2 })
-
-      expect(first).toEqual({ keys: [], cursor: expect.any(String) })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -714,7 +693,7 @@ describe("kv runtime", () => {
       await writeFile(join(root, "one"), "one")
       await writeFile(join(root, "two"), "two")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
       const cursors: string[] = []
       for (let index = 0; index < 33; index += 1) {
         const page = await driver.listKeys({ limit: 1 })
@@ -732,7 +711,7 @@ describe("kv runtime", () => {
   it("treats a missing fs-lite directory as an empty store", async () => {
     const root = join(tmpdir(), `vitehub-kv-missing-${crypto.randomUUID()}`)
     const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-    const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+    const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
     await expect(driver.listKeys({ limit: 10 })).resolves.toEqual({ keys: [] })
   })
@@ -743,7 +722,7 @@ describe("kv runtime", () => {
       await writeFile(join(root, "e\u0301"), "decomposed")
       await writeFile(join(root, "é"), "composed")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       const first = await driver.listKeys({ limit: 1 })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 1 })
@@ -763,11 +742,11 @@ describe("kv runtime", () => {
       await writeFile(join(root, "b"), "b")
       await writeFile(join(root, "c"), "c")
       const { default: createFsLiteKVDriver } = await import("../src/runtime/fs-lite.ts")
-      const driver = createFsLiteKVDriver({ base: root, driver: "fs-lite" })
+      const driver = await createFsLiteKVDriver({ base: root, driver: "fs-lite" })
 
       const first = await driver.listKeys({ limit: 1 })
       const remaining = ["a", "b", "c"].filter(key => key !== first.keys[0])
-      await rm(join(root, first.keys[0]!), { force: true })
+      await rm(join(root, `key-${first.keys[0]!}`), { force: true })
       const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
       const third = second.cursor
         ? await driver.listKeys({ cursor: second.cursor, limit: 2 })

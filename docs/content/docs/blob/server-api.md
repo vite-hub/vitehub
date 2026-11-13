@@ -10,17 +10,17 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `blob` from `@vite-hub/blob` | Read and write the default or named Blob Stores. |
-| `image`, `file` from `@vite-hub/blob` | Validate Blob references and describe them as JSON Schema for pickers. |
-| `blob.media` from `@vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
-| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Image helpers that also run in the browser. `@vite-hub/blob` re-exports them. |
-| `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Detect common image and PDF signatures before storage. |
-| `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
+| `blob` from `vite-hub/blob` | Read and write the default or named Blob Stores. |
+| `image`, `file` from `vite-hub/blob` | Validate Blob references and describe them as JSON Schema for pickers. |
+| `blob.media` from `vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
+| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `vite-hub/blob/media` | Image helpers that also run in the browser. `vite-hub/blob` re-exports them. |
+| `detectContentType` from `vite-hub/blob`, or from `vite-hub/blob/client` in browser code | Classify common image and PDF signatures before storage. |
+| `ensureBlob` from `vite-hub/blob` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime config and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob runtime config yourself. |
 | `@vite-hub/blob/drivers/*` | Provider-specific driver modules. |
 
-`@vite-hub/blob` exports all driver, object, list, put, store, and module types.
+`vite-hub/blob` exports all driver, object, list, put, store, and module types.
 
 Writes keep the metadata you give. `detectContentType()` checks the first bytes of a file. It does not validate the whole file or prove that it is safe.
 
@@ -29,10 +29,12 @@ Writes keep the metadata you give. `detectContentType()` checks the first bytes 
 Use `blob` in server code.
 
 ```ts [server/api/files.post.ts]
-import { blob } from '@vite-hub/blob'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, v.parser(v.object({ path: v.string(), text: v.string() })))
 
   const [error] = await blob.put(body.path, body.text, {
     contentType: 'text/plain',
@@ -46,7 +48,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts [server/api/files/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const path = getRouterParam(event, 'path')!
@@ -64,18 +66,20 @@ export default defineEventHandler(async (event) => {
 Select a named store:
 
 ```ts [server/reports.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export const reports = blob.store('reports')
 ```
 
+ViteHub writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Then a store name that is not in `blob.stores` is a type error in `blob.store()`, `file()`, and `image()`. A name in a `string` variable is also a type error. Check the name, then pass it as `BlobStoreName`. Before ViteHub writes the file, any name type checks. At runtime, an unknown name throws [`BLOB_R0027`](/docs/blob/diagnostics/blob_r0027) with the configured names.
+
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `delete()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 const reports = blob.store('reports', { mode: 'read' })
 
@@ -106,7 +110,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or returns `null`. |
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
-| `blob.del(pathnames)` | Deletes one or more files. |
+| `blob.delete(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
 | `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
@@ -117,9 +121,9 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 
 Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
-Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
+Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
-With `folded: true`, drivers whose provider has folders (S3 and S3-compatible stores, R2, GCS, Azure, Google Drive, Dropbox, Box, OneDrive, and Supabase) ask the provider for them, so each page is one request. A page holds at most `limit` blobs and folders together. UploadThing has no folders, so ViteHub reads every key under `prefix` and folds them itself.
+With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.
 
@@ -144,7 +148,25 @@ export default defineEventHandler((event) => {
 
 HEAD responses keep the same status and headers as GET, with no body.
 
-In an H3 app, headers that middleware set on `event.res.headers` before the route replace the same headers of the returned `Response`, and they do not reach `4xx` responses. The generated Blob serve route preserves those middleware headers on `4xx` responses and keeps the Blob response headers when both set the same name.
+Every response that serves an object sends `X-Content-Type-Options: nosniff`. A browser opens some types as a page that can run script: `text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`, `text/xsl`, `text/rdf`, every other `+xml` type, and every `multipart/*` type. For these types, and for a content type that names one of them in a list, `serve()` also sends `Content-Security-Policy: sandbox`. The browser then shows the file but runs no script and gives it no access to the app origin. An `<img>` tag still shows an SVG. When the `headers` option has a `Content-Security-Policy`, `serve()` adds `sandbox` to it as a second policy. A `304` for a `transform` always sends the sandbox, because the type of the result is not known before the transform runs.
+
+Set `download` to send `Content-Disposition: attachment`, so the browser saves the file and does not open it. `download: true` uses the last segment of the pathname as the file name. A string sets the file name. ViteHub keeps only the last path segment of the name and removes control characters.
+
+```ts [server/routes/exports/[...pathname].get.ts]
+import { blob } from '@vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  return blob.serve(event.req, `exports/${pathname}`, { download: true })
+})
+```
+
+> [!WARNING]
+> A stored file has the content type that the uploader sent. When users who are not fully trusted can upload, serve their files from another origin with `serve.publicBaseUrl`, or with `download`. Limit `ensure.types` to the types that your app needs.
+
+In an H3 app, headers that middleware set on `event.res.headers` before the route replace the same headers of the returned `Response`, and they do not reach `4xx` responses. A middleware `Content-Security-Policy` therefore replaces the sandbox of an app route that returns `blob.serve()`. For that route, do not set the policy in middleware. Pass it in the `headers` option of `serve()`. The generated Blob serve route preserves those middleware headers on `4xx` responses and keeps the Blob response headers when both set the same name. For a type that gets the sandbox, the generated route always writes the final `Content-Security-Policy`: the middleware policy, when it is not empty, and the Blob policy as two policies. Middleware cannot remove the sandbox.
 
 `blob.serve()` answers byte-range requests, so `<video>` and `<audio>` can seek and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`.
 
@@ -159,14 +181,14 @@ The optional `transform` gets the original `Blob` and returns the response `Blob
 
 ViteHub checks the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes apart from content metadata. If source metadata changes during the read, ViteHub reads again before it transforms. Stable ETags decide cache writes, not provider timestamps.
 
-Change the key when the transform changes, and put any size or format in it. Each source and key has one cache entry, replaced after the source changes. Different keys are separate variants. `blob.del(originalPath)` removes the original and its variants. Serving a missing source also clears its variants. A failed cleanup is logged and does not undo the delete. Nothing evicts old entries in the background: list them with `blob.list({ prefix: '_vitehub/derived/' })` and remove them with `blob.del`.
+Change the key when the transform changes, and put any size or format in it. Each source and key has one cache entry, replaced after the source changes. Different keys are separate variants. `blob.delete(originalPath)` removes the original and its variants. Serving a missing source also clears its variants. A failed cleanup is logged and does not undo the delete. Nothing evicts old entries in the background: list them with `blob.list({ prefix: '_vitehub/derived/' })` and remove them with `blob.delete`.
 
 Filesystem cache keys merge repeated slashes. On case-insensitive filesystems, keep filename casing consistent, or other casings leave unused variants.
 
 Use a private store to keep originals and variants reachable only through your app. The transform changes neither provider access nor the original. A deleted original stops the cached result, including a `304`. A running transform does not recreate its cache after the source is gone.
 
 ```ts [server/api/photos/[id].get.ts] fragment
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { createPreview, resolvePhotoPath } from '../../utils/photos'
 
 export default {
@@ -206,11 +228,12 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 for each file. The file name, without folders, is the pathname. ViteHub does
 not URL-decode it, so a file named `..%2Fevil.txt` stays inside `prefix`.
 It returns `[error, objects]`. No files, too many files, or a file that fails
-`ensure` throws an H3 400 error before anything is stored.
+`ensure` throws an H3 400 error before anything is stored. Each file keeps the
+content type that the client sent. Use `ensure.types` to limit it.
 
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   // Authorize the request here. The route decides who may upload.
@@ -231,7 +254,7 @@ export default defineEventHandler(async (event) => {
 | `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
 | `put` | none | [Write options](#write-options) for each `put()`. |
 
-In Vue, `useUpload()` from `@vite-hub/blob/vue` sends the form. Nuxt
+In Vue, `useUpload()` from `vite-hub/blob/vue` sends the form. Nuxt
 auto-imports it when `blob` is on.
 
 ```vue [app/components/AvatarUpload.vue]
@@ -264,7 +287,7 @@ Create one route with `action` and `pathname` params:
 
 ```ts [server/api/files/multipart/[action]/[...pathname].ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   // Authorize the request here. The client chooses the pathname.
@@ -315,7 +338,7 @@ part except the last. `task.abort()` stops the upload and sends `abort`. Then
 Server code can also run an upload directly:
 
 ```ts [server/utils/copy-large-file.ts] fragment
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 const [createError, upload] = await blob.createMultipartUpload('exports/report.csv')
 if (createError) throw createError
@@ -343,7 +366,7 @@ cross-origin upload route must answer it.
 Use `blob.sign()` to give a client or provider short-lived direct access to one private file. The result has the URL, the HTTP method, and every header to send.
 
 ```ts [server/api/uploads/presign.post.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 
 const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
@@ -360,11 +383,29 @@ const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', 
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently.
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` driver binds it, and the other drivers fail the request.
 
-The `cloudflare-r2` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
+The `fs` driver, the `cloudflare-r2` driver, and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
 Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and writes use a Workers binding. A binding alone cannot make a presigned URL, so set `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` in runtime env. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) expire after 1 second to 7 days. The [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
+
+### Signed links of `fs` stores
+
+A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob/signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob/signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
+
+The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, and the `contentType` and `maxSize` of a `PUT`. The route rejects a request that does not match its link:
+
+| Request | Status | Code |
+| --- | --- | --- |
+| The link expired. | `403` | `BLOB_R0042` |
+| The URL, the method, or the `Content-Type` changed, or another secret signed the link. | `403` | `BLOB_R0041` |
+| The method is not `GET` or `PUT`. | `405` | `BLOB_R0041` |
+| The body is larger than `maxSize`. | `413` | `BLOB_R0043` |
+
+Without a root secret of at least 32 characters, `blob.sign()` returns `BLOB_OPERATION_FAILED` with `BLOB_R0040` in `cause`. Set `VITEHUB_SECRET` for `vite dev` too: the secret that ViteHub generates in development does not sign these links. The `fs` driver cannot bind `createOnly`.
+
+> [!NOTE]
+> A link works on another instance only when that instance has the same `VITEHUB_SECRET` and reads the same folder, such as a shared volume. Each instance derives the key from the secret, so a restart keeps the links valid.
 
 ## Blob reference schemas
 
@@ -378,10 +419,10 @@ interface BlobReference {
 }
 ```
 
-`image()` and `file()` from `@vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports them from `vite-hub/content`. A reference has no URL, because signed and served URLs expire or depend on routes. Serve or sign the pathname when you read the record. It has no alt text or dimensions: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)`. It has no store name either. The schema's `store` option names the store.
+`image()` and `file()` from `vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports them from `vite-hub/content`. A reference has no URL, because signed and served URLs expire or depend on routes. Serve or sign the pathname when you read the record. It has no alt text or dimensions: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)`. It has no store name either. The schema's `store` option names the store.
 
 ```ts [server/api/profile/avatar.put.ts] fragment
-import { image } from '@vite-hub/blob'
+import { image } from 'vite-hub/blob'
 
 const avatar = image({ maxSize: '2MB' })
 
@@ -443,7 +484,7 @@ Use `ensureBlob()` where uploads enter your app.
 | Option | Type | Description |
 | --- | --- | --- |
 | `maxSize` | `BlobSize` | Rejects larger blobs. Examples: `4MB`, `128KB`, `1GB`. |
-| `types` | `BlobType[]` | Exact MIME types, or broad types such as `image`, `video`, `audio`, `pdf`, and `text`. |
+| `types` | `BlobType[]` | Exact MIME types, or broad types such as `image`, `video`, `audio`, `pdf`, and `text`. A broad type does not accept a type that a browser opens as a page, such as `image/svg+xml` or `text/html`. List that type exactly, for example `['image', 'image/svg+xml']`. |
 
 ## Production checks
 

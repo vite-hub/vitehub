@@ -1,5 +1,4 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
@@ -72,7 +71,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   #queue: Promise<void> = Promise.resolve()
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
-    if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
+    if (typeof options.workspace !== "string" || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
     if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
     // ViteHub owns every history object, so a custom prefix only nests below the owned root.
     const root = `${vitehubOwnedPrefix}workspace-history`
@@ -306,7 +305,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const ref = normalizeHistoryRef(options.ref)
     if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
     const expectedHeads = Object.entries(options.ifHeads ?? {}).map(([name, head]) => {
-      if (head !== null && (!hasRuntimeType(head, "string") || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
+      if (head !== null && (typeof head !== "string" || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
       return [normalizeHistoryRef(name), head] as const
     })
     const workspace = await this.#key()
@@ -329,7 +328,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       const normalized = normalizeHistoryPath(path)
       if (puts.has(normalized) || removed.has(normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
       puts.add(normalized)
-      if (!hasRuntimeType(file.content, "string") && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
+      if (typeof file.content !== "string" && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
       const bytes = new Uint8Array(contentToBytes(file.content))
       const digest = await sha256(bytes)
       const entry: HistoryManifestFile = { digest, size: bytes.byteLength, mediaType: file.mediaType || "application/octet-stream" }
@@ -429,7 +428,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     if (headError?.code === "BLOB_NOT_FOUND") return
     if (headError) throw headError
     if (!object) return
-    const [error] = await this.options.blob.del(key)
+    const [error] = await this.options.blob.delete(key)
     if (error && error.code !== "BLOB_NOT_FOUND") throw error
   }
 
@@ -461,7 +460,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       if (cursor) cursors.add(cursor)
     } while (cursor)
     for (let offset = 0; offset < remaining.length; offset += 1000) {
-      const [error] = await this.options.blob.del(remaining.slice(offset, offset + 1000))
+      const [error] = await this.options.blob.delete(remaining.slice(offset, offset + 1000))
       if (error) throw error
     }
     await this.options.database.batch([

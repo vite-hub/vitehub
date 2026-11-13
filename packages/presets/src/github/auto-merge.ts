@@ -1,11 +1,15 @@
 import { parseMarkdown } from "comark"
 import html from "comark/plugins/html"
+import linkify from "comark/plugins/linkify"
 import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { checkLogExcerpt, compactCiLog, parseCheckLogSelection, type CheckLogExcerpt, type CheckLogSelection } from "./ci-logs.ts"
 import type { GitHubHost } from "./host.ts"
 import type { GitHubRepairCommit } from "./repair.ts"
+import type { GitHubDependencyStatus } from "./install.ts"
 
 interface GitHubMentionToken {
   attrSet: (name: string, value: string) => void
@@ -23,6 +27,13 @@ interface GitHubMentionState {
 const actor = v.nullable(v.object({ login: v.string(), __typename: v.string() }))
 const reviewSchema = v.object({ author: actor, state: v.string() })
 const pageSchema = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.string()) })
+const threadOutcomeCommentsSchema = v.object({
+  viewer: v.object({ login: v.string() }),
+  node: v.object({ comments: v.object({
+    nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string() })) })),
+    pageInfo: pageSchema,
+  }) }),
+})
 const snapshotSchema = v.object({
   id: v.string(),
   number: v.number(),
@@ -92,6 +103,8 @@ export interface GitHubPullRequestOperationsOptions {
   commentPrefix?: string
   /** Host-owned checkout push, already bound to its source branch and expected-head lease. */
   push?: () => Promise<string>
+  /** Host-owned report of dependency inputs that changed since the last install. */
+  checkDependencies?: () => Promise<GitHubDependencyStatus>
   /** Host-owned frozen installation after resolving dependency conflicts. */
   refreshDependencies?: () => Promise<void>
   /** Host-owned staging and commit in the assigned repair checkout. */
@@ -112,16 +125,38 @@ export interface GitHubBaseCheckEvidence {
   truncated: { checkRuns: boolean, statuses: boolean, workflowRuns: boolean }
 }
 
+/** How a review thread was answered. "fixed" may omit the reason; every other outcome states it. */
+export const reviewThreadOutcomes = {
+  fixed: "Fixed",
+  disproved: "Disproved",
+  declined: "Declined",
+  "pre-existing": "Pre-existing",
+  duplicate: "Duplicate",
+} as const
+
+export type ReviewThreadOutcome = keyof typeof reviewThreadOutcomes
+
+export function isReviewThreadOutcome(value: string): value is ReviewThreadOutcome {
+  return Object.hasOwn(reviewThreadOutcomes, value)
+}
+
+export interface ReviewThreadAnswer {
+  outcome: ReviewThreadOutcome
+  reason?: string
+}
+
 export interface GitHubPullRequestOperations {
   requestAutoMerge(): Promise<GitHubAutoMergeResult>
   comment(body: string): Promise<void>
   mention(login: string, body: string): Promise<void>
-  readCheckLogs(runId: number): Promise<{ text: string, truncated: boolean }>
+  readCheckLogs(runId: number, selection?: CheckLogSelection): Promise<CheckLogExcerpt>
   readBaseCheckEvidence(): Promise<GitHubBaseCheckEvidence>
-  readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
-  resolveThread(id: string): Promise<void>
+  readBaseCheckLogs(runId: number): Promise<CheckLogExcerpt & { repository: string, headSha: string }>
+  /** Posts the outcome and its reason as a thread reply, then resolves the thread. */
+  resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<string>
+  checkDependencies(): Promise<GitHubDependencyStatus>
   refreshDependencies(): Promise<void>
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
@@ -164,7 +199,8 @@ async function githubMentionTokens(body: string): Promise<string[]> {
   // code spans. Only rendered text can notify; code examples must stay usable.
   const document = await parseMarkdown(body, {
     registerDefaultPlugins: false,
-    plugins: [html(), {
+    // GitHub autolinks URLs without a scheme, such as www.example.com.
+    plugins: [linkify({ fuzzyLink: true, urlAuth: true }), html(), {
       name: "github-mention-comments",
       markdownItPlugins: [((md) => {
         // Remove actual inline comments before Comark falls back to raw text.
@@ -190,7 +226,6 @@ async function githubMentionTokens(body: string): Promise<string[]> {
     } satisfies ComarkPlugin],
     autoClose: false,
     autoUnwrap: false,
-    linkify: true,
   })
   const mentions: string[] = []
   function collectMentions(node: MarkdownNode): void {
@@ -253,7 +288,7 @@ export function createGitHubPullRequestOperations(
     return { provider, repo, pullRequest }
   }
 
-  async function graphQL(query: string, variables: Record<string, string | number> = {}): Promise<unknown> {
+  async function graphQL(query: string, variables: Record<string, string | number | null> = {}): Promise<unknown> {
     const { provider } = await forge()
     const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1]
     const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data
@@ -262,6 +297,22 @@ export function createGitHubPullRequestOperations(
       throw new Error(messages || "GitHub could not complete the pull request operation.")
     }
     return isRecord(response) && "data" in response ? response.data : response
+  }
+
+  async function hasThreadAnswer(id: string, body: string): Promise<boolean> {
+    // forges only reads the first 100 comments in a thread. Read every page so
+    // a retry after either remote write can find an answer from this credential.
+    let after: string | null = null
+    const cursors = new Set<string>()
+    do {
+      const data: v.InferOutput<typeof threadOutcomeCommentsSchema> = v.parse(threadOutcomeCommentsSchema, await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
+      if (data.node.comments.nodes.some(comment => comment.author?.login === data.viewer.login && comment.body === body)) return true
+      if (!data.node.comments.pageInfo.hasNextPage) return false
+      after = data.node.comments.pageInfo.endCursor
+      if (!after || cursors.has(after)) throw presetsErrorDiagnostics.PRESETS_REVIEW_CURSOR_INVALID()
+      cursors.add(after)
+    } while (after)
+    return false
   }
 
   async function snapshot() {
@@ -359,16 +410,15 @@ export function createGitHubPullRequestOperations(
     return { provider, run: { ref, raw: run.raw } }
   }
 
-  /** The logs of the failed jobs of one run, bounded to `logLimit` characters. */
-  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<{ text: string, truncated: boolean }> {
-    let text = ""
+  /** The compacted logs of the failed jobs of one run, each under a `## <job>` heading. */
+  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<string> {
+    const logs: string[] = []
     for await (const job of provider.ci.jobs(run.ref, { signal })) {
       if (job.state !== "failure") continue
       const log = await new Response(await provider.ci.log(job.ref, { signal })).text()
-      text += `${text ? "\n" : ""}## ${job.name}\n${log}`
-      if (text.length > logLimit) break
+      logs.push(`## ${job.name}\n${compactCiLog(log)}`)
     }
-    return { text: text.slice(0, logLimit), truncated: text.length > logLimit }
+    return logs.join("\n")
   }
 
   return {
@@ -403,10 +453,11 @@ export function createGitHubPullRequestOperations(
       }
       const logs = await failedJobLogs(provider, run)
       await exactBaseSnapshot()
-      return { repository, headSha: base, ...logs }
+      return { repository, headSha: base, ...checkLogExcerpt(logs, logLimit) }
     },
-    async readCheckLogs(runId) {
+    async readCheckLogs(runId, selection = {}) {
       if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
+      const lines = parseCheckLogSelection(selection)
       await snapshot()
       const { provider, run } = await readRun(runId)
       const raw = v.parse(v.object({
@@ -418,7 +469,7 @@ export function createGitHubPullRequestOperations(
         || !(raw.head_sha === expectedHeadOid || raw.pull_requests.some(pr => pr.number === options.number && pr.head.sha === expectedHeadOid))) {
         throw new Error("Workflow run does not belong to this pull request head.")
       }
-      return await failedJobLogs(provider, run)
+      return checkLogExcerpt(await failedJobLogs(provider, run), logLimit, lines)
     },
     async comment(body) {
       nonempty(body, "Comment")
@@ -439,21 +490,37 @@ export function createGitHubPullRequestOperations(
       // Keep block Markdown at the start of the validated body on its own line.
       await provider.threads.createComment(pullRequest, `${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`, { signal })
     },
-    async resolveThread(id) {
+    async resolveThread(id, answer) {
       nonempty(id, "Review thread ID")
+      const outcome = answer?.outcome
+      if (outcome !== undefined && !isReviewThreadOutcome(outcome)) throw presetsErrorDiagnostics.PRESETS_REVIEW_OUTCOME_INVALID()
+      const reason = answer?.reason?.trim()
+      // A finding closed without a code change needs its reason on the thread: it is the record the
+      // author and the reviewer read, and the outcome marker is what review metrics count.
+      if (outcome !== undefined && outcome !== "fixed" && !reason) throw presetsErrorDiagnostics.PRESETS_REVIEW_REASON_REQUIRED({ outcome })
+      const body = outcome === undefined ? undefined : `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
+      if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw presetsErrorDiagnostics.PRESETS_REVIEW_MENTION_FORBIDDEN()
       await snapshot()
       const reader = await forge()
-      let resolved: boolean | undefined
-      for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
-        if (thread.id === id) { resolved = thread.resolved; break }
-      }
-      if (resolved === undefined) throw new Error("Review thread does not belong to this pull request.")
-      if (resolved) return
+      const found = await (async () => {
+        for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
+          if (thread.id === id) return thread
+        }
+      })()
+      if (!found) throw new Error("Review thread does not belong to this pull request.")
+      if (found.resolved && body === undefined) return
+      const answered = body === undefined || await hasThreadAnswer(id, body)
+      const first = found.comments[0]
+      if (!answered && !first) throw presetsErrorDiagnostics.PRESETS_REVIEW_COMMENT_MISSING()
+      if (found.resolved && answered) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
       const { provider: writer, pullRequest } = await forge()
-      await writer.threads.resolveReviewThread(pullRequest, id, { signal })
+      if (!answered && first && body !== undefined) {
+        await writer.threads.replyToReviewComment(pullRequest, first, body, { signal })
+      }
+      if (!found.resolved) await writer.threads.resolveReviewThread(pullRequest, id, { signal })
     },
     async updateMetadata(input) {
       if (input.title === undefined && input.body === undefined) throw new Error("Provide a pull request title or body.")
@@ -472,6 +539,9 @@ export function createGitHubPullRequestOperations(
       }
       const { provider, pullRequest } = await forge()
       await provider.threads.update(pullRequest, update, { signal })
+    },
+    async checkDependencies() {
+      return await options.checkDependencies?.() ?? { current: true, changedInputs: [], reason: "This worker has no host dependency install." }
     },
     async refreshDependencies() {
       if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")

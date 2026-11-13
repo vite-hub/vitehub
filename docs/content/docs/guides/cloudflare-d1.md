@@ -11,15 +11,31 @@ Use a native D1 binding when your app runs on Cloudflare Workers. ViteHub
 writes the binding into the generated Worker config.
 
 Start with [Save your first Database row](/docs/database/get-started) and keep
-its schema and notes routes. Create a new D1 database and note its name and
-ID. Do not use a database that has its own migration history.
+its schema and notes routes.
+
+## Create the D1 database
+
+A Cloudflare production build needs the database name and ID, so create the
+database before the first build. Without the ID, the build stops with
+[`DATABASE_MISSING_D1_RESOURCE`](/docs/database/limits-and-errors#database_missing_d1_resource).
+Development does not need the database.
+
+Create a new database with Wrangler, and note the name and the `database_id`
+in the output:
+
+```bash [Terminal]
+pnpm add -D wrangler
+pnpm wrangler d1 create app-db
+```
+
+Do not use a database that has its own migration history.
 
 ## Select Cloudflare and identify the database
 
-Set `preset: 'cloudflare'` and `database: true` in your ViteHub config. Add
+Set `host: 'cloudflare'` and `database: true` in your ViteHub config. Add
 this `cloudflare` block to the Database Definition:
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -41,13 +57,16 @@ export default defineDatabase({
 Set both variables before you build. The binding name alone does not identify
 the remote database.
 
+ViteHub can also create the database. Set only the name, then run
+[`vitehub provision run --provider cloudflare`](/docs/development/provisioning).
+It writes the ID to `.vitehub/provision.json`, and the build reads it there.
+
 ## Generate and apply the D1 migration
 
-Install Wrangler if you do not have it, then generate and build:
+Generate the migration and build:
 
 ```bash [Terminal]
-pnpm add -D wrangler
-pnpm vitehub db generate
+pnpm vitehub database generate
 pnpm build
 ```
 
@@ -61,7 +80,7 @@ pnpm wrangler d1 migrations apply "$CLOUDFLARE_D1_DATABASE_NAME" \
   --remote --config .output/server/wrangler.json
 ```
 
-Wrangler applies migrations for native bindings, not `vitehub db migrate`.
+Wrangler applies migrations for native bindings, not `vitehub database migrate`.
 Review each pending migration first.
 
 Deploy with `pnpm exec nitro deploy --prebuilt`. Call the notes POST and GET

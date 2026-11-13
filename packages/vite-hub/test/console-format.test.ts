@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { consoleBytes, consoleStatusValue, consoleValueParts } from "../src/console/runtime/client/format"
+import { consoleBytes, consoleDayTime, consoleDuration, consoleDurationWords, consoleInitials, consoleNumber, consoleStatusValue, consoleTimeOfDay, consoleValueParts } from "../src/console/runtime/client/format"
 
 describe("Console display helpers", () => {
   it("formats sizes in powers of 1024 with one unit name everywhere", () => {
@@ -43,5 +43,28 @@ describe("Console display helpers", () => {
     expect(consoleStatusValue("Captured only")).toEqual({ label: "Captured only", tone: "neutral" })
     expect(consoleStatusValue("Provider")).toBeUndefined()
     expect(consoleStatusValue("Not enabled")).toBeUndefined()
+  })
+
+  it("formats durations on one scale, with whole seconds for a session", () => {
+    expect(consoleDuration(0.4)).toBe("<1ms")
+    expect(consoleDuration(480)).toBe("480ms")
+    expect(consoleDuration(41_200)).toBe("41.2s")
+    expect(consoleDuration(59_500, { wholeSeconds: true })).toBe("1m 0s")
+    expect(consoleDuration(128_000)).toBe("2m 8s")
+    expect(consoleDuration(4_800_000)).toBe("1h 20m")
+    expect(consoleDuration(-1)).toBeUndefined()
+    expect(consoleDurationWords(5_400)).toBe("1 hour 30 minutes")
+  })
+
+  it("formats counts, times of day, and initials in English", () => {
+    expect(consoleNumber(1234)).toBe("1,234")
+    expect(consoleTimeOfDay(undefined)).toBe("")
+    expect(consoleTimeOfDay("nope")).toBe("")
+    expect(consoleTimeOfDay("2026-10-20T09:05:00Z")).toMatch(/^\d{2}:\d{2} [AP]M$/)
+    expect(consoleDayTime("2026-10-20T09:05:00Z")).toMatch(/^Oct \d{1,2}, \d{2}:\d{2}$/)
+    expect(consoleInitials("Ada Lovelace")).toBe("AL")
+    expect(consoleInitials("ada.byron@example.com")).toBe("AB")
+    expect(consoleInitials("Lucía")).toBe("LU")
+    expect(consoleInitials("")).toBe("?")
   })
 })

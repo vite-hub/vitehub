@@ -248,7 +248,7 @@ export interface ProviderCollectionSource<
   cursorSchema?: undefined
 }
 
-/** Where a Collection reads rows from: `array()`, `table()`, `workspaceFile()`, or your own object. */
+/** Where a Collection reads rows from: `array()`, `table()`, or your own object. */
 export type CollectionSource<
   TSourceItem,
   TQuery extends object,
@@ -459,7 +459,6 @@ export function defineCollection<
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery, object> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm, so callable dispatch cannot use instanceof Function.
   const [load, definition] = typeof input === "function"
     ? [input, options] as const
     : sourceDefinition(input)
@@ -601,7 +600,6 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
   },
 ) {
   const { authorize, route, source, transform } = input
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection source loaders may come from another JavaScript realm.
   if (Object(source) !== source || typeof source.load !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
   }

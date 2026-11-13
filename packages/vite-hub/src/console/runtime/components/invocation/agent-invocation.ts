@@ -1,6 +1,7 @@
+import { consoleDateTime, consoleDuration } from "../../client/format.ts";
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
-import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
+import { invocationBrand, invocationBrandMark, invocationModelMaker, invocationModelName } from "./internal/invocation-brand.ts";
 import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, useId, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
@@ -26,13 +27,11 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 
 export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
-import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
 import { isSafeExternalUrl } from "./internal/url.ts";
-import { Markdown } from "@vite-hub/ui/markdown";
-import { ToolList } from "@vite-hub/ui/tool-list";
+import { Markdown, ToolList, useCopy } from "@vite-hub/ui";
 
-const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
+const InvocationPatchDiff = defineAsyncComponent(() => import("../console-lazy-views.ts").then(module => module.PatchDiff));
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   const labels = {
@@ -58,13 +57,7 @@ function formatTokens(value: number | undefined): string | undefined {
 
 function formatDuration(startedAt: string | undefined, completedAt: string | undefined): string | undefined {
   if (!startedAt || !completedAt) return;
-  const duration = Date.parse(completedAt) - Date.parse(startedAt);
-  if (!Number.isFinite(duration) || duration < 0) return;
-  const seconds = Math.round(duration / 1_000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return consoleDuration(Date.parse(completedAt) - Date.parse(startedAt), { wholeSeconds: true });
 }
 
 /** Elapsed time of a live session as `m:ss`, or `h:mm:ss` after the first hour. */
@@ -87,20 +80,6 @@ function driverLabel(configuration: AgentInvocationConfiguration): string | unde
     model?.provider ?? driver?.provider,
     model?.id,
   ].filter(Boolean).join(" · ") || undefined;
-}
-
-function invocationModelName(value: string): string {
-  const slug = value.split("/").at(-1) ?? "";
-  return slug
-    .split("-")
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLocaleLowerCase();
-      if (/^(ai|gpt|glm|llm|vlm)$/.test(lower)) return lower.toLocaleUpperCase();
-      if (/^\d+[a-z]$/i.test(part)) return part.toLocaleUpperCase();
-      return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
-    })
-    .join(" ") || "Configured model";
 }
 
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {
@@ -137,7 +116,7 @@ type InspectHandler = (target: InspectTarget, path?: string) => void;
 
 
 function payloadPreview(value: unknown, text: string): string {
-  const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
+  const source = typeof value === "string" ? value : text.replaceAll(/\s+/g, " ");
   const compact = source.trim();
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
@@ -159,23 +138,9 @@ const InvocationError = defineComponent({
     const titleId = useId();
     const detailsId = useId();
     const detailsOpen = ref(false);
-    const copyStatus = ref<"copied" | "failed">();
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
-
-    async function copyError() {
-      try {
-        if (!("navigator" in globalThis) || !navigator.clipboard) throw new Error("Clipboard unavailable");
-        await navigator.clipboard.writeText(payloadText(diagnosticPayload(props.error)));
-        copyStatus.value = "copied";
-      } catch {
-        copyStatus.value = "failed";
-      }
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => copyStatus.value = undefined, 2_000);
-    }
+    const clipboard = useCopy();
+    const copyStatus = computed(() => clipboard.copied.value ? "copied" : clipboard.failed.value ? "failed" : undefined);
+    const copyError = () => clipboard.copy(() => payloadText(diagnosticPayload(props.error)));
 
     return () => {
       const error = props.error;
@@ -258,9 +223,9 @@ function diagnosticPayload(error: InvocationErrorValue): Record<string, unknown>
 }
 
 function jsonValueLabel(value: unknown): string {
-  if (hasRuntimeType(value, "string")) return JSON.stringify(value);
+  if (typeof value === "string") return JSON.stringify(value);
   if (value === null) return "null";
-  if (hasRuntimeType(value, "object")) return Array.isArray(value) ? `Array(${value.length})` : "Object";
+  if (typeof value === "object") return Array.isArray(value) ? `Array(${value.length})` : "Object";
   return String(value);
 }
 
@@ -279,7 +244,7 @@ function matchingPayloadRows(
     }
     result.rows.push({ path, value: label });
   }
-  if (!hasRuntimeType(value, "object") || value === null || depth >= 12) return result;
+  if (typeof value !== "object" || value === null || depth >= 12) return result;
   for (const [key, item] of Object.entries(value)) {
     matchingPayloadRows(item, query, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`, result, depth + 1);
     if (result.truncated) break;
@@ -297,16 +262,16 @@ function renderPayloadTree(
   if (budget.remaining < 0) {
     return h("li", { class: "vh-invocation-payload__leaf" }, "More fields hidden");
   }
-  if (depth >= 12 && hasRuntimeType(value, "object") && value !== null) {
+  if (depth >= 12 && typeof value === "object" && value !== null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
       h("code", { class: "vh-invocation-payload__value" }, "Nested content hidden"),
     ]);
   }
-  if (!hasRuntimeType(value, "object") || value === null) {
+  if (typeof value !== "object" || value === null) {
     return h("li", { class: "vh-invocation-payload__leaf" }, [
       label ? h("code", { class: "vh-invocation-payload__key" }, label) : null,
-      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : runtimeType(value) }, jsonValueLabel(value)),
+      h("code", { class: "vh-invocation-payload__value", "data-type": value === null ? "null" : typeof value }, jsonValueLabel(value)),
     ]);
   }
   const entries = Object.entries(value);
@@ -342,19 +307,17 @@ const InvocationPayload = defineComponent({
     const mode = ref<"tree" | "raw">("tree");
     const query = ref("");
     const open = ref(false);
-    const copied = ref(false);
-    const copyFailed = ref(false);
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    const { copied, copy, failed: copyFailed } = useCopy({ duration: 1_600 });
     const text = computed(() => payloadText(props.value));
     const normalized = computed<unknown>(() => {
-      if (!hasRuntimeType(props.value, "object") || props.value === null) return props.value;
+      if (typeof props.value !== "object" || props.value === null) return props.value;
       try {
         return JSON.parse(text.value);
       } catch {
         return text.value;
       }
     });
-    const structured = computed(() => hasRuntimeType(normalized.value, "object") && normalized.value !== null);
+    const structured = computed(() => typeof normalized.value === "object" && normalized.value !== null);
     const matches = computed(() => query.value
       ? matchingPayloadRows(normalized.value, query.value.toLocaleLowerCase())
       : { rows: [], truncated: false });
@@ -364,25 +327,7 @@ const InvocationPayload = defineComponent({
       return text.value.split("\n").filter(line => line.toLocaleLowerCase().includes(normalizedQuery)).join("\n");
     });
 
-    async function copyPayload() {
-      copyFailed.value = false;
-      if (!("navigator" in globalThis) || !navigator.clipboard) {
-        copyFailed.value = true;
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(text.value);
-        copied.value = true;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => { copied.value = false; }, 1_600);
-      } catch {
-        copyFailed.value = true;
-      }
-    }
-
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
+    const copyPayload = () => copy(text.value);
 
     // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
     return () => h("details", {
@@ -542,7 +487,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
       : `${new Intl.DateTimeFormat("en", dateOptions).format(date)} ${time}`;
   return {
     short,
-    title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
+    title: consoleDateTime(value),
     value,
   };
 }
@@ -675,12 +620,12 @@ function imageViewPath(activity: InvocationActivity): string | undefined {
   if (name !== "image view" && name !== "view image" && name !== "view_image") return;
   for (const key of ["tool.input", "tool.output"]) {
     const payload = activity.attributes[key];
-    if (!hasRuntimeType(payload, "object") || payload === null || Array.isArray(payload)) continue;
-    const item = "item" in payload && hasRuntimeType(payload.item, "object") && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
-    if ("path" in item && hasRuntimeType(item.path, "string") && item.path) return item.path;
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) continue;
+    const item = "item" in payload && typeof payload.item === "object" && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
+    if ("path" in item && typeof item.path === "string" && item.path) return item.path;
     if (!("commandActions" in item) || !Array.isArray(item.commandActions)) continue;
     for (const value of item.commandActions) {
-      if (hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && "path" in value && hasRuntimeType(value.path, "string") && value.path) return value.path;
+      if (typeof value === "object" && value !== null && !Array.isArray(value) && "path" in value && typeof value.path === "string" && value.path) return value.path;
     }
   }
   return activity.preview?.startsWith("/") ? activity.preview : undefined;
@@ -717,7 +662,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
   const capturedDeliveryBody = activity.kind === "delivery"
     ? activity.attributes["channel.effect.content"]
     : undefined;
-  const deliveryBody = hasRuntimeType(capturedDeliveryBody, "string") && capturedDeliveryBody.trim()
+  const deliveryBody = typeof capturedDeliveryBody === "string" && capturedDeliveryBody.trim()
     ? capturedDeliveryBody
     : undefined;
   const visibleDelivery = Boolean(deliveryBody);
@@ -873,7 +818,7 @@ function renderPreparationAction(activity: InvocationActivity, inspect: InspectH
 function renderPreparationContext(invocation: AgentInvocationView, url: string | undefined) {
   const repository = invocation.annotations?.["github.repository"];
   const pullRequest = invocation.annotations?.["github.pullRequest"];
-  if (!hasRuntimeType(repository, "string") || (!hasRuntimeType(pullRequest, "number") && !hasRuntimeType(pullRequest, "string"))) {
+  if (typeof repository !== "string" || (typeof pullRequest !== "number" && typeof pullRequest !== "string")) {
     return h("code", agentInvocationContext(invocation));
   }
   return h("span", { class: "vh-invocation-preparation__context" }, [
@@ -1043,7 +988,8 @@ function labelStyle(color: string | undefined): Record<string, string> {
   const luminance = (red * 299 + green * 587 + blue * 114) / 1_000;
   return {
     "--vh-invocation-label-bg": `#${normalized}`,
-    "--vh-invocation-label-fg": luminance > 150 ? "#1f2328" : "#ffffff",
+    // The label color is GitHub data. Its text is the darkest or lightest neutral, whichever keeps it readable.
+    "--vh-invocation-label-fg": luminance > 150 ? "var(--ui-color-neutral-900)" : "var(--ui-color-neutral-50)",
   };
 }
 
@@ -1126,6 +1072,96 @@ function renderActivityGroup(
   ]);
 }
 
+const tokenFormat = new Intl.NumberFormat("en");
+
+/** A USD amount with cents. Below ten cents it keeps two significant digits, so a small run does not read as $0.00. */
+function formatUsd(usd: string): string {
+  const value = Number(usd);
+  const small = value > 0 && value < 0.1;
+  return new Intl.NumberFormat("en", {
+    currency: "USD",
+    maximumFractionDigits: small ? Math.min(6, 1 - Math.floor(Math.log10(value))) : 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
+/**
+ * Tokens and cost of the session. The cost shows only when the run recorded one. An estimate says so in its label, and
+ * its tooltip names where the prices come from, such as models.dev. Token types without tokens are left out.
+ */
+function inspectorUsage(
+  usage: AgentInvocationView["usage"],
+  partition: AgentInvocationView["usage"],
+  totalTokens: number | undefined,
+) {
+  const cost = usage?.cost;
+  const usd = cost?.usd !== undefined && Number.isFinite(Number(cost.usd)) ? cost.usd : undefined;
+  // A record without a decimal amount can still carry the text that its runtime formatted, such as "~$0.02".
+  const costText = usd === undefined ? cost?.display || undefined : formatUsd(usd);
+  const rows = ([
+    ["Input", partition?.inputTokens],
+    ["Cached input", partition?.cachedInputTokens],
+    ["Cache writes", partition?.cacheWriteTokens],
+    ["Output", partition?.outputTokens],
+    ["Reasoning", partition?.reasoningTokens],
+  ] as const).flatMap(([label, value]) => !value ? [] : [h("div", [h("dt", label), h("dd", tokenFormat.format(value))])]);
+  if (costText === undefined && totalTokens === undefined && !rows.length) return null;
+  const estimated = cost?.estimated === true;
+  const costNote = estimated
+    ? cost.source && cost.source !== "provider" ? `Estimated from ${cost.source}` : "Estimated"
+    : cost?.estimated === false ? "Reported by the provider" : undefined;
+  const costTitle = [usd === undefined ? undefined : `$${usd}`, costNote].filter(Boolean).join(", ") || undefined;
+  return inspectorSection("Usage", h("div", { class: "vh-invocation-inspector__usage", "data-slot": "invocation-usage" }, [
+    h("dl", { class: "vh-invocation-inspector__metrics" }, [
+      costText === undefined ? null : h("div", { title: costTitle }, [
+        h("dt", estimated ? "Estimated cost" : "Cost"),
+        h("dd", costText),
+      ]),
+      totalTokens === undefined ? null : h("div", [
+        h("dt", "Tokens"),
+        h("dd", tokenFormat.format(totalTokens)),
+      ]),
+    ]),
+    rows.length ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-inspector__list--numbers" }, rows) : null,
+  ]));
+}
+
+/** Skills that the harness offered the Agent, one chip each. The description and source are in the tooltip. */
+function inspectorSkills(skills: readonly { description?: string; name: string; source?: string }[]) {
+  const list = h("ul", { class: "vh-invocation-inspector__chips" }, skills.map(skill => h("li", {
+    key: skill.name,
+    title: [skill.description, skill.source ? `Source: ${skill.source}` : undefined].filter(Boolean).join("\n") || undefined,
+  }, skill.name)));
+  return skills.length > 12
+    ? inspectorDisclosure("Skills", String(skills.length), list)
+    : h("div", { class: "vh-invocation-inspector__group" }, [
+        h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Skills"), h("small", skills.length)]),
+        list,
+      ]);
+}
+
+/** MCP servers that the harness connected. A dot shows the status it recorded. */
+function inspectorMcpServers(servers: readonly { name: string; status?: string }[]) {
+  return h("div", { class: "vh-invocation-inspector__group" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "MCP servers"), h("small", servers.length)]),
+    h("ul", { class: "vh-invocation-inspector__chips" }, servers.map(server => h("li", {
+      key: server.name,
+      title: server.status ? `${server.name}: ${server.status}` : undefined,
+    }, [
+      server.status ? h("span", { "aria-hidden": "true", class: "vh-invocation-inspector__dot", "data-status": server.status }) : null,
+      server.name,
+      server.status ? h("span", { class: "vh-visually-hidden" }, `, ${server.status}`) : null,
+    ]))),
+  ]);
+}
+
+/** Recorded entries with a string `name`. The configuration is untrusted JSON. */
+function namedEntries<T extends { name: string }>(value: unknown): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is T => entry instanceof Object && typeof Reflect.get(entry, "name") === "string" && Reflect.get(entry, "name") !== "");
+}
+
 function inspectorSection(title: string, body: ReturnType<typeof h>) {
   return h("section", [h("h4", title), body]);
 }
@@ -1185,8 +1221,8 @@ function statusIcon(status: AgentInvocationView["status"]) {
 }
 
 function sourcePresentation(source: string | { id: string; repository?: string }) {
-  const id = hasRuntimeType(source, "string") ? source : source.id;
-  const repository = hasRuntimeType(source, "string")
+  const id = typeof source === "string" ? source : source.id;
+  const repository = typeof source === "string"
     ? /^(?:gh|github):([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
     : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
   return repository
@@ -1220,15 +1256,21 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
 }
 
 function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
-  if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   // SAFETY: The guard above establishes a non-null, non-array object; its field values remain unknown until checked below.
   const channel = value as Record<string, unknown>;
   return Object.hasOwn(channel, "id")
-    && hasRuntimeType(channel.id, "string")
+    && typeof channel.id === "string"
     && Object.hasOwn(channel, "kind")
-    && hasRuntimeType(channel.kind, "string");
+    && typeof channel.kind === "string";
 }
 
+/** Runtime names that mean nothing to a reader on their own. */
+const runtimeLabels: Readonly<Record<string, { label: string; title: string }>> = {
+  import: { label: "Imported session", title: "This session ran outside ViteHub. Its session file was imported." },
+};
+
+/** Model, provider, and runtime as rows. The provider row shows only when it is not the company that made the model. */
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -1236,22 +1278,26 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const provider = invocationBrand(model?.provider ?? configuration.driver?.provider);
   const runtime = configuration.runtime?.name;
   if (!modelId && !provider && (!runtime || runtime === "unknown")) return null;
-  return h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model")]),
-    h("div", { class: "vh-invocation-execution" }, [
-      modelId || provider ? h("div", { class: "vh-invocation-execution__model" }, [
+  const runtimeLabel = runtime && Object.hasOwn(runtimeLabels, runtime) ? runtimeLabels[runtime] : undefined;
+  return h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution" }, [
+    modelId ? h("div", [
+      h("dt", "Model"),
+      h("dd", { class: "vh-invocation-execution__model", title: maker ? `${modelId} by ${maker.label}` : modelId }, [
         invocationBrandMark(maker ?? provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
-        h("div", { class: "vh-invocation-execution__details" }, [
-          h("strong", modelId ? invocationModelName(modelId) : provider?.label),
-          modelId && provider ? h("span", { class: "vh-invocation-execution__provider" }, [
-            invocationBrandMark(provider, "vh-invocation-execution__provider-icon"), provider.label,
-          ]) : null,
-        ]),
-      ]) : null,
-      runtime && runtime !== "unknown" ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution__runtime" }, [
-        inspectorRow("Runtime", runtime),
-      ]) : null,
-    ]),
+        h("span", invocationModelName(modelId)),
+      ]),
+    ]) : null,
+    provider && provider.id !== maker?.id ? h("div", [
+      h("dt", "Provider"),
+      h("dd", { class: "vh-invocation-execution__provider" }, [
+        invocationBrandMark(provider, "vh-invocation-execution__provider-icon"),
+        h("span", provider.label),
+      ]),
+    ]) : null,
+    runtime && runtime !== "unknown" ? h("div", [
+      h("dt", "Runtime"),
+      h("dd", { title: runtimeLabel?.title }, runtimeLabel?.label ?? runtime),
+    ]) : null,
   ]);
 }
 
@@ -1312,6 +1358,8 @@ function renderConfiguration(
     truncated: configuration.truncated || tools.length !== recordedTools.length || channelsCatalogMalformed
       || channels.length !== recordedChannels.length,
   };
+  const skills = namedEntries<{ description?: string; name: string; source?: string }>(configuration.skills);
+  const mcpServers = namedEntries<{ name: string; status?: string }>(configuration.mcpServers);
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -1367,6 +1415,8 @@ function renderConfiguration(
     configuration.tools?.some(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
       ? inspectorTools(configuration.tools.filter(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation), selectTool)
       : null,
+    skills.length ? inspectorSkills(skills) : null,
+    mcpServers.length ? inspectorMcpServers(mcpServers) : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
           "Instructions",
@@ -1571,7 +1621,7 @@ type AgentInvocationEmits = {
 const agentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
+    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || typeof path === "string"),
   },
   props: {
     header: { default: true, type: Boolean },
@@ -1594,10 +1644,14 @@ const agentInvocation = defineComponent({
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
     const openActivities = ref<ReadonlySet<string>>(new Set());
-    const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
+    const clipboard = useCopy();
+    const copiedMessageId = ref<string>();
+    const messageCopy = computed<{ id: string; status: "copied" | "failed" } | undefined>(() => {
+      const status = clipboard.copied.value ? "copied" : clipboard.failed.value ? "failed" : undefined;
+      return copiedMessageId.value && status ? { id: copiedMessageId.value, status } : undefined;
+    });
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
     function toggleExpanded(id: string) {
       const next = new Set(expandedMessages.value);
@@ -1630,23 +1684,15 @@ const agentInvocation = defineComponent({
     }
 
     async function copyMessage(activity: InvocationActivity) {
-      try {
-        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-        const url = agentInvocationExternalUrl(props.invocation);
-        const metadata = [
-          `Invocation ID: ${props.invocation.id}`,
-          `Trace ID: ${props.invocation.traceId}`,
-          props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
-          url ? `URL: ${url}` : undefined,
-        ].filter((value): value is string => value !== undefined);
-        await navigator.clipboard.writeText(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
-        messageCopy.value = { id: activity.id, status: "copied" };
-      }
-      catch {
-        messageCopy.value = { id: activity.id, status: "failed" };
-      }
-      if (copyTimer) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => messageCopy.value = undefined, 2_000);
+      copiedMessageId.value = activity.id;
+      const url = agentInvocationExternalUrl(props.invocation);
+      const metadata = [
+        `Invocation ID: ${props.invocation.id}`,
+        `Trace ID: ${props.invocation.traceId}`,
+        props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
+        url ? `URL: ${url}` : undefined,
+      ].filter((value): value is string => value !== undefined);
+      await clipboard.copy(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
     }
 
     async function focusActivity(id: string | undefined) {
@@ -1678,7 +1724,7 @@ const agentInvocation = defineComponent({
     watch(() => props.invocation.id, () => {
       workOpen.value = false;
       openActivities.value = new Set();
-      messageCopy.value = undefined;
+      copiedMessageId.value = undefined;
     });
     watch(() => props.invocation.status, (status, previousStatus) => {
       if ((previousStatus === "pending" || previousStatus === "running")
@@ -1693,7 +1739,6 @@ const agentInvocation = defineComponent({
     }, { immediate: true });
     onBeforeUnmount(() => {
       clearSelectedElement();
-      if (copyTimer) clearTimeout(copyTimer);
       if (liveClock) clearInterval(liveClock);
     });
 
@@ -1787,9 +1832,10 @@ const agentInvocationInspector = defineComponent({
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
     const conversation = computed(() => buildInvocationConversation(activities.value));
-    const copied = ref<"invocation" | "trace">();
-    const copyError = ref<"invocation" | "trace">();
-    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    const clipboard = useCopy({ duration: 1_600 });
+    const copyKind = ref<"invocation" | "trace">();
+    const copied = computed(() => clipboard.copied.value ? copyKind.value : undefined);
+    const copyError = computed(() => clipboard.failed.value ? copyKind.value : undefined);
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
       messages: (conversation.value.kind === "activities"
@@ -1810,23 +1856,8 @@ const agentInvocationInspector = defineComponent({
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
       if (!value) return;
-      copyError.value = undefined;
-      await nextTick();
-      if (!("navigator" in globalThis) || !navigator.clipboard) {
-        copied.value = undefined;
-        copyError.value = kind;
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(value);
-        copied.value = kind;
-        copyError.value = undefined;
-        if (copyTimer) clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => { copied.value = undefined; }, 1_600);
-      } catch {
-        copied.value = undefined;
-        copyError.value = kind;
-      }
+      copyKind.value = kind;
+      await clipboard.copy(value);
     }
 
     function copyAction(kind: "invocation" | "trace", label: string, value: string | undefined) {
@@ -1848,10 +1879,6 @@ const agentInvocationInspector = defineComponent({
         ],
       );
     }
-
-    onBeforeUnmount(() => {
-      if (copyTimer) clearTimeout(copyTimer);
-    });
 
     return () => {
       const configuration = props.invocation.configuration;
@@ -1921,7 +1948,7 @@ const agentInvocationInspector = defineComponent({
               agentName
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
                     h("span", "Agent"),
-                    h("code", agentName),
+                    h("strong", agentName),
                     configuration?.agent?.version
                       ? h("small", `v${configuration.agent.version}`)
                       : null,
@@ -1939,25 +1966,9 @@ const agentInvocationInspector = defineComponent({
                 metrics.value.changes
                   ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
                   : null,
-                inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
-                  ? "Unknown"
-                  : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
-                inspectorRow(
-                  usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
-                  usage?.cost?.display || "Unknown",
-                ),
-                ...([
-                  ["Input", partition?.inputTokens],
-                  ["Output", partition?.outputTokens],
-                  ["Cached", partition?.cachedInputTokens],
-                  ["Cache writes", partition?.cacheWriteTokens],
-                  ["Reasoning", partition?.reasoningTokens],
-                ] as const).flatMap(([label, value]) => value === undefined
-                  ? []
-                  : [inspectorRow(label, new Intl.NumberFormat("en").format(value))]),
               ]),
             ),
+            inspectorUsage(usage, partition, usage?.totalTokens ?? metrics.value.tokens),
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,

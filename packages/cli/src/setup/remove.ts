@@ -8,13 +8,14 @@ import { featureIds, featurePackages, features, featureSupport, impliedFeatures 
 import { dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { confirmSetupChange, isRecord, readFeatureId, setupConsolePackages, setupDiff } from "./add.ts"
+import { confirmSetupChange, isRecord, readFeatureId, setupDiff } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus, uninstallArgs } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId, FeatureStarter } from "@vite-hub/internal/features"
 import type { SetupChange } from "./add.ts"
 import type { SetupProject } from "./project.ts"
@@ -115,10 +116,9 @@ function importsModule(specifier: string, module: string): boolean {
   return specifier === module || specifier.startsWith(`${module}/`)
 }
 
-/** Static imports, re-exports, dynamic imports, and `require` calls. Comments can match, which only makes `remove` stricter. */
-const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)\s*)*(?:(["'])([^"'\r\n]+)\1|`((?:(?!\$\{)[^`\\])+)`)/gu
-const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
-const declarationFile = /\.d\.[cm]?[jt]sx?$/iu
+/** Imports (including static template literals), re-exports, module augmentations, and triple-slash type references. Comments can match, which only makes `remove` stricter. */
+const specifierPattern = /(?:\b(?:from|import|require|declare\s+module)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*(?:\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*)?|\/\/\/\s*<reference\s+types\s*=\s*)(?:(["'])([^"'\r\n]+)\1|`((?:[^`$\r\n]|\$(?!\{))+)`)/gu
+const sourceFile = /\.(?:[cm]?[jt]sx?|vue|svelte|astro|mdx?|html?)$/iu
 
 function lineAt(content: string, index: number): number {
   let line = 1
@@ -133,21 +133,18 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
   return name !== undefined && [starter.template, ...starter.previousTemplates ?? []].some(template => template(name) === content)
 }
 
-/** Prerequisites selected by feature options, which do not participate in unconditional implications. */
-function optionPrerequisites(id: FeatureId, value: JsonValue | undefined): FeatureId[] {
-  if (id === "console" && value === true) return ["auth"]
-  if (!isRecord(value)) return []
-  if (id === "cache" && value.driver === "kv") return ["kv"]
-  if (id === "agent" && (value.invocations === "database" || (isRecord(value.invocations) && value.invocations.store === "database"))) return ["database"]
-  if (id === "connections" && value.management) return ["console"]
-  if (id === "console" && value.auth === "app") return ["auth"]
-  const required: FeatureId[] = []
-  if (id === "observability" && value.papercuts) required.push("agent", "console")
-  if (id === "observability" && value.posthog) required.push("env")
-  return required
+/** Features required by selected options. Unknown options can select any supported prerequisite. */
+function optionPrerequisites(id: FeatureId, value: JsonValue | undefined, unknown: boolean): FeatureId[] {
+  const options = isRecord(value) ? value : undefined
+  if (id === "cache" && (unknown || options?.driver === "kv")) return ["kv"]
+  if (id === "observability") return [...(unknown || options?.posthog ? ["env" as const] : []), ...(unknown || options?.papercuts ? ["agent" as const, "console" as const] : [])]
+  const invocations = options?.invocations
+  if (id === "agent" && (unknown || invocations === "database" || (isRecord(invocations) && invocations.store === "database"))) return ["database"]
+  return []
 }
 
-interface PlannedRemove {
+/** A `vitehub remove` plan with the file contents that applying it checks and writes. */
+export interface PlannedRemove {
   plan: SetupRemovePlan
   configFile?: { path: string, before: string, after: string }
   /** Starter Definitions to delete. */
@@ -190,9 +187,6 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of args.features) {
     const state = enabled(deleted, id)
     if (state.enabled === "off") continue
-    if (features[id].enabledByDiscovery && project.framework === "nuxt" && !project.serverDirs) {
-      throw manual("Nuxt server directories require config evaluation")
-    }
     if (state.reason === "implied" && !args.force) {
       const disabled = deleted.features.filter(item => item.enabled === "off" && item.reason === "config").map(item => item.id)
       const by = deleted.features.filter(item => item.enabled === "on" && item.reason !== "implied" && impliedFeatures([item.id], host, disabled).includes(id)).map(item => item.id)
@@ -211,24 +205,26 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const after = simulate([...edits.values()])
 
   const turnedOff = featureIds.filter(id => enabled(status, id).enabled === "on" && enabled(after.status, id).enabled !== "on")
+  // Unknown Nuxt directories can hide Definitions and auto-imported discovery files.
+  const needsDirectories = [...args.features, ...turnedOff].some(id => enabled(status, id).enabled !== "off" && (features[id].definition || features[id].enabledByDiscovery))
+  if (!args.force && project.framework === "nuxt" && !project.serverDirs?.length && needsDirectories) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL({ command: "remove" }), setupExitCodes.conflict)
+  }
   const remaining = featureIds.filter(id => enabled(after.status, id).enabled !== "off")
+  const wasEnabled = featureIds.filter(id => enabled(status, id).enabled !== "off")
   const afterKeys = after.code && project.configFile ? locateViteHubConfig(project.configFile, after.code) : project.config
   const valueOf = (source: typeof project.config, id: FeatureId): JsonValue | undefined => {
     const key = source?.ok ? source.site.keys[id] : undefined
     return key?.kind === "literal" ? key.value : undefined
   }
-  // Check the final state, including prerequisites that go off when their last implying feature is removed.
-  if (!args.force) {
-    for (const id of turnedOff) {
-      const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent)).includes(id))
-      if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_IMPLIED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
-    }
+  for (const id of turnedOff) {
+    const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent), enabled(after.status, dependent).enabled === "unknown").includes(id))
+    if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
   }
-  const packagesOf = (id: FeatureId, value: JsonValue | undefined, state = status) => {
-    const active = new Set(state.features.filter(item => item.enabled !== "off").map(item => item.id))
-    return [...featurePackages(id, value, host), ...(id === "console" ? setupConsolePackages(value, active) : [])]
+  const packagesOf = (id: FeatureId, value: JsonValue | undefined, host: ViteHubHost, active = wasEnabled) => {
+    return [...featurePackages(id, value, host, active), ...features[id].devPackages]
   }
-  const stillNeeded = new Set(remaining.flatMap(id => [...packagesOf(id, valueOf(afterKeys, id), after.status), ...features[id].devPackages]))
+  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host, remaining)))
 
   // Starter Definitions go; other files in a Definition folder are uses of the feature.
   const starters = new Map<string, string>()
@@ -236,7 +232,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of turnedOff) {
     const starter = features[id].definition
     if (!starter) continue
-    for (const directory of project.serverDirs ?? [join(project.root, "server")]) {
+    for (const directory of directories) {
       const folder = join(directory, relative("server", starter.dir))
       if (!existsSync(folder)) continue
       for (const file of listMatchingFiles(folder, () => true)) {
@@ -256,10 +252,10 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const modules = new Map<string, FeatureId>()
   for (const id of turnedOff) {
     modules.set(runtimeModule(id), id)
-    for (const name of [...packagesOf(id, valueOf(project.config, id)), ...features[id].devPackages]) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
+    for (const name of packagesOf(id, valueOf(project.config, id), host)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
   }
   const imported = new Set<string>()
-  for (const file of listMatchingFiles(project.root, name => sourceFile.test(name) && !declarationFile.test(name))) {
+  for (const file of listMatchingFiles(project.root, name => sourceFile.test(name))) {
     const path = relative(project.root, file)
     // A deleted starter is no use; a kept starter keeps its imports installed.
     if (starters.has(path) && !args.keepFiles) continue
@@ -267,13 +263,13 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     for (const match of content.matchAll(specifierPattern)) {
       const specifier = (match[2] ?? match[3])!
       imported.add(packageName(specifier))
+      // Facades still load their optional owner packages after a forced removal.
+      for (const id of featureIds) {
+        if (importsModule(specifier, runtimeModule(id))) for (const name of features[id].packages) imported.add(name)
+      }
+      if (starters.has(path) || edited.includes(path)) continue
       for (const [module, id] of modules) {
-        if (!importsModule(specifier, module)) continue
-        // Framework subpaths still need their optional owner packages.
-        if (module === runtimeModule(id)) {
-          for (const name of [...packagesOf(id, valueOf(project.config, id)), ...features[id].devPackages]) imported.add(name)
-        }
-        if (!starters.has(path) && !edited.includes(path)) blocking.push({ feature: id, file: path, line: lineAt(content, match.index), module: specifier })
+        if (importsModule(specifier, module)) blocking.push({ feature: id, file: path, line: lineAt(content, match.index), module: specifier })
       }
     }
   }
@@ -285,10 +281,12 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
 
   const prod: string[] = []
   const dev: string[] = []
-  for (const id of turnedOff) {
-    const packages = packagesOf(id, valueOf(project.config, id))
+  for (const id of wasEnabled) {
+    // Unknown features keep their files and packages because their Definitions were not scanned.
+    if (enabled(status, id).enabled !== "on") continue
+    const packages = featurePackages(id, valueOf(project.config, id), host, wasEnabled)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
-    for (const name of packages) if (removable(name) && project.declared(name, false)) prod.push(name)
+    for (const name of packages) if (removable(name) && project.declared(name, true)) prod.push(name)
     for (const name of features[id].devPackages) if (removable(name) && project.declared(name, true)) dev.push(name)
   }
   const uninstall = [...prod, ...dev]
@@ -346,7 +344,8 @@ async function deleteStarter(root: string, path: string): Promise<void> {
   }
 }
 
-async function applyRemove(project: SetupProject, planned: PlannedRemove, args: SetupRemoveArgs, context: ViteHubCliContext): Promise<void> {
+/** Applies a removal. In-server sessions defer the restart-triggering config until cleanup finishes. */
+export async function applySetupRemove(project: SetupProject, planned: PlannedRemove, args: Pick<SetupRemoveArgs, "uninstall">, context: Pick<ViteHubCliContext, "env" | "spawn">, options: { configLast?: boolean } = {}): Promise<void> {
   // Check every file before the first write, so a stale plan writes nothing.
   if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
@@ -356,16 +355,24 @@ async function applyRemove(project: SetupProject, planned: PlannedRemove, args: 
       throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: file.path }), setupExitCodes.stalePlan)
     }
   }
-  // The config goes first, so the app stops using the feature before its files and packages go.
-  if (planned.configFile) await writeFile(join(project.root, planned.configFile.path), planned.configFile.after)
+  // The terminal command disables the feature first; an in-server session must finish cleanup before restarting.
+  if (planned.configFile && !options.configLast) await writeFile(join(project.root, planned.configFile.path), planned.configFile.after)
   for (const file of planned.deletes) await deleteStarter(project.root, file.path)
   if (args.uninstall && planned.uninstall.length) {
     const commandArgs = uninstallArgs(project.packageManager, planned.uninstall)
     // The package manager logs to stderr, so `--json` keeps one document on stdout.
     const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
     if (result.exitCode !== 0) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_UNINSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_UNINSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), configWritten: !options.configLast, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
     }
+  }
+  if (planned.configFile && options.configLast) {
+    const file = join(project.root, planned.configFile.path)
+    // Uninstall can take long enough for the developer to save or delete the config.
+    if (await readFile(file, "utf8").catch(() => undefined) !== planned.configFile.before) {
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
+    }
+    await writeFile(file, planned.configFile.after)
   }
 }
 
@@ -420,7 +427,7 @@ async function runRemove(args: string[], context: ViteHubCliContext): Promise<nu
       writePlan(plan, context)
       if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
-    await applyRemove(project, planned, parsed, context)
+    await applySetupRemove(project, planned, parsed, context)
     const applied: SetupRemovePlan = { ...plan, status: "applied" }
     if (parsed.json) writeSetupJson(context, applied)
     else writeResult(applied, context)

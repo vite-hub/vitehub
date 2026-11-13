@@ -87,10 +87,6 @@ const groups = computed(() => {
   transition: background-color 150ms ease;
 }
 
-.vh-page-list-link:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
 
 .vh-page-list-icon {
   display: grid;

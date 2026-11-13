@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 import * as v from "valibot";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
@@ -6,14 +7,13 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { consoleEnvName, groupConsoleEnv } from "../client/env-groups";
 import { indexEnvStatuses } from "../client/env-status";
 import { requestConsole } from "../client/request";
-import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
+import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleEnvDetails from "./console-env-details.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 
 const descriptionSchema = v.object({
   entries: v.array(
@@ -43,18 +43,14 @@ const props = defineProps<{
   definitionsBase: string;
   kvBase: string;
   envBase: string;
-  managementBase: string;
   searchBase: string;
   sectionsBase: string;
 }>();
 const entries = ref<readonly ServerEnvDescriptionEntry[]>([]);
-// The search, source, open variable, and its management tab live in the URL, so a reload or a shared link opens the
-// same view.
-const { manage: managing, q: search, source, tab: manageTab, variable } = useConsoleQuery({
-  manage: queryFlag({ history: "push" }),
+// The search, source, and open variable live in the URL, so a reload or a shared link opens the same view.
+const { q: search, source, variable } = useConsoleQuery({
   q: queryText(),
   source: queryText({ fallback: "all" }),
-  tab: queryChoice(["credential", "activity", "access"], "credential", { history: "push" }),
   variable: querySelection(),
 });
 /** After a status check, shows only the values that block the application. */
@@ -66,10 +62,7 @@ const selected = computed({
   set: (entry: ServerEnvDescriptionEntry | undefined) => {
     undisclosed.value = entry && !entry.path ? entry : undefined;
     if (variable.value === entry?.path) return;
-    // Another variable opens with its details, not with the management of the last one.
     variable.value = entry?.path;
-    managing.value = false;
-    manageTab.value = "credential";
   },
 });
 const loading = ref(true);
@@ -77,6 +70,10 @@ const failed = ref<unknown>();
 // Status is loaded on request because inspection can call providers.
 const statuses = ref<ReadonlyMap<ServerEnvDescriptionEntry, EnvStatus>>();
 const statusFailed = ref(false);
+// A status check can call providers, so the button shows progress and the toolbar shows when it finished.
+const checking = ref(false);
+const checkedAt = ref<Date>();
+const statusUnavailable = ref(false);
 let request: AbortController | undefined;
 const detailOpen = computed({
   get: () => Boolean(selected.value),
@@ -136,8 +133,10 @@ async function refresh(includeStatus = false) {
   const current = new AbortController();
   request = current;
   loading.value = true;
+  checking.value = includeStatus;
   failed.value = undefined;
   statusFailed.value = false;
+  statusUnavailable.value = false;
   try {
     const result = v.parse(
       descriptionSchema,
@@ -151,6 +150,10 @@ async function refresh(includeStatus = false) {
     statuses.value = result.status
       ? indexEnvStatuses(result.entries, result.status)
       : undefined;
+    if (includeStatus) {
+      checkedAt.value = new Date();
+      statusUnavailable.value = !result.status;
+    }
     if (!blockingCount.value) attentionOnly.value = false;
     if (!sourceItems.value.some((item) => item.value === source.value)) source.value = "all";
     if (undisclosed.value && !entries.value.includes(undisclosed.value)) undisclosed.value = undefined;
@@ -163,9 +166,13 @@ async function refresh(includeStatus = false) {
     }
     else failed.value = cause;
   } finally {
-    if (!current.signal.aborted) loading.value = false;
+    if (!current.signal.aborted) {
+      loading.value = false;
+      checking.value = false;
+    }
   }
 }
+const checkedTime = computed(() => checkedAt.value?.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" }));
 onMounted(() => {
   rememberConsoleSection("env");
   void refresh(false);
@@ -181,24 +188,21 @@ onBeforeUnmount(() => request?.abort());
       :search-base="searchBase"
       :sections-base="sectionsBase"
     />
-    <UDashboardPanel id="env" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="env">
       <ConsolePageHeader title="Env" :toggle="false">
         <template #right>
           <UButton
-            color="neutral"
             icon="i-lucide-heart-pulse"
             label="Check status"
-            size="sm"
             variant="ghost"
+            :loading="checking"
             :disabled="loading"
             @click="refresh(true)"
           />
           <UTooltip text="Refresh declarations">
             <UButton
               aria-label="Refresh declarations"
-              color="neutral"
               icon="i-lucide-refresh-cw"
-              size="sm"
               variant="ghost"
               :disabled="loading"
               @click="refresh()"
@@ -211,7 +215,6 @@ onBeforeUnmount(() => request?.abort());
           v-model="search"
           class="w-full sm:w-64"
           icon="i-lucide-search"
-          size="sm"
           placeholder="Filter variables…"
           aria-label="Filter variables"
         />
@@ -220,22 +223,24 @@ onBeforeUnmount(() => request?.abort());
           v-model="source"
           :items="sourceItems"
           class="w-44"
-          size="sm"
           aria-label="Filter by source"
         />
         <div class="ms-auto flex items-center gap-3 text-xs text-muted tabular-nums" aria-live="polite">
-          <span v-if="statusFailed" role="alert" class="text-error">Could not check status.</span>
-          <button
+          <span v-if="statusFailed" role="alert" class="text-error">Could not check status. Try again.</span>
+          <span v-else-if="statusUnavailable">This host cannot check status.</span>
+          <!-- An on and off filter, not a view switch, so it stays a pressed button. -->
+          <UButton
             v-else-if="statuses && blockingCount"
-            type="button"
-            class="rounded-sm px-1 outline-none hover:bg-elevated focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
-            :class="attentionOnly ? 'bg-elevated' : ''"
+            variant="ghost"
+            size="xs"
+            :class="attentionOnly ? 'bg-elevated' : undefined"
             :aria-pressed="attentionOnly"
             @click="attentionOnly = !attentionOnly"
           >
-            <ConsoleStatus :label="`${plural(blockingCount, 'value')} need attention`" tone="error" />
-          </button>
-          <ConsoleStatus v-else-if="statuses" label="All values resolve" tone="success" />
+            <Status :label="`${plural(blockingCount, 'value')} ${blockingCount === 1 ? 'needs' : 'need'} attention`" tone="error" />
+          </UButton>
+          <Status v-else-if="statuses" label="All values resolve" tone="success" />
+          <span v-if="checkedTime && !checking && !statusFailed" class="text-dimmed">Checked at {{ checkedTime }}</span>
           <span>{{ summary }}</span>
         </div>
       </ConsolePageToolbar>
@@ -253,9 +258,14 @@ onBeforeUnmount(() => request?.abort());
           title="No Server Env declared"
           description="Declare a value under env.server in the Vite config to inspect it here."
         />
-        <p v-else-if="!rows.length" class="my-auto py-16 text-center text-[13px] text-muted">
-          {{ attentionOnly && !search.trim() ? "No values match the filters." : `No variables match “${search.trim() || source}”.` }}
-        </p>
+        <UEmpty
+          v-else-if="!rows.length"
+          variant="naked"
+          class="my-auto"
+          icon="i-lucide-search"
+          title="No matching variables"
+          :description="attentionOnly && !search.trim() ? 'No values match the filters.' : `No variables match “${search.trim() || source}”.`"
+        />
         <main v-else class="mx-auto grid w-full max-w-4xl gap-6 p-4 sm:p-6">
           <section
             v-for="group in groups"
@@ -269,11 +279,13 @@ onBeforeUnmount(() => request?.abort());
               <span class="text-dimmed tabular-nums">{{ group.rows.length }}</span>
               <span v-if="group.name === undefined" class="text-dimmed">Their declarations do not disclose a name.</span>
             </h2>
-            <ul role="list" class="divide-y divide-default overflow-hidden rounded-md border border-default">
-              <li v-for="(row, index) in group.rows" :key="row.entry.path ?? `undisclosed-${index}`">
+            <!-- The list does not clip, so the focus ring of a row stays visible. The end rows round their own corners. -->
+            <ul role="list" class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="(row, index) in group.rows" :key="row.entry.path ?? `undisclosed-${index}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <button
                   type="button"
-                  class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)"
+                  class="group grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-3 py-2 text-start hover:bg-elevated"
+                  data-focus-inset
                   :aria-current="selected === row.entry ? 'true' : undefined"
                   @click="selected = row.entry"
                 >
@@ -287,7 +299,7 @@ onBeforeUnmount(() => request?.abort());
                     </span>
                   </span>
                   <span class="flex items-center gap-4 text-xs">
-                    <ConsoleStatus v-if="status(row.entry)" class="w-28" v-bind="status(row.entry)" />
+                    <Status v-if="status(row.entry)" class="w-28" v-bind="status(row.entry)" />
                     <span
                       class="hidden w-24 truncate text-end font-mono text-dimmed md:block"
                       :title="row.entry.type"
@@ -310,7 +322,7 @@ onBeforeUnmount(() => request?.abort());
       :ui="{ title: 'font-mono text-sm', description: 'sr-only' }"
     >
       <template #body
-        ><ConsoleEnvDetails v-if="selected" v-model:managing="managing" v-model:tab="manageTab" :entry="selected" :endpoint="managementBase" :status="selected && status(selected)"
+        ><ConsoleEnvDetails v-if="selected" :entry="selected" :status="selected && status(selected)"
       /></template>
     </USlideover>
 </template>

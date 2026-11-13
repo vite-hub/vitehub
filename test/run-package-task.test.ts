@@ -120,6 +120,7 @@ describe("package task runner", { timeout: 60_000 }, () => {
   it.each([
     { buildPrefix: "", builds: '["pack","shared"]\n["pack","compound"]\n' },
     { buildPrefix: "vp run -t @fixture/compound#build && ", builds: '["pack","shared"]\n["pack","compound"]\n' },
+    { buildPrefix: "vp run --cache -t @fixture/compound#build && ", builds: '["pack","shared"]\n["pack","compound"]\n' },
     {
       buildPrefix: "vp run -t @fixture/shared#build && vp run -t @fixture/compound#build && ",
       builds: '["pack","shared"]\n["pack","compound"]\n',

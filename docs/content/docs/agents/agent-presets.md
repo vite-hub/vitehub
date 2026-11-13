@@ -50,8 +50,12 @@ import bot from '../bot/agent'
 
 export default defineAgent({
   extends: bot,
-  // Receives the parent's list. An array replaces it.
-  driver: { requirements: inherited => [...inherited, 'kubectl'] },
+  driver: {
+    // Receives the parent's instruction document. A string replaces it.
+    instructions: { extend: inherited => `${inherited}\n\n## Development\n\nYou run as bot-dev.` },
+    // Receives the parent's list. An array replaces it.
+    requirements: inherited => [...inherited, 'kubectl'],
+  },
   // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
   capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
   // Sets the mode of every Source that does not set its own, including inherited Sources.
@@ -59,13 +63,14 @@ export default defineAgent({
 })
 ```
 
+- `driver.instructions: { extend }` gets the parent's instructions as one string (`''` without a parent) and returns the child's complete document. Read [Extend inherited instructions](/docs/agents/instructions#extend-inherited-instructions).
 - `driver.requirements` can be a function that gets the inherited list (`[]` without a parent).
 - A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` into the parent's `mcp()` by server name. The child's entry for one server wins as a whole, and unset options such as `unavailableNotice` come from the parent. `inherit: false` replaces the parent's `mcp()`.
 - `workspace.materialize` is the default [`materialize` mode](/docs/workspace/configure) for each Source (read-only content inside a Workspace) in `workspace.sources` without its own. Sources that Capabilities add keep their mode.
 
 A discovered child also uses the [Connection access rules](/docs/connections/configure#access-rules) of the Agents it extends; a rule that names the child wins.
 
-`extends` accepts one definition that `defineAgent()` created in the same package instance, and discovers no files in the parent's directory. Share instructions by importing them with `?raw` into `driver.instructions`, and Skills with explicit Sources or a directory link.
+`extends` accepts one definition that `defineAgent()` created in the same package instance, and discovers no files in the parent's directory. Build on the parent's instructions with `driver.instructions: { extend }`, share other instructions by importing them with `?raw` into `driver.instructions`, and share Skills with explicit Sources or a directory link.
 
 An undiscovered definition, such as one created in a Schedule, reads the colocated Skills of the discovered Agent it extends at run time, so import order does not matter. `agentWithSkills()` adds Skills without an Agent folder:
 
@@ -82,25 +87,26 @@ const changelogAgent = agentWithSkills(
 
 Keys are Skill names and values are `SKILL.md` content. Inherited Skills stay, except ones with the same name.
 
-## Named presets
+A discovered child Agent with its own `skills/` folder also keeps the colocated Skills of its parent. A child Skill folder replaces the parent folder with the same name, including its references.
 
-A preset is an Agent Definition that a package publishes for reuse. For a built-in workflow, follow the setup guide of an [Agent preset](/docs/agents/presets). To publish your own, export ordinary `defineAgent()` definitions; apps import them and select one by a local name:
+## Presets from a package
+
+Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 
 ```ts fragment
 import { defineAgent } from "vite-hub/agent"
 import { notetaker } from "@example/agents"
 
 export default defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   name: "meeting-notes",
   driver: { model: "gpt-5.6-sol" },
 })
 ```
 
-- `preset` must name an own entry in `presets`, and merges like `extends`, with child overrides and a new runtime.
-- Give one parent, with either `preset` or `extends`.
-- The `presets` map belongs to this definition only. It registers no global names, loads no packages, and does not become model instructions, nor does the selected name.
+A preset is an ordinary parent: `extends` applies child overrides and creates a fresh runtime. Importing a preset does not register a global name or load other packages, and the preset name never becomes model instructions.
 
 A preset package must declare `@vite-hub/agent` as a peer dependency, so its definitions share the application's package instance. Include instruction content and required assets explicitly, because selecting a preset does not discover its package directory.
 
@@ -123,8 +129,7 @@ Apps override only the options they need:
 
 ```ts fragment
 const notes = defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
+  extends: notetaker,
   options: { format: "detailed", labels: [] },
   driver: { model: "gpt-5.4" },
 })
@@ -171,41 +176,25 @@ Annotate optional fields and literal unions in the defaults to describe the acce
 
 Ordinary Agent overrides apply after the callback and stay through more extensions. Each extension clears an inherited Agent name.
 
-For discovered Agents, a Workspace reference object must use a `name` string that is known at build time. `name: undefined` owns a Workspace. Opaque names need an explicit Workspace ownership marker on the configured definition.
-
 A configured Agent exposes its resolved `options` for host setup and inspection; they do not become model instructions.
 
-## Keep definitions discoverable
+## Declare the Workspace
 
-At build time, discovery reads Agent files, without running configuration callbacks, to find the Workspaces (folders of files that server code reads and changes) they own.
+At build time, discovery reads Agent files without running them, to find the Workspaces (folders of files that server code reads and changes) that they own.
 
-For folder Agents discovered from `agent.ts`, define `configure` in that file and return `defineAgent()` directly, or declare `workspace: {}` or a named Workspace reference on the configured Agent. Discovery rejects an imported `configure`, because it cannot tell which Workspace setup the Agent needs.
+A folder Agent, such as `server/agents/review/agent.ts`, owns a Workspace only when the `defineAgent()` options that its file exports have a `workspace` key:
 
-Discovery cannot read these forms:
+- `workspace: {}` or Workspace options own a Workspace.
+- `workspace: 'shared'` and `workspace: { name: 'shared' }` use a shared Workspace.
+- No `workspace` key, or `workspace: undefined`, declares no Workspace. The Agent stays stateless.
 
-| Form | Examples |
-| --- | --- |
-| Opaque callback results | Imported callbacks, `builders["workspace"]()`, `build!()`, `(build as Factory)()`, returned Agent members such as `agents.storage`. |
-| Dynamic settings | Unresolved computed keys, quoted keys with unsupported escapes, compound `void` expressions, `options.workspaceName`, spreads such as `...importedSettings`. |
-| Indirect preset selection | Imported Agent parents or preset registries, registry spreads, dynamic preset names. |
-| Indirect Capability configuration | Imported options or values, destructured bindings, `options.caps`, `values.storage`, `values.storage()`. |
-| Constructed Capability lists | `false \|\| [storage]`, `Array.of(storage)`, or `[plain].concat(storage)`. |
-| Opaque Channels | Imported Channel maps, package imports, local Channel factories, `makeChannel()`. |
-| Opaque Channel options | `github(options.github)`, `github({ pullRequest: options.pullRequest })`, accessors such as `get pullRequest()`. |
+Write the key in the exported `defineAgent()` call or in a `const` that the call uses. Discovery does not set up a Workspace for a key that it cannot read, such as one in options that a function returns.
 
-When these forms add an owned Workspace, add `workspace: {}`. Otherwise, define settings, parents, Channels, and Capabilities in the same file with direct bindings.
-
-Discovery can read first-party Channel helper calls such as `github({ pullRequest: false })` without running them, Channels imported from relative modules such as `import portal from '../portal.github.ts'` (with the same rules), and relative re-exports such as `export { default } from './inner.ts'` and `export * from './channels.ts'`. It rejects re-exports from packages.
-
-- `github()` owns a Workspace only when `pullRequest` is enabled and `pullRequest.workspace` is not `false`.
-- `discord()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()` own one only through their `capabilities`.
-- An Agent whose Channels own no Workspace stays stateless; do not add `workspace: {}`.
-
-Discovery does not run calls, so it rejects Channel option bindings that are changed or passed to opaque calls, including local callbacks and mutators such as `Object.assign`. Use unchanged local options, or add `workspace: {}` when the Channel owns a Workspace.
+When a Capability, Channel, preset, parent, or `configure` callback adds a Workspace, such as `github({ pullRequest: true })`, also add `workspace: {}`. Without it, the Agent fails with `AGENT_R1037` when it loads.
 
 Configured presets merge Capabilities, Channels, and hooks like `extends`: a child replaces a Capability with the same ID or a Channel with the same key, and a same-name hook runs after the preset's, so an extension's `agent:finish` cannot remove preset behavior. Option callbacks are values that get replaced and are never called by merging.
 
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+Publish the exported definition on npm and pass it as `extends`. There is no second preset factory or global package loader.
 
 ## Next steps
 

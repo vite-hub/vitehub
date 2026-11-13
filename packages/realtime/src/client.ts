@@ -24,6 +24,11 @@ export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
 export interface RealtimeRoomOptions {
   /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
   baseURL?: string
+  /**
+   * The app's origin, such as `https://app.example.com`, for a client running on another site's page. Defaults to the
+   * page's own origin. The definition must let that page's origin in with `origins`.
+   */
+  origin?: string
   /** Query parameters sent to the definition's authorization on presence and workspace connections. */
   params?: Record<string, string>
   /**
@@ -73,15 +78,16 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     for (const listener of updateListeners) listener()
   }
   const url = () => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
+    const app = options.origin ? new URL(options.origin) : window.location
+    const protocol = app.protocol === "https:" ? "wss:" : "ws:"
+    return `${protocol}//${app.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
   }
   const room = documentId.split("/").map(encodeURIComponent).join("/")
   const localState: Record<string, unknown> = {}
 
   function connect() {
     document = new Y.Doc()
-    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params } })
+    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params, clientId: String(document.clientID) } })
     const current = provider
     keepRealtimeSocketAlive(current)
     current.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {

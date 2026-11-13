@@ -18,13 +18,13 @@ import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
 const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue(async () => {})\n'
-const workflow = 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async () => {})\n'
+const workflow = 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow("onboard", async () => {})\n'
 
 describe("vitehub/known-definition-names", () => {
   const definitions = {
     "server/queues/welcome-email.ts": queue,
     "server/workflows/onboard.ts": workflow,
-    "server/databases/analytics/config.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "sqlite" })\n',
+    "server/databases/analytics/index.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ dialect: "sqlite" })\n',
   }
 
   it("reports names that match no discovered Definition", async () => {
@@ -63,9 +63,9 @@ describe("vitehub/known-definition-names", () => {
     expect(await projectCodes(knownDefinitionNames, {
       ...definitions,
       "scripts/smoke.ts": [
-        'import { defineAgent, workflow } from "vite-hub/agent"',
+        'import { agentWorkflow, defineAgent } from "vite-hub/agent"',
         'import { getWorkflowRun } from "vite-hub/workflow"',
-        'export const agent = defineAgent({ runtime: workflow("inline-agent") })',
+        'export const agent = defineAgent({ runtime: agentWorkflow("inline-agent") })',
         'export const run = await getWorkflowRun("inline-agent", "run-1")',
       ].join("\n"),
     })).toEqual([])
@@ -234,12 +234,12 @@ describe("vitehub/workflow-step-names", () => {
   it("reports unknown steps and colliding step files", async () => {
     expect(await projectCodes(workflowStepNames, {
       ...steps,
-      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcomeEmail(user) })\n',
+      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow("onboard", async (payload, { steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcomeEmail(user) })\n',
     })).toEqual(["VHUB0020"])
     expect(await projectCodes(workflowStepNames, {
       ...steps,
       "server/workflows/onboard/03.create-user.ts": "export default async function () {}\n",
-      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async ({ payload, steps }) => steps.createUser(payload))\n',
+      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow("onboard", async (payload, { steps }) => steps.createUser(payload))\n',
     })).toEqual(["VHUB0020"])
   })
 
@@ -248,7 +248,7 @@ describe("vitehub/workflow-step-names", () => {
       ...steps,
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcome(user) })",
+        "export default defineWorkflow(\"onboard\", async (payload, { steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcome(user) })",
         'export async function stepCount(id) { const run = await getWorkflowRun("onboard", id); return run.steps.length }',
       ].join("\n"),
     })).toEqual([])
@@ -266,9 +266,9 @@ describe("vitehub/valid-schedule-cron", () => {
   it("accepts portable cron expressions", async () => {
     expect(await codes(validScheduleCron, {
       "server/schedules/a.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "*/15 0-23 * 1,6 *", handler: async () => {} })\n',
-      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * 1-5", async () => {})\n',
+      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * 1-5", handler: async () => {} })\n',
       // The process runtime accepts names and both day fields. Provider builds report them with `SCHEDULE_R0003`.
-      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * MON", async () => {})\n',
+      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * MON", handler: async () => {} })\n',
       "server/schedules/e.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 0 1 * 1", handler: async () => {} })\n',
     })).toEqual([])
   })
@@ -283,14 +283,14 @@ describe("vitehub/manual-schedule-run", () => {
   it("reports a manual run of a Schedule without manual: true", async () => {
     expect(await projectCodes(manualScheduleRun, {
       ...schedules,
-      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(() => runSchedule("report"))\n',
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(() => runSchedule("report"))\n',
     })).toEqual(["VHUB0022"])
   })
 
   it("accepts a manual run of a manual Schedule", async () => {
     expect(await projectCodes(manualScheduleRun, {
       ...schedules,
-      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(() => runSchedule("backfill"))\n',
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(() => runSchedule("backfill"))\n',
     })).toEqual([])
   })
 })
@@ -314,17 +314,16 @@ describe("vitehub/valid-channel", () => {
 })
 
 describe("second review regressions", () => {
-  it("accepts locally registered Workflows and Schedules run from an explicit registry", async () => {
+  it("accepts locally registered Workflows", async () => {
     expect(await projectCodes(knownDefinitionNames, {
       "server/workflows/onboard.ts": workflow,
-      "server/schedules/digest.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * *", manual: true, handler: async () => {} })\n',
       "server/api/inline.post.ts": [
         'import { createWorkflow, startWorkflow } from "vite-hub/workflow"',
-        'import { runSchedule } from "vite-hub/schedule/runtime"',
+        'import { runSchedule } from "vite-hub/schedule"',
         'createWorkflow("inline", async () => {})',
         "export default defineEventHandler(async () => {",
         '  await startWorkflow("inline", {})',
-        '  await runSchedule("custom", { registry })',
+        '  await runSchedule("custom")',
         "})",
       ].join("\n"),
     })).toEqual([])
@@ -342,7 +341,7 @@ describe("second review regressions", () => {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps }) => steps.createUser(payload))",
+        'export default defineWorkflow("onboard", async (payload, { steps }) => steps.createUser(payload))',
         'export async function stepNames(id) { const { steps } = await getWorkflowRun("onboard", id); return steps?.map(step => step.name) }',
       ].join("\n"),
     })).toEqual([])
@@ -356,7 +355,7 @@ describe("second review regressions", () => {
 
   it("names the Schedule Run status for runSchedule()", async () => {
     const result = await codes(noDestructureNonTuples, {
-      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
     })
     expect(result).toEqual(["VHUB0018"])
   })
@@ -415,7 +414,7 @@ describe("folder Workflow handler steps", () => {
         'import { defineWorkflow } from "vite-hub/workflow"',
         "export function stepNames(run) { return run.steps?.map(step => step.name) }",
         "export function count(steps) { return steps.length }",
-        "export default defineWorkflow(async (ctx) => { await ctx.steps.createUser(ctx.payload); return ctx.steps.sendWelcome() })",
+        "export default defineWorkflow(\"onboard\", async (payload, ctx) => { await ctx.steps.createUser(payload); return ctx.steps.sendWelcome() })",
       ].join("\n"),
     })).toEqual(["VHUB0020"])
   })
@@ -427,14 +426,14 @@ describe("Workflow payload data named steps", () => {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps: run }) => { payload.steps.map(x => x); return run.createUser(payload) })",
+        "export default defineWorkflow(\"onboard\", async (payload, { steps: run }) => { payload.steps.map(x => x); return run.createUser(payload) })",
       ].join("\n"),
     })).toEqual([])
     expect(await projectCodes(workflowStepNames, {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps: run }) => run.sendWelcome(payload))",
+        "export default defineWorkflow(\"onboard\", async (payload, { steps: run }) => run.sendWelcome(payload))",
       ].join("\n"),
     })).toEqual(["VHUB0020"])
   })
@@ -442,10 +441,10 @@ describe("Workflow payload data named steps", () => {
 
 describe("named Workflow handlers", () => {
   it("checks the steps of a handler passed to defineWorkflow() by name", async () => {
-    for (const handler of ["async function onboard(ctx) { await ctx.steps.unknown() }", "const onboard = async ({ steps }) => steps.unknown()"]) {
+    for (const handler of ["async function onboard(payload, ctx) { await ctx.steps.unknown() }", "const onboard = async (payload, { steps }) => steps.unknown()"]) {
       expect(await projectCodes(workflowStepNames, {
         "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
-        "server/workflows/onboard/index.ts": ['import { defineWorkflow } from "vite-hub/workflow"', handler, "export default defineWorkflow(onboard)"].join("\n"),
+        "server/workflows/onboard/index.ts": ['import { defineWorkflow } from "vite-hub/workflow"', handler, "export default defineWorkflow(\"onboard\", onboard)"].join("\n"),
       })).toEqual(["VHUB0020"])
     }
   })

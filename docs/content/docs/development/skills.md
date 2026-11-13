@@ -14,7 +14,7 @@ An [Agent Skill](https://agentskills.io) is a folder with a `SKILL.md` and optio
 | Agent Skills Discovery v0.1.0 | `/.well-known/skills/index.json`, `<name>/<path>` | `npx skills add https://app.example.com` and Executor |
 | MCP Skills extension | `skills/list`, `skills/get`, `resources/list`, `resources/read` for `skill://<name>/<path>` | MCP clients of your MCP server |
 
-It uses only `Request`, `Response`, and Web Crypto, so it runs on every host, also Cloudflare Workers. The [Console](/docs/development/console) serves the ViteHub skill separately, at `/_vitehub/.well-known/skills`.
+It uses only `Request`, `Response`, and Web Crypto, so it runs on every host, also Cloudflare Workers. The [Console](/docs/development/console) endpoint serves the ViteHub skill separately, at `/_vitehub/.well-known/skills`.
 
 ## Define the skills
 
@@ -54,7 +54,7 @@ Both throw a [definition error](#errors) when `SKILL.md`, its `name`, or its `de
 
 ## Serve Agent Skills Discovery
 
-`serveSkills(request, skills)` answers requests under `/.well-known/agent-skills/` or `/.well-known/skills/`, and returns `undefined` for other paths. In Nitro or Nuxt with H3 v2, a middleware passes other requests on:
+`serveSkills(request, skills)` answers requests under `/.well-known/agent-skills/` or `/.well-known/skills/`, and returns `undefined` for other paths. In Nitro or Nuxt, a middleware passes other requests on:
 
 ```ts [server/middleware/skills.ts]
 import { defineHandler } from 'h3'
@@ -63,8 +63,6 @@ import { skills } from '../skills'
 
 export default defineHandler(event => serveSkills(event.req, skills))
 ```
-
-With H3 v1, pass `toWebRequest(event)` instead of `event.req`.
 
 An agent then installs a skill from the site URL:
 

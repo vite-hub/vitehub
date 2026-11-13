@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { consoleInitials, consoleLiveLabel } from "../client/presence";
+import { consoleInitials } from "../client/format";
+import { consoleLiveLabel } from "../client/presence";
 
 import type { ConsoleDocumentSession, ConsoleDocumentSessionUser } from "../client/documents";
 

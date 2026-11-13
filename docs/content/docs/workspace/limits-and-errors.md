@@ -12,6 +12,7 @@ Each Workspace name has one definition.
 
 - `WORKSPACE_B0003`: a discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) share a name, or two contributions share one.
 - `WORKSPACE_B0004`: a contribution is not `{ name, definition: { module, export? }, reason? }`, or its `definition.module` is relative.
+- `WORKSPACE_B0005`: the build cannot load a definition, and its source does not show a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`. So the build cannot write the Artifacts binding that the store may need. Set the store in the `workspace` config.
 
 ## Retained history
 
@@ -51,7 +52,7 @@ Local Store lock markers do not expire. A crashed process can leave one, and lat
 Stop every process that uses the Workspace. Keep the Store and its parent directories unchanged during the call. Then run `recoverLocalWorkspaceLocks()` with the exact `root` of the Local Store:
 
 ```ts
-import { recoverLocalWorkspaceLocks } from '@vite-hub/workspace/runtime'
+import { recoverLocalWorkspaceLocks } from 'vite-hub/workspace/runtime'
 
 await recoverLocalWorkspaceLocks({
   root: '/srv/app/.vitehub/workspaces/docs',

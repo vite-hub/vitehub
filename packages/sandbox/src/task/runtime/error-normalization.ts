@@ -1,6 +1,5 @@
 import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
 import { getViteHubErrorShape } from '@vite-hub/runtime'
-import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
 import { types as nodeTypes } from 'node:util'
 
 export function readSandboxTaskErrorMetadata(error: unknown) {
@@ -74,7 +73,7 @@ function isErrorValue(value: unknown): value is Error {
 function readErrorMessage(error: Error): string | undefined {
   try {
     const message = error.message
-    return hasRuntimeType(message, 'string') && message.length > 0
+    return typeof message === "string" && message.length > 0
       ? message
       : undefined
   }

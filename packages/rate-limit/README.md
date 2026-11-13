@@ -103,13 +103,15 @@ The stable ID and provider policy must use static literals so the Vite integrati
 
 An allowed request continues. An exhausted budget throws an H3 `HTTPError` with status `429`. The default `failure: "deny"` turns an expected driver outage into status `503`; `failure: "allow"` lets the request continue. Use fail-open behavior only when the protected operation is safe without enforcement. Invalid configuration, malformed provider results, missing bindings, and driver defects still throw instead of following the failure policy.
 
-Local Vite development uses the process-local memory driver. A Cloudflare Nitro preset selects Cloudflare Rate Limiting, and every deployed Worker and environment needs a unique namespace. ViteHub has no native Rate Limit driver for Vercel, Netlify, or Deno. Automatic provider selection fails for an unknown production host instead of falling back to unsafe per-instance memory. Select memory explicitly only for a known single-process deployment; otherwise supply a direct production driver. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+Local Vite development uses the process-local memory driver. `provider: "kv"` counts in the default KV store of `@vite-hub/kv` with one atomic `increment` for each request. The Nitro plugin asks KV at boot which driver the store uses: with `redis`, `database`, or `upstash`, every server process shares the counts; with another driver, such as `fs-lite`, it counts in memory and prints a warning. With ViteHub, a `node` build selects `kv` when KV is on, and `memory` otherwise. A build that counts declared Rate Limits in memory prints a warning. A Cloudflare Nitro preset selects Cloudflare Rate Limiting, and every deployed Worker and environment needs a unique namespace. ViteHub has no native Rate Limit driver for Vercel, Netlify, or Deno. Automatic provider selection fails for an unknown production host instead of falling back to unsafe per-instance memory. Select memory explicitly only for a known single-process deployment; otherwise supply a direct production driver. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
 Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A policy that requests strict enforcement or another window fails before deployment, and `vite dev` fails the same way when the build targets Cloudflare, although the dev server counts in memory. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
 
 ## Supply a direct driver
 
-Use `createRateLimiter()` when the application selects the driver and handles the decision. A production driver must implement one atomic `consume()` operation for its backend. A generic KV `get()` followed by `set()` is not safe under concurrent requests.
+Use `createRateLimiter()` when the application selects the driver and handles the decision. A production driver must implement one atomic `consume()` operation for its backend. A generic KV `get()` followed by `set()` is not safe under concurrent requests. `kvRateLimitDriver({ storage })` uses an atomic `increment` instead, so it works with any KV store that has one, for example `kv.store("limits")` from `vite-hub/kv` on Redis or Postgres. Its counters also count rejected requests.
+
+The KV driver waits at most one second for each storage operation. A timed-out consume follows the `failure` policy; peek and reset return `unavailable`. The deadline does not cancel the storage operation, so a timed-out consume can still count. KV configuration errors still throw.
 
 Drivers return `[null, result]` after consuming the counter. They return `[error, undefined]` only for an expected operational outage. The limiter then returns `reason: "unavailable"` and sets `allowed` from the failure policy, which defaults to deny. ViteHub-owned configuration errors, malformed provider results, and implementation defects throw Nostics diagnostics with `RATE_LIMIT_B####` or `RATE_LIMIT_R####` codes. Application driver errors keep their identity. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
@@ -122,6 +124,7 @@ The limiter exposes its resolved `policy` and the driver's declared `capabilitie
 | Driver     | `peek()`                                                                  | `reset()`             |
 | ---------- | ------------------------------------------------------------------------- | --------------------- |
 | memory     | `used`, `remaining`, and `resetAt` in this process. `used: 0` when no counter exists. | Deletes the counter.  |
+| kv         | `used`, `remaining`, and `resetAt` of the current window, shared by every process. | Deletes the counter of the current window. |
 | cloudflare | `unsupported`. The binding exposes only `limit()`, which consumes a token. | `unsupported`.        |
 
 For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` (which asks on a terminal, or needs `--yes`) run the `rate-limit.peek` and `rate-limit.reset` operations of the running app, on the dev server or with `--url` on a deployed app that enables the Console. The Console **Rate Limits** page runs the same operations.
@@ -132,10 +135,11 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 | ----------------------------------------- | ------------------------------------------------------------------------- |
 | `@vite-hub/rate-limit`                    | `requireRateLimit()`, `checkRateLimit()`, `createRateLimiter()`, `peekRateLimit()`, `resetRateLimit()`, and public contract types |
 | `@vite-hub/rate-limit/drivers/memory`     | Process-local fixed-window driver                                         |
+| `@vite-hub/rate-limit/drivers/kv`         | Fixed-window driver on a KV store with an atomic `increment`              |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |
 | `@vite-hub/rate-limit/vite`               | Source discovery, Nitro runtime setup, manifest generation, and Cloudflare bindings |
 
-`@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/operations`, and `@vite-hub/rate-limit/cli` are reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
+`@vite-hub/rate-limit/runtime` is reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
 
 ## Go deeper
 

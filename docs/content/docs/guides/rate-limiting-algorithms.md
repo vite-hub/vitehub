@@ -101,7 +101,7 @@ ViteHub Rate Limit counts and rejects. It does not queue or delay. The algorithm
 - A rejected decision has `retryAfter`: seconds to the window end, rounded up, at least 1. `requireRateLimit()` sends it as `Retry-After`. ViteHub does not send the draft `RateLimit` header fields.
 - Counts live in one process's memory. They reset on restart, and app instances do not share them.
 
-**Cloudflare provider.** On a Cloudflare preset, ViteHub writes a [Workers Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) per Rate Limit ID, with your `limit` and a `period` of 10 or 60 seconds. Cloudflare does not document the algorithm. It says counts are local to each Cloudflare location and eventually consistent, so requests can pass the limit before counts reach other instances. The binding returns only success or failure, so there is no `retryAfter` and no `Retry-After` header. A window other than 10 or 60 seconds fails the build, and so does `enforcement: 'strict'`.
+**Cloudflare provider.** On a Cloudflare host, ViteHub writes a [Workers Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) per Rate Limit ID, with your `limit` and a `period` of 10 or 60 seconds. Cloudflare does not document the algorithm. It says counts are local to each Cloudflare location and eventually consistent, so requests can pass the limit before counts reach other instances. The binding returns only success or failure, so there is no `retryAfter` and no `Retry-After` header. A window other than 10 or 60 seconds fails the build, and so does `enforcement: 'strict'`.
 
 The build writes these guarantees to `.vitehub/rate-limit/manifest.json`. Memory reports `enforcement: "strict"`, `scope: "process"`, and `rejectedAttempts: "not-counted"`. Cloudflare reports `enforcement: "best-effort"`, `scope: "location"`, `rejectedAttempts: "unknown"`, and `windows: [10000, 60000]`. See [Rate Limit hosts](/docs/rate-limit/hosts#inspect-generated-guarantees).
 
@@ -116,7 +116,7 @@ Enable Rate Limit in the Vite config:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', rateLimit: true },
+  vitehub: { host: 'node', rateLimit: true },
 })
 ```
 :::
@@ -128,7 +128,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', rateLimit: true }), nitro()],
+  plugins: [vitehub({ host: 'node', rateLimit: true }), nitro()],
 })
 ```
 :::
@@ -139,7 +139,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', rateLimit: true })],
+  plugins: [vitehub({ host: 'node', rateLimit: true })],
 })
 ```
 :::
@@ -205,8 +205,8 @@ pnpm add @vite-hub/rate-limit
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { rateLimit } from 'vite-hub/agent/capabilities'
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { memoryRateLimitDriver } from 'vite-hub/rate-limit/drivers/memory'
 
 const invocations = createRateLimiter({
   driver: memoryRateLimitDriver(),

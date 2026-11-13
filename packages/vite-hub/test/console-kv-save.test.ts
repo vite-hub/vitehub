@@ -11,7 +11,6 @@ vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default:
 vi.mock("../src/console/runtime/components/console-page-header.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-page-toolbar.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
-vi.mock("../src/console/runtime/components/console-status.vue", () => ({ default: {} }))
 
 import KV from "../src/console/runtime/components/console-kv.vue"
 

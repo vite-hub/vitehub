@@ -14,6 +14,16 @@ icon: i-lucide-cloud-cog
 | Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
 | OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker and runtime. | Choose Postgres or SQLite for deployment. Set `postgres.url` or `sqlite.path`, not both. |
 
+### Install Vercel dependencies
+
+All Vercel Workflow definitions, including plain inline handlers, require `@vercel/functions` in the app:
+
+```bash pm
+pnpm add @vercel/functions
+```
+
+For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. Plain inline handlers do not need these two packages.
+
 ### Upgrade the Vercel Workflow SDK
 
 ViteHub uses `workflow` 5.2.3 and `@workflow/builders` 5.0.6. This has the `nanoid` security fix without the inline early-advance scheduling of Workflow 5.3.0. That scheduling can complete a run while a losing `Promise.race` step still runs, cut its retries short, and write its step events after `run_completed`. So ViteHub stays on 5.2.3.

@@ -15,6 +15,8 @@ export type I18nCatalogLoader = () => Promise<{ messages: Messages }>
 
 export interface I18nRuntimeConfig extends I18nLocaleConfig {
   catalogs: Readonly<Record<string, I18nCatalogLoader>>
+  /** Path of the live catalog route, such as `/_vitehub/i18n`, when a Workspace stores the translations. */
+  live?: string
 }
 
 interface I18nState {
@@ -96,10 +98,34 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
+/**
+ * Translations that a Workspace published after the build. The route answers with an ETag, so the browser downloads a
+ * catalog again only after a publish. When the route fails, the page keeps the catalog of the build.
+ */
+async function liveMessages(live: string, locale: string): Promise<Messages> {
+  try {
+    const response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
+    if (!response.ok) return {}
+    const body = await response.json() as { revision?: string, messages?: Messages }
+    return body.revision === "build" ? {} : body.messages ?? {}
+  }
+  catch {
+    return {}
+  }
+}
+
+async function loadMessages(config: I18nRuntimeConfig | undefined, locale: string): Promise<Messages> {
+  const loader = config?.catalogs[locale]
+  const [{ messages }, live] = await Promise.all([
+    loader ? loader() : { messages: {} },
+    config?.live && browserDocument() ? liveMessages(config.live, locale) : {},
+  ])
+  return { ...messages, ...live }
+}
+
 /** Load the compiled messages of a locale, activate it, and set the document language in the browser. */
 export async function activateLocale(target: I18n, locale: string): Promise<void> {
-  const loader = state().config?.catalogs[locale]
-  const { messages } = loader ? await loader() : { messages: {} }
+  const messages = await loadMessages(state().config, locale)
   target.loadAndActivate({ locale, messages })
   const page = browserDocument()
   if (page) page.documentElement.lang = locale
@@ -151,8 +177,7 @@ export async function setLocaleFor(target: I18n, locale: string): Promise<Result
   const selections = current.selections ||= new WeakMap<I18n, symbol>()
   const selection = Symbol()
   selections.set(target, selection)
-  const loader = config.catalogs[match]
-  const { messages } = loader ? await loader() : { messages: {} }
+  const messages = await loadMessages(config, match)
   if (selections.get(target) !== selection) return [i18nErrorDiagnostics.I18N_LOCALE_SUPERSEDED({ locale: match }), undefined]
   target.loadAndActivate({ locale: match, messages })
   const page = browserDocument()

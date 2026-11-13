@@ -18,8 +18,8 @@ const packedPackages = await packedWorkspacePackages(workspaceRoot, ["agent", "e
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
-  const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
-  const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
+  const command = npmExecPath?.includes("pnpm") ? npmExecPath : "corepack"
+  const commandArgs = npmExecPath?.includes("pnpm") ? args : ["pnpm", ...args]
   try {
     await execFileAsync(command, commandArgs, {
       cwd,
@@ -83,11 +83,12 @@ it("stops a packed Agent webhook queue through Nitro 3 Node shutdown and resumes
         {
           dependencies: {
             ...Object.fromEntries(packedPackages.map(name => [`@vite-hub/${name}`, "workspace:*"])),
+            "drizzle-orm": "1.0.0-rc.5",
             h3: "2.0.1-rc.25",
             nitro: "3.0.260603-beta",
             vite: "8.1.5",
           },
-          packageManager: "pnpm@10.33.0",
+          packageManager: "pnpm@12.16.1",
           private: true,
           type: "module",
         },
@@ -164,7 +165,7 @@ import { hubAgent } from "@vite-hub/agent/vite"
 const root = process.cwd()
 const config = await resolveConfig({
   root,
-  plugins: [hubAgent({ providers: { state: { provider: "sqlite", url: ${JSON.stringify(`file:${statePath}`)} } } })],
+  plugins: [hubAgent({ providers: { state: { driver: "sqlite", url: ${JSON.stringify(`file:${statePath}`)} } } })],
 }, "build")
 const nitro = await createNitro({
   ...config.nitro,

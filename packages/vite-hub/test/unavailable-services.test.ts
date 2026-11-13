@@ -10,7 +10,7 @@ import { createProject } from "./support/content-cms.ts"
 
 // One server route imports Browser and Realtime, whether or not vitehub() enables them.
 const route = [
-  "import { isBrowserAvailable, runBrowserAction } from 'vite-hub/browser/actions'",
+  "import { isBrowserAvailable, runBrowserAction } from 'vite-hub/browser'",
   "import { isRealtimeAvailable, refreshRealtimeDocument } from 'vite-hub/realtime/server'",
   "",
   "export default async () => {",
@@ -26,7 +26,7 @@ const route = [
 async function buildApp(options: ViteHubOptions) {
   const root = await createProject({
     "index.html": "<!doctype html><html><body>ok</body></html>\n",
-    "package.json": JSON.stringify({ name: `unavailable-${options.preset}`, private: true, type: "module" }),
+    "package.json": JSON.stringify({ name: `unavailable-${options.host}`, private: true, type: "module" }),
     "server/routes/services.ts": route,
     "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
   })
@@ -59,17 +59,17 @@ async function callServices(root: string) {
 
 describe("services that a build does not enable", () => {
   it.each([
-    { preset: "cloudflare", output: ".output/server", reason: "vitehub() does not enable Browser." },
-    { preset: "deno", output: ".output/server", reason: "Deno Deploy has no built-in Browser Provider." },
-    { preset: "netlify", output: ".netlify", reason: "Netlify has no built-in Browser Provider." },
-    { preset: "vercel", output: ".vercel/output/functions", reason: "Vercel has no built-in Browser Provider." },
-  ] as const)("builds for $preset and bundles why Browser is off", async ({ output, preset, reason }) => {
-    const root = await buildApp({ preset })
+    { host: "cloudflare", output: ".output/server", reason: "vitehub() does not enable Browser." },
+    { host: "deno", output: ".output/server", reason: "Deno Deploy has no built-in Browser Provider." },
+    { host: "netlify", output: ".netlify", reason: "Netlify has no built-in Browser Provider." },
+    { host: "vercel", output: ".vercel/output/functions", reason: "Vercel has no built-in Browser Provider." },
+  ] as const)("builds for $host and bundles why Browser is off", async ({ output, host, reason }) => {
+    const root = await buildApp({ host })
     expect(await readServerOutput(join(root, output))).toContain(reason)
   }, 120_000)
 
-  it("answers calls with the preset and the fix in a built Node server", async () => {
-    const root = await buildApp({ preset: "node" })
+  it("answers calls with the host and the fix in a built Node server", async () => {
+    const root = await buildApp({ host: "node" })
 
     expect(await callServices(root)).toEqual({
       browser: {
@@ -77,11 +77,11 @@ describe("services that a build does not enable", () => {
         error: {
           code: "BROWSER_UNAVAILABLE",
           details: {
-            fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
-            preset: "node",
-            reason: "The Node preset has no built-in Browser Provider.",
+            fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+            host: "node",
+            reason: "The Node host has no built-in Browser Provider.",
           },
-          message: "[vitehub:browser] Browser is not available on the node preset. The Node preset has no built-in Browser Provider. Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+          message: "[vitehub:browser] Browser is not available on the node host. The Node host has no built-in Browser Provider. Deploy with the Cloudflare host and set `browser: true` in vitehub().",
         },
         status: 500,
       },
@@ -90,7 +90,7 @@ describe("services that a build does not enable", () => {
   }, 120_000)
 
   it("reports Realtime as available when the build has a room authority", async () => {
-    const root = await buildApp({ preset: "node", realtime: { authority: "memory" } })
+    const root = await buildApp({ host: "node", realtime: { authority: "memory" } })
 
     expect(await callServices(root)).toMatchObject({ realtime: { available: true, refreshed: false } })
   }, 120_000)

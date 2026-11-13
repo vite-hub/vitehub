@@ -19,7 +19,7 @@ The test examples import routes and Definitions from your app. Adapt those impor
 ```ts [test/signup.test.ts] fragment
 import { H3 } from 'h3'
 import { beforeEach, expect, test } from 'vitest'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { kv } from 'vite-hub/kv'
 import { setupViteHubTest } from 'vite-hub/test'
 
@@ -49,7 +49,7 @@ test('signup saves the user and sends the welcome email', async () => {
 })
 ```
 
-Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `#vitehub/env/server` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
+Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `vite-hub/env` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
 
 ```ts [vite.config.ts]
 /// <reference types="vitest/config" />
@@ -57,7 +57,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
+  plugins: [vitehub({ host: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
   test: { environment: 'node' },
 })
 ```
@@ -82,7 +82,7 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 
 `reset()` deletes the test folders, closes the databases, empties the lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
 
-Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/migrations/`. Run `vitehub db generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
+Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/default/migrations/`. Run `vitehub database generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
 
 To run a Queue handler, import its Definition and call the handler with a job from `hub.jobs`.
 

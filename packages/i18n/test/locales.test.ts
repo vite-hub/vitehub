@@ -76,6 +76,15 @@ describe("server scope", () => {
     const languages = Array.from({ length: 30 }, (_, index) => ["en", "es", "pt-BR"][index % 3]!)
     expect(await Promise.all(languages.map(handle))).toEqual(languages.map(language => `${language}:${{ en: "Hello", es: "Hola", "pt-BR": "Olá" }[language]}`))
 
+    // Server code keeps the source text. In production, Lingui has no compiler of its own, so the server adds one.
+    const nodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = "production"
+    const untranslated = { req: new Request("http://app.test/", { headers: { "accept-language": "es" } }), context: {} }
+    expect(context.run(untranslated, () => {
+      for (const hook of hooks) hook(untranslated)
+      return translate({ id: "missing", message: "{count, plural, one {# agent} other {# agents}}", values: { count: 2 } })
+    })).toBe("2 agents")
+    process.env.NODE_ENV = nodeEnv
     // Independent requests can change locale concurrently without superseding each other.
     const switchRequest = (language: string) => {
       const event = { req: new Request("http://app.test/"), context: {} }

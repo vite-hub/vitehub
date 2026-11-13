@@ -3,17 +3,20 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
-import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
+import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-invocations"
 
-import { installAgentInvocations, resolveDefaultAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 
 import type { Client } from "@libsql/client"
 import type { AgentInvocationStoreCreateInput, AgentRetentionPolicy } from "@vite-hub/agent/server"
+
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const day = 24 * 60 * 60 * 1000
 const ago = (milliseconds: number) => new Date(Date.now() - milliseconds).toISOString()
@@ -40,7 +43,7 @@ const clients: Client[] = []
 
 beforeAll(async () => {
   // Keep cold module loading outside the journal's one-second store operation timeout.
-  await Promise.all([import("@libsql/client"), import("@vite-hub/agent/invocations/sqlite")])
+  await Promise.all([import("@libsql/client"), import("@vite-hub/agent/invocations")])
 })
 
 beforeEach(async () => {
@@ -156,7 +159,7 @@ describe("Default Agent journal retention", () => {
 
   it("installs a new journal when only maxSize changes", () => {
     const install = (maxSize: "1GB" | "2GB") => {
-      installAgentInvocations({ default: { databaseUrl: url, retention: { maxSize } }, journal: { projectRoot: directory } })
+      installAgentInvocations({ default: { databaseUrl: url, retention: { maxSize } }, journal: { libsql, projectRoot: directory } })
       return resolveDefaultAgentInvocations()
     }
     const first = install("1GB")

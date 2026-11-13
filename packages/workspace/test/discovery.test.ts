@@ -3,9 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createSource } from "@vite-hub/source"
-import { file } from "@vite-hub/source/file"
-import { glob } from "@vite-hub/source/glob"
+import { createSource, file, glob } from "@vite-hub/source"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createWorkspaceRegistryContents, createWorkspaceVirtualRegistryContents, discoverServerWorkspaceDefinitions, discoverViteWorkspaceDefinitions } from "../src/build/discovery.ts"

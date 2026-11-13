@@ -18,7 +18,7 @@ Each KV operation returns `[error, value]`. An error has these fields:
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler } from 'h3'
-import { kv } from '@vite-hub/kv'
+import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get('settings')
@@ -36,23 +36,23 @@ export default defineEventHandler(async () => {
 `JSON.stringify(error)` keeps only `name`, `code`, `why`, `fix`, and `docs`. It drops `cause` and `stack`, because provider errors can contain credentials or private data. Log `cause` only on the server.
 ::
 
-Configuration errors throw instead, such as an unknown store name or a missing Upstash variable. A retry cannot help: change the code or the deployment.
+Configuration errors throw instead, such as an unknown store name or a missing `REDIS_URL` or Upstash variable. A retry cannot help: change the code or the deployment.
 
 | Code | Returned by | Thrown |
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
-| `KV_KEY_TOO_LONG` | `del()`, `get()`, `has()`, `set()` | |
+| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
 | `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
-| `KV_UNSUPPORTED_OPERATION` | `getAndDelete()`, `increment()`, `setIfAbsent()` | |
-| `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
+| `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `setIfAbsent()` | |
+| `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
 | `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
 
 ## Limits
 
-A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare preset checks the same limits.
+A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare host, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare host checks the same limits.
 
 | Limit | Cloudflare KV | Code |
 | --- | --- | --- |
@@ -100,9 +100,9 @@ An invalid key also returns this code, before any provider call: an empty key su
 
 ### KV_UNSUPPORTED_OPERATION
 
-`getAndDelete()` and `increment()` need atomic operations, which only the `upstash` driver has. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use [Rate Limit](/docs/rate-limit).
+`deleteIfEquals()`, `getAndDelete()`, and `increment()` need atomic operations. The `redis`, `database`, and `upstash` drivers support them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
 
-`setIfAbsent()` works on `upstash`, `deno-kv`, and `fs-lite`. Workers KV is eventually consistent and cannot write only when a key is missing, so Cloudflare KV returns this code. There, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
+`setIfAbsent()` works on `redis`, `database`, `upstash`, `deno-kv`, and `fs-lite`. Cloudflare KV returns this code, because Workers KV is eventually consistent and cannot write a key only when it is missing. On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
 
 ### KV_VALUE_TOO_LARGE
 
@@ -110,13 +110,17 @@ The serialized value is larger than 25 MiB, the Cloudflare KV limit. Store large
 
 ## Configuration errors
 
+### KV_DATABASE_UNAVAILABLE
+
+A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare-kv-binding`.
+
 ### KV_DENO_KV_UNAVAILABLE
 
 The `deno-kv` driver needs `Deno.openKv()`. Run on Deno with KV enabled, or pick another driver.
 
 ### KV_DISABLED
 
-The runtime has no KV config. Add `hubKv()` to the Vite config and do not set `kv: false`.
+The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKV()` to the Vite plugins and do not pass `false` to it.
 
 ### KV_INVALID_CONFIG
 
@@ -124,7 +128,7 @@ The runtime has no KV config. Add `hubKv()` to the Vite config and do not set `k
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare-kv-binding`, `deno-kv`, `upstash`, or `fs-lite`.
+`kv.driver` is not `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
 
 ### KV_INVALID_REMOTE
 
@@ -142,6 +146,8 @@ A config with `kv.stores` must have a `default` store.
 
 The `upstash` driver needs `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, at runtime.
 
+The `redis` driver needs the variable of its `url`, `REDIS_URL` by default, in the server environment when the store starts.
+
 ### KV_REMOTE_CONFLICT
 
 In `vite dev`, `remote` conflicts with the driver of the store. `remote: true` cannot apply to `fs-lite` or `deno-kv`, which are local, or to an inferred store that has no hosted store to use. `remote: false` cannot apply to `upstash`, which is always remote. Remove `remote`, or select another driver. Builds ignore boolean `remote` flags. See [Development stays local](/docs/kv/configure#development-stays-local).
@@ -153,6 +159,10 @@ In `vite dev`, `remote` conflicts with the driver of the store. `remote: true` c
 ## Provider and tool errors
 
 A KV operation does not return these errors.
+
+### KV_INVALID_COUNTER
+
+The Database driver cannot increment the stored value because it is not a canonical integer below `Number.MAX_SAFE_INTEGER`. The value stays unchanged. This diagnostic is the `cause` of `KV_OPERATION_FAILED`. Delete the key or replace it with a valid integer, then retry.
 
 ### KV_PROVIDER_INVALID_RESPONSE
 

@@ -1,6 +1,6 @@
 ---
 title: Publish your first CMS post
-description: Select the cms preset in server/content.ts, create its tables, then write and publish a post in the Console editor.
+description: Select the cms preset in server/content.ts, create its tables, then write and publish a post from the terminal.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 A CMS lets you write and publish content, such as blog posts, from an editor in your app. ViteHub's CMS keeps each post as a Markdown file and saves every draft.
 
-In this tutorial, you add a `posts` collection, write a post in the Console, and publish it. The Console is the ViteHub admin page of your app. You set up no storage and no database schema yourself.
+In this tutorial, you add a `posts` collection, write a post with the `vitehub` CLI, and publish it. You set up no storage and no database schema yourself. In production, editors use the Console at [console.vitehub.dev](https://console.vitehub.dev).
 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. Everything runs on your computer.
@@ -24,14 +24,14 @@ pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace 
 pnpm add -D drizzle-kit
 ```
 
-Add `console: { auth: false }` to `vitehub()` in `vite.config.ts`:
+Add `console: { auth: false }` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', console: { auth: false } },
+  vitehub: { host: 'node', console: { auth: false } },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+  plugins: [vitehub({ host: 'node', console: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -54,13 +54,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } })],
+  plugins: [vitehub({ host: 'node', console: { auth: false } })],
 })
 ```
 ::::
 :::
 
-`console: { auth: false }` turns on the [Console](/docs/development/console) with no sign-in. Anyone who can reach the dev server can use it. Use it only on your own computer.
+`console: { auth: false }` turns on the [Console](/docs/development/console) endpoint without signed calls, so the `vitehub` commands can call the dev server. Use it only on your own computer.
 
 ::
 
@@ -70,11 +70,12 @@ export default defineConfig({
 A collection is a group of documents of the same kind. Create `server/content.ts` and add a `posts` collection:
 
 ```ts [server/content.ts]
-import { defineContent, documents } from 'vite-hub/content'
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
 import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: {
     posts: documents({ path: 'posts/**/*.md', fields: { title: z.string(), date: z.coerce.date() } }),
@@ -86,7 +87,7 @@ export const content = defineContent({
 
 - `extends: cms` makes this content a CMS. `vitehub()` then turns on `workspace`, `database`, and `blob` for you. Do not set `workspace` yourself.
 - `posts` keeps each post as a Markdown file under `posts/`. Each post has a `title` and a `date`.
-- `authorize` decides who may read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the Console has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
+- `authorize` decides who may read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the dev server has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
 
 ::
 
@@ -96,12 +97,12 @@ export const content = defineContent({
 Create the database tables that keep the drafts and their history:
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-- `db generate` writes a migration file to `server/databases/migrations/`. A migration is a file that creates or changes tables.
-- `db migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
+- `database generate` writes a migration file to `server/databases/default/migrations/`. A migration is a file that creates or changes tables.
+- `database migrate` creates the tables in the local database file, `.vitehub/data/database/sqlite.db`.
 
 You did not define a database, so ViteHub uses one named `default`. To set it up yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
 
@@ -116,19 +117,29 @@ Start the dev server:
 pnpm dev
 ```
 
-Open `http://localhost:3000/_vitehub/content`. If your app uses another port, use that port. The Console shows the `posts` collection.
+Keep the server running. Open a second terminal, and create `hello-world.md` with the post:
 
-1. Select **Posts**, then **New**. Type a title. The id follows the title.
-2. Pick a date. `date` is a field of the collection, so a post without a date cannot be published.
-3. Select **Create**. The post is a draft now.
-4. Write some text in the body. Drafts save one second after typing stops.
-5. Select **Publish**.
+```md [hello-world.md]
+---
+title: Hello world
+date: 2026-01-31
+---
 
-Keep the server running. Open a second terminal. Check the state of the post, then read it as a visitor does. Replace `<id>` with the id of your post:
+My first post.
+```
+
+`date` is a field of the collection, so a post without a date cannot be published. Save the file as a draft, then publish it:
+
+```bash [commands/publish]
+pnpm vitehub content edit posts hello-world --file ./hello-world.md
+pnpm vitehub content publish --collection posts --id hello-world
+```
+
+`publish` lists the draft and asks you to confirm. Check the state of the post, then read it as a visitor does:
 
 ```bash [commands/status]
 pnpm vitehub content status posts
-curl http://localhost:3000/api/content/get/posts/<id>
+curl http://localhost:3000/api/content/get/posts/hello-world
 ```
 
 `status` shows the post as `published`:
@@ -139,7 +150,7 @@ published  posts/hello-world
 
 The `curl` request returns the post as JSON, with its `title` and `date` in `data`. Visitors see only published posts. A change that you save but do not publish stays hidden.
 
-The [Console editor](/docs/content/console) page shows every task in the editor.
+In production, editors write and publish in the Console editor. The [Console editor](/docs/content/console) page shows every task in it, and [Content CLI](/docs/content/cli) shows every command.
 
 ::
 

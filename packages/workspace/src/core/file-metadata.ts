@@ -4,19 +4,24 @@ import { workspaceError } from "./errors.ts"
 function copyJsonValue(value: unknown, ancestors: Set<object>, normalizeOptional = false): unknown {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value
   if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value
+  // Internal invariant: copyJsonWorkspaceMetadata() catches this and throws a Workspace error with the path.
   if (typeof value !== "object" || ancestors.has(value)) throw new Error("Invalid JSON metadata")
   const array = Array.isArray(value)
   const prototype = Object.getPrototypeOf(value)
+  // Internal invariant: copyJsonWorkspaceMetadata() catches this and throws a Workspace error with the path.
   if (!array && prototype !== Object.prototype && prototype !== null) throw new Error("Invalid JSON metadata")
   ancestors.add(value)
   try {
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const keys = Reflect.ownKeys(descriptors).filter(key => !array || key !== "length")
+    // Internal invariant: copyJsonWorkspaceMetadata() catches this and throws a Workspace error with the path.
     if (array && !normalizeOptional && keys.length !== descriptors.length?.value) throw new Error("Invalid JSON metadata")
     const copy = array ? [] : {}
     for (const [index, key] of keys.entries()) {
+      // Internal invariant: copyJsonWorkspaceMetadata() catches this and throws a Workspace error with the path.
       if (typeof key !== "string" || (array && (normalizeOptional ? !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= descriptors.length?.value : key !== String(index)))) throw new Error("Invalid JSON metadata")
       const descriptor = descriptors[key]!
+      // Internal invariant: copyJsonWorkspaceMetadata() catches this and throws a Workspace error with the path.
       if (!descriptor.enumerable || !("value" in descriptor)) throw new Error("Invalid JSON metadata")
       if (normalizeOptional && descriptor.value === undefined && !array) continue
       Object.defineProperty(copy, key, {

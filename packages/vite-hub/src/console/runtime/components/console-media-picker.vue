@@ -177,7 +177,6 @@ defineExpose({ pick });
           <UInput
             v-model="alt"
             class="min-w-0 flex-1"
-            size="sm"
             :disabled="!access.write && Boolean(one.alt)"
             :placeholder="`Alt text for ${one.name}`"
             aria-label="Alt text"

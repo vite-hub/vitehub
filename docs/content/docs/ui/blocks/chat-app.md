@@ -3,7 +3,7 @@ title: Chat App
 description: "A complete chat layout with a session list, streamed replies, and a prompt with attachments."
 navigation.order: 10
 navigation.group: Blocks
-icon: i-ph-chats-teardrop-light
+icon: i-lucide-messages-square
 ---
 
 This block combines a session list, [`ChatSession`](/docs/ui/chat-session), and [`PromptInput`](/docs/ui/prompt-input) with attachments. Select a session, send a message, or attach a log file. The sessions and replies are fake. No model runs and no requests leave the page.

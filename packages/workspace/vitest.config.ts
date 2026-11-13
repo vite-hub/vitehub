@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 
 export default defineConfig({
   resolve: {
@@ -10,11 +10,29 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    fileParallelism: false,
-    include: ["test/**/*.test.ts"],
-    typecheck: {
-      enabled: true,
-      include: ["test/**/*.test-d.ts"],
-    },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "workspace",
+          include: ["test/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "test/history.test.ts"],
+          typecheck: {
+            enabled: true,
+            include: ["test/**/*.test-d.ts"],
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "history",
+          include: ["test/history.test.ts"],
+          fileParallelism: false,
+          // Miniflare needs the other files to finish before history starts.
+          sequence: { groupOrder: 1 },
+        },
+      },
+    ],
   },
 })

@@ -9,7 +9,7 @@ import { setVercelWorkflowRuntimeLoader, type VercelRun, type VercelWorkflowRunt
 import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 import { agentEnvAccess } from "@vite-hub/env/internal/agent"
-import { defineAgent, workflow } from "../src/index.ts"
+import { defineAgent, agentWorkflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -42,7 +42,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
-  const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: workflow(name) }) })
+  const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: agentWorkflow(name) }) })
   const runs = new Map<string, VercelRun>()
   const statuses = new Map<string, string>()
   const cancel = vi.fn(async (id: string) => { statuses.set(id, "cancelled") })

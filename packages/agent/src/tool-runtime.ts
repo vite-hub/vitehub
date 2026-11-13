@@ -1,5 +1,4 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { executionBudgetCharged, executionBudgetHandledBy, executionBudgetOverride, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
@@ -37,11 +36,11 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
           ...descriptor,
           get: descriptor.get ? () => {
             const value: unknown = descriptor.get!.call(tool)
-            return bindMethod && hasRuntimeType(value, "function") ? value.bind(tool) : value
+            return bindMethod && typeof value === "function" ? value.bind(tool) : value
           } : undefined,
           set: descriptor.set ? (value: unknown) => { descriptor.set!.call(tool, value) } : undefined,
         } })
-      } else if (bindMethod && hasRuntimeType(descriptor.value, "function")) {
+      } else if (bindMethod && typeof descriptor.value === "function") {
         Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, writable: true, value: { ...descriptor, value: descriptor.value.bind(tool) } })
       }
   }
@@ -54,7 +53,7 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
   if (handledBudget) markExecutionBudgetHandled(copied, handledBudget)
   const policyOwner = agentToolPolicyOwners.get(tool)
   const overrideExecute = Object.getOwnPropertyDescriptor(overrides, "execute")?.value
-  if (policyOwner && (!Object.hasOwn(overrides, "execute") || (hasRuntimeType(overrideExecute, "function") && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
+  if (policyOwner && (!Object.hasOwn(overrides, "execute") || (typeof overrideExecute === "function" && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
     agentToolPolicyOwners.set(copied, policyOwner)
   }
   return copied
@@ -105,7 +104,7 @@ type BudgetedToolExecutionContext = AgentToolExecutionContext & { [toolExecution
  * Returns `undefined` when the request was not issued by a policy or already has a grant.
  */
 export function approveAgentToolRequest(request: unknown): AgentToolApprovalGrant | undefined {
-  if (request === null || !hasRuntimeType(request, "object")) return
+  if (request === null || typeof request !== "object") return
   const pending = pendingToolApproval.attached(request)
   if (!pending) return
   const binding = pendingToolApproval.consume(pending)

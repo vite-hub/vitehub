@@ -15,14 +15,8 @@ describe("agent config", () => {
     expect(normalizeAgentOptions(undefined)).toEqual({
       execution: "inline",
       imports: true,
-      integrations: {
-        sandbox: "auto",
-        workflow: "auto",
-      },
       providers: {
-        sandbox: { provider: "auto" },
-        scheduler: { provider: "auto" },
-        state: { provider: "auto" },
+        state: { driver: "auto" },
       },
       routes: {
         discordGateway: false,
@@ -43,12 +37,10 @@ describe("agent config", () => {
 
   it("preserves provider options", () => {
     expect(normalizeAgentOptions({
-      integrations: { sandbox: false },
-      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
+      providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       runtime: "cloudflare-agents",
     })).toMatchObject({
-      integrations: { sandbox: false, workflow: "auto" },
-      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
+      providers: { state: { driver: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       routes: {
         discordGateway: false,
         inspection: false,
@@ -282,8 +274,8 @@ it("rejects readiness overlaps with static, parameterized, and catch-all handler
 it("treats catch-all handlers above a reserved namespace as fallbacks", () => {
   const route = "/_vitehub/agent/invocations/dev"
   // The Console page and an application fallback match only after the static route.
-  expect(validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }, { route: "/**" }], "development invocation", "/_vitehub/agent")).toBe(route)
-  for (const handler of ["/[...path]", "/_vitehub/agent/**", "/_vitehub/agent/[...path]", "/_vitehub/agent/invocations/dev", "/_vitehub/agent/[a]/[b]"]) {
+  expect(validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }, { route: "/**" }, { route: "/[...path]" }], "development invocation", "/_vitehub/agent")).toBe(route)
+  for (const handler of ["/_vitehub/agent/**", "/_vitehub/agent/[...path]", "/_vitehub/agent/invocations/dev", "/_vitehub/agent/[a]/[b]"]) {
     expect(() => validateAgentStaticRoute(route, [{ route: handler }], "development invocation", "/_vitehub/agent")).toThrow("development invocation route conflicts")
   }
   expect(() => validateAgentStaticRoute(route, [{ route: "/_vitehub/**" }], "development invocation")).toThrow("development invocation route conflicts")

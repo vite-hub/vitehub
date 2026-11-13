@@ -4,14 +4,25 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "db:generate": "vitehub db generate",
-    "db:migrate": "vitehub db migrate"
+    "db:generate": "vitehub database generate",
+    "db:migrate": "vitehub database migrate"
   },
   "dependencies": {
     "@comark/html": "catalog:markdown",
     "@libsql/client": "catalog:database",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/cms": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
+    "@vite-hub/content": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "better-auth": "catalog:auth",
-    "comark-content": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
@@ -20,7 +31,6 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@vite-hub/cli": "workspace:*",
     "drizzle-kit": "catalog:database",
     "vite": "catalog:vite"
   },

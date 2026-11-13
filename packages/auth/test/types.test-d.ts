@@ -1,6 +1,5 @@
 import { admin } from "better-auth/plugins"
-import { H3, type Middleware } from "h3"
-import type { UserConfig } from "vite"
+import { H3 } from "h3"
 import virtualAuthRoute, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
@@ -19,7 +18,7 @@ import {
   type AuthDefinitionOptions,
   type AuthDefinitionResolver,
   type AuthFor,
-  type AuthModuleOptions,
+  type AuthOptions,
   type AuthRequest,
   type AuthReservedOption,
   type AuthResolvedDefinitionOptions,
@@ -35,10 +34,10 @@ import {
   auth,
   createAuthForRequest,
   getAuthForDefinition,
-  getAuthorization,
   handleAuthRequest,
   requireAuth,
   requireAuthorization,
+  useAuth,
   withAuth,
   withAuthorization,
 } from "../src/internal/server.ts"
@@ -107,12 +106,8 @@ describe("types", () => {
     expectTypeOf(defineAuth(resolver)).toEqualTypeOf<AuthDefinition<AuthDefinitionResolver<ReturnType<typeof resolver>>>>()
   })
 
-  it("augments vite user config with auth options", () => {
-    const config: UserConfig = {
-      auth: {},
-    }
-
-    expectTypeOf(config.auth).toMatchTypeOf<AuthModuleOptions | undefined>()
+  it("takes Auth options as the plugin argument", () => {
+    expectTypeOf(hubAuth).parameter(0).toEqualTypeOf<AuthOptions | undefined>()
     expectTypeOf(hubAuth()).toHaveProperty("api")
   })
 
@@ -173,29 +168,34 @@ describe("types", () => {
     withAuth((_input: typeof event, authorization) => { authorization.user = { id: "admin" } })
   })
 
-  it("types Auth route middleware for H3 2", () => {
-    const signedIn = requireAuth()
-    const owner = requireAuthorization(({ request, user }) => new URL(request.url).pathname.startsWith(`/posts/${user.id}`))
-    expectTypeOf(signedIn).toMatchTypeOf<Middleware>()
-    expectTypeOf(owner).toMatchTypeOf<Middleware>()
-    expectTypeOf(requireAuthorization(true)).toMatchTypeOf<Middleware>()
+  it("types the inline Auth guards", async () => {
+    const event = requestEvent(new Request("https://app.example.com/me"))
+    expectTypeOf(requireAuth(event)).toEqualTypeOf<Promise<AuthAuthorization>>()
+    expectTypeOf(requireAuthorization(event, ({ request, user }) => new URL(request.url).pathname.startsWith(`/posts/${user.id}`))).toEqualTypeOf<Promise<AuthAuthorization>>()
+    expectTypeOf(requireAuthorization(new Request("https://app.example.com/me"), true)).toEqualTypeOf<Promise<AuthAuthorization>>()
 
-    new H3()
-      .get("/me", (event) => {
-        const authorization = getAuthorization(event)
-        expectTypeOf(authorization).toEqualTypeOf<AuthAuthorization>()
-        // @ts-expect-error The checked authorization is read-only.
-        authorization.user = { id: "admin" }
-        return { id: authorization.user.id }
-      }, { middleware: [signedIn] })
-      .delete("/posts/:id", event => getAuthorization(event).user.id, { middleware: [owner] })
+    new H3().get("/me", async (event) => {
+      const authorization = await requireAuth(event)
+      // @ts-expect-error The checked authorization is read-only.
+      authorization.user = { id: "admin" }
+      return { id: authorization.user.id }
+    })
 
-    // @ts-expect-error The middleware is the result of `requireAuth()`, not the function itself.
+    // @ts-expect-error A guard checks an event. It is not route middleware.
     void new H3().get("/me", () => "ok", { middleware: [requireAuth] })
-    // @ts-expect-error `requireAuth()` returns middleware. It does not check an event.
-    void requireAuth(requestEvent(new Request("https://app.example.com/me")))
+    // @ts-expect-error The guard needs the request event.
+    void requireAuth()
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
-    void requireAuthorization(false)
+    void requireAuthorization(event, false)
+    // @ts-expect-error Auth route middleware and its grant reader are gone. Call `requireAuth(event)` in the handler.
+    void authServer.getAuthorization
+  })
+
+  it("types useAuth() with the app's Auth instance", () => {
+    expectTypeOf(useAuth(requestEvent(new Request("https://app.example.com/me")))).toEqualTypeOf<RegisteredAuth>()
+    expectTypeOf(useAuth(new Request("https://app.example.com/me"))).toEqualTypeOf<RegisteredAuth>()
+    // @ts-expect-error `useAuth(event)` replaces it.
+    void authServer.getAuthForRequest
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {
@@ -254,7 +254,7 @@ describe("types", () => {
     expectTypeOf<RegisteredAuth<{ definition: typeof definition }>>().toEqualTypeOf<AuthFor<typeof definition>>()
     expectTypeOf<RegisteredAuth<{ definition: typeof definition }>["api"]["listUsers"]>().toBeFunction()
     expectTypeOf<RegisteredAuth<{}>>().toEqualTypeOf<ViteHubAuth>()
-    expectTypeOf(authServer.getAuthForRequest).returns.toEqualTypeOf<RegisteredAuth>()
+    expectTypeOf(authServer.useAuth).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.getAuth).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
   })

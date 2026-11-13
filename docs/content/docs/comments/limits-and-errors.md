@@ -79,7 +79,7 @@ The API also returns it for a `POST` or `DELETE` from another origin. Behind a p
 
 ### COMMENTS_POLICY_MISSING
 
-`server/comments.ts` has no `authorize`, so a production build refused a person signed in with ViteHub Auth or `identify`. Without a policy, only GitHub users who can push to the repository, and people the Console admits to its Comments section, get in. Pass `authorize` to `defineComments()`. The status is `403`, and the log shows `COMMENTS_R0006` once. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
+`server/comments.ts` has no `authorize`, so a production build refused a person signed in with ViteHub Auth or `identify`. Without a policy, only GitHub users who can push to the repository, and, for comment operations, callers that the Console admits to its Comments section, get in. Pass `authorize` to `defineComments()`. The status is `403`, and the log shows `COMMENTS_R0006` once. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
 
 ### COMMENTS_SIGN_IN_OFF
 
@@ -107,7 +107,7 @@ The `data-content-field` value is not a Content field address, its collection or
 
 ### COMMENTS_FIELD_NOT_EDITABLE
 
-The field's draft value is not a string, so the page cannot edit it as text. Use the Console Content editor.
+The field's draft value is not a string, so the page cannot edit it as text. Edit it in the Content section of the Console.
 
 ### COMMENTS_FIELD_FORBIDDEN
 
@@ -119,4 +119,4 @@ The document changed after the page read it, for example in the Console or anoth
 
 ### COMMENTS_FIELD_LOCKED
 
-Another person holds this document's edit lease in the Console. `why` names them. Wait until they close it, or edit it together in the Console. See [Editing together](/docs/content/editing-together).
+Another person holds this document's edit lease in the Console. `why` names them. Wait until they close it. See [Editing together](/docs/content/editing-together).

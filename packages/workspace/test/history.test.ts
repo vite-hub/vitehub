@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
-import { eq, sql } from "drizzle-orm"
+import { defineRelations, eq, sql } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -43,28 +43,40 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
   if (driver === "libsql") {
     const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
     cleanup.push(() => client.close())
-    database = drizzleLibsql(client, { schema: workspaceHistorySchema })
+    database = drizzleLibsql({ client })
   }
   else {
-    const worker = new Miniflare({ compatibilityDate: "2026-07-14", d1Databases: ["DB"], r2Buckets: ["HISTORY_R2"], modules: true, script: "export default { fetch() { return new Response('history') } }" })
+    const worker = new Miniflare({
+      compatibilityDate: "2026-07-14", d1Databases: ["DB"], r2Buckets: ["HISTORY_R2"], modules: true,
+      // Execute HTTP queries inside the worker instead of crossing Miniflare's Node binding proxy for each statement.
+      script: `export default {
+        async fetch(request, env) {
+          const payload = await request.json()
+          const queries = payload.batch ?? [payload]
+          try {
+            const results = await env.DB.batch(queries.map(query => env.DB.prepare(query.sql).bind(...query.params)))
+            return Response.json({ success: true, result: results.map(result => ({ success: true, results: { columns: Object.keys(result.results[0] ?? {}), rows: result.results.map(row => Object.values(row)) } })) })
+          }
+          catch (error) {
+            return Response.json({ success: false, errors: [{ message: String(error) }] }, { status: 400 })
+          }
+        }
+      }`,
+    })
     cleanup.push(() => worker.dispose())
-    const binding = await worker.getD1Database("DB")
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
     blob = createBlobStorage(createR2Driver({ driver: "cloudflare-r2", binding: "HISTORY_R2" }))
-    database = driver === "d1" ? drizzleD1(binding, { schema: workspaceHistorySchema }) : createCloudflareD1HttpResolver({
-      name: "history", drizzle: {}, cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
-    }, workspaceHistorySchema, async (_url, options) => {
-      // SAFETY: The test transport receives only this resolver's serialized query payload.
-      const payload = JSON.parse(String(options?.body)) as { sql: string, params: unknown[], batch?: Array<{ sql: string, params: unknown[] }> }
-      const queries = payload.batch ?? [payload]
-      try {
-        const results = await binding.batch<Record<string, unknown>>(queries.map(query => binding.prepare(query.sql).bind(...query.params)))
-        return Response.json({ success: true, result: results.map(result => ({ success: true, results: { rows: result.results.map(row => Object.values(row)) } })) })
-      }
-      catch (error) {
-        return Response.json({ success: false, errors: [{ message: String(error) }] }, { status: 400 })
-      }
+    database = driver === "d1" ? drizzleD1(await worker.getD1Database("DB")) : createCloudflareD1HttpResolver({
+      name: "history", cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
+    }, defineRelations(workspaceHistorySchema), async (url, options) => {
+      const response = await worker.dispatchFetch(String(url), {
+        body: String(options?.body),
+        headers: Object.fromEntries(new Headers(options?.headers)),
+        method: options?.method,
+        signal: options?.signal,
+      })
+      return Response.json(await response.json(), { status: response.status })
     })()
   }
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
@@ -298,12 +310,12 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await store.setMeta!("source-state", { private: true })
     vi.spyOn(blob, "put").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "put", "test", { cause }), undefined])
     await expect(store.history.commit({ ifHead: first.id, files: rawFiles({ "a.txt": "next" }) })).rejects.toMatchObject({ cause, code: "BLOB_OPERATION_FAILED" })
-    const originalDelete = blob.del.bind(blob)
-    vi.spyOn(blob, "del").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "del", "test", { cause }), undefined])
+    const originalDelete = blob.delete.bind(blob)
+    vi.spyOn(blob, "delete").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "delete", "test", { cause }), undefined])
     await expect(store.delete()).rejects.toMatchObject({ cause, code: "BLOB_OPERATION_FAILED" })
     expect(await store.history.head()).toBeNull()
     expect(await store.getMeta!("source-state")).toBeUndefined()
-    blob.del = originalDelete
+    blob.delete = originalDelete
     await store.delete()
     expect((await blob.list())[1]?.blobs).toEqual([])
   })

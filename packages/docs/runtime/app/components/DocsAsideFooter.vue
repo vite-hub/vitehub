@@ -3,6 +3,8 @@ import { useDocsHeaderActionsTarget } from "../composables/headerActions"
 
 // Wide screens have no site header beside the docs sidebar, so its foot holds the repository, the community links, and
 // the color mode button. Phones keep them in the header and its menu.
+// A collapsed sidebar stacks them in its narrow column, as icons.
+defineProps<{ stacked?: boolean }>()
 const { github, site, socials } = useDocsConfig()
 const actionsTargetId = useDocsHeaderActionsTarget()
 const id = `docs-header-actions-${useId()}`
@@ -16,7 +18,7 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
 </script>
 
 <template>
-  <div class="vh-docs-aside-footer">
+  <div class="vh-docs-aside-footer" :class="{ 'is-stacked': stacked }">
     <div :id="id" class="contents" />
     <a
       v-if="github"
@@ -27,7 +29,7 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
       :aria-label="stars ? `${site.name} on GitHub, ${stars} stars` : `${site.name} on GitHub`"
     >
       <UIcon name="i-simple-icons-github" class="size-4 shrink-0" />
-      <span v-if="stars" class="vh-docs-aside-stars">
+      <span v-if="stars && !stacked" class="vh-docs-aside-stars">
         <UIcon name="i-lucide-star" class="size-3.5 shrink-0" />
         {{ stars }}
       </span>
@@ -44,16 +46,8 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
       size="sm"
       :aria-label="link.label"
     />
-    <ClientOnly>
-      <UColorModeButton color="neutral" variant="ghost" size="sm" class="ms-auto" />
-      <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
-      <template #fallback>
-        <span class="ms-auto inline-flex size-7 items-center justify-center text-default" aria-hidden="true">
-          <UIcon name="i-ph-sun-light" class="size-4 dark:hidden" />
-          <UIcon name="i-ph-moon-light" class="hidden size-4 dark:block" />
-        </span>
-      </template>
-    </ClientOnly>
+    <!-- The button renders both icons and the color mode class picks one, so the server draws it too. -->
+    <UColorModeButton color="neutral" variant="ghost" size="sm" :class="{ 'ms-auto': !stacked }" />
   </div>
 </template>
 
@@ -66,6 +60,11 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
   gap: 0.25rem;
   border-top: 1px solid var(--ui-border);
   padding: 0.5rem 0.75rem;
+}
+
+.vh-docs-aside-footer.is-stacked {
+  flex-direction: column;
+  padding: 0.5rem 0;
 }
 
 .vh-docs-aside-github {
@@ -85,10 +84,6 @@ const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat
   background: var(--ui-bg-elevated);
 }
 
-.vh-docs-aside-github:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 1px;
-}
 
 .vh-docs-aside-stars {
   display: inline-flex;

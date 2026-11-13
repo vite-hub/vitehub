@@ -16,7 +16,7 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { file as blobFile, image as blobImage } from "@vite-hub/blob/reference"
+import { file as blobFile, image as blobImage } from "@vite-hub/blob"
 import { documents, optional, singleton } from "../src/collections.ts"
 import { defineContent, file, image, seo } from "../src/index.ts"
 
@@ -38,7 +38,7 @@ async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizz
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `site-${++workspaces}`

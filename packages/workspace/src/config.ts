@@ -6,7 +6,7 @@ import { normalizeWorkspaceStoreOptions } from "./storage/provider.ts"
 
 import type {
   ResolvedWorkspaceModuleOptions,
-  WorkspaceModuleOptions,
+  WorkspaceOptions,
 } from "./core/types.ts"
 import type { WorkspaceResolutionInput } from "./storage/provider.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
@@ -30,7 +30,7 @@ export {
 } from "./storage/provider.ts"
 
 export function normalizeWorkspaceOptions(
-  options: false | WorkspaceModuleOptions | undefined,
+  options: false | WorkspaceOptions | undefined,
   input: WorkspaceResolutionInput = {},
 ): false | ResolvedWorkspaceModuleOptions {
   if (options === false) return false
@@ -38,7 +38,7 @@ export function normalizeWorkspaceOptions(
     throw workspaceErrorDiagnostics.WORKSPACE_C0001({ message: "`workspace` must be a plain object." })
   }
 
-  const resolvedOptions = (options || {}) as WorkspaceModuleOptions
+  const resolvedOptions = (options || {}) as WorkspaceOptions
   const unsupported = Object.keys(resolvedOptions).filter(key => !workspaceConfigKeys.has(key))
   if (unsupported.length) {
     throw workspaceErrorDiagnostics.WORKSPACE_C0002({ message: `[vitehub] workspace config does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })

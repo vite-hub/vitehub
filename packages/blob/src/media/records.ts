@@ -10,6 +10,7 @@ import { averageImageColor } from "./color.ts"
 import { probeImage } from "./probe.ts"
 import { selectImageTransformer } from "./transformers.ts"
 import { isMediaCropName, isMediaFocalPoint, parseAspectRatio, resolveImageGeometry } from "./variant.ts"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { ResolvedBlobImages } from "./transformers.ts"
 import type { MediaCrop, MediaCropReplacement, MediaRecord, MediaUpdate, MediaVariantEntry } from "./types.ts"
@@ -46,7 +47,7 @@ export interface BlobMediaContext {
   driver: BlobDriverAdapter<unknown>
   images: ResolvedBlobImages | undefined
   normalizePathname(pathname: string): string
-  storage: Pick<BlobStorage, "del" | "list" | "put">
+  storage: Pick<BlobStorage, "delete" | "list" | "put">
   store: string
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
@@ -61,6 +62,7 @@ export interface InternalBlobMedia extends BlobMedia {
   planVariant(pathname: string, variant: BlobImageVariant): Promise<MediaVariantPlan | undefined>
 }
 
+// Internal invariant: media methods catch this and return its code as a Result error.
 class MediaFailure extends Error {
   constructor(readonly code: BlobErrorCode, message: string, readonly result?: ResultError<BlobErrorCode>) {
     super(message)
@@ -72,17 +74,11 @@ function invalid(message: string): Error {
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Records come from stored JSON.
   return typeof value === "string"
 }
 
 function isNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Records come from stored JSON.
   return typeof value === "number" && Number.isFinite(value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && !Array.isArray(value) && Object(value) === value
 }
 
 async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
@@ -413,7 +409,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
 
   async function removeMedia(pathname: string): Promise<void> {
     const record = await readRecord(pathname)
-    unwrap(await context.storage.del(pathname))
+    unwrap(await context.storage.delete(pathname))
     for (const crop of Object.values(record?.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement, pathname)
     }
@@ -465,7 +461,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     for (const crop of Object.values(destination?.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement)
     }
-    unwrap(await context.storage.del(from))
+    unwrap(await context.storage.delete(from))
     for (const crop of Object.values(record.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement, from)
     }
@@ -658,7 +654,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       if (content.length && !options.force) throw new MediaFailure("BLOB_CONFLICT", `Folder ${folder}/ in store ${store} is not empty. Pass { force: true } to remove ${content.length} objects.`)
       for (const object of content) await removeMedia(object.pathname)
       const markers = objects.filter(object => baseName(object.pathname) === mediaFolderMarker).map(object => object.pathname)
-      if (markers.length) unwrap(await context.storage.del(markers))
+      if (markers.length) unwrap(await context.storage.delete(markers))
       return { removed: content.length }
     }),
     moveFolder: (from, to) => run(async () => {
@@ -673,7 +669,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
         const destination = `${target}/${object.pathname.slice(source.length + 1)}`
         if (baseName(object.pathname) === mediaFolderMarker) {
           await copyObject(object.pathname, destination, object)
-          unwrap(await context.storage.del(object.pathname))
+          unwrap(await context.storage.delete(object.pathname))
           continue
         }
         await moveMedia(object.pathname, destination, false)

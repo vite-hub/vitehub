@@ -1,14 +1,11 @@
 // @vitest-environment happy-dom
 
 import { flushPromises, mount } from "@vue/test-utils";
-import type { WebContainerStatus, WebContainerStep } from "@vite-hub/web-container";
-import { defineConnect } from "@vite-hub/web-container/connect";
+import type { WebContainerStep } from "@vite-hub/web-container";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, nextTick } from "vue";
+import { h, nextTick } from "vue";
 import { BrowserSupportNotice, detectUnsupportedBrowser } from "../src/workspace/browser-support-notice.ts";
-import { ConnectPanel } from "../src/workspace/connect-panel.ts";
-import { useConnectStore } from "../src/workspace/connect-store.ts";
-import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace/workspace-boot-status.ts";
+import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace.ts";
 import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
 import { WorkspaceTerminal } from "../src/workspace/workspace-terminal.ts";
@@ -30,415 +27,13 @@ vi.mock("@xterm/xterm", () => ({
 }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
-// A fake container: the tests control when each process exits.
-const fake = vi.hoisted(() => {
-  const state = {
-    disk: new Map<string, string>(),
-    directories: new Set<string>(),
-    autoReady: true,
-    failNext: false,
-    ready: undefined as ((url: string) => void) | undefined,
-    serverListener: undefined as ((server: { url: string, port: number }) => void) | undefined,
-    exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void }[],
-    output: [] as ReadableStreamDefaultController<string>[],
-    mountFiles: undefined as Record<string, string> | undefined,
-    releaseBoot: undefined as (() => void) | undefined,
-    statusListener: undefined as ((status: WebContainerStatus) => void) | undefined,
-  };
-  return state;
-});
-
-vi.mock("@vite-hub/web-container", () => ({
-  checkWebContainerSupport: () => ({ supported: true }),
-  async bootWebContainer(options: { files: Record<string, string>, onStatus: (status: WebContainerStatus) => void }) {
-    fake.statusListener = options.onStatus;
-    fake.mountFiles = { ...options.files };
-    for (const [path, contents] of Object.entries(options.files)) {
-      fake.disk.set(path, contents);
-      const parts = path.split("/");
-      while (parts.pop() && parts.length) fake.directories.add(parts.join("/"));
-    }
-    options.onStatus({ stage: "booting", steps: [{ stage: "booting", startedAt: 0 }] });
-    await new Promise<void>((resolve) => { fake.releaseBoot = resolve; });
-    let ready: (value: { url: string, port: number }) => void = () => {};
-    const readyPromise = new Promise<{ url: string, port: number }>((resolve) => { ready = resolve; });
-    let previewUrl: string | undefined;
-    fake.ready = (url) => {
-      previewUrl = url;
-      const server = { port: 3000, url };
-      ready(server);
-      fake.serverListener?.(server);
-    };
-    return {
-      status: { stage: "mounting", steps: [] },
-      preview: { ready: readyPromise, get url() { return previewUrl; } },
-      fs: {
-        mkdir: async (path: string) => { fake.directories.add(path); },
-        rm: async (path: string) => {
-          if ([...fake.disk.keys(), ...fake.directories].some(child => child.startsWith(`${path}/`))) throw new Error("ENOTEMPTY");
-          fake.disk.delete(path);
-          fake.directories.delete(path);
-        },
-        writeFile: async (path: string, contents: string) => {
-          if (fake.directories.has(path)) throw new Error("EISDIR");
-          fake.disk.set(path, contents);
-        },
-      },
-      on: (event: string, listener: never) => {
-        if (event === "server-ready") fake.serverListener = listener;
-        else fake.statusListener = listener;
-        return () => {};
-      },
-      async run(command: unknown, options: { env?: Record<string, string> } = {}) {
-        if (fake.failNext) { fake.failNext = false; throw new Error("spawn failed"); }
-        let resolve: (code: number) => void = () => {};
-        const exit = new Promise<number>((done) => { resolve = done; });
-        fake.exits.push({ command, env: options.env, resolve });
-        if (command !== "install" && fake.autoReady) fake.ready?.("https://preview.example");
-        return { exit, kill: () => resolve(143), output: new ReadableStream<string>({ start(controller) { fake.output.push(controller); controller.enqueue(`$ ${String(command)}\n`); } }) };
-      },
-      teardown: () => {},
-    };
-  },
-}));
-
-const { useWorkspace } = await import("../src/workspace/use-workspace.ts");
-
-function mountWorkspace(options: Parameters<typeof useWorkspace>[0]) {
-  let workspace!: ReturnType<typeof useWorkspace>;
-  const wrapper = mount(defineComponent({
-    setup() {
-      workspace = useWorkspace(options);
-      return () => h("div");
-    },
-  }));
-  return { workspace, wrapper };
-}
-
 beforeEach(() => {
-  fake.disk.clear();
-  fake.directories.clear();
-  fake.autoReady = true;
-  fake.failNext = false;
-  fake.ready = undefined;
-  fake.serverListener = undefined;
-  fake.statusListener = undefined;
-  fake.exits.length = 0;
-  fake.output.length = 0;
-  fake.mountFiles = undefined;
-  fake.releaseBoot = undefined;
   sessionStorage.clear();
   localStorage.clear();
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-});
-
-describe("useWorkspace", () => {
-  it("writes edits made before mount when the mount ends, and tracks modified files", async () => {
-    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a", "b.txt": "b" } });
-    await flushPromises();
-    expect(workspace.status.value).toBe("booting");
-
-    await workspace.setFiles({ "a.txt": "edited", "new/c.txt": "c" });
-    expect(fake.mountFiles).toEqual({ "a.txt": "a", "b.txt": "b" });
-    expect(workspace.modified.value).toEqual(["a.txt", "new/c.txt"]);
-
-    fake.releaseBoot?.();
-    await flushPromises();
-    expect(fake.disk.get("a.txt")).toBe("edited");
-    expect(fake.disk.get("new/c.txt")).toBe("c");
-    expect(fake.exits.map(run => run.command)).toEqual(["install"]);
-
-    await workspace.setFiles({ "a.txt": "a" }, { mode: "replace" });
-    expect([...fake.disk.keys()]).toEqual(["a.txt"]);
-    await workspace.reset();
-    expect(Object.fromEntries(fake.disk)).toEqual({ "a.txt": "a", "b.txt": "b" });
-    expect(workspace.modified.value).toEqual([]);
-    wrapper.unmount();
-  });
-
-  it("reports an install failure with its exit code, and retries the install", async () => {
-    const { workspace, wrapper } = mountWorkspace({ env: () => ({ OPENAI_API_KEY: "sk-test" }), files: { "a.txt": "a" } });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    fake.exits[0]?.resolve(1);
-    await flushPromises();
-    expect(workspace.failure.value).toMatchObject({ exitCode: 1, kind: "install" });
-    expect(workspace.status.value).toBe("error");
-
-    void workspace.install();
-    await flushPromises();
-    expect(workspace.failure.value).toBeUndefined();
-    fake.exits[1]?.resolve(0);
-    await flushPromises();
-    expect(fake.exits.map(run => run.command)).toEqual(["install", "install", "dev"]);
-    expect(fake.exits[2]?.env).toEqual({ OPENAI_API_KEY: "sk-test" });
-    expect(workspace.previewUrl.value).toBe("https://preview.example");
-    wrapper.unmount();
-  });
-
-  it("reports a stopped dev server and restarts it", async () => {
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    expect(fake.exits.map(run => run.command)).toEqual(["dev"]);
-
-    fake.exits[0]?.resolve(1);
-    await flushPromises();
-    expect(workspace.failure.value).toMatchObject({ exitCode: 1, kind: "server" });
-    expect(workspace.previewUrl.value).toBeUndefined();
-
-    await workspace.restart();
-    await flushPromises();
-    expect(workspace.failure.value).toBeUndefined();
-    expect(fake.exits.map(run => run.command)).toEqual(["dev", "dev"]);
-
-    // A restart that the app asks for is not a failure.
-    await workspace.restart();
-    await flushPromises();
-    expect(workspace.failure.value).toBeUndefined();
-    wrapper.unmount();
-  });
-
-  it.each([
-    { install: false, start: false },
-    { install: "install", start: false },
-    { install: false, start: ["node", "server.js"] },
-  ] as const)("completes start mode $start with install $install", async ({ install, start }) => {
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install, start });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    if (install !== false) {
-      fake.exits[0]?.resolve(0);
-      await flushPromises();
-    }
-    expect(workspace.status.value).toBe("ready");
-    wrapper.unmount();
-  });
-
-  it("keeps a restarted preview empty until the new server is ready", async () => {
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    expect(workspace.previewUrl.value).toBe("https://preview.example");
-    fake.autoReady = false;
-    await workspace.restart();
-    await flushPromises();
-    expect(workspace.previewUrl.value).toBeUndefined();
-    expect(workspace.status.value).toBe("starting");
-    fake.ready?.("https://replacement.example");
-    expect(workspace.previewUrl.value).toBe("https://replacement.example");
-    expect(workspace.status.value).toBe("ready");
-    wrapper.unmount();
-  });
-
-  it("ignores other server ports before readiness and after restart", async () => {
-    fake.autoReady = false;
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false, port: 3000 });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-
-    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
-    expect(workspace.previewUrl.value).toBeUndefined();
-    expect(workspace.status.value).toBe("starting");
-    fake.ready?.("https://preview.example");
-    expect(workspace.previewUrl.value).toBe("https://preview.example");
-    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
-    expect(workspace.previewUrl.value).toBe("https://preview.example");
-
-    await workspace.restart();
-    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
-    expect(workspace.previewUrl.value).toBeUndefined();
-    expect(workspace.status.value).toBe("starting");
-    fake.ready?.("https://replacement.example");
-    expect(workspace.previewUrl.value).toBe("https://replacement.example");
-    expect(workspace.status.value).toBe("ready");
-    wrapper.unmount();
-  });
-
-  it("serializes overlapping install and restart recovery", async () => {
-    const { workspace, wrapper } = mountWorkspace({ files: {} });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    fake.exits[0]?.resolve(0);
-    await flushPromises();
-    const installing = workspace.install();
-    const restarting = workspace.restart();
-    await flushPromises();
-    expect(fake.exits.map(run => run.command)).toEqual(["install", "dev", "install"]);
-    fake.exits[2]?.resolve(0);
-    await Promise.all([installing, restarting]);
-    expect(fake.exits.map(run => run.command)).toEqual(["install", "dev", "install", "dev", "dev"]);
-    wrapper.unmount();
-  });
-
-  it.each(["install", "server"] as const)("retries a %s spawn failure on the existing container", async (kind) => {
-    fake.failNext = true;
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: kind === "server" ? false : "install" });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    expect(workspace.failure.value).toMatchObject({ kind, error: { message: "spawn failed" } });
-    const retry = kind === "install" ? workspace.install() : workspace.restart();
-    await flushPromises();
-    if (kind === "install") fake.exits[0]?.resolve(0);
-    await retry;
-    expect(workspace.failure.value).toBeUndefined();
-    expect(workspace.status.value).toBe("ready");
-    wrapper.unmount();
-  });
-
-  it("replaces nested directories with a file and resets it", async () => {
-    const { workspace, wrapper } = mountWorkspace({ files: { "src/nested/main.ts": "original" }, install: false, start: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    await workspace.setFiles({ src: "replacement" }, { mode: "replace" });
-    expect(Object.fromEntries(fake.disk)).toEqual({ src: "replacement" });
-    await workspace.reset();
-    expect(Object.fromEntries(fake.disk)).toEqual({ "src/nested/main.ts": "original" });
-    wrapper.unmount();
-  });
-
-  it("removes root files named after inherited object properties on replacement", async () => {
-    const files = { constructor: "source", toString: "text" };
-    const { workspace, wrapper } = mountWorkspace({ files, install: false, start: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    await workspace.setFiles({ "new.txt": "new" }, { mode: "replace" });
-    expect(Object.fromEntries(fake.disk)).toEqual({ "new.txt": "new" });
-    await workspace.reset();
-    expect(Object.fromEntries(fake.disk)).toEqual(files);
-    wrapper.unmount();
-  });
-
-  it.each(["starting", "ready"])("keeps asynchronous errors visible from %s until recovery", async (stage) => {
-    fake.autoReady = stage === "ready";
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    expect(workspace.status.value).toBe(stage);
-
-    const error = new Error("Container disconnected");
-    fake.statusListener?.({ error, stage: "error", steps: [] });
-    expect(workspace.failure.value).toEqual({ error, kind: "server" });
-    expect(workspace.previewUrl.value).toBeUndefined();
-    fake.ready?.("https://late.example");
-    expect(workspace.status.value).toBe("error");
-    expect(workspace.previewUrl.value).toBeUndefined();
-
-    fake.autoReady = true;
-    await workspace.restart();
-    expect(workspace.failure.value).toBeUndefined();
-    expect(workspace.status.value).toBe("ready");
-    wrapper.unmount();
-  });
-
-  it("does not start a server after an asynchronous install error", async () => {
-    const { workspace, wrapper } = mountWorkspace({ files: {} });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    const error = new Error("Container disconnected during install");
-    fake.statusListener?.({ error, stage: "error", steps: [] });
-    fake.exits[0]?.resolve(0);
-    await flushPromises();
-    expect(workspace.failure.value).toEqual({ error, kind: "install" });
-    expect(workspace.status.value).toBe("error");
-    expect(fake.exits.map(run => run.command)).toEqual(["install"]);
-
-    const retry = workspace.install();
-    await flushPromises();
-    fake.exits[1]?.resolve(0);
-    await retry;
-    expect(workspace.failure.value).toBeUndefined();
-    expect(workspace.status.value).toBe("ready");
-    wrapper.unmount();
-  });
-
-  it("bounds retained output for large chunks and long-running processes", async () => {
-    vi.useFakeTimers();
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    const output = fake.output[0]!;
-    output.enqueue("x".repeat(70_000));
-    output.enqueue("newest\n");
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(workspace.logs.value.join("")).toBe(`${"x".repeat(65_536 - 7)}newest\n`);
-
-    for (let index = 0; index < 1100; index++) output.enqueue(`${index}\n`);
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(workspace.logs.value).toHaveLength(1000);
-    expect(workspace.logs.value.join("")).toBe(Array.from({ length: 1000 }, (_, index) => `${index + 100}\n`).join(""));
-    wrapper.unmount();
-  });
-
-  it("writes only new terminal output across character and chunk retention rollover", async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); disconnect = vi.fn(); });
-    terminal.reset.mockClear();
-    terminal.write.mockClear();
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
-    const screen = mount(defineComponent({
-      setup: () => () => h(WorkspaceTerminal, { output: workspace.logs.value }),
-    }));
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    const output = fake.output[0]!;
-    output.enqueue("x".repeat(65_520));
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(50);
-    terminal.write.mockClear();
-
-    for (const chunk of ["first rollover\n", "second rollover\n"]) {
-      output.enqueue(chunk);
-      await flushPromises();
-      await vi.advanceTimersByTimeAsync(50);
-      expect(terminal.write.mock.calls).toEqual([[chunk]]);
-      expect(terminal.reset).not.toHaveBeenCalled();
-      terminal.write.mockClear();
-    }
-
-    for (let index = 0; index < 1005; index++) output.enqueue(`${index}\n`);
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(workspace.logs.value).toHaveLength(1000);
-    expect(terminal.reset).not.toHaveBeenCalled();
-    terminal.write.mockClear();
-    output.enqueue("after chunk rollover\n");
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(terminal.write.mock.calls).toEqual([["after chunk rollover\n"]]);
-    expect(terminal.reset).not.toHaveBeenCalled();
-    screen.unmount();
-    wrapper.unmount();
-  });
-
-  it("collects process output in order", async () => {
-    vi.useFakeTimers();
-    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
-    await flushPromises();
-    fake.releaseBoot?.();
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(workspace.logs.value.join("")).toBe("$ dev\n");
-    wrapper.unmount();
-  });
 });
 
 describe("WorkspaceTerminal", () => {
@@ -552,110 +147,6 @@ describe("WorkspaceBootStatus", () => {
   });
 });
 
-describe("ConnectPanel", () => {
-  it.each(["getItem", "setItem", "removeItem"] as const)("keeps credentials in memory when %s throws", (method) => {
-    const blocked = {
-      length: 0,
-      clear() {},
-      key: () => null,
-      getItem: () => null,
-      setItem() {},
-      removeItem() {},
-    };
-    blocked[method] = () => { throw new Error("Storage blocked"); };
-    vi.spyOn(window, "sessionStorage", "get").mockReturnValue(blocked);
-    const store = useConnectStore();
-    store.set("openai", "sk-memory");
-    expect(store.credentials.value).toEqual({ openai: "sk-memory" });
-    store.remove("openai");
-    expect(store.credentials.value).toEqual({});
-    store.clear();
-    vi.restoreAllMocks();
-  });
-
-  it.each([{ vercel: { clientId: "client" } }, { github: { app: "my-app" } }])("emits OAuth metadata for %j", async (config) => {
-    const connect = defineConnect(config);
-    const provider = connect.providers[0]!;
-    const wrapper = mount(ConnectPanel, { props: { connect } });
-    await wrapper.get(`[aria-label='Connect ${provider.name === "github" ? "GitHub" : "Vercel"}']`).trigger("click");
-    expect(wrapper.emitted("oauth")).toEqual([[provider]]);
-    expect(wrapper.find("input[type=password]").exists()).toBe(false);
-    expect(wrapper.text()).not.toContain("Paste a token");
-    await wrapper.setProps({ states: { [provider.name]: { status: "error" } } });
-    expect(wrapper.text()).toContain("Sign in again");
-    await wrapper.get(`[aria-label='Connect ${provider.name === "github" ? "GitHub" : "Vercel"}']`).trigger("click");
-    expect(wrapper.emitted("oauth")).toEqual([[provider], [provider]]);
-    wrapper.unmount();
-  });
-
-  const connect = defineConnect({ anthropic: true, cloudflare: { relay: "reader" }, github: true, openai: true, vercel: true });
-
-  it("groups providers and shows one status line and one action per state", async () => {
-    const wrapper = mount(ConnectPanel, {
-      props: {
-        connect,
-        relayUrl: "https://vitehub.dev/docs/relay",
-        states: {
-          github: { message: "GitHub blocked the request", status: "blocked", command: "npx vitehub deploy" },
-          openai: { account: "acme", status: "connected" },
-          vercel: { status: "error" },
-        },
-      },
-    });
-    expect(wrapper.findAll("h3").map(heading => heading.text())).toEqual(["Deploy", "Source", "Model keys"]);
-    const row = (name: string) => wrapper.get(`[data-provider='${name}']`);
-    expect(row("anthropic").text()).toContain("Paste a token");
-    expect(row("cloudflare").text()).toContain("Needs a relay. Cloudflare does not accept browser requests.");
-    expect(row("cloudflare").get("a").attributes("href")).toBe("https://vitehub.dev/docs/relay");
-    expect(row("openai").text()).toContain("acme · OPENAI_API_KEY");
-    expect(row("vercel").text()).toContain("Vercel rejected the token. Paste a new one.");
-    expect(row("github").text()).toContain("Set up relay");
-    await row("github").findAll("button").find(button => button.text() === "Copy command")?.trigger("click");
-    expect(wrapper.emitted("copy-command")).toEqual([["npx vitehub deploy"]]);
-
-    await row("openai").get("button").trigger("click");
-    expect(wrapper.emitted("disconnect")).toEqual([["openai"]]);
-    await wrapper.findAll("button").find(button => button.text() === "Remove all")?.trigger("click");
-    expect(wrapper.emitted("remove-all")).toHaveLength(1);
-    expect(wrapper.get("footer").text()).toContain("ViteHub servers never receive them.");
-  });
-
-  it("says when a page needs no accounts", () => {
-    const wrapper = mount(ConnectPanel, { props: { connect: defineConnect({}), empty: "No accounts needed for this step." } });
-    expect(wrapper.text()).toBe("No accounts needed for this step.");
-    expect(wrapper.find("footer").exists()).toBe(false);
-  });
-
-  it("asks for a token in a labeled password input", async () => {
-    const wrapper = mount(ConnectPanel, { attachTo: document.body, props: { connect } });
-    await wrapper.get("[aria-label='Connect Anthropic']").trigger("click");
-    const input = wrapper.get("input");
-    expect(input.attributes()).toMatchObject({ autocomplete: "off", type: "password" });
-    expect(wrapper.get(`label[for='${input.attributes("id")}']`).text()).toBe("Anthropic token");
-    expect(wrapper.get(".vh-ws-token-form a").text()).toBe("Create a token");
-    await input.setValue("sk-ant-1");
-    await wrapper.get("form").trigger("submit");
-    expect(wrapper.emitted("connect")).toEqual([["anthropic", "sk-ant-1"]]);
-    expect(wrapper.find("input").exists()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it("keeps tokens in sessionStorage and maps them to env", () => {
-    const store = useConnectStore();
-    store.set("openai", "sk-1");
-    expect(JSON.parse(sessionStorage.getItem("vitehub:connect") ?? "{}")).toEqual({ openai: "sk-1" });
-    expect(useConnectStore().credentials.value).toEqual({ openai: "sk-1" });
-    const env = store.env(connect);
-    expect(env.value).toEqual({ OPENAI_API_KEY: "sk-1" });
-    store.remove("openai");
-    expect(env.value).toEqual({});
-    store.set("github", "ghp");
-    store.clear();
-    expect(sessionStorage.getItem("vitehub:connect")).toBeNull();
-    expect(localStorage.length).toBe(0);
-  });
-});
-
 describe("BrowserSupportNotice", () => {
   it("renders nothing until the check says the browser is not supported", async () => {
     const wrapper = mount(BrowserSupportNotice, { props: { supported: undefined } });
@@ -713,12 +204,14 @@ describe("WorkspaceShell", () => {
         terminal: () => h("p", "terminal"),
       },
     });
+    // The strip is Nuxt UI's UTabs, which loads on first render. It selects a tab on mouse down, as reka-ui does.
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']")).toHaveLength(3), { timeout: 5_000 });
     const tabs = wrapper.findAll("[role='tab']");
     expect(tabs.map(tab => tab.text())).toEqual(["Preview", "Terminal", "Connect"]);
     expect(wrapper.get("[data-tab='terminal']").attributes()).toHaveProperty("inert");
     expect(wrapper.get("[data-tab='preview']").attributes()).not.toHaveProperty("inert");
 
-    await tabs[1]?.trigger("click");
+    await tabs[1]?.trigger("mousedown", { button: 0 });
     expect(wrapper.emitted("update:tab")).toEqual([["terminal"]]);
     expect(wrapper.get("[data-tab='preview']").attributes()).toHaveProperty("inert");
 
@@ -733,13 +226,22 @@ describe("WorkspaceShell", () => {
     expect(again.get("[data-split='main']").attributes("aria-valuenow")).toBe("60");
   });
 
-  it("puts the terminal under the editor in a playground", () => {
+  it("puts the panels under the editor and the preview at the side in a playground", async () => {
     const wrapper = mount(WorkspaceShell, {
       props: { layout: "playground", storageKey: false },
       slots: { editor: () => h("p", "editor"), preview: () => h("p", "preview"), terminal: () => h("p", "terminal") },
     });
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview"]);
-    expect(wrapper.get(".vh-ws-pane--terminal").text()).toBe("terminal");
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Terminal"]), { timeout: 5_000 });
+    expect(wrapper.get(".vh-ws-pane--side").text()).toBe("preview");
+  });
+
+  it("shows the tabs of the page, in order, with their badges", async () => {
+    const wrapper = mount(WorkspaceShell, {
+      props: { layout: "tutorial", storageKey: false, tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }] },
+      slots: { editor: () => h("p", "editor"), messages: () => h("p", "messages"), terminal: () => h("p", "terminal") },
+    });
+    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Console", "Messages2"]), { timeout: 5_000 });
+    expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
   });
 });
 
@@ -754,6 +256,8 @@ describe("WorkspacePreview", () => {
     expect(frame.attributes("src")).toBe("https://abc.webcontainer.io/api/hello");
     expect(wrapper.get("a[aria-label='Open preview in a new tab']").attributes()).toMatchObject({ href: "https://abc.webcontainer.io/api/hello", target: "_blank" });
 
+    // The path field is Nuxt UI's UInput, which loads on first render.
+    await vi.waitFor(() => expect(wrapper.find("input").exists()).toBe(true), { timeout: 5_000 });
     await wrapper.get("input").setValue("todos");
     await wrapper.get("form").trigger("submit");
     expect(wrapper.emitted("update:path")).toEqual([["/todos"]]);

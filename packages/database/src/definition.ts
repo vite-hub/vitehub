@@ -1,12 +1,14 @@
 import { isPlainObject } from "@vite-hub/internal/object"
+import { defineRelations } from "drizzle-orm"
 
 import { createDefinitionRuntime } from "#vitehub/database/definition-runtime"
 
-import type { Database, DatabaseDefinition, DatabaseDefinitionOptions, PostgresDatabaseDefinition, PostgresDatabaseDefinitionOptions } from "./types.ts"
+import type { AnyRelations } from "drizzle-orm"
+import type { Database, DatabaseDefinition, DatabaseDefinitionOptions, PostgresDatabaseDefinition, PostgresDatabaseDefinitionOptions, SchemaRelations } from "./types.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
-const allowedDefinitionKeys = new Set(["cloudflare", "connection", "drizzle", "name", "remote", "schema"])
-const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect"])
+const allowedDefinitionKeys = new Set(["cloudflare", "connection", "name", "relations", "remote", "schema"])
+const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect", "driver"])
 const allowedPostgresKeys = {
   cloudflare: new Set(["binding", "hyperdriveId"]),
   connection: new Set(["url"]),
@@ -18,18 +20,23 @@ function assertPlainObject(value: unknown, label: string): asserts value is Reco
   }
 }
 
-/** Declares a PostgreSQL Database Definition. Query it with `useDatabase()` from `@vite-hub/database/drizzle`. */
-export function defineDatabase<TSchema extends Record<string, unknown>>(
-  options: PostgresDatabaseDefinitionOptions<TSchema>,
-): PostgresDatabaseDefinition<TSchema>
+/** Declares a PostgreSQL Database Definition. Query it with `useDatabase()` from `vite-hub/database`. */
+export function defineDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations = SchemaRelations<TSchema>>(
+  options: PostgresDatabaseDefinitionOptions<TSchema, TRelations>,
+): PostgresDatabaseDefinition<TSchema, TRelations>
 /** Declares a SQLite Database Definition for local SQLite, libSQL, or Cloudflare D1. */
-export function defineDatabase<TSchema extends Record<string, unknown>>(
-  options: DatabaseDefinitionOptions<TSchema>,
-): Database<TSchema>
-export function defineDatabase<TSchema extends Record<string, unknown>>(
-  options: DatabaseDefinitionOptions<TSchema> | PostgresDatabaseDefinitionOptions<TSchema>,
-): Database<TSchema> | PostgresDatabaseDefinition<TSchema> {
+export function defineDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations = SchemaRelations<TSchema>>(
+  options: DatabaseDefinitionOptions<TSchema, TRelations>,
+): Database<TSchema, TRelations>
+export function defineDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+  options: DatabaseDefinitionOptions<TSchema, TRelations> | PostgresDatabaseDefinitionOptions<TSchema, TRelations>,
+): Database<TSchema, TRelations> | PostgresDatabaseDefinition<TSchema, TRelations> {
   assertPlainObject(options, "defineDatabase()")
+
+  // Drizzle 1.0 has no database-wide casing, so a `drizzle.casing` that ViteHub ignored would map columns wrongly.
+  if ("drizzle" in options) {
+    throw databaseErrorDiagnostics.DATABASE_DRIZZLE_OPTION_REMOVED()
+  }
 
   const unknownKey = Object.keys(options).find(key => !allowedOptionKeys.has(key))
   if (unknownKey) {
@@ -42,6 +49,9 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
   }
 
   assertPlainObject(options.schema, "defineDatabase().schema")
+  if (options.relations !== undefined) assertPlainObject(options.relations, "defineDatabase().relations")
+  // SAFETY: Without `relations`, `TRelations` is its default, the relations of `schema`.
+  const relations = options.relations ?? defineRelations(options.schema) as AnyRelations as TRelations
 
   if (typeof options.cloudflare !== "undefined") {
     assertPlainObject(options.cloudflare, "defineDatabase().cloudflare")
@@ -52,16 +62,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
   if (typeof options.connection !== "undefined") {
     assertPlainObject(options.connection, "defineDatabase().connection")
   }
-  if (typeof options.drizzle !== "undefined") {
-    assertPlainObject(options.drizzle, "defineDatabase().drizzle")
-  }
 
-  const casing = options.drizzle?.casing
-  if (typeof casing !== "undefined" && casing !== "snake_case" && casing !== "camelCase") {
-    throw databaseErrorDiagnostics.DATABASE_INVALID_CASING()
-  }
-
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can pass non-string names; reject them at the definition boundary before trim and normalized-path validation.
   if (options.name !== undefined && typeof options.name !== "string") {
     throw databaseErrorDiagnostics.DATABASE_INVALID_NAME()
   }
@@ -79,7 +80,14 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
     throw databaseErrorDiagnostics.DATABASE_REMOTE_CONFLICT({ database: name })
   }
 
+  if (options.dialect !== "postgresql" && "driver" in options) {
+    throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ option: "driver" })
+  }
+
   if (options.dialect === "postgresql") {
+    if (options.driver !== undefined && options.driver !== "pglite") {
+      throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({})
+    }
     const unsupported = [
       ...options.remote === undefined ? [] : ["remote"],
       ...Object.keys(options.cloudflare ?? {}).filter(key => !allowedPostgresKeys.cloudflare.has(key)).map(key => `cloudflare.${key}`),
@@ -88,29 +96,33 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
     if (unsupported) {
       throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ dialect: "postgresql", option: unsupported })
     }
-    const postgresDefinition: PostgresDatabaseDefinition<TSchema> = {
+    const postgresDefinition: PostgresDatabaseDefinition<TSchema, TRelations> = {
       dialect: "postgresql",
-      drizzle: casing ? { casing } : {},
       name,
+      relations,
       schema: options.schema,
     }
     if (options.cloudflare) postgresDefinition.cloudflare = options.cloudflare
     if (options.connection) postgresDefinition.connection = options.connection
+    if (options.driver) postgresDefinition.driver = options.driver
     return postgresDefinition
   }
 
-  const definition: DatabaseDefinition<TSchema> = {
+  const definition: DatabaseDefinition<TSchema, TRelations> = {
     ...(options.cloudflare ? { cloudflare: options.cloudflare } : {}),
     ...(options.connection ? { connection: options.connection } : {}),
-    drizzle: casing ? { casing } : {},
     name,
+    relations,
     ...(options.remote === undefined ? {} : { remote: options.remote }),
     schema: options.schema,
   }
   const runtime = createDefinitionRuntime(definition)
 
-  return new Proxy(definition as Database<TSchema>, {
+  return new Proxy(definition as Database<TSchema, TRelations>, {
     get(target, property, receiver) {
+      // Module loaders, such as the jiti of Drizzle Kit 1.0, read these keys of a default export. Forwarding them would
+      // open the database connection while Kit only reads the schema.
+      if (property === "then" || property === "default" || property === "__esModule") return undefined
       return Reflect.has(target, property) || (typeof property === "string" && allowedDefinitionKeys.has(property))
         ? Reflect.get(target, property, receiver)
         : Reflect.get(runtime, property)

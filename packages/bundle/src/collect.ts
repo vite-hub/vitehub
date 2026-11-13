@@ -3,7 +3,8 @@ import { gzipSync } from "node:zlib"
 import { allocateBytes } from "./bytes.ts"
 import { moduleId } from "./groups.ts"
 
-import type { BundleChunk, BundleEnvironmentReport, BundleModule } from "./types.ts"
+import type { PageRoute } from "./routes.ts"
+import type { BundleChunk, BundleEnvironmentReport, BundleFile, BundleModule, BundleRouteOptions } from "./types.ts"
 
 /** The parts of a Rolldown output chunk that the report reads. */
 export interface OutputChunkLike {
@@ -14,6 +15,14 @@ export interface OutputChunkLike {
   facadeModuleId: string | null
   imports: string[]
   modules: Record<string, { renderedLength: number }>
+  /** Vite adds the CSS files that load with the chunk. */
+  viteMetadata?: { importedCss?: ReadonlySet<string> }
+}
+
+interface OutputAssetLike {
+  type: "asset"
+  fileName: string
+  source: string | Uint8Array
 }
 
 /** The parts of Rolldown's `getModuleInfo()` that the report reads. */
@@ -31,10 +40,25 @@ export interface CollectOptions {
   /** Absolute output folder. */
   outDir: string
   getModuleInfo: (id: string) => ModuleInfoLike | null | undefined
+  /** The page routes of the app, with absolute component files. Only the client report keeps them. */
+  routes?: readonly PageRoute[]
+  routeOptions?: BundleRouteOptions
 }
 
 function isChunk(output: unknown): output is OutputChunkLike {
   return typeof output === "object" && output !== null && Reflect.get(output, "type") === "chunk"
+}
+
+function isCssAsset(output: unknown): output is OutputAssetLike {
+  return typeof output === "object" && output !== null && Reflect.get(output, "type") === "asset"
+    && String(Reflect.get(output, "fileName")).endsWith(".css")
+}
+
+function cssFiles(bundle: Record<string, unknown>): BundleFile[] {
+  return Object.values(bundle).filter(isCssAsset).map((asset) => {
+    const source = typeof asset.source === "string" ? Buffer.from(asset.source) : asset.source
+    return { file: asset.fileName, bytes: source.byteLength, gzip: gzipSync(source).length }
+  }).sort((left, right) => right.bytes - left.bytes || left.file.localeCompare(right.file))
 }
 
 function relativeTo(root: string, path: string): string {
@@ -104,6 +128,7 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     for (const [id, module] of Object.entries(chunk.modules)) if (module.renderedLength > 0 || isEntry(id, chunk)) ids.set(id, moduleId(id, options.root, packages))
   }
   const edges = createEdgeReader(ids, options.getModuleInfo)
+  const client = options.side === "client"
 
   const rows: BundleChunk[] = chunks.map((chunk) => {
     const bytes = Buffer.byteLength(chunk.code)
@@ -129,8 +154,40 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
       dynamicImports: [...row.dynamicImports].filter(next => next !== id && !row.imports.has(next)).sort(),
       entry: row.entry,
     })).sort((left, right) => right.bytes - left.bytes || left.id.localeCompare(right.id))
-    return { file: chunk.fileName, bytes, gzip: gzipSync(chunk.code).length, entry: chunk.isEntry, startup: startup.has(chunk.fileName), modules }
+    const css = client ? [...chunk.viteMetadata?.importedCss ?? []].sort() : []
+    return {
+      file: chunk.fileName,
+      bytes,
+      gzip: gzipSync(chunk.code).length,
+      entry: chunk.isEntry,
+      startup: startup.has(chunk.fileName),
+      imports: [...chunk.imports].sort(),
+      ...(css.length ? { css } : {}),
+      modules,
+    }
   }).sort((left, right) => right.bytes - left.bytes || left.file.localeCompare(right.file))
+  const css = client ? cssFiles(bundle) : []
+  const unavailable = options.routeOptions?.unavailable ?? options.routes?.find(route => route.unavailable)?.unavailable
+  const routeOptions = unavailable ? { ...options.routeOptions, unavailable } : options.routeOptions
+  const routes = client && !unavailable ? options.routes?.map((route) => {
+    let files = route.files
+    const layout = route.layout
+    if (layout) {
+      const pages = new Set(files.filter(file => file !== layout.file).map(file => moduleId(file, options.root, packages)))
+      const loaded = new Set<string>()
+      const pending = rows.filter(chunk => chunk.startup || chunk.modules.some(module => pages.has(module.id)))
+      while (pending.length) {
+        const chunk = pending.pop()!
+        if (loaded.has(chunk.file)) continue
+        loaded.add(chunk.file)
+        pending.push(...rows.filter(candidate => chunk.imports?.includes(candidate.file)))
+      }
+      const renderer = moduleId(layout.component, options.root, packages)
+      const usesLayout = rows.some(chunk => loaded.has(chunk.file) && chunk.modules.some(module => module.id === renderer))
+      if (!usesLayout) files = files.filter(file => file !== layout.file)
+    }
+    return { path: route.path, components: files.map(file => moduleId(file, options.root, packages)) }
+  }) : undefined
 
   return {
     schemaVersion: 1,
@@ -139,5 +196,8 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     side: options.side,
     outDir: relativeTo(options.root, options.outDir),
     chunks: rows,
+    ...(css.length ? { css } : {}),
+    ...(routes?.length ? { routes } : {}),
+    ...(client && routeOptions ? { routeOptions } : {}),
   }
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runAgentInvocationsCli } from "../src/internal/agent-invocations-cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 function stream() {
   let value = ""
@@ -163,10 +164,10 @@ describe("vitehub agent invocations export", () => {
     ]
     const methods: string[] = []
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      const { input, operation } = JSON.parse(String(init?.body))
+      const { input, operation } = operationRpcRequest(init?.body) as { input: { id: string }, operation: string }
       methods.push(operation)
-      if (operation === "invocations.get") return Response.json({ ok: true, value: { invocation: summary(input.id, { status: input.id === "a" ? "running" : "cancelled" }), observations: [] } })
-      return Response.json({ ok: true, value: pages.shift() })
+      if (operation === "invocations.get") return operationRpcResponse(init?.body, { ok: true, value: { invocation: summary(input.id, { status: input.id === "a" ? "running" : "cancelled" }), observations: [] } })
+      return operationRpcResponse(init?.body, { ok: true, value: pages.shift() })
     })
     // SAFETY: The mock implements the fetch call shape that the CLI uses.
     const result = await run(["export", "--url", "https://agent.example.com"], fetch as unknown as typeof globalThis.fetch)

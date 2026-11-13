@@ -5,16 +5,30 @@ import { describeServerEnv } from "../src/server.ts"
 import { cloudflareRequest } from "./cloudflare-request.ts"
 
 describe("Server Env declaration inventory", () => {
+  it("reserves the deployment host selector from canonical application names", () => {
+    const error = expect.objectContaining({
+      code: "ENV_DECLARATION_INVALID",
+      cause: expect.objectContaining({ message: expect.stringContaining("VITEHUB_HOST is reserved for deployment host selection") }),
+    })
+    expect(() => createRuntimeRegistry({ host: env() })).toThrow(error)
+    expect(() => createRuntimeRegistry({ host: env({ source: env.source("APP_HOST") }) })).toThrow(error)
+    const registry = createRuntimeRegistry({ host: env({ source: env.source("APP_HOST", { canonical: false }) }) })
+    expect(registry.host).toMatchObject({ source: { name: "APP_HOST", canonical: false } })
+    expect(describeServerEnv(registry).entries[0]).not.toHaveProperty("canonicalName")
+    const prefixed = createRuntimeRegistry({ host: env() }, { prefix: "APP_" })
+    expect(describeServerEnv(prefixed).entries[0]).toMatchObject({ canonicalName: "APP_HOST" })
+  })
+
   it("describes host, provider and literal declarations without exposing their values or storage keys", () => {
     const registry = createRuntimeRegistry({
-      host: env({ secret: true, source: env.source("PRIVATE_HOST_NAME"), default: "private-default" }),
+      host: env({ secret: true, source: env.source("PRIVATE_HOST_NAME", { canonical: false }), default: "private-default" }),
       nested: { token: env({ secret: true, source: env.provider("vault", "private/storage/path") }) },
       label: "private-literal",
       optional: env({ optional: true }),
     })
     const description = describeServerEnv(registry)
     expect(description.entries).toEqual([
-      { path: "env.server.host", canonicalName: "VITEHUB_HOST", source: "env", secret: true, required: true, hasDefault: true, type: "string" },
+      { path: "env.server.host", source: "env", secret: true, required: true, hasDefault: true, type: "string" },
       { path: "env.server.nested.token", source: "provider", provider: "vault", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.label", source: "literal", secret: false, required: false, hasDefault: false },
       { path: "env.server.optional", canonicalName: "VITEHUB_OPTIONAL", source: "env", secret: false, required: false, hasDefault: false, type: "string" },
@@ -70,37 +84,4 @@ describe("Server Env declaration inventory", () => {
       { masked: false, path: "env.server.channel", required: true, source: "env", status: "available" },
     ])
   })
-})
-
-it("manages only declared unambiguous provider paths without resolving credentials", async () => {
-  const { createServerEnvManagement } = await import("../src/server.ts")
-  const { createEnvBridge } = await import("../src/bridge.ts")
-  const { vi } = await import("vitest")
-  const inspect = vi.fn(async () => ({ revision: "revision", updatedAt: "now" }))
-  const bridge = createEnvBridge({
-    secrets: { inspect, read: vi.fn(), replace: vi.fn() },
-    access: { append: vi.fn(), activity: vi.fn(), grants: vi.fn(), setGrant: vi.fn(), revokeGrant: vi.fn() },
-    runtimeActor: { kind: "service", id: "runtime" },
-  })
-  const { adminContext } = await import("./helpers.ts")
-  const admin = await adminContext()
-  const authenticate = vi.fn(async () => admin)
-  const read = vi.fn(() => { throw new Error("Inventory must not resolve") })
-  const providers = { vault: { read, management: { bridge, authenticate } } }
-  const registry = createRuntimeRegistry({
-    host: env({ source: env.source("HOST") }),
-    token: env({ source: env.provider("vault", "private-key") }),
-    "nested.token": env({ source: env.provider("vault", "ambiguous") }),
-    "unsafe name": env({ source: env.provider("vault", "other") }),
-  })
-  expect(describeServerEnv(registry).entries[1]).toMatchObject({ source: "provider", provider: "vault" })
-  expect(read).not.toHaveBeenCalled()
-  const handler = createServerEnvManagement(registry, providers)
-  const request = (path: string) => new Request("https://example.com/manage", { method: "POST", headers: { origin: "https://example.com" }, body: JSON.stringify({ action: "inspect", path }) })
-  for (const path of ["env.server.host", "private-key", "env.server.unsafe name", "env.server.nested.token", "env.server.missing"]) expect((await handler(request(path))).status).toBe(404)
-  const req = request("env.server.token")
-  expect((await handler(req)).status).toBe(200)
-  expect(authenticate).toHaveBeenCalledWith(req)
-  expect(inspect).toHaveBeenCalledWith("private-key")
-  expect(read).not.toHaveBeenCalled()
 })

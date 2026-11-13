@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/ui/theme.css";
 @source "../components";
 @source "../../app.config.ts";
 
@@ -43,124 +44,6 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-@theme {
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-/*
- * The shadcn/ui neutral palette. Hierarchy comes from four text tones, not from size:
- * highlighted for names, default for body text, muted for descriptions, and dimmed for meta.
- * Dimmed text still names columns, types, and empty values, so every tone keeps at least 4.5:1 (WCAG AA) on the page and neutral surfaces.
- */
-:root {
-  color-scheme: light;
-  --ui-bg: oklch(1 0 0);
-  --ui-bg-muted: oklch(0.985 0 0);
-  --ui-bg-elevated: oklch(0.97 0 0);
-  --ui-bg-accented: oklch(0.94 0 0);
-  --ui-border: oklch(0.922 0 0);
-  --ui-border-muted: oklch(0.96 0 0);
-  --ui-border-accented: oklch(0.87 0 0);
-  --ui-text: oklch(0.371 0 0);
-  --ui-text-toned: oklch(0.439 0 0);
-  --ui-text-muted: oklch(0.5 0 0);
-  --ui-text-dimmed: oklch(0.52 0 0);
-  --ui-text-highlighted: oklch(0.205 0 0);
-  /*
-   * Nuxt UI multiplies this base: sm is 1x, md 1.5x, lg 2x, xl 3x. At 0.25rem, buttons and inputs get 6px, panels
-   * 8px, and floating menus the 12px Geist radius. The @vite-hub/ui parts derive their radii from it: framed parts get 8px.
-   */
-  --ui-radius: 0.25rem;
-  /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
-  --ui-primary: oklch(0.205 0 0);
-  /*
-   * Status colors as text. Nuxt UI draws text and dots with the same 500 shade, which reaches only 2.1:1 (amber) to
-   * 3.8:1 (red) on white. These shades keep 4.5:1 (WCAG AA) on the page and on a 10% tint of the same color.
-   */
-  --vitehub-console-error-text: var(--ui-color-error-700);
-  --vitehub-console-info-text: var(--ui-color-info-700);
-  --vitehub-console-success-text: var(--ui-color-success-700);
-  --vitehub-console-warning-text: var(--ui-color-warning-800);
-  /* Focus rings are blue (sky), so they stand apart from the black and white buttons. 600 keeps 3:1 on white. */
-  --vitehub-console-focus: var(--ui-color-info-600);
-  /* Popovers, menus, and tooltips use a translucent surface over the page. */
-  --vitehub-console-floating: rgb(255 255 255 / 92%);
-  --vitehub-console-scrollbar: oklch(0.87 0 0);
-  --vitehub-console-scrollbar-hover: oklch(0.708 0 0);
-  background: var(--ui-bg);
-  color: var(--ui-text);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
-
-.dark {
-  color-scheme: dark;
-  --ui-bg: #0a0a0a;
-  --ui-bg-muted: #111111;
-  --ui-bg-elevated: rgb(255 255 255 / 5%);
-  --ui-bg-accented: rgb(255 255 255 / 8%);
-  --ui-border: rgb(255 255 255 / 9%);
-  --ui-border-muted: rgb(255 255 255 / 5%);
-  --ui-border-accented: rgb(255 255 255 / 14%);
-  --ui-text: oklch(0.87 0 0);
-  --ui-text-toned: oklch(0.8 0 0);
-  --ui-text-muted: oklch(0.708 0 0);
-  --ui-text-dimmed: oklch(0.62 0 0);
-  --ui-text-highlighted: oklch(0.985 0 0);
-  --ui-primary: oklch(0.985 0 0);
-  --vitehub-console-focus: var(--ui-color-info-400);
-  /* Dark floating surfaces sit one step above the page instead of matching it. */
-  --vitehub-console-floating: rgb(23 23 23 / 92%);
-  --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
-  --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
-  --vitehub-console-error-text: var(--ui-error);
-  --vitehub-console-info-text: var(--ui-info);
-  --vitehub-console-success-text: var(--ui-success);
-  --vitehub-console-warning-text: var(--ui-warning);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light):not(.dark) {
-    color-scheme: dark;
-    --ui-bg: #0a0a0a;
-    --ui-bg-muted: #101010;
-    --ui-bg-elevated: rgb(255 255 255 / 4%);
-    --ui-bg-accented: rgb(255 255 255 / 7%);
-    --ui-border: rgb(255 255 255 / 14%);
-    --ui-border-muted: rgb(255 255 255 / 8%);
-    --ui-border-accented: rgb(255 255 255 / 22%);
-    --ui-text: #f4f4f5;
-    --ui-text-muted: #a1a1aa;
-    --ui-text-dimmed: #85858f;
-    --ui-text-highlighted: #fafafa;
-    --vitehub-console-floating: rgb(24 24 27 / 84%);
-    --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
-    --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
-    --vitehub-console-error-text: var(--ui-color-error-400);
-    --vitehub-console-info-text: var(--ui-color-info-400);
-    --vitehub-console-success-text: var(--ui-color-success-400);
-    --vitehub-console-warning-text: var(--ui-color-warning-400);
-  }
-}
-
-/* Dots, bars, and fills keep the brighter Nuxt UI shade. Only text uses the status text colors. */
-.text-error {
-  color: var(--vitehub-console-error-text);
-}
-
-.text-info {
-  color: var(--vitehub-console-info-text);
-}
-
-.text-success {
-  color: var(--vitehub-console-success-text);
-}
-
-.text-warning {
-  color: var(--vitehub-console-warning-text);
-}
-
 * {
   box-sizing: border-box;
 }
@@ -180,24 +63,6 @@ body {
   min-height: 100vh;
 }
 
-button,
-a {
-  -webkit-tap-highlight-color: transparent;
-}
-
-/*
- * The focus color marks keyboard focus. Unlayered, so it wins over the neutral outline that Nuxt UI gives
- * solid neutral buttons. The ring appears at once, without a transition. Fields, including the select button, show focus
- * with their own ring instead (`app.config.ts`), so a field with an error keeps one red ring.
- */
-:focus-visible:not(input, textarea, select, [role="combobox"]) {
-  outline-color: var(--vitehub-console-focus);
-}
-
-::selection {
-  background: color-mix(in oklab, var(--ui-primary) 24%, transparent);
-}
-
 /* Toasts enter from below and leave by fading. Reduced motion skips both. */
 @keyframes vitehub-console-toast-in {
   from { opacity: 0; transform: translateY(0.5rem) scale(0.97); }
@@ -209,7 +74,7 @@ a {
 
 /* Thin scrollbars keep dense lists from showing a wide system gutter. */
 * {
-  scrollbar-color: var(--vitehub-console-scrollbar) transparent;
+  scrollbar-color: var(--vh-scrollbar) transparent;
   scrollbar-width: thin;
 }
 
@@ -223,12 +88,12 @@ a {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--vitehub-console-scrollbar);
+  background: var(--vh-scrollbar);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--vitehub-console-scrollbar-hover);
+  background: var(--vh-scrollbar-hover);
 }
 
 /*
@@ -244,10 +109,6 @@ a {
 .vitehub-console-boot .vh-primitive-rail__surface {
   background: var(--ui-bg-muted);
   border-inline-end: 1px solid var(--ui-border);
-}
-
-.dark .vitehub-console-boot .vh-primitive-rail__surface {
-  background: #000;
 }
 
 .vitehub-console-boot__mark {
@@ -276,4 +137,218 @@ a {
   gap: 0.5rem;
   line-height: 1.25rem;
   padding: 2rem 1.5rem;
+}
+
+/*
+ * The first paint of an `account` Console (hosted/account.html). The Console server picks the view that the visit opens,
+ * and the page draws its frame at the same size as the app: the sign-in page, the team sidebar of
+ * console-account-shell.vue, or the rail of an open app. Only names and lists that need the account are missing.
+ */
+.vitehub-account-boot {
+  height: 100dvh;
+}
+
+.vitehub-account-boot:not([data-vitehub-boot="app"]) > .vitehub-account-boot__app,
+.vitehub-account-boot:not([data-vitehub-boot="shell"]) > .vitehub-account-boot__shell,
+.vitehub-account-boot:not([data-vitehub-boot="sign-in"], [data-vitehub-boot="invite"]) > .vitehub-account-boot__sign-in,
+.vitehub-account-boot[data-vitehub-boot="invite"] .vitehub-account-boot__intro {
+  display: none;
+}
+
+.vitehub-account-boot__shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.vitehub-account-boot__sidebar {
+  background: var(--ui-bg-muted);
+  border-inline-end: 1px solid var(--ui-border);
+  display: none;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 16rem;
+}
+
+@media (min-width: 64rem) {
+  .vitehub-account-boot__sidebar {
+    display: flex;
+  }
+}
+
+.vitehub-account-boot__sidebar-header {
+  align-items: center;
+  display: flex;
+  gap: 0.25rem;
+  height: 2.75rem;
+  padding-inline: 0.5rem;
+}
+
+.vitehub-account-boot__mark {
+  color: var(--ui-text-highlighted);
+  flex-shrink: 0;
+  height: 1.15rem;
+  margin-inline-start: 0.375rem;
+  width: 1.15rem;
+}
+
+.vitehub-account-boot__slash {
+  color: var(--ui-text-muted);
+  line-height: 1.5rem;
+}
+
+.vitehub-account-boot__row {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+}
+
+.vitehub-account-boot__team-mark {
+  background: var(--ui-bg-accented);
+  border-radius: 0.3125rem;
+  flex-shrink: 0;
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+.vitehub-account-boot__avatar {
+  background: var(--ui-bg-elevated);
+  border-radius: 999px;
+  flex-shrink: 0;
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.vitehub-account-boot__bar {
+  background: var(--ui-bg-accented);
+  border-radius: 999px;
+  height: 0.5rem;
+  width: 4.5rem;
+}
+
+.vitehub-account-boot__end {
+  color: var(--ui-text-muted);
+  flex-shrink: 0;
+  height: 0.875rem;
+  margin-inline-start: auto;
+  width: 0.875rem;
+}
+
+.vitehub-account-boot__fill {
+  flex: 1;
+}
+
+.vitehub-account-boot__nav {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 1px;
+  padding: 0 0.5rem 0.75rem;
+}
+
+.vitehub-account-boot .vitehub-console__section-icon {
+  height: calc(0.8125rem * 1.15);
+  width: calc(0.8125rem * 1.15);
+}
+
+.vitehub-account-boot[data-vitehub-page="home"] .vitehub-console__section-link[data-vitehub-page="home"],
+.vitehub-account-boot[data-vitehub-page="team"] .vitehub-console__section-link[data-vitehub-page="team"],
+.vitehub-account-boot[data-vitehub-page="settings"] .vitehub-console__section-link[data-vitehub-page="settings"] {
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
+}
+
+.vitehub-account-boot .vitehub-account-boot__heading {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  height: 2.75rem;
+  padding: 1rem 0.25rem 0.25rem 0.5rem;
+}
+
+.vitehub-account-boot__footer {
+  border-top: 1px solid var(--ui-border);
+  display: grid;
+  gap: 1px;
+  padding: 0.5rem;
+}
+
+.vitehub-account-boot__panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vitehub-account-boot__navbar {
+  align-items: center;
+  border-bottom: 1px solid var(--ui-border);
+  display: flex;
+  flex-shrink: 0;
+  height: 2.75rem;
+  padding-inline: 0.75rem;
+}
+
+.vitehub-account-boot__toggle {
+  color: var(--ui-text);
+  height: 1rem;
+  margin-inline-start: 0.375rem;
+  opacity: 0.8;
+  width: 1rem;
+}
+
+@media (min-width: 40rem) {
+  .vitehub-account-boot__navbar {
+    padding-inline: 1rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .vitehub-account-boot__toggle {
+    display: none;
+  }
+}
+
+/* A fast load ends before the status shows. A slow one says what the page waits for. */
+.vitehub-account-boot__status {
+  animation: vitehub-account-boot-status 150ms ease-out 1.5s both;
+  color: var(--ui-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.vitehub-account-boot__shell .vitehub-account-boot__status {
+  box-sizing: content-box;
+  margin-inline: auto;
+  max-width: 42rem;
+  padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem);
+}
+
+@keyframes vitehub-account-boot-status {
+  from {
+    opacity: 0;
+  }
+}
+
+.vitehub-account-boot__gate-mark {
+  color: var(--ui-text-highlighted);
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.vitehub-account-boot__intro {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.vitehub-account-boot__title {
+  color: var(--ui-text-highlighted);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  text-wrap: balance;
 }

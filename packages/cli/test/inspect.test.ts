@@ -144,7 +144,7 @@ describe("vitehub inspect", () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub/rate-limit"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/rate-limit/manifest.json"), JSON.stringify({ ids: ["login"] }))
-    const result = await run(rootDir, ["inspect", "provider-output"])
+    const result = await run(rootDir, ["inspect", "output"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("Provider Output: 1 of 3 present")
@@ -162,7 +162,7 @@ describe("vitehub inspect", () => {
       name: "app",
       vars: { PUBLIC_FLAG: "on", STRIPE_KEY: "sk_live_value" },
     }))
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).not.toContain("sk_live_value")
@@ -187,7 +187,7 @@ describe("vitehub inspect", () => {
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
       vercel: { blob: { api_key: "resource-id", invalid: 42, credentials: "https://user:secret@example.com/store" } },
     }))
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout)
@@ -204,7 +204,7 @@ describe("vitehub inspect", () => {
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     const path = join(rootDir, ".vitehub/provision.json")
     await writeFile(path, raw)
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
@@ -219,7 +219,7 @@ describe("vitehub inspect", () => {
   it("reports a directory at the provision-state path without reading it as state", async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub/provision.json"), { recursive: true })
-    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+    const result = await run(rootDir, ["inspect", "output", "--json"])
 
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
@@ -230,7 +230,7 @@ describe("vitehub inspect", () => {
 
   it("rejects unknown arguments", async () => {
     const rootDir = await createTempDir()
-    const result = await run(rootDir, ["inspect", "provider-output", "--kind", "queue"])
+    const result = await run(rootDir, ["inspect", "output", "--kind", "queue"])
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Unknown inspect argument: --kind")

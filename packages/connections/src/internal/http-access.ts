@@ -1,23 +1,26 @@
+import { isViteHubLoopbackPeer } from "@vite-hub/internal/dev-peer"
+import { getStandardContext } from "@vite-hub/runtime"
 import * as v from "valibot"
 
 import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
 import { managementErrorBody } from "./http-diagnostics.ts"
 
-import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConnectionsRuntime } from "../runtime.ts"
 
 /**
  * Authenticates one management request and returns the manager as `user:<id>`.
  * Return `undefined` to deny the request with `403`, or a `Response` to deny it with that response.
+ * In a ViteHub app, the request carries the Standard Context of the event: pass it to helpers such as `getStandardContext(request)`.
  */
-export type ConnectionsActor = (request: Request, event?: ViteHubContext) => string | Response | undefined | Promise<string | Response | undefined>
+export type ConnectionsActor = (request: Request) => string | Response | undefined | Promise<string | Response | undefined>
 
 /**
  * Access policy of the Connections management routes.
  *
  * - A {@link ConnectionsActor} function checks every request.
- * - `"development"` allows every request as `user:local` on a development server
- *   (`NODE_ENV=development`). Any other runtime gets `500` with `CONNECTIONS_AUTH_REQUIRED`.
+ * - `"development"` allows a request from this machine as `user:local` on a development server
+ *   (`NODE_ENV=development`). A request from another machine, such as a LAN address of `vite --host` or a tunnel, gets
+ *   `403`. Any other runtime gets `500` with `CONNECTIONS_AUTH_REQUIRED`.
  */
 export type ConnectionsAccessPolicy = ConnectionsActor | "development"
 
@@ -63,19 +66,23 @@ export async function checkConnectionsAccess(
   // JavaScript callers can omit the policy.
   policy: ConnectionsAccessPolicy | undefined,
   request: Request,
-  event: ViteHubContext | undefined,
   runtime: () => ConnectionsRuntime,
   agentName?: string,
 ): Promise<ConnectionsAccessCheck> {
   let actor: unknown
   if (policy === "development") {
     if (!v.is(developmentProcessSchema, globalThis.process)) {
-      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
+      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires an actor module outside local development.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
+    }
+    // The development policy has no sign-in, so it trusts only this machine. The dev server front process signs
+    // loopback requests for its worker, which never sees the client address.
+    if (!await isViteHubLoopbackPeer(request, getStandardContext(request).runtime?.clientAddress)) {
+      return reject(403, "CONNECTIONS_FORBIDDEN", "The development policy allows Connections management only from this machine.")
     }
     actor = "user:local"
   }
   else if (v.is(v.function(), policy)) {
-    actor = await policy(request, event)
+    actor = await policy(request)
     if (actor instanceof Response) return { rejection: actor }
   }
   else {

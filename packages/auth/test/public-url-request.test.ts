@@ -4,7 +4,8 @@ vi.mock("#vitehub/auth/definition", () => ({
   default: { options: { appName: "Static Auth", secret: "abcdefghijklmnopqrstuvwxyz0123456789" } },
 }))
 
-import { assertAuthOrigin, getAuthForRequest, resetAuth } from "../src/internal/server.ts"
+import { authForRequest } from "../src/runtime/console.ts"
+import { assertAuthOrigin, resetAuth, useAuth } from "../src/internal/server.ts"
 
 describe("static Auth public URL request helpers", () => {
   afterEach(() => {
@@ -22,18 +23,18 @@ describe("static Auth public URL request helpers", () => {
     })
     const auth = await assertAuthOrigin(request)
     expect((await auth.$context).options.baseURL).toBe("https://public.example.com")
-    const other = getAuthForRequest(new Request("http://other.example.com/api/auth/session"))
+    const other = useAuth(new Request("http://other.example.com/api/auth/session"))
     expect((await other.$context).options.baseURL).toBe("url" in config ? config.url : "https://other.example.com")
   })
 
   it("preserves the cached provider when no public URL is configured", () => {
     const request = new Request("http://localhost/api/auth/session")
-    expect(getAuthForRequest(request)).toBe(getAuthForRequest(request))
+    expect(useAuth(request)).toBe(useAuth(request))
   })
 
   it("preserves explicit runtime origins", async () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://public.example.com" })
-    const auth = getAuthForRequest(new Request("http://internal/api/auth/session"), {
+    const auth = authForRequest(new Request("http://internal/api/auth/session"), {
       baseURL: "https://explicit.example.com",
     })
     expect((await auth.$context).options.baseURL).toBe("https://explicit.example.com")

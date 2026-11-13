@@ -8,19 +8,21 @@ import { createClient } from "@libsql/client"
 import { basename, dirname, join, resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
+import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
+import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { createD1Query } from "./d1-migrations.ts"
 import { withoutCredentials } from "./migration-plan.ts"
 
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1Query } from "./d1-migrations.ts"
 
-/** Where `vitehub db export` reads a database. Only `local` is on this machine. */
+/** Where `vitehub database export` reads a database. Only `local` is on this machine. */
 type ExportTarget =
   | { kind: "local", path: string }
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "d1", accountId?: string, databaseId?: string, databaseName?: string, token?: string }
   | { kind: "d1-proxy", token?: string, url?: string }
+  | { kind: "pglite", path: string }
   | { kind: "postgres", url?: string }
 
 interface ExportOptions {
@@ -33,9 +35,13 @@ interface ExportOptions {
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
 }
 
-/** Resolves the export target with the same connection rules as `vitehub db migrate`. */
+/** Resolves the export target with the same connection rules as `vitehub database migrate`. */
 function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
-  if (database.dialect === "postgresql") return { kind: "postgres", url: resolveConfigValue(database.connection?.url, env)?.trim() || undefined }
+  if (database.dialect === "postgresql") {
+    const url = resolveConfigValue(database.connection?.url, env)?.trim() || undefined
+    if (runsOnPglite(database.driver, url, env)) return { kind: "pglite", path: resolve(projectRoot, localPgliteDir(database.name)) }
+    return { kind: "postgres", url }
+  }
   const cloudflare = database.cloudflare
   if (cloudflare?.http && typeof cloudflare.http === "object") {
     return { kind: "d1-proxy", token: resolveConfigValue(cloudflare.http.authToken, env)?.trim() || undefined, url: resolveConfigValue(cloudflare.http.url, env)?.trim() || undefined }
@@ -69,6 +75,8 @@ export function describeExportTarget(target: ExportTarget, projectRoot: string):
       return target.databaseId ? `Cloudflare D1 ${target.databaseId}` : `Cloudflare D1 "${target.databaseName ?? "(no database id or name)"}"`
     case "d1-proxy":
       return `D1 HTTP proxy ${withoutCredentials(target.url ?? "")}`
+    case "pglite":
+      return `PGlite ${target.path.startsWith(`${projectRoot}/`) ? target.path.slice(projectRoot.length + 1) : target.path}`
     case "postgres":
       return target.url ? `Postgres ${withoutCredentials(target.url)}` : "Postgres from the PG* environment variables"
   }
@@ -81,6 +89,9 @@ export function describeExportTarget(target: ExportTarget, projectRoot: string):
 export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, options: ExportOptions): Promise<ExportTarget> {
   const target = resolveExportTarget(database, options)
   const description = describeExportTarget(target, options.projectRoot)
+  if (target.kind === "pglite") {
+    throw new Error(`It uses ${description}, which \`vitehub database export\` cannot read yet. To export a Postgres server, set \`connection.url\` or the PG* variables, and add \`--remote\`.`)
+  }
   if (target.kind === "local" && options.remote) {
     throw new Error(`It uses ${description}, which is not remote. Remove \`--remote\`, or set the remote \`connection.url\` in the environment or with \`--stage\`.`)
   }
@@ -95,7 +106,7 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
     switch (target.kind) {
       case "local":
         if (target.path === ":memory:") throw new Error("It uses an in-memory SQLite URL, which a separate process cannot read. Use a file-backed SQLite URL.")
-        if (!existsSync(target.path)) throw new Error(`The local SQLite file does not exist: ${target.path}. Run \`vitehub db migrate\` to create it.`)
+        if (!existsSync(target.path)) throw new Error(`The local SQLite file does not exist: ${target.path}. Run \`vitehub database migrate\` to create it.`)
         await dumpLibsql({ url: `file:${target.path}` }, partial)
         break
       case "libsql":

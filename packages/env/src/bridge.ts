@@ -151,6 +151,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       return false;
     return await safe(async () => {
       const grants = await options.access.grants(key);
+      // Internal invariant: safe() replaces this with a sanitized Env bridge error.
       if (!Array.isArray(grants)) throw new TypeError("Invalid access grants.");
       for (const grant of grants) {
         if (
@@ -164,6 +165,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
           !Array.isArray(grant.permissions) ||
           !grant.permissions.every((value: unknown) => ["inspect", "preview", "replace", "use"].includes(value as string))
         )
+          // Internal invariant: safe() replaces this with a sanitized Env bridge error.
           throw new TypeError("Invalid access grant.");
         if (
           grant.key === key &&
@@ -334,3 +336,8 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
   };
   return bridge;
 }
+
+export { createEnvAuthenticator } from "./auth.ts";
+export type { EnvAgentScope, EnvAgentSession, EnvAuthenticatorOptions, EnvHumanSession } from "./auth.ts";
+export { createEnvBridgeHandler } from "./http.ts";
+export type { EnvBridgeRequestOptions, EnvManagement, EnvManagementResolver } from "./http.ts";

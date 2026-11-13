@@ -48,10 +48,10 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace` | `boolean` or `WorkspaceModuleOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
+| `workspace` | `boolean` or `WorkspaceOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Project root that server-side discovery starts from. |
-| `assets` | `WorkspaceModuleOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
+| `assets` | `WorkspaceOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
 | `store` | `WorkspaceStoreOptions` | inferred from dev mode, host, and environment | Store for definitions that do not choose one. |
 
 ## Store providers
@@ -72,13 +72,19 @@ Vercel Blob keeps file bytes and JSON attributes in separate objects. In one pro
 This adapter has no distributed transactions. When processes or hosts share a Workspace, coordinate their access yourself. For atomic publication across replicas, use the Blob + Database Store.
 ::
 
-A [GitHub Store](#github-store) reads its token from `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
+A [GitHub Store](#github-store) signs in with a GitHub App when `VITEHUB_GITHUB_APP_ID` is set, else with the token in `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
 
 In one isolate, GitHub Stores and history views cache blob bytes by sha, across repositories:
 
 - Parallel reads with the same repository and credentials share one request. A failed request does not affect readers of another repository or token.
 - The cache holds up to 32 MiB, removes the oldest entries first, and skips blobs over 4 MiB.
 - New isolates, and reads after removal, fetch the blob from GitHub again. You can retry failed reads.
+
+GitHub Stores also keep other answers, so a read asks GitHub only for what changed:
+
+- A branch head is one request. The Store keeps it for 5 seconds, then asks again with its ETag. GitHub answers `304 Not Modified` when the branch did not move, and a `304` does not count against the GitHub rate limit.
+- History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
+- `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
 
 Without a `store`, development uses Local. In production:
 
@@ -96,18 +102,18 @@ Workspace paths cannot use `.git` at any depth or `.vitehub` at the root, in any
 
 This Store keeps fixed versions of a folder on any host that [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts) support. Add its schema to a Database Definition, then generate and apply migrations with the Database integration.
 
-```ts [server/databases/history/config.ts]
-import { defineDatabase } from '@vite-hub/database'
-import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
 ```ts [server/workspaces/drop.ts]
-import { blob } from '@vite-hub/blob'
-import { defineWorkspace } from '@vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
-import historyDatabase from '../databases/history/config'
+import { blob } from 'vite-hub/blob'
+import { defineWorkspace } from 'vite-hub/workspace'
+import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
+import historyDatabase from '../databases/history/index'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
@@ -187,9 +193,11 @@ export default defineWorkspace({
 | `repository`, `repo` | `string` | `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` | The repository, as `owner/name`. |
 | `branch` | `string` | `VITEHUB_WORKSPACE_GITHUB_BRANCH`, else `main` | The branch of the Workspace files. |
 | `root` | `string` | `VITEHUB_WORKSPACE_GITHUB_ROOT`, else `.vitehub/workspaces/<workspace>` | The folder in the repository. An empty string is the repository root. |
-| `token` | `string` | `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
+| `token` | `string` | A GitHub App from `VITEHUB_GITHUB_APP_ID`, then `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
 | `refs` | `{ published?: string, draft?: string }` | none | Branches for the history refs `published` and `draft`. |
 | `database` | `unknown` | none | A value the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store ignores it. |
+
+A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` saves the lookup of the installation. The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
 
 The Store reads the repository and token at the first request, not at creation. A missing one throws `WORKSPACE_R0072` then, so a build that loads the Workspace Definition needs no token.
 
@@ -291,7 +299,7 @@ Bind a Source definition with `{ source, mount, materialize }`. You can reuse
 the same definition for direct reads or Content:
 
 ```ts [server/sources/docs.ts]
-import { glob } from 'vite-hub/source/glob'
+import { glob } from 'vite-hub/source'
 
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
@@ -318,6 +326,10 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
+to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
+have it. See [Source configuration](/docs/source/configure) for the loader options.
+
 | Option | Type | Description |
 | --- | --- | --- |
 | `source` | `Source` | The Source definition to bind. Required in this form. |
@@ -333,7 +345,7 @@ binding behavior.
 Use `createWorkspacePreparation()` when a process must copy in required Sources before it reports ready:
 
 ```ts
-import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+import { createWorkspacePreparation } from 'vite-hub/workspace/runtime'
 
 export const preparation = createWorkspacePreparation({
   retryDelayMs: 10_000,
@@ -384,7 +396,7 @@ Use `custom({ files })` when a Custom Source knows its paths before it loads con
 Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `fetch(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
 
 ```ts [server/workspaces/support.ts]
-import { custom, defineWorkspace } from '@vite-hub/workspace'
+import { custom, defineWorkspace } from 'vite-hub/workspace'
 
 const guideSlugs = ['getting-started', 'inventory-planning']
 
@@ -413,24 +425,29 @@ A Custom Source can read files already in the Workspace through `ctx.workspaceFi
 
 A Source can pick its origin and mount per invocation from trusted runtime context. Use this when one Source key needs a narrower origin after Access selects a Workspace Scope.
 
-```ts
+```ts [server/workspaces/support/config.ts]
+import { defineWorkspace, github } from 'vite-hub/workspace'
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: { meta?: { customer?: string } }
+    'support.customerScope': { customers: string[] }
   }
 }
 
-github(({ channel, invocation }) => {
-  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-  const customer = channel?.meta?.customer ?? scope?.customers[0]
-  if (!customer)
-    return false
+export default defineWorkspace({
+  sources: {
+    ingestion: github(({ invocation }) => {
+      const customer = invocation.context.get('support.customerScope')?.customers[0]
+      if (!customer)
+        return false
 
-  return {
-    repo: 'quiverdk/ingestion',
-    root: `dbt/${customer}`,
-    mount: `ingestion/${customer}`,
-  }
+      return {
+        repo: 'quiverdk/ingestion',
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+      }
+    }),
+  },
 })
 ```
 

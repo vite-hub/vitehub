@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { importSealKey, seal, sealKeyId, sealedPayloadPattern, unseal } from "../src/seal.ts";
+import { importSealKey, sealKeyId, sealedPayloadPattern, sealWithKey, unsealWithKey } from "../src/seal.ts";
 
 const raw = new Uint8Array(32).fill(3);
 const aad = (value: string) => new TextEncoder().encode(value);
@@ -8,28 +8,28 @@ function hex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-describe("seal", () => {
+describe("sealWithKey", () => {
   it("round-trips a value bound to its additional data", async () => {
     const key = await importSealKey(raw);
-    const payload = await seal(key, aad("a"), "secret-value");
+    const payload = await sealWithKey(key, aad("a"), "secret-value");
     expect(payload).toMatch(sealedPayloadPattern);
     expect(payload).not.toContain("secret-value");
-    expect(await unseal(key, aad("a"), payload)).toBe("secret-value");
+    expect(await unsealWithKey(key, aad("a"), payload)).toBe("secret-value");
   });
 
   it.each(["\uFEFFsecret", "\uFEFF", "\uFEFF\uFEFFsecret", "before\uFEFFafter"])("preserves Unicode byte-order marks in %j", async (plaintext) => {
     const key = await importSealKey(raw);
-    const payload = await seal(key, aad("a"), plaintext);
-    expect(await unseal(key, aad("a"), payload)).toBe(plaintext);
+    const payload = await sealWithKey(key, aad("a"), plaintext);
+    expect(await unsealWithKey(key, aad("a"), payload)).toBe(plaintext);
   });
 
   it("rejects a different key, additional data, or a malformed payload", async () => {
     const key = await importSealKey(raw);
-    const payload = await seal(key, aad("a"), "secret-value");
-    await expect(unseal(key, aad("b"), payload)).rejects.toMatchObject({ code: "SEAL_INVALID" });
+    const payload = await sealWithKey(key, aad("a"), "secret-value");
+    await expect(unsealWithKey(key, aad("b"), payload)).rejects.toMatchObject({ code: "SEAL_INVALID" });
     const other = await importSealKey(new Uint8Array(32).fill(4));
-    await expect(unseal(other, aad("a"), payload)).rejects.toMatchObject({ code: "SEAL_INVALID" });
-    await expect(unseal(key, aad("a"), "not-sealed")).rejects.toMatchObject({ code: "SEAL_INVALID" });
+    await expect(unsealWithKey(other, aad("a"), payload)).rejects.toMatchObject({ code: "SEAL_INVALID" });
+    await expect(unsealWithKey(key, aad("a"), "not-sealed")).rejects.toMatchObject({ code: "SEAL_INVALID" });
     expect(() => importSealKey(new Uint8Array(16))).toThrow(expect.objectContaining({ code: "SEAL_INVALID" }));
   });
 
@@ -43,7 +43,7 @@ describe("seal", () => {
     );
     const legacy = `${hex(iv)}:${hex(new Uint8Array(encrypted))}`;
     const key = await importSealKey(raw);
-    expect(await unseal(key, aad(JSON.stringify(["default", "token", "r1"])), legacy)).toBe("legacy-value");
+    expect(await unsealWithKey(key, aad(JSON.stringify(["default", "token", "r1"])), legacy)).toBe("legacy-value");
   });
 
   it("derives a stable key identifier without exposing the key", async () => {

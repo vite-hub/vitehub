@@ -128,8 +128,10 @@ function readProperty(value: unknown, key: string) {
 
 function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { directoriesConsumed: false, index: 0 }
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
   const decoded = decodeBase64(cursor)
+  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
   const parsed: unknown = JSON.parse(decoded)
   const directoriesConsumed = readProperty(parsed, "directoriesConsumed")
@@ -142,6 +144,7 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
     || index < 0
     || (providerCursor !== undefined && !isString(providerCursor))
   ) {
+    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
     throw new TypeError("Invalid Blob cursor.")
   }
   return {
@@ -441,6 +444,7 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         })
         const blobs = page.blobs ?? []
         if (startIndex > 0 && startIndex >= blobs.length) {
+          // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
           throw new TypeError("Invalid Blob cursor.")
         }
         const consumeDirectories = !directoriesConsumed && (blobs.length === 0 || selected.length < limit)

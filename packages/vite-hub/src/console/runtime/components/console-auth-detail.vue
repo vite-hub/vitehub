@@ -7,12 +7,16 @@ import type {
   AuthConsoleValue,
 } from "@vite-hub/auth/console";
 import { computed, ref, shallowRef, watch } from "vue";
-import { authDate, authDuration, authFieldValue, readAuthConsole } from "../client/auth-management";
-import { isRemoteProject, projectConsoleUrl, projectUrl } from "../client/project";
+import { authDate, authFieldValue, changeAuthConsole, readAuthConsole } from "../client/auth-management";
+import { consoleDurationWords } from "../client/format";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
+import type { ConsoleProperty } from "./console-facts";
+import ConsolePropertyList from "./console-property-list.vue";
+import ConsoleSection from "./console-section.vue";
 import ConsoleState from "./console-state.vue";
-const props = defineProps<{ base: string; id?: string; description: AuthConsoleDescription }>();
+import ConsoleValue from "./console-value.vue";
+const props = defineProps<{ id?: string; description: AuthConsoleDescription }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const detail = shallowRef<AuthConsoleUserDetail>();
 const error = shallowRef<unknown>();
@@ -39,7 +43,7 @@ async function refresh() {
   loading.value = true;
   error.value = undefined;
   try {
-    const value = await readAuthConsole(props.base, "user", { id: props.id });
+    const value = await readAuthConsole("user", { id: props.id });
     if (current === sequence) {
       detail.value = value;
       revision.value++;
@@ -72,8 +76,6 @@ function act(name: AuthConsoleAction, id?: string, selectedField?: AuthConsoleFi
 async function changed(name: AuthConsoleAction) {
   emit("changed");
   if (name === "remove") emit("close");
-  else if (name === "impersonate")
-    window.location.assign(projectUrl("/"));
   else await refresh();
 }
 async function page(kind: "sessions" | "agents", direction: number) {
@@ -82,7 +84,7 @@ async function page(kind: "sessions" | "agents", direction: number) {
   paging.value = true;
   try {
     const current = detail.value[kind];
-    const next = await readAuthConsole(props.base, kind, {
+    const next = await readAuthConsole(kind, {
       query: { userId: props.id, offset: current.offset + direction * current.limit },
     });
     if (currentSequence !== sequence || !detail.value) return;
@@ -95,6 +97,19 @@ async function page(kind: "sessions" | "agents", direction: number) {
     paging.value = false;
   }
 }
+/** The profile rows. Role, status, and editable fields show their own controls in the list's value slot. */
+const profile = computed<Array<ConsoleProperty & { field?: AuthConsoleField; kind: "field" | "role" | "status" | "text" }>>(() => {
+  const user = detail.value?.user;
+  if (!user) return [];
+  return [
+    { kind: "text", label: "User ID", mono: true, value: user.id },
+    { kind: "text", label: "Created", value: authDate(user.createdAt) },
+    { kind: "text", label: "Last active", value: authDate(user.lastActive) },
+    { kind: "role", label: "Role", value: user.role },
+    { kind: "status", label: "Status", value: user.banned ? "Banned" : "Active" },
+    ...props.description.fields.map((item) => ({ field: item, kind: "field" as const, label: item.label, value: authFieldValue(user.fields[item.key]) })),
+  ];
+});
 const actions = computed(() => [
   {
     id: detail.value?.user.banned ? ("unban" as const) : ("ban" as const),
@@ -107,10 +122,6 @@ const actions = computed(() => [
 const impersonation = computed(() => {
   const settings = props.description.impersonation;
   if (!settings || !detail.value) return undefined;
-  // Impersonation sets a session cookie of the app, which a Console on another origin cannot set.
-  if (isRemoteProject()) {
-    return { enabled: false, note: "Impersonation sets a cookie of the app, so it works only in the Console that the app serves.", openInApp: projectConsoleUrl("/auth/users") };
-  }
   const blocked = [
     props.description.actions.impersonate,
     detail.value.impersonation ?? { enabled: false, reason: "Reload to check this user." },
@@ -119,10 +130,23 @@ const impersonation = computed(() => {
     enabled: !blocked,
     note:
       blocked?.reason ??
-      `The session lasts ${authDuration(settings.duration)}. Activity records the start and the stop.`,
-    openInApp: undefined,
+      `A new tab opens the app as this user, in this browser's app session. It lasts ${consoleDurationWords(settings.duration)}. Activity records the start and the stop.`,
   };
 });
+const stopping = ref(false);
+const stopError = ref("");
+/** Opens a one-time link that ends the impersonation of this browser and restores your own app session. */
+async function stopImpersonating() {
+  stopping.value = true;
+  stopError.value = "";
+  try {
+    await changeAuthConsole({ action: "stopImpersonating" });
+  } catch (cause) {
+    stopError.value = cause instanceof Error ? cause.message : "Could not stop impersonating.";
+  } finally {
+    stopping.value = false;
+  }
+}
 </script>
 <template>
   <USlideover
@@ -137,112 +161,68 @@ const impersonation = computed(() => {
         Loading user…
       </p>
       <div v-else-if="detail" class="divide-y divide-default text-sm">
-        <section
-          v-if="impersonation"
-          class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 p-4"
-          aria-labelledby="auth-impersonate"
-        >
-          <div class="min-w-48 flex-1 space-y-1">
-            <h2 id="auth-impersonate" class="font-medium text-highlighted">
-              Open the app as this user
-            </h2>
-            <p id="auth-impersonate-note" class="text-xs text-pretty text-muted">
-              {{ impersonation.note }}
-            </p>
-          </div>
-          <UButton
-            v-if="impersonation.openInApp"
-            color="neutral"
-            variant="outline"
-            size="sm"
-            class="shrink-0"
-            trailing-icon="i-lucide-arrow-up-right"
-            aria-describedby="auth-impersonate-note"
-            :to="impersonation.openInApp"
-            target="_blank"
-            external
-            >Open in the app</UButton
-          >
-          <UButton
-            v-else
-            icon="i-lucide-venetian-mask"
-            color="neutral"
-            variant="outline"
-            size="sm"
-            class="shrink-0"
-            aria-describedby="auth-impersonate-note"
-            :disabled="!impersonation.enabled"
-            @click="act('impersonate')"
-            >Impersonate</UButton
-          >
-        </section>
-        <section class="space-y-3 p-4" aria-labelledby="auth-profile">
-          <h2 id="auth-profile" class="font-medium text-highlighted">Profile</h2>
-          <dl class="grid grid-cols-[8rem_1fr] items-start gap-x-3 gap-y-3">
-            <dt class="text-muted">User ID</dt>
-            <dd class="break-all font-mono text-xs">{{ detail.user.id }}</dd>
-            <dt class="text-muted">Created</dt>
-            <dd>{{ authDate(detail.user.createdAt) }}</dd>
-            <dt class="text-muted">Last active</dt>
-            <dd>{{ authDate(detail.user.lastActive) }}</dd>
-            <dt class="text-muted">Role</dt>
-            <dd>
+        <ConsoleSection v-if="impersonation" :level="3" title="Open the app as this user" class="p-4">
+          <template #actions>
+            <UButton
+              icon="i-lucide-venetian-mask"
+              variant="outline"
+              class="shrink-0"
+              aria-describedby="auth-impersonate-note"
+              :disabled="!impersonation.enabled"
+              @click="act('impersonate')"
+              >Impersonate</UButton
+            ><UButton
+              variant="ghost"
+              class="shrink-0"
+              :loading="stopping"
+              @click="stopImpersonating"
+              >Stop impersonating</UButton
+            >
+          </template>
+          <p id="auth-impersonate-note" class="text-xs text-pretty text-muted">{{ impersonation.note }}</p>
+          <p v-if="stopError" role="alert" class="text-xs text-error">{{ stopError }}</p>
+        </ConsoleSection>
+        <ConsolePropertyList title="Profile" :items="profile" class="p-4">
+          <template #value="{ item }">
+            <template v-if="item.kind === 'role'">
               <div class="flex items-center justify-between gap-2">
-                <span>{{ detail.user.role }}</span
+                <span>{{ item.value }}</span
                 ><UButton
                   size="xs"
-                  color="neutral"
                   variant="ghost"
                   :disabled="!description.actions.setRole.enabled"
                   @click="act('setRole')"
                   >Change role</UButton
                 >
               </div>
-              <p v-if="description.actions.setRole.reason" class="mt-1 text-xs text-muted">
-                {{ description.actions.setRole.reason }}
-              </p>
-            </dd>
-            <dt class="text-muted">Status</dt>
-            <dd>
+              <p v-if="description.actions.setRole.reason" class="mt-1 text-xs text-muted">{{ description.actions.setRole.reason }}</p>
+            </template>
+            <template v-else-if="item.kind === 'status'">
               <!-- The same words and colors as the Status column of the user list. -->
-              <span :class="detail.user.banned ? 'text-error' : ''">{{ detail.user.banned ? "Banned" : "Active" }}</span>
-              <p v-if="detail.user.banReason" class="mt-1 text-xs text-muted">
-                {{ detail.user.banReason }}
-              </p>
-              <p v-if="detail.user.banExpires" class="text-xs text-muted">
-                Until {{ authDate(detail.user.banExpires) }}
-              </p>
-            </dd>
-            <template v-for="item in description.fields" :key="item.key"
-              ><dt class="text-muted">{{ item.label }}</dt>
-              <dd>
-                <div class="flex items-center justify-between gap-2">
-                  <span class="min-w-0 break-words">{{
-                    authFieldValue(detail.user.fields[item.key])
-                  }}</span
-                  ><UButton
-                    v-if="!item.computed"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    :disabled="!item.edit.enabled"
-                    :aria-label="`Edit ${item.label}`"
-                    @click="act('editField', undefined, item)"
-                    >Edit</UButton
-                  >
-                </div>
-                <p v-if="!item.edit.enabled" class="mt-1 text-xs text-muted">
-                  {{ item.edit.reason }}
-                </p>
-              </dd></template
-            >
-          </dl>
-        </section>
-        <section class="space-y-3 p-4" aria-labelledby="auth-user-sessions">
-          <h2 id="auth-user-sessions" class="font-medium text-highlighted">
-            Sessions <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.sessions.total }}</span>
-          </h2>
-          <p v-if="!detail.sessions.total" class="text-muted">No active sessions.</p>
+              <span :class="detail.user.banned ? 'text-error' : ''">{{ item.value }}</span>
+              <p v-if="detail.user.banReason" class="mt-1 text-xs text-muted">{{ detail.user.banReason }}</p>
+              <p v-if="detail.user.banExpires" class="text-xs text-muted">Until {{ authDate(detail.user.banExpires) }}</p>
+            </template>
+            <template v-else-if="item.field">
+              <div class="flex items-center justify-between gap-2">
+                <span class="min-w-0 break-words">{{ item.value }}</span
+                ><UButton
+                  v-if="!item.field.computed"
+                  size="xs"
+                  variant="ghost"
+                  :disabled="!item.field.edit.enabled"
+                  :aria-label="`Edit ${item.label}`"
+                  @click="act('editField', undefined, item.field)"
+                  >Edit</UButton
+                >
+              </div>
+              <p v-if="!item.field.edit.enabled" class="mt-1 text-xs text-muted">{{ item.field.edit.reason }}</p>
+            </template>
+            <ConsoleValue v-else :value="item.value" />
+          </template>
+        </ConsolePropertyList>
+        <ConsoleSection :level="3" title="Sessions" :count="detail.sessions.total" class="p-4">
+          <UEmpty v-if="!detail.sessions.total" variant="naked" size="sm" icon="i-lucide-monitor-smartphone" title="No active sessions" description="A session shows here when the user signs in." />
           <ul class="space-y-3">
             <li
               v-for="session in detail.sessions.items"
@@ -255,7 +235,6 @@ const impersonation = computed(() => {
               </div>
               <UButton
                 size="xs"
-                color="neutral"
                 variant="ghost"
                 :disabled="!description.actions.revokeSession.enabled"
                 :title="description.actions.revokeSession.reason"
@@ -284,17 +263,13 @@ const impersonation = computed(() => {
               >Next</UButton
             >
           </div>
-        </section>
-        <section class="space-y-3 p-4" aria-labelledby="auth-user-accounts">
-          <h2 id="auth-user-accounts" class="font-medium text-highlighted">
-            Linked accounts
-            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.accountsTotal }}</span>
-          </h2>
+        </ConsoleSection>
+        <ConsoleSection :level="3" title="Linked accounts" :count="detail.accountsTotal" class="p-4">
           <p v-if="detail.accountsTotal > detail.accounts.length" class="text-xs text-muted">
             Showing the first {{ detail.accounts.length }} of {{ detail.accountsTotal }} linked
             accounts.
           </p>
-          <p v-if="!detail.accounts.length" class="text-muted">No linked accounts.</p>
+          <UEmpty v-if="!detail.accounts.length" variant="naked" size="sm" icon="i-lucide-link" title="No linked accounts" description="An account shows here when the user signs in with a provider." />
           <ul class="space-y-2">
             <li
               v-for="account in detail.accounts"
@@ -305,17 +280,9 @@ const impersonation = computed(() => {
               ><span class="truncate text-muted">{{ account.accountId }}</span>
             </li>
           </ul>
-        </section>
-        <section
-          v-if="description.pages.includes('agents')"
-          class="space-y-3 p-4"
-          aria-labelledby="auth-user-agents"
-        >
-          <h2 id="auth-user-agents" class="font-medium text-highlighted">
-            Approved clients
-            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.agents.total }}</span>
-          </h2>
-          <p v-if="!detail.agents.total" class="text-muted">No approved clients.</p>
+        </ConsoleSection>
+        <ConsoleSection v-if="description.pages.includes('agents')" :level="3" title="Approved clients" :count="detail.agents.total" class="p-4">
+          <UEmpty v-if="!detail.agents.total" variant="naked" size="sm" icon="i-lucide-bot" title="No approved clients" description="A client shows here after the user approves its access." />
           <ul class="space-y-3">
             <li
               v-for="client in detail.agents.items"
@@ -328,7 +295,6 @@ const impersonation = computed(() => {
               </div>
               <UButton
                 size="xs"
-                color="neutral"
                 variant="ghost"
                 :disabled="!description.actions.revokeConsent.enabled"
                 @click="act('revokeConsent', client.id)"
@@ -356,16 +322,8 @@ const impersonation = computed(() => {
               >Next</UButton
             >
           </div>
-        </section>
-        <section
-          v-if="description.pages.includes('organizations')"
-          class="space-y-3 p-4"
-          aria-labelledby="auth-user-organizations"
-        >
-          <h2 id="auth-user-organizations" class="font-medium text-highlighted">
-            Organizations
-            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.organizationsTotal }}</span>
-          </h2>
+        </ConsoleSection>
+        <ConsoleSection v-if="description.pages.includes('organizations')" :level="3" title="Organizations" :count="detail.organizationsTotal" class="p-4">
           <p
             v-if="detail.organizationsTotal > detail.organizations.length"
             class="text-xs text-muted"
@@ -373,7 +331,7 @@ const impersonation = computed(() => {
             Showing the first {{ detail.organizations.length }} of
             {{ detail.organizationsTotal }} memberships.
           </p>
-          <p v-if="!detail.organizations.length" class="text-muted">No organizations.</p>
+          <UEmpty v-if="!detail.organizations.length" variant="naked" size="sm" icon="i-lucide-building-2" title="No organizations" description="A membership shows here when the user joins an organization." />
           <ul class="space-y-2">
             <li
               v-for="org in detail.organizations"
@@ -384,20 +342,17 @@ const impersonation = computed(() => {
               ><span class="text-muted">{{ org.role }}</span>
             </li>
           </ul>
-        </section>
+        </ConsoleSection>
         <ConsoleAuthUserEvents
           v-if="description.events.enabled"
-          :base="base"
           :user-id="detail.user.id"
           :revision="revision"
         />
-        <section class="space-y-3 p-4" aria-labelledby="auth-user-actions">
-          <h2 id="auth-user-actions" class="font-medium text-highlighted">Actions</h2>
+        <ConsoleSection :level="3" title="Actions" class="p-4">
           <div v-for="item in actions" :key="item.id">
             <UButton
               :color="item.id === 'remove' ? 'error' : 'neutral'"
               variant="ghost"
-              size="sm"
               :disabled="!description.actions[item.id].enabled"
               @click="act(item.id)"
               >{{ item.label }}</UButton
@@ -406,10 +361,9 @@ const impersonation = computed(() => {
               {{ description.actions[item.id].reason }}
             </p>
           </div>
-        </section>
+        </ConsoleSection>
       </div>
       <ConsoleAuthAction
-        :base="base"
         :action="action"
         :id="actionId"
         :user-id="id"

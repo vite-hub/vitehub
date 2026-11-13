@@ -10,6 +10,8 @@ export type AuthAccessIdentityResolver = (request: Request, event: AuthRequestIn
 export interface AuthRuntimeState {
   auth?: ViteHubAuth
   definition?: AuthDefinition
+  /** The request instances of each Auth Definition, by the key of their resolved options. Oldest first. */
+  providers?: WeakMap<object, Map<string, ViteHubAuth>>
   /**
    * Set once by the generated Nitro plugin. It lives here, not in the server module, because a dev reload re-runs the
    * server module when the app's Auth Definition changes, and the plugin does not run again.
@@ -21,6 +23,17 @@ export interface AuthRuntimeState {
   memoryDatabases?: WeakMap<object, Record<string, unknown[]>>
   /** Serializes claim reservations across Auth instances in this process. */
   adminClaimQueues?: Map<string, Promise<boolean>>
+}
+
+/**
+ * Marks the database that Auth adds to a Definition without one. It keeps rows in the memory of one process, so a value
+ * that another instance must see, such as a one-time ticket, cannot live there.
+ */
+export const authProcessMemoryDatabase: unique symbol = Symbol.for("vitehub.auth.processMemoryDatabase")
+
+/** Whether a Better Auth `database` option is the process memory database that Auth adds. */
+export function isAuthProcessMemoryDatabase(database: unknown): boolean {
+  return database instanceof Object && Reflect.get(database, authProcessMemoryDatabase) === true
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {
@@ -37,4 +50,5 @@ export function resetAuth(): void {
   const state = getAuthRuntimeState()
   state.auth = undefined
   state.definition = undefined
+  state.providers = undefined
 }

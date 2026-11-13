@@ -25,7 +25,7 @@ pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Then update the ViteHub options in your app config. Keep the other options of your app:
+Then update the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -35,8 +35,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
-    console: { auth: false },
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -59,15 +58,18 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true }), nitro()],
-  env: {
-    server: {
-      google: {
-        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    host: 'node',
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
       },
     },
-  },
+  }), nitro()],
 })
 ```
 ::::
@@ -79,22 +81,24 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true })],
-  env: {
-    server: {
-      google: {
-        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
-        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+  plugins: [vitehub({
+    host: 'node',
+    connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
       },
     },
-  },
+  })],
 })
 ```
 ::::
 :::
 
 - `connections: true` turns on Connections.
-- `console: { auth: false }` turns on the [Console](/docs/development/console), the admin page of your app, without a sign-in. Use this only on your computer.
 - `env.server.google` reads your Google client ID and secret from environment variables. `secret: true` hides the value until your code calls `unseal()`.
 
 Connections encrypts what it stores with a key. Make a random key:
@@ -114,7 +118,7 @@ export GOOGLE_CLIENT_ID='your-google-client-id'
 export GOOGLE_CLIENT_SECRET='your-google-client-secret'
 ```
 
-In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` as an authorized redirect URI. Google sends the user back to this URL after you connect from the Console. Its start must match the URL that you open in your browser. To connect from the CLI, also add `http://127.0.0.1:4799/callback`.
+In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` and `http://127.0.0.1:4799/callback` as authorized redirect URIs. Google sends the user back to these URLs after you connect.
 
 ::
 
@@ -124,7 +128,7 @@ In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` as an
 Create `server/connections/google.ts`. The file name is the name of the Connection: `google`. This Connection can only read Gmail.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 
@@ -156,9 +160,7 @@ Start the dev server in the terminal where you set the keys:
 pnpm dev
 ```
 
-To connect the account, open the Console at `http://localhost:3000/_vitehub`, select **Connections**, and select **Connect**. Sign in with the test account, and accept the consent screen.
-
-Or use the CLI. Open a second terminal and run the first command below. It prints a connect URL that works one time, and waits on `http://127.0.0.1:4799/callback`. Open that URL in your browser, sign in with the test account, and accept the consent screen. When the command ends, run the second command:
+To connect the account, use the CLI. Open a second terminal and run the first command below. It prints a connect URL that works one time, and waits on `http://127.0.0.1:4799/callback`. Open that URL in your browser, sign in with the test account, and accept the consent screen. When the command ends, run the second command:
 
 ```bash [commands/connect]
 pnpm vitehub connections connect google --port 4799
