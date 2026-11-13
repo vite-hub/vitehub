@@ -79,7 +79,7 @@ describe("blob.copy() on fs", () => {
   it("checks the destination with the rules of put()", async () => {
     const { storage } = await fsStorage()
     await storage.put("a.txt", "a")
-    for (const target of ["_vitehub/media/a.txt", ".vitehub/a.txt", "../a.txt", "a/../../b.txt"]) {
+    for (const target of ["_vitehub/media/a.txt", ".vitehub/a.txt", "../a.txt", "a/../../b.txt", "x%2541.txt"]) {
       await expect(storage.copy("a.txt", target)).rejects.toThrow()
       await expect(storage.put(target, "a")).rejects.toThrow()
     }
