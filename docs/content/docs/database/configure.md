@@ -308,12 +308,39 @@ To apply the same migrations from a Nitro task, a test, or a build without the s
 
 A failed SQLite migration rolls back, but a migration that applies with a mistake, such as a wrong `UPDATE`, changes the data for good. Set `backup` to copy each local SQLite file before the server applies its pending migrations:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: { database: { migrateOnStart: { backup: true } } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ database: { migrateOnStart: { backup: true } } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ database: { migrateOnStart: { backup: true } } })],
+})
+```
+:::
+::
 
 - The server copies the file with SQLite's `VACUUM INTO` only when at least one migration is pending. A start with nothing pending, or a new empty database, makes no copy.
 - Each copy is `<file name>-<UTC time>-before-<last pending migration><extension>`, for example `backups/app-2026-11-13T08-00-00-123Z-before-20261113080000_add_tags.sqlite`.
