@@ -13,7 +13,7 @@ vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", po
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
   return {
-    default: createDocsManifest({
+    default: await createDocsManifest({
       dir: resolve(import.meta.dirname, "fixtures/content"),
       base: "/docs",
     }),

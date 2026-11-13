@@ -39,8 +39,8 @@ describe("docsCollection", () => {
     expect(docsCollection({ path: "docs/content/**/*.md", label: "Pages" })).toMatchObject({ paths: ["docs/content/**/*.md"], label: "Pages" })
   })
 
-  it("gives every page of vitehub.dev the URL that the manifest gives it", () => {
-    const manifest = createDocsManifest({ dir: vitehubContent, base: "/docs" })
+  it("gives every page of vitehub.dev the URL that the manifest gives it", async () => {
+    const manifest = await createDocsManifest({ dir: vitehubContent, base: "/docs" })
     const { url } = docsCollection()
     const pages = docsManifestPages(manifest)
 
@@ -65,7 +65,7 @@ describe("docsCollection", () => {
   })
 
   it("validates every page of vitehub.dev, dotted keys included", async () => {
-    const manifest = createDocsManifest({ dir: vitehubContent, base: "/docs" })
+    const manifest = await createDocsManifest({ dir: vitehubContent, base: "/docs" })
     const issues: string[] = []
     for (const page of docsManifestPages(manifest)) {
       const { data } = pageFile(resolve(vitehubContent, page.file))
