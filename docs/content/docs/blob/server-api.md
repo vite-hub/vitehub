@@ -228,7 +228,7 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 for each file. The file name, without folders, is the pathname. ViteHub does
 not URL-decode it, so a file named `..%2Fevil.txt` stays inside `prefix`.
 It replaces the `%` of each `%XX` sequence with `_`, so `Q3 100%25.pdf` is
-stored as `Q3 100_25.pdf`.
+stored as `Q3 100_25-<uuid>.pdf`. Renamed files get a fresh UUID suffix before the extension to avoid overwriting a different file.
 It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.

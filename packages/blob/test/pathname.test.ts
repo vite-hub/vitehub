@@ -217,7 +217,7 @@ describe("HTTP routes", () => {
 
     expect(response.status).toBe(200)
     expect(await readdir(base)).not.toContain("evil.txt")
-    expect(await readdir(join(base, "uploads"))).toEqual([".._2Fevil.txt"])
+    expect(await readdir(join(base, "uploads"))).toEqual([expect.stringMatching(/^\.\._2Fevil-[\da-f-]{36}\.txt$/)])
   })
 })
 
@@ -232,16 +232,34 @@ describe("handleUpload pathnames", () => {
     const [error, objects] = await storage.handleUpload(formRequest(["..%2Fevil.txt"]), { put: { prefix: "uploads" } })
 
     expect(error).toBeUndefined()
-    expect(objects?.map(object => object.pathname)).toEqual(["uploads/.._2Fevil.txt"])
+    expect(objects?.map(object => object.pathname)).toEqual([expect.stringMatching(/^uploads\/\.\._2Fevil-[\da-f-]{36}\.txt$/)])
     expect(await readdir(base)).not.toContain("evil.txt")
-    expect(await readdir(join(base, "uploads"))).toEqual([".._2Fevil.txt"])
+    expect(await readdir(join(base, "uploads"))).toEqual([expect.stringMatching(/^\.\._2Fevil-[\da-f-]{36}\.txt$/)])
   })
 
   it("does not decode file names and replaces the \"%\" of a %XX sequence", async () => {
     const [error, objects] = await storage.handleUpload(formRequest(["a%2Fb.txt", "photo%201.png", "50% off.txt"]), { put: { prefix: "uploads" } })
 
     expect(error).toBeUndefined()
-    expect(objects?.map(object => object.pathname)).toEqual(["uploads/a_2Fb.txt", "uploads/photo_201.png", "uploads/50% off.txt"])
+    expect(objects?.map(object => object.pathname)).toEqual([expect.stringMatching(/^uploads\/a_2Fb-[\da-f-]{36}\.txt$/), expect.stringMatching(/^uploads\/photo_201-[\da-f-]{36}\.png$/), "uploads/50% off.txt"])
+  })
+
+  it("preserves distinct uploads and an existing replacement name", async () => {
+    await storage.put("uploads/x_41.txt", "existing")
+    const [firstError] = await storage.handleUpload(formRequest(["x%41.txt"]), { put: { prefix: "uploads" } })
+    expect(firstError).toBeUndefined()
+    expect(await (await storage.get("uploads/x_41.txt"))[1]?.text()).toBe("existing")
+    const [error, objects] = await storage.handleUpload(formRequest(["x%41.txt", "x_41.txt"]), { put: { prefix: "uploads" } })
+    expect(error).toBeUndefined()
+    expect(new Set(objects!.map(object => object.pathname)).size).toBe(2)
+    expect(await (await storage.get(objects![0]!.pathname))[1]?.text()).toBe("x%41.txt")
+    expect(await (await storage.get(objects![1]!.pathname))[1]?.text()).toBe("x_41.txt")
+
+    const [nextError, next] = await storage.handleUpload(formRequest(["x%41.txt"]), { put: { prefix: "uploads" } })
+    expect(nextError).toBeUndefined()
+    expect(next![0]!.pathname).not.toBe(objects![0]!.pathname)
+    expect(await (await storage.get("uploads/x_41.txt"))[1]?.text()).toBe("x_41.txt")
+    expect(await (await storage.get(objects![0]!.pathname))[1]?.text()).toBe("x%41.txt")
   })
 
   it("returns pathnames that target the same object when passed back", async () => {
