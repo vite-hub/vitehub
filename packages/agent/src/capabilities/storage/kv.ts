@@ -27,9 +27,9 @@ export function kv(options: KVCapabilityOptions = {}): AgentCapabilityDefinition
   return defineCapability({ id: "kv", mode, requires: [{ primitive: "kv" }], tools: kvTools(mode, options, scope) })
 }
 
-// The same key normalization as unstorage, which every KV driver uses: `/` and `\` become `:`.
+// Match unstorage: discard the query, normalize separators, and trim the root separator.
 function normalizeKVKey(key: string): string {
-  return key.replace(/[:/\\]/g, ":").replace(/^:|:$/g, "")
+  return (key.split("?")[0] || "").replace(/[/\\]/g, ":").replace(/:+/g, ":").replace(/^:|:$/g, "")
 }
 
 function hasDotSegment(key: string): boolean {

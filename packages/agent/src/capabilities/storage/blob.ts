@@ -135,11 +135,11 @@ function assertBlobScope(pathname: string, scope: string | undefined, label: str
   return pathname
 }
 
-/** `put()` joins `options.prefix` before the pathname, so the check covers the joined pathname. */
+/** `put()` removes empty filename segments before joining `options.prefix`. A random suffix only changes the filename. */
 function assertBlobPutScope(pathname: string, putOptions: Record<string, unknown> | undefined, scope: string | undefined): void {
   if (scope === undefined) return
   const putPrefix = putOptions?.prefix
-  const joined = [typeof putPrefix === "string" ? putPrefix : "", decodeBlobPathname(pathname)]
+  const joined = [typeof putPrefix === "string" ? putPrefix : "", decodeBlobPathname(pathname).split("/").filter(Boolean).join("/")]
     .filter(Boolean)
     .join("/")
     .replace(/\/+/g, "/")
