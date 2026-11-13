@@ -867,6 +867,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           for (const child of children) {
             if (!isRuntimeRecord(child) || String(child.state).toLowerCase() !== "open" || !isRuntimeRecord(child.base) || child.base.ref !== snapshot.pr?.head?.ref
               || !Number.isSafeInteger(child.number)) continue;
+            // Persist before PATCH: a later retarget, lease check, or parent merge can fail.
+            // Keep this across restarts and child head/base changes until GitHub confirms landing.
+            await pullRequestInbox.setMeta(`stack-dependency:${repository}#${child.number}`, number);
             await provider.request("PATCH", `/repos/${repository}/pulls/${child.number}`, { body: { base: parentBase }, signal });
             retargeted.push(child.number as number);
           }
@@ -1315,6 +1318,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function retargetMergedStackBase(claim: Claim, signal: AbortSignal): Promise<{ from: string; to: string } | { parent: number } | undefined> {
     const snapshot = claim.snapshot;
     const pr = snapshot.pr;
+    const dependency = await pullRequestInbox.metaNumber(`stack-dependency:${snapshot.repository}#${snapshot.number}`);
+    if (dependency !== undefined) {
+      const parent = await readPull(snapshot.repository, dependency, signal);
+      if (!isRuntimeRecord(parent) || !(parent.merged === true || hasRuntimeType(parent.merged_at, "string"))) return { parent: dependency };
+    }
     const target = pr && nonDefaultBase(pr);
     if (!pr || !target) return undefined;
     const { base, owner } = target;
@@ -2123,7 +2131,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // Mark every repair comment, including mentions, so its webhook cannot revoke this pass.
                 commentPrefix: "<!-- vitehub-babysitter-repair:repair -->\n",
                 signal: abortSignal,
-                autoMerge: merge.mode === "auto",
+                autoMerge: merge.mode === "auto" && stackParent === undefined,
                 eligible: (current) =>
                   pullRequestInbox.eligible(repository, normalizePullRequest(current)),
                 checkDependencies: async () => {
