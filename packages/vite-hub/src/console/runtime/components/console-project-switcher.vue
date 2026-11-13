@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveRailItem } from "@vite-hub/docs/primitive-rail";
 import { computed, defineAsyncComponent } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";

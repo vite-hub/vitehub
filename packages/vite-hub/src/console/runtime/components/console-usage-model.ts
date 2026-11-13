@@ -1,4 +1,5 @@
-export type ConsoleUsageMetric = "cost" | "tokens";
+/** `sessions` counts finished Agent sessions, the way usage dashboards count turns. */
+export type ConsoleUsageMetric = "cost" | "sessions" | "tokens";
 
 /** The usage evidence the Usage page reads from one totals row. */
 export interface ConsoleUsageEvidence {
@@ -11,6 +12,8 @@ export interface ConsoleUsageEvidence {
   costUsd: string;
   inputTokens: number;
   inputTokensAvailable: boolean;
+  invocations: number;
+  invocationsAvailable: boolean;
   outputTokens: number;
   outputTokensAvailable: boolean;
   pricedInvocations: number;
@@ -42,17 +45,17 @@ function costValue(totals: Pick<ConsoleUsageEvidence, "costUsd">): number {
 }
 
 export function consoleUsageMetricValue(
-  totals: Pick<ConsoleUsageEvidence, "costUsd" | "totalTokens">,
+  totals: Pick<ConsoleUsageEvidence, "costUsd" | "invocations" | "totalTokens">,
   metric: ConsoleUsageMetric,
 ): number {
-  return metric === "cost" ? costValue(totals) : totals.totalTokens;
+  return metric === "cost" ? costValue(totals) : metric === "sessions" ? totals.invocations : totals.totalTokens;
 }
 
 /** Ranks models by the selected metric. The other metric and the name break ties. */
 export function sortConsoleUsageModels<
-  Model extends { costUsd: string; model: string; totalTokens: number },
+  Model extends { costUsd: string; invocations: number; model: string; totalTokens: number },
 >(models: readonly Model[], metric: ConsoleUsageMetric): Model[] {
-  const other: ConsoleUsageMetric = metric === "cost" ? "tokens" : "cost";
+  const other: ConsoleUsageMetric = metric === "tokens" ? "cost" : "tokens";
   return models.toSorted(
     (left, right) =>
       consoleUsageMetricValue(right, metric) - consoleUsageMetricValue(left, metric) ||
@@ -64,12 +67,14 @@ export function sortConsoleUsageModels<
 /**
  * A model's share of the selected metric, or `null` when it is unknown.
  * Cost shares require complete aggregate cost evidence. Token shares stay independent.
+ * Sessions can use several models, so their model counts do not form a share.
  */
 export function consoleUsageModelShare(
-  model: Pick<ConsoleUsageEvidence, "costUsd" | "pricedInvocations" | "totalTokens" | "totalTokensAvailable">,
-  totals: Pick<ConsoleUsageEvidence, "costAvailable" | "costUsd" | "totalTokens">,
+  model: Pick<ConsoleUsageEvidence, "costUsd" | "invocations" | "pricedInvocations" | "totalTokens" | "totalTokensAvailable">,
+  totals: Pick<ConsoleUsageEvidence, "costAvailable" | "costUsd" | "invocations" | "totalTokens">,
   metric: ConsoleUsageMetric,
 ): number | null {
+  if (metric === "sessions") return null;
   if (metric === "tokens") {
     if (totals.totalTokens <= 0 || (!model.totalTokensAvailable && model.totalTokens === 0)) {
       return null;
@@ -222,10 +227,11 @@ export function formatConsoleUsagePeriod(value: string, resolution: "day" | "hou
 export function formatConsoleUsageValue(
   totals: Pick<
     ConsoleUsageEvidence,
-    "costAvailable" | "costEstimated" | "costUsd" | "totalTokens" | "totalTokensAvailable"
+    "costAvailable" | "costEstimated" | "costUsd" | "invocations" | "invocationsAvailable" | "totalTokens" | "totalTokensAvailable"
   >,
   metric: ConsoleUsageMetric,
 ): string {
+  if (metric === "sessions") return `${totals.invocations.toLocaleString("en")}${totals.invocationsAvailable ? "" : " recorded"}`;
   return metric === "cost"
     ? formatConsoleUsageCostEvidence(totals.costUsd, totals.costEstimated, totals.costAvailable)
     : formatConsoleUsageTokenEvidence(totals.totalTokens, totals.totalTokensAvailable);
@@ -245,7 +251,7 @@ export interface ConsoleUsageChartPoint {
 
 type ConsoleUsageChartTotals = Pick<
   ConsoleUsageEvidence,
-  "costAvailable" | "costEstimated" | "costUsd" | "totalTokens" | "totalTokensAvailable"
+  "costAvailable" | "costEstimated" | "costUsd" | "invocations" | "invocationsAvailable" | "totalTokens" | "totalTokensAvailable"
 >;
 
 /** One chart point. The period label uses UTC, like the server buckets. */
@@ -280,6 +286,8 @@ export function consoleUsageModelChartPoints(
       costAvailable: bucket.costAvailable,
       costEstimated: false,
       costUsd: "0",
+      invocations: 0,
+      invocationsAvailable: bucket.invocationsAvailable,
       totalTokens: 0,
       totalTokensAvailable: bucket.totalTokensAvailable,
     },
@@ -305,10 +313,10 @@ export function consoleUsageChartTicks(peak: number, count = 4): number[] {
 
 /** A period without evidence is unknown, not zero. A period with some evidence is partial. */
 export function consoleUsagePointEvidence(
-  totals: Pick<ConsoleUsageEvidence, "costAvailable" | "costUsd" | "totalTokens" | "totalTokensAvailable">,
+  totals: Pick<ConsoleUsageEvidence, "costAvailable" | "costUsd" | "invocations" | "invocationsAvailable" | "totalTokens" | "totalTokensAvailable">,
   metric: ConsoleUsageMetric,
 ): ConsoleUsagePointEvidence {
-  if (metric === "cost" ? totals.costAvailable : totals.totalTokensAvailable) return "complete";
+  if (metric === "cost" ? totals.costAvailable : metric === "sessions" ? totals.invocationsAvailable : totals.totalTokensAvailable) return "complete";
   return consoleUsageMetricValue(totals, metric) > 0 ? "partial" : "unavailable";
 }
 

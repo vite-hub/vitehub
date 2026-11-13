@@ -1,6 +1,6 @@
 import { H3 } from "h3"
 import { beforeEach, expect, test } from "vitest"
-import { useDatabase } from "vite-hub/database/drizzle"
+import { useDatabase } from "vite-hub/database"
 import { kv } from "vite-hub/kv"
 import { dynamicQueue } from "vite-hub/queue"
 import { setupViteHubTest } from "vite-hub/test"

@@ -48,12 +48,12 @@ describe("Nuxt remote Database development", () => {
         options: { buildDir: join(root, ".nuxt"), dev: true, rootDir: root, vite: {} },
       })
       const config = { alias: {} as Record<string, string> }
-      if (customRegistry) config.alias["@vite-hub/database/drizzle"] = "#custom-database"
+      if (customRegistry) config.alias["@vite-hub/database/runtime/registry"] = "#custom-database"
       for (const hook of hooks) await hook(config)
       const entry = join(root, "query.mjs")
       await writeFile(entry, [
         'import definition from "./server/databases/default.ts"',
-        ...customRegistry ? [] : ['import { useDatabase } from "@vite-hub/database/drizzle"'],
+        ...customRegistry ? [] : ['import { useDatabase } from "@vite-hub/database"'],
         'process.env.CLOUDFLARE_ACCOUNT_ID = "account-id"',
         'process.env.CLOUDFLARE_API_TOKEN = "api-token"',
         'globalThis.__env__ = { DB: { prepare() { throw new Error("Unexpected local binding") } } }',
@@ -64,11 +64,15 @@ describe("Nuxt remote Database development", () => {
         customRegistry ? 'const registry = undefined' : 'const registry = await db.select().from(schema.notes)',
         'console.log(JSON.stringify({ direct, registry, requests }))',
       ].join("\n"))
+      // The app's own registry, which the Database root re-exports.
+      const customRegistryFile = join(root, "custom-database.mjs")
+      if (customRegistry) await writeFile(customRegistryFile, "export const db = {}\nexport const schema = {}\nexport function useDatabase() {}\n")
       const output = join(root, "query.output.mjs")
       const query = async (databaseId: string) => {
         await build({
           alias: {
             ...config.alias,
+            ...customRegistry ? { "@vite-hub/database/runtime/registry": customRegistryFile } : {},
             "@vite-hub/database": join(packageRoot, "src/index.ts"),
             "#vitehub/database/definition-runtime": join(packageRoot, "src/runtime/definition-local.ts"),
           },
@@ -100,7 +104,7 @@ describe("Nuxt remote Database development", () => {
       if (customRegistry) {
         await writeFile(definition, (await readFile(definition, "utf8")).replace("schema: { notes }", 'cloudflare: { binding: "UPDATED_DB", databaseId: "updated-database-id", databaseName: "updated-notes" }, schema: { notes }'))
         for (const hook of watchHooks) await hook("change", definition)
-        expect(config.alias["@vite-hub/database/drizzle"]).toBe("#custom-database")
+        expect(config.alias["@vite-hub/database/runtime/registry"]).toBe("#custom-database")
         await query("updated-database-id")
       }
     }

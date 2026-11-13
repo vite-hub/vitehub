@@ -185,14 +185,14 @@ const claimDefinitions = {
   "local-provider-run": {
     local: inapplicableClaim("The Local Vite row makes no hosted-provider proof claim."),
     cloudflare: ciClaim(
-      "Pull requests run the shared primitive playground against local Cloudflare output.",
+      "CI on main runs the shared primitive playground against local Cloudflare output.",
       {
         task: { name: "e2e:local", path: "vite.config.ts" },
         workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },
       },
     ),
     vercel: ciClaim(
-      "Pull requests run the shared primitive playground against local Vercel adapters.",
+      "CI on main runs the shared primitive playground against local Vercel adapters.",
       {
         task: { name: "e2e:local", path: "vite.config.ts" },
         workflow: { job: "verify-providers", path: ".github/workflows/ci.yml" },

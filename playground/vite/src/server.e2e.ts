@@ -3,7 +3,7 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vite-hub/blob"
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
 import { deferQueue, sendQueue } from "@vite-hub/queue"

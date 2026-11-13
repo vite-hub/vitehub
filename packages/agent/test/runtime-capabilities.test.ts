@@ -13,14 +13,14 @@ describe("Agent Dev Loop runtime capabilities", () => {
       ssrLoadModule: vi.fn(async (specifier: string) => {
         started.push(specifier)
         await gate
-        return specifier === "@vite-hub/database/drizzle"
+        return specifier === "@vite-hub/database/runtime/registry"
           ? { agentDb: "db" }
           : { blob: "blob" }
       }),
     }
 
     const capabilities = resolveDevRuntimeCapabilities(server as never, [
-      { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle" },
+      { importName: "agentDb", name: "db", packageName: "@vite-hub/database/runtime/registry" },
       { importName: "blob", name: "blob", packageName: "@vite-hub/blob" },
     ])
 

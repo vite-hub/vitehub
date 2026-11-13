@@ -189,7 +189,7 @@ describe("nuxthub", () => {
 
   it.each([
     ["wrangler fallback", "'vite-hub/nuxt'", "", ""],
-    ["inline preset", "['vite-hub/nuxt', { preset: 'cloudflare' }]", "preset: 'node'", "nitro: { preset: process.env.NITRO_PRESET },"],
+    ["inline preset", "['vite-hub/nuxt', { host: 'cloudflare' }]", "host: 'node'", "nitro: { preset: process.env.NITRO_PRESET },"],
   ])("keeps Cloudflare resources with %s when merging existing options", async (name, module, options, nitro) => {
     const directory = await app(name, {
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['@nuxthub/core', ${module}], hub: { kv: true }, vitehub: { ${options} }, ${nitro} })\n`,
@@ -197,7 +197,7 @@ describe("nuxthub", () => {
     })
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
     const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
-    expect(config).toContain("preset: 'cloudflare'")
+    expect(config).toContain("host: 'cloudflare'")
     expect(config).toContain("kv: { driver: 'cloudflare-kv-binding', binding: 'KV', namespaceId: 'abcdef1234567890abcdef1234567890' }")
     expect(run.result.followUps.some(followUp => followUp.message.includes("To keep this namespace"))).toBe(false)
   })
@@ -213,7 +213,7 @@ describe("nuxthub", () => {
         "    dir: '.hub',",
         "  },",
         "  vitehub: {",
-        "    preset: 'vercel',",
+        "    host: 'vercel',",
         "  },",
         "})",
         "",
@@ -229,7 +229,7 @@ describe("nuxthub", () => {
       "export default defineNuxtConfig({
         modules: ['vite-hub/nuxt'],
         vitehub: {
-          preset: 'vercel',
+          host: 'vercel',
           database: true,
           kv: true,
         },
@@ -244,7 +244,7 @@ describe("nuxthub", () => {
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",
-        "hub.kv was { driver: 'upstash' }. The codemod set kv: true, which uses the default driver of the preset. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.kv by hand. See https://vitehub.dev/docs/kv.",
+        "hub.kv was { driver: 'upstash' }. The codemod set kv: true, which uses the default driver of the host. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.kv by hand. See https://vitehub.dev/docs/kv.",
         "hub.dir set the local data folder. ViteHub keeps local data in .vitehub/data/. Set dataDir under vitehub to keep another folder. The codemod dropped it.",
       ]
     `)

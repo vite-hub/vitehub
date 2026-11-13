@@ -40,7 +40,7 @@ async function resolveLibsql(root: string, preset: string, command: "build" | "s
   return { config: plugin.api.getConfig(), id: resolveId("#vitehub/database/libsql") }
 }
 
-/** Every package that the Worker bundle of `@vite-hub/database/drizzle` contains, through static and dynamic imports. */
+/** Every package that the Worker bundle of `@vite-hub/database` contains, through static and dynamic imports. */
 async function bundledPackages(libsqlModule: string | undefined) {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-db-libsql-bundle-"))
   tempDirs.push(dir)
@@ -55,7 +55,7 @@ async function bundledPackages(libsqlModule: string | undefined) {
     },
     bundle: true,
     conditions: ["workerd", "worker", "browser"],
-    entryPoints: [join(packageRoot, "src/drizzle.ts"), join(packageRoot, "src/runtime/definition-local.ts")],
+    entryPoints: [join(packageRoot, "src/index.ts"), join(packageRoot, "src/runtime/definition-local.ts")],
     external: ["cloudflare:workers", "node:*"],
     format: "esm",
     metafile: true,

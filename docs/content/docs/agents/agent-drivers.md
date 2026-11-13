@@ -89,7 +89,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -109,7 +109,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -128,7 +128,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -142,7 +142,7 @@ export default defineConfig({
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 export default defineAgent({
   driver: codexDriver({
@@ -239,7 +239,7 @@ launch: ({ command, providerCommand }) => ({
 
 ### Route model requests through a gateway
 
-Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/agents/ai-gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
+Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -254,7 +254,7 @@ export default defineAgent({
 })
 ```
 
-[AI gateways](/docs/agents/ai-gateways) lists the presets, their variables, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the Driver fails at definition time with `AGENT_R0976`.
+[AI gateways](/docs/gateways) lists the presets, their variables, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the Driver fails at definition time with `AGENT_R0976`.
 
 ViteHub maps the gateway to each provider:
 
@@ -288,11 +288,24 @@ export default defineAgent({
 
 `cwd` takes an absolute or relative path, or a per-Invocation resolver. Relative paths resolve from the process working directory. If the result is not an existing directory, the Invocation fails with `AGENT_R0939` before the provider starts. A `launch` resolver gets it as `cwd`.
 
-The directory is the working copy. ViteHub materializes Workspace Sources (outside file sets a Workspace mounts) but starts no Workspace session: no file copy, Git baseline, diff, write-back, or removal. It restores generated instruction and Skill files when the provider stops. In a Git repository root, Git ignores those files during the run, so provider commits skip them. Title and progress summary runs ignore `cwd`. Your app owns the directory's contents, cleanup, and isolation between concurrent Invocations. Inspection shows whether `cwd` is static or dynamic, without resolving it.
+The directory is the working copy. ViteHub materializes Workspace Sources (outside file sets a Workspace mounts) but starts no Workspace session: no file copy, Git baseline, diff, write-back, or removal. It restores generated instruction files when the provider stops. Skills never go into the directory. In a Git repository root, Git ignores those files during the run, so provider commits skip them. Title and progress summary runs ignore `cwd`. Your app owns the directory's contents, cleanup, and isolation between concurrent Invocations. Inspection shows whether `cwd` is static or dynamic, without resolving it.
 
 ### Temporary files
 
 Each Invocation on this host gets its own temporary directory in `TMPDIR`, `TMP`, and `TEMP` for the provider, its commands, and a `launch` wrapper. Test fixtures, tool caches, and the Node.js compile cache stay out of the shared host directory. ViteHub removes it when the Invocation ends, even after a failure, abort, or timeout, or a later Invocation removes it once the dead owner process is confirmed. Set `TMPDIR` in `env` to use another directory, which ViteHub does not remove. A Sandbox Invocation uses the Sandbox's temporary directory.
+
+### Give the provider its Skills
+
+The provider reads Skills from two places. It reads the Skills of its working directory natively: `.agents/skills` and `.codex/skills` for Codex, `.claude/skills` for Claude Code. ViteHub writes every other Skill to one private folder per Invocation, outside the working directory:
+
+- Agent-owned Skills from `server/agents/<name>/skills/`.
+- Workspace Skills under a skill root that the provider does not read, such as an `.agents/skills` Skill for Claude Code.
+- Skills of the outer Workspace root when the provider runs in a nested pull request checkout.
+
+Codex loads the folder as an extra skill root through `skills/extraRoots/set`. Claude Code reads its `.claude/skills` through `--add-dir`. A Skill name that the provider already reads in its working directory is not added again. The folder is next to the Invocation's temporary directory and is removed with it. A `launch` wrapper that starts the provider on another host must make the temporary directory of the ViteHub host (`os.tmpdir()`) available at the same path, as it does for the working directory. A Sandbox Invocation writes the same Skills to the provider's Home skill root instead.
+
+> [!WARNING]
+> Breaking change: earlier releases wrote Skills into the working directory and copied each Skill to `.agents/skills`, `.codex/skills`, and `.claude/skills`. A pull request checkout now keeps only its own files. Codex must support `skills/extraRoots/set` in `codex app-server`.
 
 ### Provision the project toolchain
 
@@ -323,6 +336,7 @@ Threads resume with the provider's opaque cursor. ViteHub turns provider output 
 | `credentials` | Codex only. `auth.json` string, sealed Server Env value, or per-Invocation resolver. Inspection shows that it is set, without resolving it. |
 | `reasoningEffort` | Codex only. A non-empty effort the model supports, such as `"low"`, `"high"`, or `"xhigh"`. Requires `model`. |
 | `reasoningSummary` | Codex only. `"auto"`, `"concise"`, `"detailed"`, or `"none"`. Requires `model`. |
+| `workspaceWrite` | Codex only. `{ network?, packageCaches? }`, both `false` by default. With `"allow-edits"` or `"allow-edits-unattended"`, Codex runs commands in its `workspace-write` sandbox, which has no network and can write only inside the working directory. `network: true` allows network access, for example to install packages. `packageCaches: true` also allows writes to the package manager store and caches where the provider runs, in the host Home or the Sandbox Home: `npm_config_store_dir`, `npm_config_cache_dir`, `~/.local/share/pnpm`, `~/.cache/pnpm`, `~/.cache/node/corepack`, and `~/.npm`. Other permissions ignore it. |
 | `model` | Optional provider model id. |
 | `env` | Values or a per-Invocation resolver, resolved once. Otherwise the provider gets only host paths, locale, and user-directory variables, not app secrets. `TMPDIR`, `TMP`, and `TEMP` point to a [temporary directory for the Invocation](#temporary-files) unless `env` sets them. |
 | `execution.attachments.maxBytes` | Positive image attachment budget per Invocation. Defaults to 25 MiB, shared by inline and lazy images. |
@@ -410,7 +424,7 @@ Install the client, an optional peer dependency:
 pnpm add advocaat
 ```
 
-It asks through the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to use Vercel or Cloudflare AI Gateway:
+It asks through the [`typesafe()` AI gateway](/docs/gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to use Vercel or Cloudflare AI Gateway:
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -474,7 +488,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -494,7 +508,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -513,7 +527,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -526,7 +540,7 @@ export default defineConfig({
 ::
 
 ```ts [server/agents/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
 
@@ -552,7 +566,7 @@ export default defineAgent({
 
 State, instructions, and criteria accept JSON. Root numbers and booleans become text for the `advocaat` Entry contract. Nested ones stay native. Score legends keep the level descriptions.
 
-`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/agents/ai-gateways#errors).
+`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/gateways/limits-and-errors#errors).
 
 The Console and `vitehub agent info` show the Driver kind as `ask`.
 

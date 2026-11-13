@@ -55,7 +55,12 @@
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./primitive-rail": {
+      "types": "./dist/primitive-rail.d.ts",
+      "import": "./dist/primitive-rail.js",
+      "default": "./dist/primitive-rail.js"
+    }
   },
   "scripts": {
     "build": "vp pack",
@@ -92,12 +97,15 @@
     "@comark/vue": "0.9.0",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
+    "@vue/test-utils": "2.5.1",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
+    "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",

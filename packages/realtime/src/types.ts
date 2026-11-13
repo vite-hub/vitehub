@@ -256,4 +256,4 @@ export type RealtimeRequestErrorCode =
  */
 export type RealtimeAvailability =
   | { available: true }
-  | { available: false, preset?: string, reason: string, fix: string }
+  | { available: false, host?: string, reason: string, fix: string }

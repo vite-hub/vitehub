@@ -19,7 +19,7 @@ In a Nuxt app, ViteHub reads `NUXT_APP_SECRET` when `VITEHUB_SECRET` is not set.
 ## Derive a secret
 
 ```ts [server/utils/session.ts]
-import { deriveSecret } from '#vitehub/env/server'
+import { deriveSecret } from 'vite-hub/env'
 
 export async function sessionPassword() {
   return await deriveSecret('my-app:session')
