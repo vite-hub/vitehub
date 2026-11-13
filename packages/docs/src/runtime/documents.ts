@@ -1,8 +1,8 @@
-import { useKV } from "nitro/kv"
 import examples from "#docs/example-sources"
 import parser, { githubRepo } from "#docs/parser"
 import { defu } from "defu"
 import { createDocsParser } from "../markdown.ts"
+import { readDocsFile } from "./files.ts"
 import type { DocsDocument } from "../markdown.ts"
 
 // `#123` links to the site's issues unless the parser names another repository or turns references off.
@@ -16,12 +16,12 @@ export function loadDocsDocument(file: string, source = "docs", cache = true): P
   const key = `${source}:${file}`
   const load = async () => {
     try {
-      const content = await useKV(`assets:${source}`).getItem<string>(file)
+      const content = await readDocsFile(source, file)
       if (content === null) {
         parsed.delete(key)
         return null
       }
-      return await parseDocsDocument(String(content))
+      return await parseDocsDocument(content)
     } catch (error) {
       parsed.delete(key)
       throw error

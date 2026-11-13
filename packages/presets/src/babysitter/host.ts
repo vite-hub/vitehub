@@ -18,6 +18,7 @@ import { createBabysitterRuntime } from "./server.ts";
 import { budgetParks } from "./inbox/store.ts";
 import { babysitterRepositories } from "./repositories.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
+import { createPullRequestWorkspaces, type BabysitterWarmWorkspaces, type PullRequestWorkspaceStatus } from "./pr-workspaces.ts";
 
 declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
@@ -127,7 +128,7 @@ export async function sweepBabysitterWorkspaces(root = tmpdir(), startedAt = per
 /** Builds the GitHub host, process host, inbox, and reconciler for one discovered Babysitter Agent. */
 export async function createBabysitterProcessHost(context: AgentProcessHostContext): Promise<AgentProcessHostInstance> {
   // SAFETY: the Babysitter preset attaches this contribution only to its own configured definitions.
-const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; install?: import("../babysitter.ts").BabysitterInstall; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"]; placement?: import("../babysitter.ts").BabysitterPlacement } };
+const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; install?: import("../babysitter.ts").BabysitterInstall; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"]; placement?: import("../babysitter.ts").BabysitterPlacement; warmWorkspaces?: boolean | BabysitterWarmWorkspaces } };
   await cleanupLegacyBabysitterCheckouts(context.dataDir);
   const app = await readGitHubAppEnvironment();
   const credentials = createGitHubAppCredentials(app);
@@ -172,7 +173,11 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
     invocations: host.invocations,
     driver: { capacity: host.capacity, sessionStorePath: host.providerSessionStorePath },
   });
+  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
+  const warmWorkspaces = agent.options.warmWorkspaces;
+  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({ root: join(context.dataDir, "pr-workspaces"), ...(warmWorkspaces === true ? {} : warmWorkspaces) }) : undefined;
   runtime = createBabysitterRuntime({
+    workspaces,
     agent: worker,
     agentName: context.agentName,
     github,
@@ -189,6 +194,16 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
   const inbox = runtime.inbox;
   // No pass runs yet, so workspaces from an earlier process are garbage.
   const swept = await sweepBabysitterWorkspaces();
+  const workspaceStatus = async (repository: string, number: number): Promise<PullRequestWorkspaceStatus> => {
+    if (!repositories.known().includes(repository.toLowerCase())) return "unknown";
+    const snapshot = await inbox.get(repository, number);
+    return !snapshot ? "unknown" : snapshot.status === "terminal" ? "terminal" : "open";
+  };
+  const sweepWorkspaces = (reason: string) => workspaces?.sweep(workspaceStatus).then(
+    result => host.event("babysitter.workspaces.pruned", { reason, removed: result.removed.length, reasons: result.removed.map(entry => entry.reason), keptBytes: result.keptBytes, kept: result.kept }),
+    error => host.error("babysitter.workspaces.prune_failed", error, { reason }),
+  );
+  let workspaceSweep: ReturnType<typeof setInterval> | undefined;
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -209,9 +224,17 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
         .finally(() => {
           if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
           host.start();
+          if (workspaces) {
+            void sweepWorkspaces("startup");
+            if (workspaces.sweepMs > 0) {
+              workspaceSweep = setInterval(() => void sweepWorkspaces("interval"), workspaces.sweepMs);
+              workspaceSweep.unref();
+            }
+          }
         });
     },
     async close() {
+      clearInterval(workspaceSweep);
       registerAgentProcessHostIntake(context.agentName, undefined);
       await host.close();
       await inbox.close();

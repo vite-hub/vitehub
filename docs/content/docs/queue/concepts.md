@@ -23,7 +23,7 @@ Providers retry failed delivery, so a second delivery must be safe. Use an
 idempotency key before you send an email, charge a card, or change a record.
 See [limits and errors](/docs/queue/limits-and-errors).
 
-On the `node` preset, the local provider stores jobs in `.vitehub/data/queue`
+On the `node` host, the local provider stores jobs in `.vitehub/data/queue`
 and runs them in the server process. Jobs survive a restart on the same disk,
 but stay on one host. On Cloudflare and Vercel, the Vite plugin generates
 provider output, and the provider delivers the jobs. In `vite dev`, jobs run

@@ -1,4 +1,4 @@
-nuxthub: moved database, kv, blob, cache from hub to vitehub with preset "cloudflare", rewrote 11 imports and 6 KV and Blob calls, and moved the schema to server/databases/default/.
+nuxthub: moved database, kv, blob, cache from hub to vitehub with host "cloudflare", rewrote 11 imports and 6 KV and Blob calls, and moved the schema to server/databases/default/.
 Dry run: no files were written.
 
 Files to change (17):

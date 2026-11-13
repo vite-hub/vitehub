@@ -10,14 +10,14 @@ The Babysitter preset (an Agent Definition that your Agent extends) fixes review
 
 ## Enable the Agent integration
 
-Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host preset:
+Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 :::
@@ -29,7 +29,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: true }), nitro()],
 })
 ```
 :::
@@ -40,7 +40,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true })],
+  plugins: [vitehub({ host: 'node', agent: true })],
 })
 ```
 :::
@@ -99,6 +99,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `ignoreAssessedBotThreads` | `false` | Unresolved review threads with only bot comments stop blocking a direct merge and stop waking the PR once a pass assessed their comments. |
 | `install` | `true` | Host install before the model starts. `true` runs a frozen pnpm, npm, or Yarn install from the lockfile. `{ command, args }` replaces the command, `{ cache: { directory, entries } }` sets the pnpm cache, `{ concurrency }` sets parallel installs (default `2`), `{ required: true }` parks the PR on failure (default `false`), and `{ refreshes }` limits `refreshDependencies` calls per pass (default no limit). `false` skips it. See [Dependency installation](#dependency-installation). |
 | `ciRecovery` | `true` | Rerun failed GitHub Actions runs once before a model pass repairs them. |
+| `warmWorkspaces` | `false` | Keep one workspace per open PR between passes, so a pass on the head the last pass left skips the clone, copy, and install. `{ resumeThreads: true }` also continues the last pass's provider thread. `{ budgetGb, idleDays, minFreePercent, sweepMinutes }` bound the disk it uses ([Warm workspaces](#warm-workspaces)). |
 | `repairStackChildren` | `false` | Repair a pull request whose base is another open pull request's branch alongside its parent, instead of waiting for the parent to merge. It never merges into the parent's branch. Requires `merge: 'direct'`. |
 | `mentionAllowlist` | `[]` | Exact GitHub logins that the worker can notify with `mentionOnPullRequest`, only for verified blockers that need one person to act. |
 | `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, also uses this limit. |
@@ -262,7 +263,7 @@ The Babysitter uses the invocation journal assigned to its discovered Agent. Set
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -280,7 +281,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -297,7 +298,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -368,7 +369,7 @@ The host leaves its own `babysitter` check out of every CI and merge decision, s
 
 ## Deploy
 
-Deploy the long-running Babysitter with the Node server preset on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
+Deploy the long-running Babysitter with the Node host on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
 
 It starts with the server. A development server starts it only with `VITEHUB_AGENT_PROCESS_HOSTS=1`, so it does not repair real pull requests by accident.
 
@@ -475,6 +476,19 @@ On Linux, a detected pnpm install reuses `node_modules` trees of an earlier pass
 - `install: { cache: false }` turns it off.
 
 When the process temporary directory is inside the service working directory, the host removes pass workspaces and pass temporary directories left by an earlier process at startup.
+
+### Warm workspaces
+
+By default, every pass clones the repository, copies it into a new provider workspace, and installs dependencies before the model starts. With `warmWorkspaces: true`, each open PR keeps one entry in `<dataDir>/pr-workspaces`: the host clone and the provider workspace, which becomes the Driver's `cwd`.
+
+- A pass keeps the workspace when the previous pass finished without an error, it starts on the head that pass pushed or left, and the tracked tree is clean. `node_modules` and build caches stay, and the install is skipped while `.git/vitehub-install.json` matches the dependency inputs.
+- Any other pass empties the workspace and checks the head out again. The pnpm store in `.git/vitehub-install-home` stays, so the install links instead of downloading.
+- The provider's `.git` is always a fresh copy of the host clone without credentials or hooks. The host clone is fetched instead of cloned.
+- A pass that ends without recording its result, such as after a crash, leaves the workspace marked failed, so the next pass resets it.
+- Entries go when the PR closes or leaves the filter, after `idleDays` (default `7`) without a pass, and least recently used first while they use more than `budgetGb` (default `60`) or the disk has less than `minFreePercent` (default `15`) free. The host sweeps at startup and every `sweepMinutes` (default `60`).
+- Passes placed in a Sandbox keep using the Sandbox workspace.
+
+`warmWorkspaces: { resumeThreads: true }` continues the previous pass's provider thread instead of starting a new one, so the model does not read the PR and the code again. It needs a kept workspace, a previous pass that pushed or recorded a wait, and the same base commit and release. The resumed pass still gets the full current snapshot, with a note that it continues the previous session. `babysitter.owner.finished` reports `workspace`, `workspace_reason`, `workspace_ms`, `resumed`, and `session_reason`.
 
 ### Health and prerequisites
 

@@ -37,6 +37,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./agent-session": {
+      "types": "./dist/agent-session.d.ts",
+      "import": "./dist/agent-session.js",
+      "default": "./dist/agent-session.js"
+    },
     "./attachment": {
       "types": "./dist/attachment.d.ts",
       "import": "./dist/attachment.js",

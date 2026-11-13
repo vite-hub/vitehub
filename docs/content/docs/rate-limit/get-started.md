@@ -13,7 +13,7 @@ A Rate Limit stops a client that sends too many requests. You set how many reque
 In this tutorial, you let a route accept two requests per minute. The third request gets the HTTP status `429 Too Many Requests`.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account and no API key. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for a shared count.
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account and no API key. The Node host counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for a shared count.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
@@ -31,7 +31,7 @@ Add `rateLimit: true` to the ViteHub options in `nuxt.config.ts` or `vite.config
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', rateLimit: true },
+  vitehub: { host: 'node', rateLimit: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', rateLimit: true }), nitro()],
+  plugins: [vitehub({ host: 'node', rateLimit: true }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', rateLimit: true })],
+  plugins: [vitehub({ host: 'node', rateLimit: true })],
 })
 ```
 ::::
@@ -86,7 +86,7 @@ export default defineEventHandler(async (event) => {
 - `limit: 2` and `window: '1m'` let each client send two requests per minute.
 - Put the guard before the real work of the route, such as an upload. Then a refused request does no work.
 
-On the Node preset, each window starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window.
+On the Node host, each window starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window.
 
 ::
 

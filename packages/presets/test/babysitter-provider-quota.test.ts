@@ -95,8 +95,18 @@ describe("Babysitter provider quota", () => {
     const meta = store();
     const forge = createForgeQuota(meta, () => 1000);
     expect(await forge.block(1000 + 7 * 60_000)).toBe(1000 + 7 * 60_000);
-    // An unusable reset time falls back to one hour.
-    expect(await createForgeQuota(store(), () => 1000).block(500)).toBe(1000 + 60 * 60_000);
-    expect(await createForgeQuota(store(), () => 1000).block(1000 + 3 * 60 * 60_000)).toBe(1000 + 60 * 60_000);
+    // An unusable reset time falls back to the initial five-minute cooldown.
+    expect(await createForgeQuota(store(), () => 1000).block(500)).toBe(1000 + 5 * 60_000);
+    expect(await createForgeQuota(store(), () => 1000).block(1000 + 3 * 60 * 60_000)).toBe(1000 + 5 * 60_000);
+  });
+
+  it("does not spend a strike on an error during an active forge block", async () => {
+    let now = 1000;
+    const forge = createForgeQuota(store(), () => now);
+    const until = await forge.block();
+    now += 60_000;
+    expect(await forge.block()).toBe(until);
+    now = until;
+    expect(await forge.block() - now).toBe(10 * 60_000);
   });
 });

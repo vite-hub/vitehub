@@ -22,8 +22,8 @@ If all four are empty, the client throws. This occurs when the Vercel provider r
 
 ```diff [vite.config.ts]
  export default defineConfig({
--  plugins: [vitehub({ preset: 'vercel', queue: true })],
-+  plugins: [vitehub({ preset: 'vercel', queue: { provider: 'vercel', region: 'iad1' } })],
+-  plugins: [vitehub({ host: 'vercel', queue: true })],
++  plugins: [vitehub({ host: 'vercel', queue: { provider: 'vercel', region: 'iad1' } })],
  })
 ```
 

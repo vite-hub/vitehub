@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-server
 ---
 
-Import the server API from `vite-hub/decisions`. It runs wherever your server code runs. Pass it a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`, to ask TypeSafe Jev. Or pass any AI SDK `model`. See [AI gateways](/docs/agents/ai-gateways).
+Import the server API from `vite-hub/decisions`. It runs wherever your server code runs. Pass it a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`, to ask TypeSafe Jev. Or pass any AI SDK `model`. See [AI gateways](/docs/gateways).
 
 ## Define choices
 
@@ -44,7 +44,7 @@ export const forecast = defineChoices({
 | `limits` | Change the [limits](/docs/decisions/limits-and-errors#limits). |
 | `thresholds` | Change the [thresholds](/docs/decisions/concepts#thresholds). |
 
-Jev gives a probability for every option. A chat model gives one answer and how sure it is, so with `model` the other options share the rest of the probability. `ranked` is then less useful after its first entry. See [Ask with any model](/docs/agents/ai-gateways#ask-with-any-model).
+Jev gives a probability for every option. A chat model gives one answer and how sure it is, so with `model` the other options share the rest of the probability. `ranked` is then less useful after its first entry. See [Ask with any model](/docs/gateways/server-api#ask-with-any-model).
 
 Each group takes these settings:
 

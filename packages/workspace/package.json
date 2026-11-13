@@ -60,6 +60,11 @@
       "import": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./files": {
       "types": "./dist/files.d.ts",
       "import": "./dist/files.js",
