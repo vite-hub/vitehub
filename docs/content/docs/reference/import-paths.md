@@ -32,7 +32,8 @@ the same behavior.
 | `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runs without Evlog, but its types need `evlog`. |
 | `vite-hub/logs/host` | Install and resolve a project's LogSource in the process-wide registry, without Evlog. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state helpers. |
-| `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
+| `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. `useChat(agent, { page })` connects the page's ui-sdk bridge. |
+| `vite-hub/agent/page` | [`connectPage()`](/docs/agents/capabilities/page): lets an Agent with `page()` work this page through ui-sdk's agent bridge, in any framework. |
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |

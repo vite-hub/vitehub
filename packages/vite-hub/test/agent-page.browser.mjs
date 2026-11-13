@@ -1,6 +1,6 @@
-// The page bridge from end to end: a Vue page runs ui-sdk's `createAgent()`, `useChat(agent, { page })` connects it,
-// and a ViteHub Agent with a scripted model changes three settings and saves them through `page_snapshot` and
-// `page_act`, over Realtime. It builds the same app with Vite and with Nuxt 5, for Node and for Cloudflare (workerd
+// The page bridge from end to end: a Vue page runs ui-sdk's `createAgent()`, `connectPage()` joins it to Realtime,
+// `useChat(agent, { page })` names it, and a ViteHub Agent with a scripted model changes three settings and saves
+// them through `page_snapshot` and `page_act`, over Realtime. It builds the same app with Vite and with Nuxt 5, for Node and for Cloudflare (workerd
 // through Miniflare), opens it in headless Chromium, and checks the page, the server, the tool calls and the change
 // sources. The settings page is the N1 "change a setting" task (vite-hub/nuxt-evals tasks/vitehub-ui/operate).
 // Run: pnpm --filter vite-hub test:browser   (AGENT_PAGE_CASES=vite-node,nuxt-cloudflare picks cases)
@@ -35,6 +35,7 @@ const agentFile = `import { simulateReadableStream } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
 import { defineAgent } from "vite-hub/agent"
 import { page } from "vite-hub/agent/capabilities"
+import { webChat } from "vite-hub/agent/channels"
 
 const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } }
 function reply(chunks) {
@@ -46,26 +47,28 @@ function toolCall(id, toolName, input) {
     { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage },
   ])
 }
-const model = new MockLanguageModelV3({
-  doStream: [
-    toolCall("call-1", "page_snapshot", {}),
-    toolCall("call-2", "page_act", { steps: [
-      { ref: "Default region", action: "setValue", args: ["Frankfurt (eu-central-1)"] },
-      { ref: "Visibility", action: "setValue", args: ["Team"] },
-      { ref: "Email me when a deploy fails", action: "setChecked", args: [false] },
-    ] }),
-    toolCall("call-3", "page_act", { steps: [{ ref: "Save changes", action: "press" }] }),
-    reply([
-      { type: "text-start", id: "text-1" },
-      { type: "text-delta", id: "text-1", delta: "Saved: Frankfurt, Team, and no email on failed deploys." },
-      { type: "text-end", id: "text-1" },
-      { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
-    ]),
-  ],
-})
+// Workers bind a stream to the request that makes it, so each reply is made when the model is called.
+const script = [
+  () => toolCall("call-1", "page_snapshot", {}),
+  () => toolCall("call-2", "page_act", { steps: [
+    { ref: "Default region", action: "setValue", args: ["Frankfurt (eu-central-1)"] },
+    { ref: "Visibility", action: "setValue", args: ["Team"] },
+    { ref: "Email me when a deploy fails", action: "setChecked", args: [false] },
+  ] }),
+  () => toolCall("call-3", "page_act", { steps: [{ ref: "Save changes", action: "press" }] }),
+  () => reply([
+    { type: "text-start", id: "text-1" },
+    { type: "text-delta", id: "text-1", delta: "Saved: Frankfurt, Team, and no email on failed deploys." },
+    { type: "text-end", id: "text-1" },
+    { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage },
+  ]),
+]
+let calls = 0
+const model = new MockLanguageModelV3({ doStream: async () => script[Math.min(calls++, script.length - 1)]() })
 
 export default defineAgent({
   capabilities: [page()],
+  channels: { web: webChat() },
   driver: { model },
 })
 `
@@ -229,12 +232,13 @@ async function save() {
 // through `window.pageTest`.
 const appComponent = `<script setup lang="ts">
 import { createAgent } from "@ui-sdk/vue/agent"
+import { connectPage } from "vite-hub/agent/page"
 import { useAgent, useChat } from "vite-hub/agent/vue"
 import { onMounted } from "vue"
 import ProjectSettings from "./ProjectSettings.vue"
 
 const bridge = createAgent()
-const chat = useChat(useAgent("settings"), { page: bridge })
+const chat = useChat(useAgent("settings"), { page: connectPage(bridge) })
 
 onMounted(() => {
   const changes = []
@@ -328,6 +332,8 @@ async function start(item, root) {
   const origin = `http://127.0.0.1:${item.port}`
   if (item.host === "node") {
     const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
+      // The Agent journal goes to `.vitehub/data` under the working directory.
+      cwd: root,
       env: { ...process.env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(item.port), PORT: String(item.port) },
       stdio: ["ignore", "pipe", "pipe"],
     })

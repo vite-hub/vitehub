@@ -1550,6 +1550,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" does not verify requests, and it does not opt out of verification.`,
       fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
     },
+    AGENT_R1045: {
+      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime room authority.",
+      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { authority: \"memory\" }` for one process, or Redis or Postgres for more.",
+    },
+    AGENT_R1046: {
+      why: "[vitehub] connectPage() from @vite-hub/agent/page has no `join`, so the page cannot join its Realtime room.",
+      fix: "Import `connectPage` from `vite-hub/agent/page`, which joins with Realtime, or pass `join: connectRealtimeRoom` from `@vite-hub/realtime/client`.",
+    },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",

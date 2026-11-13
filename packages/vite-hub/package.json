@@ -97,6 +97,11 @@
       "import": "./dist/agent/observability.js",
       "default": "./dist/agent/observability.js"
     },
+    "./agent/page": {
+      "types": "./dist/agent/page.d.ts",
+      "import": "./dist/agent/page.js",
+      "default": "./dist/agent/page.js"
+    },
     "./agent/process": {
       "types": "./dist/agent/process.d.ts",
       "import": "./dist/agent/process.js",

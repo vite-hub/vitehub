@@ -10,6 +10,7 @@ import type { UseChatHelpers } from "@ai-sdk/vue"
 import type { ChatInit, UIMessage } from "ai"
 import type { AgentChatData } from "./messages.ts"
 import type { AgentChatStreamedPart } from "./internal/chat-data.ts"
+import type { ConnectedPage } from "./page.ts"
 import type { ComputedRef, MaybeRefOrGetter } from "vue"
 
 declare const __VITEHUB_APP_BASE_URL__: string
@@ -20,6 +21,13 @@ export interface AgentClient {
 
 export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
   api?: string
+  /**
+   * The page, from `connectPage(createAgent())` in `vite-hub/agent/page`. The chat names it on each request and waits
+   * until it joined its room, so an Agent with the `page()` Capability works this page. Read once, when the chat is
+   * created. The page stays connected after the chat ends; call `page.close()` to leave. A custom `transport` must send
+   * `page.headers` itself.
+   */
+  page?: ConnectedPage
   resume?: boolean
 }
 
@@ -64,6 +72,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
   options: AgentChatInit<UI_MESSAGE> | MaybeRefOrGetter<AgentChatReactiveInit<UI_MESSAGE>> = {},
 ): AgentChatHelpers<UI_MESSAGE> {
   const initialOptions = toValue(options)
+  const page = initialOptions.page
   const constructorOptions = shallowRef(initialOptions)
   const latestOptions = shallowRef(initialOptions)
   const streamedParts = shallowRef<AgentChatStreamedPart[]>([])
@@ -79,6 +88,7 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
     const route = latestOptions.value.api ?? agentChatRoute(agent.name)
     return new DefaultChatTransport<UI_MESSAGE>({
       api: route,
+      ...(page ? { headers: page.headers } : {}),
       async fetch(input, init) {
         const response = await globalThis.fetch(input, init)
         if (init?.method !== "GET" || generation === reconnectGeneration) {
@@ -109,18 +119,20 @@ export function useChat<UI_MESSAGE extends UIMessage = UIMessage>(
       }
       return stream
     },
-    sendMessages: (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => {
+    sendMessages: async (...args: Parameters<NonNullable<ChatInit<UI_MESSAGE>["transport"]>["sendMessages"]>) => {
       reconnectGeneration++
       reconnectStatusGeneration++
       reconnecting.value = false
       stopped.value = false
       invocationId.value = undefined
       resumableMessageId = args[0].messageId ?? args[0].messages.at(-1)?.id
-      return resolveTransport().sendMessages(...args)
+      // The Agent's first page call must find the page in its room.
+      await page?.ready
+      return await resolveTransport().sendMessages(...args)
     },
   }
   chat = useAiChat<UI_MESSAGE>(() => {
-    const { api: _api, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
+    const { api: _api, page: _page, onData: _onData, onError: _onError, onFinish: _onFinish, onToolCall: _onToolCall, resume: _resume, sendAutomaticallyWhen: _sendAutomaticallyWhen, transport: _transport, ...init } = constructorOptions.value
     return {
       ...init,
       onData(part) {

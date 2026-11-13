@@ -150,6 +150,11 @@
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
+    "./page": {
+      "types": "./dist/page.d.ts",
+      "import": "./dist/page.js",
+      "default": "./dist/page.js"
+    },
     "./process": {
       "types": "./dist/process.d.ts",
       "import": "./dist/process.js",
