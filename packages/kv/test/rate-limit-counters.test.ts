@@ -45,7 +45,7 @@ function track(storage: RuntimeStorage): RuntimeStorage {
 /** The `[error, data]` API of `kv`, on one store connection. */
 function counterStorage(storage: RuntimeStorage): RateLimitKVStorage {
   return {
-    del: key => kvResult("del", "default", () => storage.removeItem(key)),
+    delete: key => kvResult("delete", "default", () => storage.removeItem(key)),
     get: key => kvResult("get", "default", () => storage.getItem(key)),
     increment: (key, ttl) => kvResult("increment", "default", () => storage.incrementItem!(key, ttl)),
   }

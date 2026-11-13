@@ -73,4 +73,4 @@ The `kv` provider counts fixed windows with one atomic `increment` for each requ
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.
 - When KV fails or takes more than one second, the request follows the `failure` policy: `deny` returns `503`, `allow` lets it continue. `peek` and `reset` also return `unavailable` after one second. The deadline does not cancel the KV operation, so a timed-out request can still increment the counter. A KV configuration error, such as a missing `REDIS_URL` for an explicit `redis` store, throws.
 - `peekRateLimit()` and `resetRateLimit()` read the window from the policies that this process used. In a process that has not used the Rate Limit yet, `peek` returns `unused` and `reset` returns `unsupported`.
-- Without a KV store, the `kv` provider fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `del` fails with `RATE_LIMIT_R0046`.
+- Without a KV store, the `kv` provider fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `delete` fails with `RATE_LIMIT_R0046`.

@@ -9,7 +9,7 @@ type KVOperationResult<T> = readonly [error: Error, data: undefined] | readonly 
  * atomic and set the TTL with the first increment, as the `redis`, `database`, and `upstash` drivers do.
  */
 export interface RateLimitKVStorage {
-  del: (key: string) => Promise<KVOperationResult<void>>
+  delete: (key: string) => Promise<KVOperationResult<void>>
   get: (key: string) => Promise<KVOperationResult<unknown>>
   increment: (key: string, ttl: number) => Promise<KVOperationResult<number>>
 }
@@ -28,7 +28,7 @@ function isStorage(value: unknown): value is RateLimitKVStorage {
   if (!value || typeof value !== "object") return false
   return typeof Reflect.get(value, "increment") === "function"
     && typeof Reflect.get(value, "get") === "function"
-    && typeof Reflect.get(value, "del") === "function"
+    && typeof Reflect.get(value, "delete") === "function"
 }
 
 /** Bound the request wait without hiding configuration errors thrown by KV. */
@@ -79,7 +79,7 @@ function fixedWindow(input: RateLimitDriverInput, timestamp: number): FixedWindo
  */
 export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimitDriver {
   if (!isStorage(options?.storage)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0046({ message: "[vitehub] kvRateLimitDriver() requires a KV store with increment(), get(), and del()." })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0046({ message: "[vitehub] kvRateLimitDriver() requires a KV store with increment(), get(), and delete()." })
   }
   const storage = options.storage
   const now = options.now ?? Date.now
@@ -116,7 +116,7 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
       return [null, { resetAt: used ? window.resetAt : undefined, used }]
     },
     async reset(input) {
-      const [error] = await withKVDeadline(storage.del(fixedWindow(input, now()).key))
+      const [error] = await withKVDeadline(storage.delete(fixedWindow(input, now()).key))
       return [error ?? null]
     },
   }

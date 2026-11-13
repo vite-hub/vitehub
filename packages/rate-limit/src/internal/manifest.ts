@@ -30,7 +30,7 @@ function resolveProviderCapabilities(provider: RateLimitManifestProvider): RateL
   const driver = provider === "cloudflare"
     ? cloudflareRateLimitDriver({ binding: { limit: async () => ({ success: true }) } })
     : provider === "kv"
-      ? kvRateLimitDriver({ storage: { del: unusedResult, get: unusedResult, increment: async () => [undefined, 0] } })
+      ? kvRateLimitDriver({ storage: { delete: unusedResult, get: unusedResult, increment: async () => [undefined, 0] } })
       : memoryRateLimitDriver()
   return createRateLimiter({ driver, limit: 1, window: "1m" }).capabilities
 }

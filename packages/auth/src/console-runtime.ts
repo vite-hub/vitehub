@@ -75,6 +75,14 @@ export interface AuthConsole {
   saveVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Take a value that `saveVerification()` kept. Of two calls at the same time, one gets it. `null` when it is gone or expired. */
   consumeVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
+  /** Read a value that `saveVerification()` kept, without taking it. `null` when it is gone or expired. */
+  readVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
+  /** The live values whose identifier starts with `prefix`, at most 1,000. Hosts use it for records that a person lists, such as Console page passes. */
+  listVerifications(prefix: string): Promise<Result<{ identifier: string; value: string; expiresAt: Date }[], AuthConsoleErrorCode>>;
+  /** Replace the value and the expiry of a kept value. */
+  updateVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
+  /** Delete a kept value. Deleting a value that is gone does nothing. */
+  deleteVerification(identifier: string): Promise<Result<void, AuthConsoleErrorCode>>;
 }
 
 type ConsoleAdapter = Pick<DBAdapter, "findMany" | "findOne" | "count">;
@@ -1231,6 +1239,33 @@ export function createAuthConsole(
       }),
     consumeVerification: (identifier) =>
       result(async () => (await (await verifications()).consumeVerificationValue(identifier))?.value ?? null),
+    readVerification: (identifier) =>
+      result(async () => {
+        const found = await (await verifications()).findVerificationValue(identifier);
+        return found && new Date(found.expiresAt).getTime() > Date.now() ? found.value : null;
+      }),
+    listVerifications: (prefix) =>
+      result(async () => {
+        await verifications();
+        const ctx = await context();
+        const rows = await ctx.adapter.findMany<{ identifier: string; value: string; expiresAt: Date | string }>({
+          model: "verification",
+          where: [{ field: "identifier", operator: "starts_with", value: prefix }],
+          limit: 1000,
+        });
+        const now = Date.now();
+        return rows
+          .map((row) => ({ identifier: row.identifier, value: row.value, expiresAt: new Date(row.expiresAt) }))
+          .filter((row) => row.expiresAt.getTime() > now);
+      }),
+    updateVerification: (identifier, value, expiresAt) =>
+      result(async () => {
+        await (await verifications()).updateVerificationByIdentifier(identifier, { value, expiresAt });
+      }),
+    deleteVerification: (identifier) =>
+      result(async () => {
+        await (await verifications()).deleteVerificationByIdentifier(identifier);
+      }),
   };
 }
 

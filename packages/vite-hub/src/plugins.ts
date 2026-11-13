@@ -509,7 +509,10 @@ export interface ViteHubOptions {
    * telemetry and papercut reports through `useObservability()`.
    */
   observability?: boolean | ObservabilityOptions
-  /** Queue Definitions in `server/queues/`. `true` uses the host's provider. An object sets Queue options, such as `cache`. */
+  /**
+   * Queue Definitions in `server/queues/`. On Node, `true` uses Postgres with a Postgres Default Database, else local
+   * files. An object sets Queue options, such as `cache`, or selects the Node provider with `provider`.
+   */
   queue?: boolean | QueueOptions
   /**
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
@@ -539,6 +542,17 @@ export interface ViteHubOptions {
   schedule?: boolean | ScheduleOptions
   workflow?: boolean | WorkflowOptions
   workspace?: boolean | WorkspaceOptions
+}
+
+/** Queue options accepted by the framework distribution. */
+export type ViteHubQueueOptions = QueueOptions
+
+/** The local and Postgres providers run only on the Node host. */
+function assertNodeQueueProvider(queue: ViteHubOptions["queue"], host: ViteHubHost): void {
+  const provider = queue && queue !== true ? queue.provider : undefined
+  if ((provider === "local" || provider === "postgres") && host !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: `[vitehub] queue.provider "${provider}" works with the "node" host only. The "${host}" host uses its own Queue. Remove queue.provider, or use the "node" host.` })
+  }
 }
 
 type DeploymentIdentitySource = "WRANGLER_CI_OVERRIDE_NAME" | "package.json" | "root" | "vitehub.name"
@@ -788,12 +802,12 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
 function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): "cloudflare" | "kv" | "memory" {
   const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
   // Only Node has a KV store with a shared atomic increment that ViteHub selects. Cloudflare KV has none.
-  if (configured === "kv" && plan.preset !== "node") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.provider "kv" works with the "node" preset only. The "${plan.preset}" preset uses its own Rate Limit. Remove rateLimit.provider, or use the "node" preset.` })
+  if (configured === "kv" && plan.host !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.provider "kv" works with the "node" preset only. The "${plan.host}" preset uses its own Rate Limit. Remove rateLimit.provider, or use the "node" preset.` })
   }
   const policy = plan.services.rateLimit
   if (!policy.supported) return "memory"
-  if (plan.preset !== "node") return policy.adapter
+  if (plan.host !== "node") return policy.adapter
   if (configured === "kv" || configured === "memory") return configured
   const kvEnabled = options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")
   return kvEnabled ? "kv" : "memory"
@@ -900,7 +914,8 @@ function deploymentPlugins(
           const name = identity.name
           if (requestedServices.includes("queue") && plan.services.queue.supported) {
             const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
-            const provider = configuredQueue?.provider ?? plan.services.queue.adapter
+            // Queue infers the Node provider from the resolved Default Database.
+            const provider = configuredQueue?.provider ?? (plan.host === "node" ? undefined : plan.services.queue.adapter)
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
             setResolvedFeatureOptions(config, "queue", {
               ...configuredQueue,
@@ -1248,6 +1263,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
+  assertNodeQueueProvider(options.queue, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
   const { logs: logsOption, ...observabilityOptions } = observability ?? {}
   const observabilityLogs = logsOption === true ? {} : logsOption || undefined
@@ -1512,9 +1528,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else if (kvVite) plugins.push(kvVite.hubKVOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    const provider = configuredQueue?.provider ?? plan.services.queue.adapter
+    const provider = configuredQueue?.provider ?? (plan.host === "node" ? undefined : plan.services.queue.adapter)
     // SAFETY: The provider is the host's Queue adapter or the app's own `queue.provider`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, provider } as QueueOptions, { importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(provider ? { provider } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.

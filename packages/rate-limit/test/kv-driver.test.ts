@@ -23,7 +23,7 @@ function fakeKV(): FakeKV {
   const values = new Map<string, number>()
   const ttls = new Map<string, number>()
   return {
-    async del(key) {
+    async delete(key) {
       values.delete(key)
       return [undefined, undefined]
     },
@@ -132,7 +132,7 @@ describe("kvRateLimitDriver", () => {
 
   it.each(["peek", "reset"] as const)("bounds a stalled KV %s operation", async (operation) => {
     vi.useFakeTimers()
-    const kv: RateLimitKVStorage = { ...fakeKV(), del: () => new Promise(() => {}), get: () => new Promise(() => {}) }
+    const kv: RateLimitKVStorage = { ...fakeKV(), delete: () => new Promise(() => {}), get: () => new Promise(() => {}) }
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), limit: 1, window: "1m" })
     const result = vi.fn()
     void limiter[operation]({ key: "user" }).then(result)
@@ -171,7 +171,7 @@ describe("kvRateLimitDriver", () => {
     expect(result).toHaveBeenCalledTimes(1)
   })
 
-  it("requires a KV store with increment, get, and del", () => {
+  it("requires a KV store with increment, get, and delete", () => {
     expect(() => kvRateLimitDriver({ storage: { increment: async () => [undefined, 1] } as never })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0046" }))
   })
 })

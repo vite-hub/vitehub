@@ -330,7 +330,7 @@ describe("KV Vite output", () => {
   it("exports driver lookup from the generated Cloudflare runtime without opening a binding", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
-    const [{ build }, { hubKv }] = await Promise.all([
+    const [{ build }, { hubKV }] = await Promise.all([
       import("vite"),
       import("../src/vite.ts"),
     ])
@@ -345,7 +345,7 @@ describe("KV Vite output", () => {
       },
       configFile: false,
       logLevel: "silent",
-      plugins: [hubKv({ stores: {
+      plugins: [hubKV({ stores: {
         default: { driver: "cloudflare-kv-binding", namespaceId: "default-id" },
         sessions: { driver: "cloudflare-kv-binding", namespaceId: "sessions-id" },
       } })],

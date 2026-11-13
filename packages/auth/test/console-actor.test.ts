@@ -147,6 +147,24 @@ describe("one-time values and the app session", () => {
     expect(await api.consumeVerification("ticket:b")).toEqual([undefined, null]);
   });
 
+  it("reads, lists by prefix, updates, and deletes kept values", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const later = new Date(Date.now() + 60_000);
+    await api.saveVerification("pass:a", "value-a", later);
+    await api.saveVerification("pass:b", "value-b", later);
+    await api.saveVerification("pass:old", "value-old", new Date(Date.now() - 1));
+    await api.saveVerification("other:c", "value-c", later);
+    expect(await api.readVerification("pass:a")).toEqual([undefined, "value-a"]);
+    expect(await api.readVerification("pass:old")).toEqual([undefined, null]);
+    const [, listed] = await api.listVerifications("pass:");
+    expect(listed?.map((row) => [row.identifier, row.value]).sort()).toEqual([["pass:a", "value-a"], ["pass:b", "value-b"]]);
+    expect(await api.updateVerification("pass:a", "value-a2", later)).toEqual([undefined, undefined]);
+    expect(await api.readVerification("pass:a")).toEqual([undefined, "value-a2"]);
+    expect(await api.deleteVerification("pass:a")).toEqual([undefined, undefined]);
+    expect(await api.readVerification("pass:a")).toEqual([undefined, null]);
+  });
+
   it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
     const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } });
     const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));

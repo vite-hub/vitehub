@@ -198,16 +198,16 @@ one disk, so they do not work across several instances.
 | Cache | `fs-lite` under `.vitehub/data/cache` | Only with `cache: { driver: 'kv' }` and a shared KV store, such as Postgres, Redis, or Upstash. |
 | Database | SQLite file `file:.vitehub/data/database/sqlite.db` | Only with a remote database, such as Postgres or remote libSQL. |
 | Database `migrateOnStart` | On for Postgres. `true` also migrates local SQLite files; `false` turns it off. | Yes for Postgres. An advisory lock lets one instance migrate while the others wait. For SQLite, migrate once before starting several processes. See [Startup migrations](/docs/database/configure#migrate-when-the-server-starts). |
-| Queue | The `local` provider. Jobs are files under `.vitehub/data/queue` and survive a restart. Each process keeps its job list and running jobs in memory. | No. With a separate directory per instance, a job runs only on the instance that accepted it. If that instance stops, its jobs wait on its disk until it starts again, and they are lost with that disk. With one shared volume, there is no lock between processes, so two instances can run the same job. |
+| Queue | `postgres` with a Postgres Default Database, else `local` with files under `.vitehub/data/queue`. | Yes with Postgres: every instance shares the jobs and claims due jobs from the same table. With `local`, a job runs only on the instance that accepted it. A shared volume has no lock between processes, so two instances can run the same job. |
 | Rate Limit | `kv` when KV is on, else `memory`. | Yes when KV uses Postgres, Redis, or Upstash. `memory`, or `kv` on `fs-lite`, counts in one process and resets on restart. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node). |
 | Realtime | None. A build needs `realtime: { authority: 'memory' }`, which keeps rooms in memory. | No. Peers on other instances do not see the room. |
 | Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
 | Workflow | `vercel`, which runs inline in the request off Vercel. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
 | Sandbox | None | `sandboxTask: true` fails the build. |
 
-A multi-instance deploy today needs one instance that owns Queue, Realtime,
-and Schedule. Run those on that one instance, or run the whole app as
-one instance.
+A multi-instance deploy today needs one instance that owns Realtime and
+Schedule. Queue also needs one instance unless it uses Postgres. Run those
+features on that one instance, or run the whole app as one instance.
 
 Set `dataDir` in `vitehub()`, for example `dataDir: '/var/lib/app'`, to keep
 local state in one persistent directory. It holds KV `fs-lite` data, Blob `fs`
