@@ -7,10 +7,7 @@ import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
 import { getCloudflareRateLimitBindingName } from "./integrations/cloudflare.ts"
 import { createRateLimiter } from "./limiter.ts"
 import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKeys } from "./policy.ts"
-import {
-  getMemoryRateLimiter,
-  getRateLimitRuntimeConfig,
-} from "./runtime/state.ts"
+import { getRuntimeRateLimiter, resolveRateLimitProvider } from "./runtime/state.ts"
 
 import type { ViteHubContext } from "@vite-hub/runtime"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
@@ -68,7 +65,7 @@ function getRequestScope(input: RateLimitRequestEvent): RateLimitRequestScope {
   }
 }
 
-function getRequestKey(scope: RateLimitRequestScope, provider: "cloudflare" | "memory"): string | undefined {
+function getRequestKey(scope: RateLimitRequestScope, provider: "cloudflare" | "kv" | "memory"): string | undefined {
   return provider === "cloudflare"
     ? scope.headers.get("cf-connecting-ip") || scope.clientAddress
     : scope.clientAddress
@@ -109,7 +106,7 @@ async function consumeRateLimit(
   }
 
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
-  const { provider } = getRateLimitRuntimeConfig()
+  const provider = await resolveRateLimitProvider()
   const scope = getRequestScope(event)
   // A test request has no client address, so in app tests all requests without a key count as one client.
   const key = options.key ?? getRequestKey(scope, provider) ?? (getViteHubTestMode() ? "test-client" : undefined)
@@ -118,7 +115,7 @@ async function consumeRateLimit(
   }
   const limiter = provider === "cloudflare"
     ? getCloudflareRateLimiter(scope, id, policy)
-    : getMemoryRateLimiter(id, policy)
+    : getRuntimeRateLimiter(provider, id, policy)
   return await limiter.consume({ key })
 }
 

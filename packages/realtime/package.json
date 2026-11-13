@@ -5,7 +5,9 @@
   "keywords": [
     "collaboration",
     "h3",
+    "postgres",
     "realtime",
+    "redis",
     "typescript",
     "vite",
     "vitehub",
@@ -39,6 +41,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./bus": {
+      "types": "./dist/bus.d.ts",
+      "import": "./dist/bus.js",
+      "default": "./dist/bus.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
@@ -92,9 +99,11 @@
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
+    "ioredis": "catalog:storage",
     "lib0": "catalog:realtime",
     "marked": "catalog:realtime",
     "nostics": "catalog:runtime",
+    "postgres": "catalog:database",
     "prosemirror-model": "catalog:realtime",
     "prosemirror-state": "catalog:realtime",
     "prosemirror-transform": "catalog:realtime",
@@ -107,6 +116,7 @@
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "linkedom": "^0.18.13",
     "publint": "catalog:tooling",

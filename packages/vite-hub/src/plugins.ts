@@ -794,6 +794,25 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
   throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" host has no cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
 }
 
+/**
+ * The Rate Limit provider of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
+ * or a Postgres Database that every instance shares. KV selects that driver at build time, so the Rate Limit
+ * runtime checks the configured driver at boot and counts in memory, with a warning, when the store cannot share counts.
+ */
+function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): "cloudflare" | "kv" | "memory" {
+  const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
+  // Only Node has a KV store with a shared atomic increment that ViteHub selects. Cloudflare KV has none.
+  if (configured === "kv" && plan.host !== "node") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.provider "kv" works with the "node" preset only. The "${plan.host}" preset uses its own Rate Limit. Remove rateLimit.provider, or use the "node" preset.` })
+  }
+  const policy = plan.services.rateLimit
+  if (!policy.supported) return "memory"
+  if (plan.host !== "node") return policy.adapter
+  if (configured === "kv" || configured === "memory") return configured
+  const kvEnabled = options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")
+  return kvEnabled ? "kv" : "memory"
+}
+
 function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: HostSelectedService[],
@@ -910,7 +929,7 @@ function deploymentPlugins(
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
               // default for `serve`: one in-memory limiter.
-              provider: building ? plan.services.rateLimit.adapter : "memory",
+              provider: building ? buildRateLimitProvider(plan, options) : "memory",
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
@@ -1532,11 +1551,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     }))
   }
   if (options.rateLimit) {
-    const rateLimitPolicy = plan.services.rateLimit
+    // SAFETY: ViteHub adds its KV re-export path to the public Rate Limit options for generated imports.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
-    })))
+      provider: buildRateLimitProvider(plan, options),
+      kvImport: "vite-hub/kv",
+    } as RateLimitOptions)))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
   // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
@@ -1559,7 +1579,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   if (options.realtime) {
     plugins.push(requireOptionalOwner(ownerModules.realtimeVite, "realtime").hubRealtime({
+      // Rooms of this app stay apart from other apps on the same Redis or Postgres.
+      ...(options.name ? { namespace: options.name } : {}),
       ...(options.realtime === true ? {} : options.realtime),
+      // The Postgres bus borrows the client of a Postgres Default Database.
+      databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/realtime",
       // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
       // Other hosts keep one Content editor at a time and show comments without presence.
