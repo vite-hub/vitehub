@@ -1850,6 +1850,9 @@ importers:
 
   packages/console:
     dependencies:
+      '@better-auth/oauth-provider':
+        specifier: catalog:auth
+        version: 1.7.15(8bc10dab2cbe2c2e0f8a85e38f645593)
       '@better-auth/passkey':
         specifier: catalog:auth
         version: 1.7.15(68e42bbadfba7e3cfdec38cd8e450a1a)
@@ -1859,6 +1862,9 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1874,6 +1880,9 @@ importers:
       vite-hub:
         specifier: workspace:*
         version: link:../vite-hub
+      zod:
+        specifier: catalog:runtime
+        version: 4.6.7
     devDependencies:
       '@libsql/client':
         specifier: catalog:database
@@ -2121,9 +2130,6 @@ importers:
       '@nuxt/kit':
         specifier: 4.6.2
         version: 4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
-      '@nuxtjs/mcp-toolkit':
-        specifier: ^0.24.3
-        version: 0.24.3(@cfworker/json-schema@4.1.1)(@nuxt/schema@4.6.3)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(@vue/compiler-sfc@3.5.44)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(rollup@4.67.5)(supports-color@8.1.1)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@takumi-rs/core':
         specifier: catalog:nuxt
         version: 2.19.0(csstype@3.2.3)(react@19.2.6)
@@ -2157,9 +2163,6 @@ importers:
       nuxt-link-checker:
         specifier: ^6.0.1
         version: 6.0.1(f3a85522044b70ed6c26c1c0eeaba0ee)
-      nuxt-llms:
-        specifier: ^0.2.0
-        version: 0.2.0(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
       nuxt-og-image:
         specifier: ^7.0.7
         version: 7.0.7(695970f06c74f9e5bf445704e098eb3d)

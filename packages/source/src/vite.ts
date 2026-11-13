@@ -455,7 +455,7 @@ function unwrapAst(node: unknown): unknown {
 /**
  * Read the `defineContent()` call that the default export holds. Collections count as present unless the call
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
- * `sitemap`, `robots`, `markdown`, `rss`, `llms`, or `mcp` that is not `false`, or a `seo` value that discovery cannot follow.
+ * `sitemap`, `robots`, `markdown`, `rss`, `mcp`, or `llms` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
   return { ...inspectContentOptions(program, contentImportBase), sqlite: importsContentSqlite(program, contentImportBase), github: importsGitHubSource(program) }
@@ -702,13 +702,14 @@ async function writeContentArtifact(
     handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
   }
   else await rm(previewRoutes, { force: true })
-  // `defineContent({ seo: { sitemap, robots, llms } })` adds the site-wide SEO routes. One llms entry serves three routes.
+  // `defineContent({ seo: { sitemap, robots, rss, mcp, llms } })` adds the site-wide SEO routes. One llms entry serves
+  // three routes. The MCP server answers POST and refuses other methods itself.
   for (const [enabled, path, helper, routes] of [
     [features.sitemap, sitemap, "defineContentSitemapHandler", ["/sitemap.xml"]],
     [features.robots, robots, "defineContentRobotsHandler", ["/robots.txt"]],
-    [features.llms, llms, "defineContentLlmsHandler", ["/llms.txt", "/llms-full.txt", "/sitemap.md"]],
     [features.rss, rss, "defineContentRssHandler", ["/rss.xml"]],
     [features.mcp, mcp, "defineContentMcpHandler", ["/mcp"]],
+    [features.llms, llms, "defineContentLlmsHandler", ["/llms.txt", "/llms-full.txt", "/sitemap.md"]],
   ] as const) {
     if (!enabled) {
       await rm(path, { force: true })

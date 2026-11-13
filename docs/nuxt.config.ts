@@ -44,6 +44,83 @@ export default defineNuxtConfig({
     seoAudit: "error",
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
     rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
+    // Rules for every task, printed under the llms.txt description. Page-level detail lives in `::agent-only` blocks.
+    llms: {
+      details: [
+        "Rules for coding agents:",
+        [
+          "- Read the installed package exports and types before you write imports or options. When the installed packages, these docs, and remembered syntax disagree, follow the installed packages.",
+          "- Prefer the `vite-hub` distribution: register `vitehub()` from `vite-hub` in the Vite config and import Runtime Helpers from feature subpaths such as `vite-hub/kv`. Some pages use owner packages such as `@vite-hub/kv`; follow the style that the project already uses.",
+          "- Keep provider and host selection in the Vite config. Application code calls the same Runtime Helper on every host.",
+          "- Give an Agent authority only through Capabilities, Workspaces, Sources, or Channels. Do not pass application secrets or broad access to an Agent implicitly.",
+          "- Open the raw page for one feature, such as `https://vitehub.dev/raw/docs/kv.md`, before you write code. Raw pages contain agent-only details that the rendered site does not show. Do not load llms-full.txt for one task.",
+          "- Prove the change: run the Runtime Helper, Agent Invocation, webhook, or schedule, and inspect the generated `.vitehub/` state or provider output.",
+          "- Install the ViteHub skill for routed guidance: `npx skills add https://vitehub.dev --skill vitehub`.",
+        ].join("\n"),
+      ].join("\n\n"),
+      sections: [
+        {
+          title: "When to use ViteHub",
+          description: "Use ViteHub when a Vite application needs portable server storage, queues, workflows, schedules, sandboxes, or other Server Primitives; when it needs inspectable Agent Definitions with explicit Capabilities and Workspaces; or when the same runtime behavior must deploy across supported hosts without leaking provider APIs into application code.",
+          links: [
+            {
+              title: "Choose a ViteHub layer",
+              description: "Decide whether the job needs a Server Primitive, an Agent, or both.",
+              href: "https://vitehub.dev/raw/docs/getting-started.md",
+            },
+            {
+              title: "Install ViteHub",
+              description: "Install the framework distribution or a focused owner package.",
+              href: "https://vitehub.dev/raw/docs/getting-started/installation.md",
+            },
+            {
+              title: "Compare ViteHub",
+              description: "Compare ViteHub with NuxtHub, Mastra, and the Cloudflare Agents SDK, and see when ViteHub is the wrong choice.",
+              href: "https://vitehub.dev/raw/docs/compare.md",
+            },
+            {
+              title: "Agent harness",
+              description: "See how ViteHub runs Codex, Claude Code, or a model loop with Capabilities, Workspaces, Sandboxes, and approvals.",
+              href: "https://vitehub.dev/raw/docs/agents/harness.md",
+            },
+          ],
+        },
+        {
+          title: "ViteHub developer resources",
+          description: "Use these named machine interfaces to inspect ViteHub before reading the full documentation set. ViteHub is installed into your application and does not expose a shared hosted runtime API.",
+          links: [
+            {
+              title: "ViteHub OpenAPI document",
+              description: "Discover the public machine-readable resources served by vitehub.dev.",
+              href: "https://vitehub.dev/openapi.json",
+            },
+            {
+              title: "ViteHub Agent Skill",
+              description: "Install or inspect the coding-agent instructions and routed references.",
+              href: "https://vitehub.dev/.well-known/skills/vitehub/SKILL.md",
+            },
+            {
+              title: "ViteHub MCP server",
+              description: "Connect an MCP client to the Streamable HTTP documentation endpoint.",
+              href: "https://vitehub.dev/mcp",
+            },
+            {
+              title: "ViteHub CLI on npm",
+              description: "Install the official CLI included with the vite-hub package.",
+              href: "https://www.npmjs.com/package/vite-hub",
+            },
+          ],
+        },
+        {
+          title: "Project and trust information",
+          links: [
+            { title: "About ViteHub", href: "https://vitehub.dev/raw/about.md" },
+            { title: "Contact ViteHub", href: "https://vitehub.dev/raw/contact.md" },
+            { title: "ViteHub privacy", href: "https://vitehub.dev/raw/privacy.md" },
+          ],
+        },
+      ],
+    },
   },
   site: {
     description: "Portable Agents for Vite, built on Server Primitives.",
@@ -59,85 +136,6 @@ export default defineNuxtConfig({
         { href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json", title: "OpenAPI document: every route this site serves to agents", anchor: "/" },
       ],
     },
-    llms: {
-      // Rules for every task, printed under the llms.txt description. Page-level detail lives in `::agent-only` blocks.
-      details: [
-        "Rules for coding agents:",
-        [
-          "- Read the installed package exports and types before you write imports or options. When the installed packages, these docs, and remembered syntax disagree, follow the installed packages.",
-          "- Prefer the `vite-hub` distribution: register `vitehub()` from `vite-hub` in the Vite config and import Runtime Helpers from feature subpaths such as `vite-hub/kv`. Some pages use owner packages such as `@vite-hub/kv`; follow the style that the project already uses.",
-          "- Keep provider and host selection in the Vite config. Application code calls the same Runtime Helper on every host.",
-          "- Give an Agent authority only through Capabilities, Workspaces, Sources, or Channels. Do not pass application secrets or broad access to an Agent implicitly.",
-          "- Open the raw page for one feature, such as `https://vitehub.dev/raw/docs/kv.md`, before you write code. Raw pages contain agent-only details that the rendered site does not show. Do not load llms-full.txt for one task.",
-          "- Prove the change: run the Runtime Helper, Agent Invocation, webhook, or schedule, and inspect the generated `.vitehub/` state or provider output.",
-          "- Install the ViteHub skill for routed guidance: `npx skills add https://vitehub.dev --skill vitehub`.",
-        ].join("\n"),
-      ],
-    },
-  },
-  llms: {
-    sections: [
-      {
-        title: "When to use ViteHub",
-        description: "Use ViteHub when a Vite application needs portable server storage, queues, workflows, schedules, sandboxes, or other Server Primitives; when it needs inspectable Agent Definitions with explicit Capabilities and Workspaces; or when the same runtime behavior must deploy across supported hosts without leaking provider APIs into application code.",
-        links: [
-          {
-            title: "Choose a ViteHub layer",
-            description: "Decide whether the job needs a Server Primitive, an Agent, or both.",
-            href: "https://vitehub.dev/raw/docs/getting-started.md",
-          },
-          {
-            title: "Install ViteHub",
-            description: "Install the framework distribution or a focused owner package.",
-            href: "https://vitehub.dev/raw/docs/getting-started/installation.md",
-          },
-          {
-            title: "Compare ViteHub",
-            description: "Compare ViteHub with NuxtHub, Mastra, and the Cloudflare Agents SDK, and see when ViteHub is the wrong choice.",
-            href: "https://vitehub.dev/raw/docs/compare.md",
-          },
-          {
-            title: "Agent harness",
-            description: "See how ViteHub runs Codex, Claude Code, or a model loop with Capabilities, Workspaces, Sandboxes, and approvals.",
-            href: "https://vitehub.dev/raw/docs/agents/harness.md",
-          },
-        ],
-      },
-      {
-        title: "ViteHub developer resources",
-        description: "Use these named machine interfaces to inspect ViteHub before reading the full documentation set. ViteHub is installed into your application and does not expose a shared hosted runtime API.",
-        links: [
-          {
-            title: "ViteHub OpenAPI document",
-            description: "Discover the public machine-readable resources served by vitehub.dev.",
-            href: "https://vitehub.dev/openapi.json",
-          },
-          {
-            title: "ViteHub Agent Skill",
-            description: "Install or inspect the coding-agent instructions and routed references.",
-            href: "https://vitehub.dev/.well-known/skills/vitehub/SKILL.md",
-          },
-          {
-            title: "ViteHub MCP server",
-            description: "Connect an MCP client to the Streamable HTTP documentation endpoint.",
-            href: "https://vitehub.dev/mcp",
-          },
-          {
-            title: "ViteHub CLI on npm",
-            description: "Install the official CLI included with the vite-hub package.",
-            href: "https://www.npmjs.com/package/vite-hub",
-          },
-        ],
-      },
-      {
-        title: "Project and trust information",
-        links: [
-          { title: "About ViteHub", href: "https://vitehub.dev/raw/about.md" },
-          { title: "Contact ViteHub", href: "https://vitehub.dev/raw/contact.md" },
-          { title: "ViteHub privacy", href: "https://vitehub.dev/raw/privacy.md" },
-        ],
-      },
-    ],
   },
   app: {
     head: {

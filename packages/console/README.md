@@ -29,6 +29,28 @@ Sign-in uses Better Auth with `authDatabase()`, `organization()`, and `passkey()
 
 The server keeps at least one passkey or linked GitHub account when a sign-in method is removed, including concurrent requests from other tabs. Apply the database migrations on each host: they enforce this rule in the same statement as the deletion.
 
+## ViteHub MCP
+
+The Console serves the ViteHub MCP on two addresses. MCP clients do not sign in on an address that answers without a token, so docs and account tools need two.
+
+| Address | Sign-in | Tools |
+| --- | --- | --- |
+| `/mcp` | None. It answers `tools/list` without a token and advertises no OAuth metadata. | `list-pages` and `get-page`. Each call goes to the docs MCP at `https://vitehub.dev/mcp`. |
+| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, and `run_operation`. |
+
+```sh
+claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
+```
+
+The client registers itself (Dynamic Client Registration), and the browser opens `/oauth`. There the person signs in with GitHub or a passkey and allows the client. `mcpOAuth()` in `server/auth.ts` adds Better Auth's `jwt()` and `oauthProvider()`. Their tables (`jwks`, `oauth_client`, `oauth_access_token`, `oauth_refresh_token`, `oauth_consent`, and the others) are in the first migration.
+
+The account tools act on the team that the person opened last in the Console, else their first team, and they keep the rules of the HTTP routes because they call the same code:
+
+- `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
+- `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app.
+- The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
+- `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
+
 ## Configure
 
 | Variable | Use |
@@ -40,7 +62,7 @@ The server keeps at least one passkey or linked GitHub account when a sign-in me
 
 ## Routes
 
-Every route needs a session. Routes act on the session's active team, and a person who is not a member gets `403`.
+The `/api/projects` routes and the forward need a session. They act on the session's active team, and a person who is not a member gets `403`.
 
 | Route | Use |
 | --- | --- |
@@ -49,6 +71,8 @@ Every route needs a session. Routes act on the session's active team, and a pers
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
 | `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
+| `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |
+| `GET /oauth` | The sign-in and consent page of MCP clients. It needs no session. |
 | `GET /api/sign-in-methods` | `{ "github": true }` when GitHub sign-in is configured. |
 | `/api/auth/**` | Better Auth: sign-in, passkeys, and teams (`/api/auth/organization/*`). |
 
