@@ -35,24 +35,15 @@ import type {
   AuthSessionOptions,
 } from "./types.ts"
 
-function isAuthDatabaseMetadata(value: unknown): boolean {
-  return value === true
-    || (
-      isPlainObject(value)
-      && Object.hasOwn(value, "name")
-      && typeof value.name === "string"
-      && Object.keys(value).every(key => key === "dedicated" || key === "name")
-    )
+/** `true` or `{ name, dedicated }`: the removed placement form, which is not a Better Auth adapter. */
+function isAuthDatabasePlacement(value: unknown): boolean {
+  return typeof value === "boolean"
+    || (isPlainObject(value) && Object.keys(value).length > 0 && Object.keys(value).every(key => key === "dedicated" || key === "name"))
 }
 
-function isAuthSecondaryStorageMetadata(value: unknown): boolean {
-  return value === true
-    || (
-      isPlainObject(value)
-      && Object.hasOwn(value, "store")
-      && typeof value.store === "string"
-      && Object.keys(value).every(key => key === "store")
-    )
+/** `true` or `{ store }`: the removed placement form, which is not a Better Auth adapter. */
+function isAuthSecondaryStoragePlacement(value: unknown): boolean {
+  return typeof value === "boolean" || (isPlainObject(value) && Object.hasOwn(value, "store") && Object.keys(value).every(key => key === "store"))
 }
 
 /**
@@ -147,9 +138,15 @@ function stripViteHubOptions(
     ...rest
   } = applyAuthPreset(options)
 
+  if (isAuthDatabasePlacement(database)) {
+    throw authErrorDiagnostics.AUTH_C0061({ message: "Auth `database` must be a Better Auth adapter, such as `authDatabase()`. `true` and `{ name }` do not create storage, so users and sessions would stay in memory." })
+  }
+  if (isAuthSecondaryStoragePlacement(secondaryStorage)) {
+    throw authErrorDiagnostics.AUTH_C0062({ message: "Auth `secondaryStorage` must be a Better Auth adapter. `true` and `{ store }` do not create storage." })
+  }
   const storage = {
-    ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
-    ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
+    ...(database ? { database } : {}),
+    ...(secondaryStorage ? { secondaryStorage } : {}),
   }
   if (authDatabaseName(database) !== undefined) {
     assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
@@ -177,7 +174,7 @@ function stripViteHubOptions(
   const rateLimit = withRateLimitDefaults({ rateLimit: rest.rateLimit, secondaryStorage: storage.secondaryStorage }, authDatabaseName(database) !== undefined)
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
-  // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
+  // SAFETY: `rest` and the retained storage fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
     ...rest,
     ...storage,
