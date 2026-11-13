@@ -37,7 +37,10 @@ function docsContent(): ContentRuntime {
   })
 }
 
-/** The parsed body of a page through `content.get()`, or null when its file is gone. Development parses on each read. */
+/**
+ * The parsed body of a page through `content.get()`, or null when its file is gone. The page route and search both read
+ * here, so a page parses once per server. Development parses on each read.
+ */
 export async function readDocsPage(page: Pick<DocsPage, "file" | "source">): Promise<DocsDocument | null> {
   const document = await docsContent().get(`${sourceOf(page)}/${page.file}`, { fresh: import.meta.dev })
   return document ? docsDocumentOf(document) : null

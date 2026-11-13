@@ -1,10 +1,12 @@
 import { readdir, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { defineContent } from "@vite-hub/content"
+import { createSource, glob } from "@vite-hub/source"
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
-import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
+import { docsMarkdown, docsSearchSections } from "../src/markdown.ts"
 import { createDocsSearch, docsIndexedPages, docsUnindexedSearchSections } from "../src/navigation.ts"
 
 import type { DocsSearchSection } from "../src/types.ts"
@@ -22,11 +24,19 @@ beforeAll(async () => {
       await readFile(resolve(examplesDir, file), "utf8"),
     ] as const),
   ))
-  const parse = createDocsParser({ examples })
+  // As on the site, search reads each page through Content, parsed with the page parser config.
+  const content = defineContent({
+    route: false,
+    live: false,
+    markdown: docsMarkdown({ examples }),
+    sources: { docs_0: () => createSource(glob({ include: ["**/*.md"] }), { rootDir: contentDir }) },
+  })
+  // One parse of the folder: a `glob()` Source reads every file again on each read of one page.
+  const files = new Map((await content.instances.find(instance => instance.name === "docs_0")!.snapshot()).items.map(file => [file.meta.key, file]))
   const records: DocsSearchSection[] = []
   // As in the site search, a page that search engines skip, such as a generated diagnostic code page, has one record.
   for (const page of docsIndexedPages(manifest)) {
-    const { nodes } = await parse(await readFile(resolve(contentDir, page.file), "utf8"))
+    const { nodes } = files.get(`docs_0/${page.file}`)!
     records.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
   }
   records.push(...docsUnindexedSearchSections(manifest))

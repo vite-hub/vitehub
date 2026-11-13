@@ -39,6 +39,7 @@ import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse
 import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderPageMarkdownCopy, siteOrigin } from "./sitemap.ts"
 import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
+import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
@@ -68,6 +69,7 @@ import type {
   ContentSingleton,
 } from "./collections-types.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
+import type { ContentSearchSectionsOptions, ContentSourceSearchSection } from "./search-sections.ts"
 import type { ContentCollectionDefinition, ContentFields, DocumentsDefinition, SingletonDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
 import type {
@@ -137,6 +139,8 @@ export { file, image } from "@vite-hub/blob"
 export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
+export { contentSearchSections } from "./search-sections.ts"
+export type { ContentSearchSection, ContentSearchSectionsOptions, ContentSourceSearchSection } from "./search-sections.ts"
 export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
 export type { ContentFieldAddress } from "./field.ts"
 export type {
@@ -466,6 +470,11 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
    */
   check(options?: { source?: string, sha?: string }): Promise<ContentCheckResult>
   search(names: string[], query: string, options?: Parameters<ContentHub["search"]>[1]): ReturnType<ContentHub["search"]>
+  /**
+   * Every document of the Sources split by heading, for a search that ranks in the browser or in another index. Each
+   * part has its document's Source name and Content key, such as `docs/guide.md`. Works on every host, with no database.
+   */
+  searchSections(names?: string | readonly string[], options?: ContentSearchSectionsOptions): Promise<ContentSourceSearchSection[]>
   getSource(name?: string): ComarkContentSource | undefined
   cache: Omit<Cache, "keys" | "clear"> & {
     clear(name?: string): Promise<void>
@@ -1089,6 +1098,20 @@ export function defineContent<
     handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
+    searchSections: fresh(async (target, names?: string | readonly string[], opts?: ContentSearchSectionsOptions) => {
+      const sections: ContentSourceSearchSection[] = []
+      const picked = names === undefined ? target.instances : [names].flat().map(name => target.from(name))
+      // One parse of the whole Source, as full-text search indexes it, instead of one read per document.
+      for (const instance of picked) {
+        for (const file of (await instance.snapshot()).items) {
+          if (file.meta.kind !== "document" || !file.nodes) continue
+          const title = typeof file.data.title === "string" ? file.data.title : ""
+          for (const section of contentSearchSections({ path: file.path, title, nodes: file.nodes }, opts))
+            sections.push({ ...section, source: instance.name, key: file.meta.key })
+        }
+      }
+      return sections
+    }, readScope.names),
     search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names }), names => readScope.names(names)),
     manifest: fresh(target => target.manifest(), () => undefined),
     // The synchronous reads of a preview request use the commit view of its ref, as `get()` and `list()` do.

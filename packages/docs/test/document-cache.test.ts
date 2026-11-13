@@ -36,25 +36,24 @@ async function app() {
   return new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
 }
 
-it("reads a page once through Content for concurrent page requests, and search reads it apart", async () => {
+it("parses each page once for concurrent page and search requests", async () => {
   const server = await app()
   const page = () =>
     server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
-  const responses = await Promise.all([page(), page()])
+  const search = () => server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+  const responses = await Promise.all([page(), page(), search()])
   for (const response of responses) expect(response.status).toBe(200)
   expect(await responses[0]!.json()).toMatchObject({ page: { path: "/docs/kv" } })
-  expect(getItem.mock.calls).toEqual([["docs/kv/index.md"]])
-  expect(parsed).toHaveBeenCalledTimes(1)
-  expect((await page()).status).toBe(200)
-  expect(getItem).toHaveBeenCalledTimes(1)
-  expect(parsed).toHaveBeenCalledTimes(1)
-  // Search parses each indexed page with the same parser, without keeping the trees.
-  const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
-  expect(search.status).toBe(200)
-  expect(await search.json()).toContainEqual(expect.objectContaining({ id: "/docs/kv" }))
-  const files = getItem.mock.calls.slice(1).map(([file]) => file)
+  expect(await responses[2]!.json()).toContainEqual(expect.objectContaining({ id: "/docs/kv" }))
+  // The page route and search read the same Content, so each file is read and parsed once.
+  const files = getItem.mock.calls.map(([file]) => file)
+  expect(files).toContain("docs/kv/index.md")
   expect(new Set(files).size).toBe(files.length)
-  expect(parsed).toHaveBeenCalledTimes(1 + files.length)
+  expect(parsed).toHaveBeenCalledTimes(files.length)
+  await page()
+  await search()
+  expect(getItem).toHaveBeenCalledTimes(files.length)
+  expect(parsed).toHaveBeenCalledTimes(files.length)
 })
 
 it.each([undefined, "docs-1"])("reads packed production pages from %s through Content without Nitro server assets", async (source) => {
@@ -94,18 +93,17 @@ it("retries a page after storage or parsing fails", async () => {
   expect(await response.json()).toMatchObject({ page: { path: "/docs/kv" } })
 })
 
-it("keeps the compact search index without retaining every document tree", async () => {
+it("serves a page from the parse that built the search index", async () => {
   const server = await app()
   const search = () => server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect((await search()).status).toBe(200)
   const reads = getItem.mock.calls.length
   expect((await search()).status).toBe(200)
-  expect(getItem).toHaveBeenCalledTimes(reads)
   const response = await server.fetch(
     new Request("https://docs.example.com/api/_docs/page/docs/kv.json"),
   )
   expect(response.status).toBe(200)
-  expect(getItem).toHaveBeenCalledTimes(reads + 1)
+  expect(getItem).toHaveBeenCalledTimes(reads)
 })
 
 it("returns parsed credits beside a cached page document", async () => {
@@ -143,17 +141,23 @@ it("keeps page keywords in the cached search index", async () => {
   }
 })
 
-it("caches identical file names separately for each mapped source", async () => {
+it("keeps identical file names apart for each mapped source", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const source = page.source
+  onTestFinished(() => { page.source = source })
+  page.source = "docs-1"
   const reads = vi.fn(async (base: string) => `# ${base}`)
   useKV.mockImplementation((base: string) => ({ getItem: () => reads(base) }))
-  const { loadDocsDocument } = await import("../src/runtime/documents.ts")
-  const load = (source: string) => loadDocsDocument("index.md", source)
-  const [first, second] = await Promise.all([load("docs"), load("docs-1")])
+  const { readDocsPage } = await import("../src/runtime/content.ts")
+  const load = (source?: string) => readDocsPage({ file: page.file, source })
+  const [first, second] = await Promise.all([load(), load("docs-1")])
   expect(JSON.stringify(first)).toContain("assets:docs")
   expect(JSON.stringify(second)).toContain("assets:docs-1")
   expect(first).not.toEqual(second)
-  expect(await load("docs")).toBe(first)
-  expect(await load("docs-1")).toBe(second)
+  expect(await load()).toEqual(first)
+  expect(await load("docs-1")).toEqual(second)
   expect(reads.mock.calls).toEqual([["assets:docs"], ["assets:docs-1"]])
 })
 
@@ -173,8 +177,8 @@ it("reads mapped page and search content from the configured storage mount", asy
   const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect(search.status).toBe(200)
   expect(JSON.stringify(await search.json())).toContain("Only in mapped content.")
-  // Once for the page route's Content, once for search.
-  expect(mapped.mock.calls).toEqual([[page.file], [page.file]])
+  // The page route and search share one read.
+  expect(mapped).toHaveBeenCalledExactlyOnceWith(page.file)
 })
 
 it("gives the page route the same document as the docs parser", async () => {
