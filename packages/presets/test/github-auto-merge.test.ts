@@ -40,6 +40,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     threadFailure: undefined as "reply-result-lost" | "resolve-failed" | "resolve-result-lost" | undefined,
     merged: false,
     beforeRead: () => {},
+    compare: { status: "ahead", behind_by: 0 },
   }
   const route = (request: GitHubTestRequest): unknown => {
     switch (request.operationName) {
@@ -75,6 +76,10 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
       if (!state.protection) return { name: "main", protected: false }
       return { name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: state.protection.contexts, checks: state.protection.contexts.map(context => ({ context, app_id: null })) } } }
     }
+    if (path.startsWith("/repos/acme/app/compare/")) return state.compare
+    if (/^\/repos\/acme\/app\/commits\/[a-f\d]{40}\/check-runs$/.test(path)) return { total_count: 0, check_runs: [] }
+    if (/^\/repos\/acme\/app\/commits\/[a-f\d]{40}\/status(es)?$/.test(path)) return path.endsWith("statuses") ? [] : { state: "success", statuses: [], total_count: 0 }
+    if (path === "/repos/acme/app/actions/runs") return { total_count: 0, workflow_runs: [] }
     if (path === "/repos/acme/app/actions/runs/123") return state.run
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
@@ -678,3 +683,29 @@ it("refreshes dependencies only while the assigned PR head is current", async ()
   await expect(f.operations.refreshDependencies()).rejects.toThrow();
   expect(refreshDependencies).toHaveBeenCalledTimes(1);
 });
+
+describe("base CI evidence on a moving base", () => {
+  const assigned = "b".repeat(40)
+  const moved = "c".repeat(40)
+
+  it("reads the assigned base after the base branch moved forward from it", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: moved })
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...${moved}`)).toBe(true)
+  })
+
+  it("refuses when the base no longer contains the assigned commit", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: moved })
+    f.state.compare = { status: "diverged", behind_by: 2 }
+    await expect(f.operations.readBaseCheckEvidence()).rejects.toThrow("Pull request base changed")
+  })
+
+  it("needs no comparison while the base is unchanged", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: assigned })
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
+    expect(f.calls.some(call => call.path.startsWith("/repos/acme/app/compare/"))).toBe(false)
+  })
+})

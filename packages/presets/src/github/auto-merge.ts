@@ -396,9 +396,15 @@ export function createGitHubPullRequestOperations(
 
   async function exactBaseSnapshot(): Promise<string> {
     if (!options.expectedBaseOid) throw new Error("This worker has no assigned base commit for CI comparison.")
-    const current = await snapshot()
-    if (current.pullRequest.baseRefOid !== options.expectedBaseOid) throw new Error("Pull request base changed; discard this base CI comparison.")
-    return options.expectedBaseOid
+    const current = (await snapshot()).pullRequest.baseRefOid
+    if (current === options.expectedBaseOid) return options.expectedBaseOid
+    // A busy default branch moves every few minutes. CI evidence for the assigned commit stays valid while the base only moved forward from it.
+    if (current && /^[a-f\d]{40}$/i.test(current)) {
+      const { provider } = await forge()
+      const comparison = (await provider.request<unknown>("GET", `/repos/${repository}/compare/${options.expectedBaseOid}...${current}`, { query: { per_page: 1 }, signal })).data
+      if (isRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0) return options.expectedBaseOid
+    }
+    throw new Error("Pull request base changed; discard this base CI comparison.")
   }
 
   /** The workflow run, read as GitHub reports it, for its head and pull requests. */
