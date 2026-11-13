@@ -3,6 +3,7 @@ packages:
   - "fixtures/tutorials/chat-app"
   - "packages/*"
   - "packages/*/examples/*"
+  - "packages/docs/playground"
   - "playground/console"
   - "playground/content"
   - "playground/docs"
@@ -16,7 +17,7 @@ catalog:
   comark-chat: 0.10.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
   # `@cloudflare/vitest-plugin` depends on this exact Wrangler, so CI and the docs use the same one.
-  wrangler: 4.147.0
+  wrangler: 4.157.0
 
 catalogMode: prefer
 linkWorkspacePackages: true

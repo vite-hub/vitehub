@@ -7,6 +7,6 @@ export type { RawMarkdownOptions } from "./raw.ts"
 export { docsPageResponse } from "./page.ts"
 export type { DocsPageLink, DocsPageResponse } from "./page.ts"
 
-export type { DocsSource } from "./manifest.ts"
+export type { DocsContentSource, DocsSource, DocsSourceInput } from "./manifest.ts"
 export { checkDocsLinks, DocsLinkError } from "./check-links.ts"
 export type { DocsLinkCheckOptions } from "./check-links.ts"

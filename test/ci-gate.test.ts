@@ -62,7 +62,27 @@ describe("CI merge gate", () => {
     expect(result.status, result.stderr).toBe(0)
   })
 
-  const sites = { docs: "docs-deploy", console: "console-deploy" }
+  it("requires the default success condition across all consumer matrix shards", () => {
+    const marker = workflow.jobs["consumer-contracts-success"]
+    expect(marker?.needs).toEqual(["consumer-contracts"])
+    expect(marker?.if).toBeUndefined()
+  })
+
+  it("requires the default success condition across all package test shards", () => {
+    const marker = workflow.jobs["package-tests-success"]
+    expect(marker?.needs).toEqual(["package-tests"])
+    expect(marker?.if).toBeUndefined()
+  })
+
+  it("runs docs verification on pull requests before changes can reach production", () => {
+    const docs = workflow.jobs.docs
+    expect(docs?.if).toBeUndefined()
+    expect(docs?.["continue-on-error"]).not.toBe(true)
+    expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
+  })
+
+  // Each site deploys after every verification job and its own build, and not after the other site.
+  const sites = { docs: "docs-deploy", "docs-demo": "docs-demo-deploy", console: "console-deploy" }
 
   it.each(Object.entries(sites))("requires successful %s verification and deployment on pushes", (build, deploy) => {
     for (const name of [build, deploy]) {
@@ -179,14 +199,16 @@ describe("CI merge gate", () => {
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "service-tests",
     "docs",
     "docs-snippets",
+    "docs-demo",
     "console",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "service-tests", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
+      result: [...pullRequestJobs, "contracts-examples"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)

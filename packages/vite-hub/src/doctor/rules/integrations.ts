@@ -4,6 +4,7 @@ import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, moduleSpecifier, numberValue, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, vitehubModule } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
+import { removedViteHubOptions } from "../../removed-options.ts"
 
 // Local helpers.
 
@@ -322,40 +323,14 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
     const value = unwrap(property.value)
     const isObject = isNodeType(value, "ObjectExpression")
     let report: { why: string, fix: string } | undefined
-    if (name === "sandbox") {
-      report = {
-        why: "`sandbox` is not a ViteHub option. It was renamed to `sandboxTask`, so this key does nothing.",
-        fix: "Rename `sandbox` to `sandboxTask: true`.",
-      }
-    }
-    else if (name === "preset") {
-      report = {
-        why: "`preset` is not a ViteHub option. It was renamed to `host`, so this key does nothing and ViteHub detects the host instead.",
-        fix: "Rename `preset` to `host`.",
-      }
-    }
-    else if (name === "devtools") {
-      report = {
-        why: "The ViteHub `devtools` option was removed with the browser DevTools, so this key does nothing.",
-        fix: "Remove `devtools`. Use the ViteHub Console with `console: true`.",
-      }
+    const removed = name !== undefined && Object.hasOwn(removedViteHubOptions, name) ? removedViteHubOptions[name] : undefined
+    if (removed) {
+      report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
     }
     else if (name === "sandboxTask" && isObject) {
       report = {
         why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The host selects the provider.",
         fix: "Set `sandboxTask: true`.",
-      }
-    }
-    else if (name === "logs") {
-      report = {
-        why: "`logs` moved into `observability`, so this key does nothing.",
-        fix: "Move it to `observability: { logs: ... }`. Its `evlog` options go to `observability.evlog`. `npx @vite-hub/codemods vitehub-options` moves it.",
-      }
-    }
-    else if (name === "contentImportBase") {
-      report = {
-        why: "`contentImportBase` was removed. ViteHub always imports Content from `vite-hub/content`.",
-        fix: "Remove `contentImportBase`.",
       }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
