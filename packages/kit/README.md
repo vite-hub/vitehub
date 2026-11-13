@@ -80,11 +80,13 @@ On the server, put the catalog in the model prompt and check each spec that the 
 ```ts
 import { catalogPrompt, validateSpec } from "@vite-hub/kit/catalog";
 
-const system = `You help the team ship releases.\n\n${catalogPrompt({ surface: "chatModal" })}`;
+export const system = `You help the team ship releases.\n\n${catalogPrompt({ surface: "chatModal" })}`;
 
-const result = validateSpec(spec, { surface: "chatModal" });
-// Each diagnostic has a stable code, such as KIT_R0005 for an Input in a chat card. Send them back to the model.
-if (!result.valid) return { error: result.diagnostics };
+export function checkSpec(spec: unknown) {
+  const result = validateSpec(spec, { surface: "chatModal" });
+  // Each diagnostic has a stable code, such as KIT_R0005 for an Input in a chat card. Send them back to the model.
+  return result.valid ? { spec: result.spec } : { error: result.diagnostics };
+}
 ```
 
 In the app, render the spec with json-render and the default components. Pass your own Vue component for any entry:
