@@ -135,7 +135,7 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 | --- | --- |
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
-| `kv.set<T>(key, value)` | Writes a value. |
+| `kv.set<T>(key, value, { ttl? })` | Writes a value. The driver applies `ttl` in seconds. `fs-lite`, the local store of `vite dev`, ignores it, so the key stays until you delete it. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |

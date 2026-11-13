@@ -312,6 +312,14 @@ export default defineWorkspace({
 
 The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
 placement, materialization, sync, and access rules. Source owns retrieval.
+
+Without a `mount` path, the Source kind picks the mount, not the import. A file
+Source (`file()` or `markdown()` from either package, or the `"README.md"` and
+`{ path }` shorthands) puts its one file at its own key, so
+`readme: file("README.md")` appears at `README.md`. `fetch()` also puts its one
+file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
+`readme: { source: file("README.md"), mount: "docs" }` appears at
+`docs/README.md`.
 Content also accepts the definition with `defineContent({ source: docs })` and
 opens a new reader for each refresh.
 
