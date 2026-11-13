@@ -20,12 +20,14 @@ import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
 import type { ContentScheduleStatus } from "./schedules.ts"
 import type { ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
+import type { ContentSourcePreviewRoutes as ContentPreviewRoutes } from "./ref-routes.ts"
 import type {
   ContentDevCollection,
   ContentDevCollectionsResult,
   ContentDevDiffResult,
   ContentDevHeadResult,
   ContentDevListResult,
+  ContentDevPreviewsResult,
   ContentDevPublishResult,
   ContentDevRemoveResult,
   ContentDevRevisionsResult,
@@ -696,7 +698,13 @@ const publish = defineOperation({
     const options: ContentPublishOptions = { expect: input.expect, metadata: metadata(context) }
     if (input.message !== undefined) options.message = input.message
     const result = await content.publish(options)
-    return { documents: result.documents, dryRun: false, revision: result.revision, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
+    return {
+      documents: result.documents,
+      dryRun: false,
+      revision: result.revision,
+      ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}),
+      ...(result.previews ? { previews: result.previews.map(preview => ({ ...preview, expiresAt: preview.expiresAt.toISOString() })) } : {}),
+    }
   }),
   section: "content",
 })
@@ -859,6 +867,31 @@ const unpin = defineOperation({
   section: "content",
 })
 
+// A private pull request gets signed links, which open its drafts. So the operation needs the whole `content` section,
+// as moving a head does, and not only `content:read`.
+const previews = defineOperation({
+  cli: { command: "previews" },
+  description: "List the /pr/<number>/<path> preview links of the pages that a pull request adds or changes. A private pull request, such as a CMS publish, gets signed links.",
+  input: v.strictObject({
+    pr: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    site: optionalText,
+    maxAge: v.optional(v.pipe(v.number(), v.integer(), v.minValue(60), v.maxValue(86_400))),
+  }),
+  kind: "write",
+  name: "content.previews",
+  run: async (input): Promise<ContentDevPreviewsResult> => attempt(async () => {
+    const sources: unknown = Reflect.get(Object(await contentRuntime()), "sources")
+    if (typeof sources !== "object" || sources === null || !(Reflect.get(sources, "previewLinks") instanceof Function)) {
+      throw invalid("This Content runtime has no preview links. Update @vite-hub/content.")
+    }
+    // SAFETY: `sources` of a defineContent() runtime with previewLinks() is ContentSourcePreviewRoutes.
+    const routes = sources as ContentPreviewRoutes
+    const links = await routes.previewLinks(input.pr, { ...(input.site === undefined ? {} : { site: input.site }), ...(input.maxAge === undefined ? {} : { maxAge: input.maxAge }) })
+    return { ...links, expiresAt: links.expiresAt?.toISOString() ?? null }
+  }),
+  section: "content",
+})
+
 /** `content.check()` of the runtime. A runtime from before `check` cannot run it. */
 function contentChecker(content: ContentOperationsRuntime): (options: { source?: string, sha?: string }) => Promise<ContentCheckResult> {
   const method: unknown = Reflect.get(Object(content), "check")
@@ -880,4 +913,4 @@ const check = defineOperation({
 })
 
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, head, advance, pin, unpin, check]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, previews, head, advance, pin, unpin, check]

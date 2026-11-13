@@ -146,9 +146,9 @@ With `publish: 'pr'`, `content.publish()` does not touch `branch`. It checks the
 
 1. creates `vitehub/publish/<draft7>-<timestamp>-<uuid>` from the head of `branch` (`<draft7>` is the first 7 characters of the draft revision), and commits the changes there;
 2. opens a pull request from that branch into `branch`;
-3. returns `{ revision, documents, pullRequest: { number, url }, pending: true }`. `revision` is the commit on the publish branch.
+3. returns `{ revision, documents, pullRequest: { number, url }, pending: true }`. `revision` is the commit on the publish branch. With [`previews: true`](/docs/content/preview#branch-commit-and-pull-request-previews) and a `github()` Source of the same repository, it also returns `previews: [{ collection, id, url, expiresAt }]`: a `/pr/<number>/<url>` link for each document with a `url`. Publish branches are private, so each link has a signed token that works for one hour.
 
-`onPublish` listeners and Comark source refreshes run when `branch` changes, so not for a pending publish. Until the pull request merges, `status()` keeps the document state (`draft` or `changed`) and adds `pullRequest: { number, url }`. When `branch` has the bytes of the publish branch, the document is `published` and the link goes away. A pull request closed without a merge shows nothing, and the draft keeps the change. The Console shows the link in the publish message, and `vitehub content publish` prints it.
+`onPublish` listeners and Comark source refreshes run when `branch` changes, so not for a pending publish. Until the pull request merges, `status()` keeps the document state (`draft` or `changed`) and adds `pullRequest: { number, url }`. When `branch` has the bytes of the publish branch, the document is `published` and the link goes away. A pull request closed without a merge shows nothing, and the draft keeps the change. The Console shows the link in the publish message, or "Open preview" when it has a preview link that it can open, and `vitehub content publish` prints both.
 
 It is a normal pull request: review it, wait for checks, and merge it any way. Merge commits, squashes, and rebases all work. If the draft changed since, it keeps its newer text. The token needs permission to create branches and pull requests.
 

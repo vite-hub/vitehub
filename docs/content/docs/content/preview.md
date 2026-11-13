@@ -200,4 +200,55 @@ A preview response has `X-Robots-Tag: noindex` and a canonical `Link` header to 
 
 In Nuxt, the client router does not know the prefix yet. A page that reads its route on the client sees the preview URL after hydration.
 
+### Links for a pull request
+
+`content.sources.previewLinks(12)` returns the `/pr/12/...` link of each page that pull request 12 adds or changes, from its GitHub file list. Removed files and files that are not pages are left out.
+
+```ts fragment
+const links = await content.sources.previewLinks(12, { site: 'https://docs.example.com' })
+// { repo: 'acme/docs', sha, pull, access: 'pull', expiresAt: null,
+//   pages: [{ key: 'docs/kv.md', path: '/docs/kv', url: 'https://docs.example.com/pr/12/docs/kv' }] }
+```
+
+`access` says how a reader opens the links. A pull request from the same repository, or a fork with the `preview:enabled` label, gets plain links. A private one, such as a CMS publish, gets `token`: each link has a token from `content.sources.sign()` that works for one hour, or `maxAge` seconds up to 24 hours. A fork without the label gets `fork` and plain links that open after a maintainer adds the label. Content never signs a fork pull request. Check Console access before you call it, as for `sign()`.
+
+When the [CMS](/docs/cms/configure#pull-request-mode) publishes with `publish: 'pr'`, the result has `previews`, a signed link for each document with a `url`. The link shows the pull request when the page reads the `github()` Source, as when the CMS edits the files of the docs repository. Collections read `published` in a preview request.
+
+The revisions of the Blob + Database store have no `/blob/<id>` URL. Their ids are not Git commits, so GitHub cannot check them. Use [draft preview](#enable-preview) or [preview frames](#preview-frames) for those.
+
+### Comment preview links from GitHub Actions
+
+`vitehub content previews comment --pr 12` prints the links as a Markdown comment. With `--post`, it creates one comment on the pull request and updates it on the next run. See [the CLI](/docs/content/cli#pull-request-previews).
+
+ViteHub does not add a workflow for you, and deploys stay local. To comment from CI, add this workflow yourself. It [signs requests to the deployed app](/docs/development/console#sign-console-requests) and posts with the token of the workflow. Run `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: { auth: 'token' }`, and store `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a GitHub Actions secret:
+
+```yaml [.github/workflows/content-previews.yml]
+name: Content previews
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  comment:
+    # A fork pull request gets no secrets, so it gets no comment.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitehub content previews comment --pr ${{ github.event.pull_request.number }} --post --url https://docs.example.com
+        env:
+          VITEHUB_CONSOLE_PRIVATE_KEY_CI: ${{ secrets.VITEHUB_CONSOLE_PRIVATE_KEY_CI }}
+          VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The app reads the pull request with its own `VITEHUB_GITHUB_TOKEN`. The workflow token only writes the comment. A pull request that the CMS opens also triggers the workflow when the CMS token is not the workflow token.
+
 See [Limits and errors](/docs/content/limits-and-errors) for every Content error code.

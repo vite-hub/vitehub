@@ -98,6 +98,12 @@ export type GitHubSource = FileSource<string> & Required<Pick<FileSource<string>
    */
   changes(base: string, head: string): Promise<string[] | undefined>
   /**
+   * The keys of the Source that a pull request adds or changes, from `GET /repos/{owner}/{repo}/pulls/{number}/files`.
+   * A renamed file gives its new key, and removed files are not listed. Undefined when the repository has no such pull
+   * request. GitHub lists at most 3,000 files of a pull request.
+   */
+  pullChanges(number: number): Promise<string[] | undefined>
+  /**
    * The commit that a ref of the repository points to now. A branch must match its full name, and a SHA must be a full
    * commit SHA. Undefined when the repository has no such commit, branch, or pull request.
    */
