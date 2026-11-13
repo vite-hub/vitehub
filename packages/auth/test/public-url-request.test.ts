@@ -4,7 +4,6 @@ vi.mock("#vitehub/auth/definition", () => ({
   default: { options: { appName: "Static Auth", secret: "abcdefghijklmnopqrstuvwxyz0123456789" } },
 }))
 
-import { authForRequest } from "../src/runtime/console.ts"
 import { assertAuthOrigin, resetAuth, useAuth } from "../src/internal/server.ts"
 
 describe("static Auth public URL request helpers", () => {
@@ -30,13 +29,5 @@ describe("static Auth public URL request helpers", () => {
   it("preserves the cached provider when no public URL is configured", () => {
     const request = new Request("http://localhost/api/auth/session")
     expect(useAuth(request)).toBe(useAuth(request))
-  })
-
-  it("preserves explicit runtime origins", async () => {
-    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://public.example.com" })
-    const auth = authForRequest(new Request("http://internal/api/auth/session"), {
-      baseURL: "https://explicit.example.com",
-    })
-    expect((await auth.$context).options.baseURL).toBe("https://explicit.example.com")
   })
 })

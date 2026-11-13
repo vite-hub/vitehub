@@ -5,7 +5,8 @@ import { defineAuth } from "../src/index.ts"
 import { stateless } from "../src/presets.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
 import { statelessUserId } from "../src/stateless-user-id.ts"
-import { createAuth, getAuthForDefinition, handleAuthRequest, resetAuth } from "../src/internal/server.ts"
+import { createAuth, createAuthForRequest, getAuthForDefinition, handleAuthRequest, resetAuth } from "../src/internal/server.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const secret = "stateless-preset-test-secret-0123456789abcdef"
 const origin = "https://app.example.com"
@@ -74,8 +75,8 @@ describe("stateless() conflicts", () => {
     const storage = defineAuth(() => ({ preset: stateless(), secondaryStorage }))
     expect(() => resolveAuthOptions(storage).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0045" }))
 
-    const runtime = defineAuth({ preset: stateless(), runtime: () => ({ emailAndPassword: { enabled: true } }) })
-    expect(() => resolveAuthOptions(runtime).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0046" }))
+    const password = defineAuth(() => ({ preset: stateless(), emailAndPassword: { enabled: true } }))
+    expect(() => resolveAuthOptions(password).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0046" }))
   })
 })
 
@@ -161,7 +162,7 @@ describe("stateless() sessions without a database", () => {
 
   async function readUserId(jar: ReturnType<typeof cookieJar>): Promise<string | undefined> {
     resetAuth()
-    const session = await createAuth(definition, { baseURL: origin, secret }).api.getSession({ headers: new Headers({ cookie: jar.header() }) })
+    const session = await createAuthForRequest(definition, new Request(origin)).api.getSession({ headers: new Headers({ cookie: jar.header() }) })
     return session?.user.id
   }
 
@@ -185,13 +186,18 @@ describe("stateless() sessions without a database", () => {
     expect(session.status).toBe(200)
     expect(await session.json()).toMatchObject({ user: { email: "octo@example.com", name: "Octo" } })
 
-    const replica = createAuth(definition, { baseURL: origin, secret })
+    const replica = createAuthForRequest(definition, new Request(origin))
     const replicaSession = await replica.api.getSession({ headers: new Headers({ cookie: jar.header() }) })
     expect(replicaSession?.user.email).toBe("octo@example.com")
     expect(replicaSession?.session.expiresAt.getTime()).toBeGreaterThan(Date.now() + 6 * 86_400_000)
 
     // The cookie carries the session, so an instance with another secret cannot read it.
-    const otherSecret = createAuth(definition, { baseURL: origin, secret: `${secret}-other` })
+    const otherSecret = createAuth(defineAuth(() => ({
+      baseURL: origin,
+      preset: stateless({ maxAge: "7d" }),
+      secret: `${secret}-other`,
+      socialProviders: { github: { clientId: "github-client", clientSecret: "github-secret" } },
+    })))
     expect(await otherSecret.api.getSession({ headers: new Headers({ cookie: jar.header() }) })).toBeNull()
   })
 
@@ -215,9 +221,10 @@ describe("stateless() sessions without a database", () => {
 
   it("keeps the same user ID on a cached instance", async () => {
     mockProviders()
-    const cached = defineAuth({
+    const cached = defineFixedAuth({
       preset: stateless(),
-      runtime: { baseURL: origin, secret },
+      baseURL: origin,
+      secret,
       socialProviders: { github: { clientId: "github-client", clientSecret: "github-secret" } },
     })
     const auth = getAuthForDefinition(cached)
@@ -248,7 +255,7 @@ describe("stateless() sessions without a database", () => {
     }))
 
     const jar = await signInWith(request => handleAuthRequest(withHooks, request), "github")
-    const session = await createAuth(withHooks, { baseURL: origin, secret }).api.getSession({ headers: new Headers({ cookie: jar.header() }) })
+    const session = await createAuthForRequest(withHooks, new Request(origin)).api.getSession({ headers: new Headers({ cookie: jar.header() }) })
     expect(session?.user).toMatchObject({ id: await statelessUserId("github", "42"), name: "From hook" })
     expect(validated).toEqual(["create-user:octo@example.com"])
 
