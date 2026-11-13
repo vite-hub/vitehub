@@ -281,6 +281,33 @@ The Console opens that page of the app of your team whose URL is `project`. When
 
 A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
+### Open the Console from your pages
+
+With `console` set, the [ViteHub tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages has a **Console** segment. It is a link. It opens your app in [console.vitehub.dev](https://console.vitehub.dev) in a new tab, with `hostedConsoleUrl()`, the page origin, and the app base. When the page shows one Content document, through [`contentField()`](/docs/content/server-api#field-addresses) attributes, the link opens that document. Otherwise it opens the project overview. The app does not need Comments for this.
+
+The link gives no access. The Console checks the person and the team when it opens the link, and opens Home when the team has not linked the app. The pill still keeps the link away from the app's other users:
+
+| Where | Who sees **Console** |
+| --- | --- |
+| Development server | Every visitor. |
+| Production, with [`console.authorize`](#limit-a-user-to-some-sections) | Visitors for whom `authorize` returns `true`, or `{ sections }` with one section or more. `authorize` gets `via: 'page'`, the session request of the page, and the app's Auth `user` when someone signed in. |
+| Production, without `authorize` | App Auth users with the admin role of Better Auth's `admin()` plugin. [Give the first admin role](/docs/auth/configure#give-the-first-admin-role) with `VITEHUB_ADMINS` or a claim code. Without app Auth, nobody. |
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize((context) => {
+  // Show the Console link to every signed-in user of the app.
+  if (context.via === 'page') return Boolean(context.user)
+  // Every other caller keeps the access that it has without `authorize`.
+  return true
+})
+```
+
+An `authorize` that returns `true` for every context also shows the link to every visitor. Check `context.via` first.
+
+The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. On a development server without Auth, open a page with `?vitehub` once. A page on `http:` with a host that is not `localhost` or a loopback address, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+
 ## Self-host the Console
 
 The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite or on Cloudflare Workers with D1. Its README shows how to build, configure, and deploy it.
@@ -413,7 +440,7 @@ export default defineConfig(({ command }) => ({
 :::
 ::
 
-A signed caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'console'` with the `user` that the Console signed, the `team` that linked the app and the role of the user in it, or `via: 'cli'` with no `user`. Both have `key`, the `<NAME>` of the key. Operations get the same user as `context.user`. An Agent that calls Console operations as tools gets `via: 'agent'`, so allow it on its own:
+A signed caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'console'` with the `user` that the Console signed, the `team` that linked the app and the role of the user in it, or `via: 'cli'` with no `user`. Both have `key`, the `<NAME>` of the key. Operations get the same user as `context.user`. An Agent that calls Console operations as tools gets `via: 'agent'`, and the page tools pill gets `via: 'page'` when it asks whether to show the [Console link](#open-the-console-from-your-pages). Allow each one on its own:
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'

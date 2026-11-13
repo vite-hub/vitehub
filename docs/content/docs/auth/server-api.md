@@ -45,6 +45,8 @@ export const userSession = useUserSession()
 
 For a custom `basePath` or Better Auth client plugins, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`. A custom client must include it in `basePath`.
 
+The default client has the user and session fields of your Auth Definition. See [Typed user fields](#typed-user-fields).
+
 Better Auth loads on the first Auth request, or the first request an access route matches. Importing `vite-hub/auth/server` also loads it, so import it in routes, not in a Nitro plugin or global middleware. A cold start then does not compile it.
 
 Server code reads the Better Auth instance of a request with `useAuth(event)`.
@@ -173,3 +175,34 @@ Generated access middleware loads `createAuthAccessHandler(routes, definition?)`
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` to a signed-out browser instead of redirecting to provider sign-in. Use it when the host shows its own sign-in page and starts provider sign-in on a click. By default, it keeps the `access.signIn` redirect.
 
 The [Console](/docs/development/console#protect-the-console-route) endpoint does not use these access routes. It takes only signed requests and one-time links.
+
+## Typed user fields
+
+The default client gets its types from the Auth Definition. When the Definition adds user or session fields, with `additionalFields`, with a plugin such as `admin()`, or with the session that `customSession()` returns, `useUserSession()` has these fields too.
+
+```ts [server/auth.ts]
+import { admin } from 'better-auth/plugins'
+import { defineAuth } from 'vite-hub/auth'
+
+export default defineAuth({
+  plugins: [admin()],
+  user: {
+    additionalFields: {
+      plan: { type: ['free', 'pro'], required: true, input: false },
+    },
+  },
+})
+```
+
+```ts [lib/plan.ts]
+import { useUserSession } from 'vite-hub/auth/vue'
+
+const { user } = useUserSession()
+
+export const isPro = () => user.value?.plan === 'pro'
+export const isAdmin = () => user.value?.role === 'admin'
+```
+
+- ViteHub writes the type of the Definition to `.vitehub/types/auth.d.ts`. The client imports only this type, so no server code goes to the browser.
+- In Nuxt, the auto-imported `useUserSession()` has the same types.
+- A client from `createAuthClient()` does not get these fields. Add the Better Auth client plugins, such as `adminClient()` and `customSessionClient<RegisteredAuth>()`, and `inferAdditionalFields<RegisteredAuth>()` from `better-auth/client/plugins`. `RegisteredAuth` is a type from `vite-hub/auth`.

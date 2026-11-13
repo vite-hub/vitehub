@@ -28,6 +28,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
+import { docsFilesModule } from "./files.ts"
 import { createDocsManifest, docsAppManifestSource } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
@@ -226,6 +227,7 @@ interface NitroOptions {
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
+  virtual?: Record<string, string | (() => string | Promise<string>)>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
   experimental?: { asyncContext?: boolean }
@@ -748,8 +750,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         }
       }
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile }
-      // Pages are read at runtime, so a host without a file system serves them too.
-      nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
+      // Pages are read at runtime, so a host without a file system serves them too. Development reads the folders
+      // through Nitro server assets. A build packs them into one module: server assets add a module per file, and
+      // Cloudflare rejects a Worker upload with more than 5,000 modules.
+      const stores = [...sources ? sources.map((source, index) => ({ name: `docs-${index}`, dir: source.dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-raw", dir: rawDir }]
+      if (nuxt.options.dev) {
+        nitro.serverAssets = [...nitro.serverAssets ?? [], ...stores.map(store => ({ baseName: store.name, dir: store.dir, pattern: "**/*.md" }))]
+        nitro.virtual = { ...nitro.virtual, "#docs/files": "export default null\n" }
+      }
+      else {
+        // Each page sits next to its raw copy, so gzip finds the repeated text.
+        const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-raw", docsRawFile(page.path)]])
+        nitro.virtual = { ...nitro.virtual, "#docs/files": () => docsFilesModule(stores, order()) }
+      }
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development

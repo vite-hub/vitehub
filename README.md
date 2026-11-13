@@ -52,7 +52,7 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/content"><img src=".github/assets/primitives/content.svg" alt="" height="24"><br><b>Content</b></a><br>Parse and search</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/source"><img src=".github/assets/primitives/source.svg" alt="" height="24"><br><b>Source</b></a><br>Read-only content</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="24"><br><b>Connections</b></a><br>Connected accounts</td>
-    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/agents/ai-gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
   </tr>
   <tr>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/decisions"><img src=".github/assets/primitives/decisions.svg" alt="" height="24"><br><b>Decisions</b></a><br>Text to choices</td>

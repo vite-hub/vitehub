@@ -26,7 +26,7 @@ Primitives give different guarantees. Start with the smallest one that fits.
 | Execute commands | [Shell](/docs/shell) | Commands, file access, network access, and timeouts the execution provider allows. |
 | Isolate a process from the application host | [Sandbox](/docs/sandbox) | The provider's isolation and resource limits. Command parsing and Workspace rules do not isolate a host process. |
 
-Check each provider in the [support matrix](/docs/frameworks-hosts/support-matrix). Read the date and scope of its evidence: generated-output tests, local provider runs, and live smoke tests prove different things. An old successful run does not prove your current deployment.
+Check the [test status](/docs/frameworks-hosts/support-matrix#test-status) of each host and primitive. Live tested, Tested locally, and Experimental prove different things. A live test shows what CI checks on the host, not that your deployment works.
 
 ## Decide which state must survive
 

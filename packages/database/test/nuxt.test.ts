@@ -1119,9 +1119,11 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
 
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
+      // Development can run the Database on PGlite, so its module awaits PGlite when it has no server.
+      expect(code).toMatch(/import \{ createDevPostgresDatabase \} from "file:.+\/runtime\/pglite\.js"/)
+      expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
       expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
-      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

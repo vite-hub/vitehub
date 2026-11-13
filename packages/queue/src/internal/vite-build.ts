@@ -40,7 +40,7 @@ function resolveVercelDependency(specifier: "@vercel/functions" | "@vercel/queue
 }
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
-type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
+export type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
 
 export interface CloudflareQueueBindings {
   consumers: Array<{ queue: string }>
@@ -169,7 +169,8 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
+/** Writes the generated Queue integration and returns the Queue config that its Nitro plugin uses. */
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<NormalizedQueueOptions> {
   await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -205,6 +206,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
       "",
     ].join("\n"), "utf8")] : []),
   ])
+  return queueConfig
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {
