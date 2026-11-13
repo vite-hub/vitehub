@@ -3,7 +3,7 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as encoding from "lib0/encoding"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeDocumentContext, RealtimeDocumentSnapshot, RealtimeSaveOptions } from "../src/types.ts"
+import type { RealtimeDocumentDefinition, RealtimeDocumentAdapter, RealtimeDocumentContext, RealtimeDocumentSnapshot, RealtimeSaveOptions } from "../src/types.ts"
 import { messageAwareness } from "../src/protocol.ts"
 import { realtimeRoomKey } from "../src/server.ts"
 import { appendParagraph, createClientAwareness, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, paragraphs, presence, settle } from "./harness.ts"
@@ -30,7 +30,7 @@ async function flush(ms = 60): Promise<void> {
   }
 }
 
-function definition(adapter: RealtimeDefinition["document"]): RealtimeDefinition {
+function definition(adapter: RealtimeDocumentDefinition["document"]): RealtimeDocumentDefinition {
   return { document: adapter, editor: createStubEditor().editor }
 }
 
