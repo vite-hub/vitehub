@@ -8,40 +8,42 @@ icon: i-lucide-logs
 ---
 
 ::product-hero{tagline="Structured logs powered by Evlog, with Explorer, Stream, and a data inspector." hosts="Local development, existing backends"}
-  :::code-tree
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: { host: 'node', observability: { logs: true } },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { nitro } from 'nitro/vite'
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+  :hero-figure{name="logs"}
+::
 
-  export default defineConfig({
-    plugins: [
-      vitehub({ host: 'node', observability: { logs: true } }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+::code-tree
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', observability: { logs: true } },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
-  export default defineConfig({
-    plugins: [vitehub({ host: 'node', observability: { logs: true } })],
-  })
-  ```
-  ::::
-  :::
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', observability: { logs: true } }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'node', observability: { logs: true } })],
+})
+```
+:::
 ::
 
 ViteHub Logs uses Evlog for structured request events. Keep Evlog's logger API, framework adapters, options, and drains. ViteHub adds a read contract, Console inspection, and CLI access.

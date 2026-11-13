@@ -381,7 +381,7 @@ describe("realtime server handler", () => {
     const response = await handler.fetch(request)
 
     expect(response.status).toBe(501)
-    await expect(response.json()).resolves.toMatchObject({ message: "Durable realtime rooms require a durable Workspace Store." })
+    await expect(response.json()).resolves.toMatchObject({ message: "Durable and shared realtime rooms require a durable Workspace Store." })
     expect(writeFile).not.toHaveBeenCalled()
     client.destroy()
   })

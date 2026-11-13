@@ -34,7 +34,7 @@ export default defineConfig({
 
 ```ts
 import { resolveSandbox } from "@vite-hub/sandbox";
-import { useServerEnv } from "#vitehub/env/server";
+import { useServerEnv } from "@vite-hub/env";
 
 const sandbox = await resolveSandbox({
   runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/sandboxes" },
@@ -313,6 +313,10 @@ const launch = sshLaunch({
 ```
 
 The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them.
+
+A sidecar that is still starting refuses connections. `sshLaunch` connects again for up to `connectRetryMs` (30 seconds by default) while the SSH port refuses connections, so a provider probe or launch right after a pod restart waits for the sidecar. Authentication, host key, and command failures are not retried. Set `connectRetryMs: 0` to fail on the first refused connection.
+
+The launch command includes a cancellable `prepare` callback. Agent Drivers await it before starting provider probe deadlines, for both Codex and Claude. It runs a separate `/bin/true` connection check; direct process consumers can await it before starting their own deadline. OpenSSH local diagnostics are kept separate from remote stderr so a command that starts another failing SSH client is never repeated.
 
 The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, and `vitehub sandbox serve` and `vitehub sandbox check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#commands).
 

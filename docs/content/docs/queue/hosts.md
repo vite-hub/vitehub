@@ -25,7 +25,13 @@ pnpm vitehub queue jobs clear --state dead --yes
 
 Each command takes `--json`, and `--url` for a deployed app. The Console and agents run the same `queue.jobs-*` operations.
 
-With `host: 'node'`, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+With `host: 'node'` and no Postgres Database, the built server also uses the local provider, in Docker and in a StackBlitz WebContainer too. Jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container loses them. Run one server process per folder. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+
+## Run on several Node instances
+
+With `host: 'node'` and a Postgres Default Database, the build uses the postgres provider. Each server process uses the Default Database's connection and takes due jobs from the `vitehub_queue_jobs` table. `QUEUE_POSTGRES_URL` on the server overrides the connection. All instances share the jobs, so a job that instance A accepts can run on instance B. `pnpm dev` keeps jobs in `.vitehub/data/queue` with the same retry rules, so dev needs no Postgres. See [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery) for the rules.
+
+`vitehub queue list` shows `provider: "postgres"`, the table and its database without the password, and `durability: "shared"`. The `queue jobs` commands and the Console read and change the jobs in Postgres, so any instance shows the jobs of all instances.
 
 For Cloudflare or Vercel, build to check the Nitro output. A plain Node process, such as a `tsx` script, skips Vite discovery and the generated registry, so `sendQueue()` finds no queue files there.
 
@@ -55,6 +61,7 @@ Nitro is the only host output. The Queue package finds your queues, generates a 
 | Cloudflare | `wrangler.json` queue producers and consumers. Nitro's `cloudflare:queue` hook runs the consumer. |
 | Vercel | One Nitro route per queue under `/api/vitehub/queues/vercel/`. `vercel.functionRules` gives each route its queue trigger, so Nitro writes one function per queue. |
 | Local | The Queue Nitro plugin. It reads `.vitehub/data/queue` at server start and runs due jobs. `pnpm dev` uses it for every provider. The build keeps the output above. |
+| Postgres | The Queue Nitro plugin. It creates the jobs table at server start, takes due jobs, and drains running jobs when Nitro closes. |
 
 Do not import generated files in app code.
 

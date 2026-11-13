@@ -16,7 +16,7 @@ export interface KVSqlClient {
   query(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]>
 }
 
-/** The databases of the app, as `@vite-hub/database/drizzle` exports them. */
+/** The databases of the app, as `@vite-hub/database/runtime/registry` exports them. */
 export type KVDatabases = Record<string, { db: object } | undefined>
 
 interface PostgresClient {

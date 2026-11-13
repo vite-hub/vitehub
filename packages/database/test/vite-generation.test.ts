@@ -7,7 +7,7 @@ import * as definitionCatalog from "@vite-hub/internal/definition-catalog"
 
 import { resolveDBViteConfig } from "../src/config.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { DB_VIRTUAL_DATABASES_ID, DB_VIRTUAL_SCHEMA_ID, hubDb } from "../src/vite.ts"
+import { DB_VIRTUAL_DATABASES_ID, DB_VIRTUAL_SCHEMA_ID, hubDatabase } from "../src/vite.ts"
 
 vi.mock("../src/internal/generated.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/internal/generated.ts")>(),
@@ -37,7 +37,7 @@ async function createProject() {
   return { definition, root }
 }
 
-function hooks(plugin: ReturnType<typeof hubDb>) {
+function hooks(plugin: ReturnType<typeof hubDatabase>) {
   // SAFETY: The tests call the Database plugin's Vite hooks with the fields those hooks use.
   return {
     configResolved: plugin.configResolved as (config: unknown) => Promise<void>,
@@ -60,7 +60,7 @@ it("serializes startup and hot-update writes and waits for the latest artifacts 
     await writeFile(schema, `export const ${index === 0 ? "notes" : "tasks"} = {}\n`)
   })
 
-  const plugin = hubDb()
+  const plugin = hubDatabase()
   const { configResolved, hotUpdate, load } = hooks(plugin)
   await configResolved({ command: "serve", root })
   await started[0]!.promise
@@ -102,7 +102,7 @@ it("reports a failed startup generation and allows a later refresh to recover", 
   const failure = new Error("schema generation failed")
   vi.mocked(writeGeneratedDatabaseArtifacts).mockRejectedValueOnce(failure).mockResolvedValue(undefined)
   const error = vi.fn()
-  const plugin = hubDb()
+  const plugin = hubDatabase()
   const { configResolved, load } = hooks(plugin)
   await configResolved({ command: "serve", logger: { error }, root })
   await expect(load(`\0${DB_VIRTUAL_SCHEMA_ID}`)).rejects.toThrow(failure)

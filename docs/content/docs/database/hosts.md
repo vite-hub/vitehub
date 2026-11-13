@@ -137,7 +137,7 @@ A Worker cannot use a socket from one request in another. So inside a Cloudflare
 ViteHub finds the request through a request scope:
 
 - Vite Cloudflare output runs each request in its own scope.
-- Nitro 3 apps, Nuxt on Nitro 3 too, get a generated middleware that does the same.
+- Nitro 3 apps, including Nuxt 5, get a generated middleware that does the same.
 
 ```ts [server/databases/default/index.ts] fragment
 import { defineDatabase } from 'vite-hub/database'

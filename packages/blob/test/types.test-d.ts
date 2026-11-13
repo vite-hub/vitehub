@@ -180,8 +180,8 @@ describe("types", () => {
 
     // @ts-expect-error A read-only handle has no put().
     void reader.put("report.pdf", "text")
-    // @ts-expect-error A read-only handle has no del().
-    void reader.del("report.pdf")
+    // @ts-expect-error A read-only handle has no delete().
+    void reader.delete("report.pdf")
     // @ts-expect-error A read-only handle has no handleUpload().
     void reader.handleUpload
     // @ts-expect-error A read-only handle has no createMultipartUpload().

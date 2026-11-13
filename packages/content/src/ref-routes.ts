@@ -40,6 +40,48 @@ export interface ContentSourcePreview {
   url: string
 }
 
+/** Options of `content.sources.previewLinks()`. */
+export interface ContentPreviewLinksOptions {
+  /** The public origin of the links, such as `https://docs.example.com`. Defaults to `seo.site`, else links are paths. */
+  site?: string
+  /** How many seconds a signed link works: one hour by default, 24 hours at most. */
+  maxAge?: number
+}
+
+/** One page of a pull request preview. */
+export interface ContentPreviewLink {
+  /** The Source key of the file, such as `docs/kv.md`. */
+  key: string
+  /** The app path that the page has in production, such as `/docs/kv`. */
+  path: string
+  /** The preview URL, such as `https://docs.example.com/pr/12/docs/kv`, with `?vitehub-content-token=` when signed. */
+  url: string
+}
+
+/**
+ * How a reader opens the links of `content.sources.previewLinks()`. `published`, `pull`, and `label` are public, as
+ * `content.sources.allow()` decides. `token`: the pull request is private, so each link carries a signed token.
+ * `fork`, `closed`, and `unpublished`: the links answer 404 until the rule changes, such as with the `preview:enabled`
+ * label on a fork pull request. Content never signs these.
+ */
+export type ContentPreviewLinkAccess = Exclude<ContentSourceAllowReason, "console"> | "fork" | "closed" | "unpublished"
+
+/** The result of `content.sources.previewLinks()`. */
+export interface ContentPreviewLinks {
+  /** The Content source name, such as `docs`. */
+  source: string
+  /** The repository of the Source, such as `acme/docs`. */
+  repo: string
+  /** The head commit of the pull request that the links show. */
+  sha: string
+  pull: ContentSourcePull
+  access: ContentPreviewLinkAccess
+  /** When the signed links stop working. Null for links without a token. */
+  expiresAt: Date | null
+  /** The pages that the pull request adds or changes, by path. Files that are not pages of the Source are left out. */
+  pages: ContentPreviewLink[]
+}
+
 /** The routes of `previews: true`. */
 export interface ContentSourcePreviewRoutes {
   /** The preview that the current request reads, or null outside a preview URL. */
@@ -50,6 +92,13 @@ export interface ContentSourcePreviewRoutes {
    * and every read of the Source in that request returns the commit of the ref.
    */
   route(request: Request, next: (request: Request) => Response | Promise<Response>): Promise<Response>
+  /**
+   * The `/pr/<number>/<path>` links of the pages that a pull request adds or changes, from its GitHub file list. A
+   * private pull request, such as one that the CMS opens with `publish: "pr"`, gets links with a signed token from
+   * `content.sources.sign()`. This is trusted server API: check Console access before you call it. Throws
+   * `CONTENT_R0079` without `previews`, and `CONTENT_R0075` when GitHub has no such pull request.
+   */
+  previewLinks(pull: number, options?: ContentPreviewLinksOptions): Promise<ContentPreviewLinks>
 }
 
 function isRouteKind(value: string): value is ContentPreviewRouteKind {

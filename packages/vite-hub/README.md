@@ -127,7 +127,7 @@ vitehub({
 
 See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
-Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDb()` still provides Database.
+Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database` or `@vite-hub/database` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDatabase()` still provides Database.
 
 If an enabled capability is not supported by the host, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
@@ -178,7 +178,7 @@ export default defineDatabase({
 
 ```ts
 // server/tasks/db/seed.ts
-import { useDatabase } from "vite-hub/database/drizzle";
+import { useDatabase } from "vite-hub/database";
 import { defineTask } from "nitro/task";
 
 export default defineTask({
@@ -298,7 +298,7 @@ Apps do not serve a Console page, a Console MCP, or a Console sign-in. They serv
 
 Without a `console` option, `vite dev` serves the operation RPC, so `vitehub <command>` works. `console: false` turns the Console endpoint off completely: no `/_vitehub` route in development or production.
 
-Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request` and the signer and its `key` name: `via: "console"` with the `user` and `team` that the Console signed, or `via: "cli"` with no `user`. An Agent that calls Console operations as tools receives `via: "agent"`, never a signed `via`. With `auth: false`, it receives only the `Request`. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections.
+Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request` and the signer and its `key` name: `via: "console"` with the `user` and `team` that the Console signed, or `via: "cli"` with no `user`. When the ViteHub MCP of the Console calls for the user, `surface` is `"mcp"`: the RPC then refuses operations with `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that the person did not confirm. An Agent that calls Console operations as tools receives `via: "agent"`, never a signed `via`. With `auth: false`, it receives only the `Request`. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections.
 
 Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/development/console#connect-to-mcp-servers).
 

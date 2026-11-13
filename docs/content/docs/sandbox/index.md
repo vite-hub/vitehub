@@ -8,101 +8,103 @@ icon: i-lucide-terminal-square
 ---
 
 ::product-hero{tagline="Run code in an isolated cloud machine on Vercel or Cloudflare, and get the result in your route." hosts="Vercel, Cloudflare"}
-  :::code-tree{feature="sandboxTask"}
-  ```ts [server/sandbox-tasks/pixels/index.ts]
-  type ImageSize = { width: number, height: number }
+  :hero-figure{name="sandbox"}
+::
 
-  // This runs in its own isolated machine.
-  // It is a normal function, with no special imports.
-  export default async function count(
-    { width, height }: ImageSize,
-  ) {
-    return { pixels: width * height }
+::code-tree{feature="sandboxTask"}
+```ts [server/sandbox-tasks/pixels/index.ts]
+type ImageSize = { width: number, height: number }
+
+// This runs in its own isolated machine.
+// It is a normal function, with no special imports.
+export default async function count(
+  { width, height }: ImageSize,
+) {
+  return { pixels: width * height }
+}
+```
+
+```json [server/sandbox-tasks/pixels/package.json]
+{
+  "name": "pixels",
+  "private": true,
+  "type": "module",
+  "exports": "./index.ts",
+  "vitehub": {
+    "sandboxTask": { "timeout": 30000 }
   }
-  ```
+}
+```
 
-  ```json [server/sandbox-tasks/pixels/package.json]
-  {
-    "name": "pixels",
-    "private": true,
-    "type": "module",
-    "exports": "./index.ts",
-    "vitehub": {
-      "sandboxTask": { "timeout": 30000 }
-    }
-  }
-  ```
+```ts [server/api/pixels.post.ts]
+import { defineEventHandler, readBody } from 'h3'
+import { runSandboxTask } from 'vite-hub/sandbox/task'
 
-  ```ts [server/api/pixels.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
-  import { runSandboxTask } from 'vite-hub/sandbox/task'
+type ImageSize = { width: number, height: number }
 
-  type ImageSize = { width: number, height: number }
+// Run the pixels package and return its result
+export default defineEventHandler(async (event) => {
+  const input = await readBody<ImageSize>(event)
+  const response = await runSandboxTask('pixels', input)
 
-  // Run the pixels package and return its result
-  export default defineEventHandler(async (event) => {
-    const input = await readBody<ImageSize>(event)
-    const response = await runSandboxTask('pixels', input)
+  // A failed or timed-out run has an error status
+  if (!response.ok)
+    throw new Error(await response.text())
+  return response.json()
+})
+```
 
-    // A failed or timed-out run has an error status
-    if (!response.ok)
-      throw new Error(await response.text())
-    return response.json()
-  })
-  ```
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+// The Vercel host uses Vercel Sandbox.
+// Use host 'cloudflare' for Cloudflare Sandbox.
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  // The Vercel host uses Vercel Sandbox.
-  // Use host 'cloudflare' for Cloudflare Sandbox.
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'vercel',
+    // Each run starts a Vercel Sandbox
+    sandboxTask: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
+// The Vercel host uses Vercel Sandbox.
+// Use host 'cloudflare' for Cloudflare Sandbox.
+export default defineConfig({
+  plugins: [
+    vitehub({
       host: 'vercel',
       // Each run starts a Vercel Sandbox
       sandboxTask: true,
-    },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
-  // The Vercel host uses Vercel Sandbox.
-  // Use host 'cloudflare' for Cloudflare Sandbox.
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        host: 'vercel',
-        // Each run starts a Vercel Sandbox
-        sandboxTask: true,
-      }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
-
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        host: 'vercel',
-        // Each run starts a Vercel Sandbox
-        sandboxTask: true,
-      }),
-    ],
-  })
-  ```
-  ::::
-  :::
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'vercel',
+      // Each run starts a Vercel Sandbox
+      sandboxTask: true,
+    }),
+  ],
+})
+```
+:::
 ::
 
 ::product-features

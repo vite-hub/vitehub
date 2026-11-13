@@ -53,7 +53,7 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "blob", name: "blob" },
   { exportName: "connections", name: "connections" },
   { exportName: "content", name: "content" },
-  { exportName: "console", name: "console" },
+  { exportName: "agentConsole", name: "console" },
   { exportName: "agentDb", name: "db" },
   { exportName: "email", name: "email" },
   { exportName: "agentI18n", name: "i18n" },
@@ -138,7 +138,8 @@ function renderConsoleNitroPlugin(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
+  // With Auth, the page tools pill comes with Site access: the Console signs members and guests in to the app.
+  const sections = withConsoleDocumentEditorSections(pageTool && configuredSections.includes("auth") ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -176,7 +177,7 @@ function renderConsoleNitroPlugin(
     ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: generatedModules.consoleBlob }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
     ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: generatedModules.consoleDefinitions }] : []),
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
-    ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: generatedModules.consoleDatabase }, { bindings: "databases: vitehubConsoleDatabases", module: "vite-hub/database/drizzle" }] : []),
+    ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: generatedModules.consoleDatabase }, { bindings: "databases: vitehubConsoleDatabases", module: "@vite-hub/database/runtime/registry" }] : []),
     ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: generatedModules.consoleEnv }] : []),
     // Agent Definitions import the Agent runtime, so they load with the Console runtime and not when the server starts.
     // `defineAgent()` of vite-hub/agent resolves the app-wide journal by itself, and the Agent registry names discovered Agents.

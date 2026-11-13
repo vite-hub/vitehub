@@ -172,6 +172,8 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
     // Keep application filesystem paths and PATH out of the runner environment.
     // Gateway variables are required provider environment, which the runner forwards.
     forwardEnvironment: ["CODEX_AUTH_JSON"],
+    // The check reports the runner as it is now, so a refused connection fails at once.
+    connectRetryMs: 0,
     host: option(values, "host", env, "CRABBOX_STATIC_HOST") ?? "127.0.0.1",
     identityFile: required(values, "identity-file", env, "CRABBOX_SSH_KEY"),
     port: port(values, env),

@@ -38,6 +38,11 @@
       "import": "./dist/drivers/cloudflare.js",
       "default": "./dist/drivers/cloudflare.js"
     },
+    "./drivers/kv": {
+      "types": "./dist/drivers/kv.d.ts",
+      "import": "./dist/drivers/kv.js",
+      "default": "./dist/drivers/kv.js"
+    },
     "./drivers/memory": {
       "types": "./dist/drivers/memory.d.ts",
       "import": "./dist/drivers/memory.js",

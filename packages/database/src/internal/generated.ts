@@ -217,7 +217,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
   ].join("\n")
 }
 
-// The registry lists the relation parts, and `@vite-hub/database/drizzle` merges them. A module augmentation cannot
+// The registry lists the relation parts, and `@vite-hub/database` merges them. A module augmentation cannot
 // reference the exports of its module, and an `import()` would fail when only one of the two package names resolves.
 function renderRelationsType(contributionTypes: readonly string[], variables: readonly string[]) {
   return `[${[...contributionTypes, ...variables.map(variable => `typeof ${variable}.relations`)].join(", ")}]`
@@ -260,7 +260,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
     `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
-  const registryDeclarations = ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(moduleName => [
+  const registryDeclarations = ["@vite-hub/database", "vite-hub/database"].flatMap(moduleName => [
     `declare module ${JSON.stringify(moduleName)} {`,
     "  interface DatabaseRegistry {",
     ...registryEntries,

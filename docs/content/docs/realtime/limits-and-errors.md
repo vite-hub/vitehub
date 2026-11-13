@@ -42,7 +42,7 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 - One WebSocket message is at most 1 MiB.
 - Document state and awareness state (who is here, and their cursors) are each at most 8 MiB per room.
 - One peer can own at most 1,024 awareness clients.
-- `authority: "memory"` keeps at most 128 active rooms in one process.
+- One process keeps at most 128 active rooms, also when Node instances share rooms.
 
 ## Request errors
 
@@ -102,6 +102,18 @@ One peer sent more than 1,024 awareness clients.
 
 The identity's user has no `id`, or the `id` is not a string of at most 256 characters.
 
+### REALTIME_INVALID_POSTGRES_URL
+
+`REALTIME_POSTGRES_URL` is set to something that is not a `postgres://` or `postgresql://` URL. Fix it, or remove it so that Realtime uses the connection of the Default Database.
+
+### REALTIME_MISSING_BUS_CONNECTION
+
+`authority: "redis"` needs `REDIS_URL`. `authority: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `authority: "auto"`, which keeps rooms in one process without one.
+
+### REALTIME_ROOM_LOCK_TIMEOUT
+
+Saves of one room run one at a time across Node instances. An instance waited 30 seconds for the Redis save lock of a room. Make the document adapter `save()` finish faster. Realtime tries the save again.
+
 ### REALTIME_MISSING_DIGEST
 
 A save needs file digests from the Workspace Store, or a checkpoint found no stored document after its save. Use a Workspace Store that returns digests, or return `digest` from the adapter's `save()`.
@@ -110,8 +122,8 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ### REALTIME_AUTHORITY_CONFLICT
 
-`authority: "cloudflare"` needs a Cloudflare host. `authority: "memory"` runs in one process, so it needs the `node` host.
+`authority: "cloudflare"` needs a Cloudflare host. `authority: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
 
 ### REALTIME_MISSING_AUTHORITY
 
-A production build with `authority: "auto"` found no Cloudflare host. Use a Cloudflare host, or set `authority: "memory"` for one Node.js process.
+A production build with `authority: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.

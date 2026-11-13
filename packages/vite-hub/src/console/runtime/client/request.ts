@@ -206,7 +206,7 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     // A POST names its operation: a read of one key by default, or a write or a delete from the editor.
     if (call.method === "POST") {
       const { action, ...input } = body
-      if (action === "set" || action === "del") return { input, operation: `kv.${action}` }
+      if (action === "set" || action === "delete") return { input, operation: `kv.${action}` }
       return { input: { ...input, preview: true }, operation: "kv.get" }
     }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
@@ -214,7 +214,7 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
   if (route === "blob" && call.method === "POST") {
     // The Blob page uploads, deletes, and opens files through the same route as it lists.
     const { action, ...input } = body
-    if (action === "put" || action === "del" || action === "get") return { input, operation: `blob.${action}` }
+    if (action === "put" || action === "delete" || action === "get") return { input, operation: `blob.${action}` }
     throw new ConsoleRequestError(400, "Unsupported Blob action.")
   }
   if (route === "rate-limit" && call.method === "POST") {

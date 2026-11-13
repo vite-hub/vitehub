@@ -22,7 +22,7 @@ await requireRateLimit(event, 'image-upload', {
 
 The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals, because ViteHub writes the provider config before runtime. `event` and `key` are runtime values, so the identity can change per request.
 
-- `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 1 or H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
+- `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
 - A `Request` has no client address, so pass `key`. On Cloudflare, the guard reads `cf-connecting-ip` and the current request's bindings instead.
 - The same ID with the same normalized policy shares one budget. Conflicting policies fail the build and show both source locations.
@@ -61,6 +61,7 @@ export default defineEventHandler(async (event) => {
 | `checkRateLimit` from `vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
 | `createRateLimiter` from `vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
+| `kvRateLimitDriver` from `@vite-hub/rate-limit/drivers/kv` | Fixed windows in a KV store that every process shares, with `kv` from `vite-hub/kv`. |
 | `cloudflareRateLimitDriver` from `vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Add call discovery, runtime setup, and Provider Output without the framework integration. |
 
@@ -116,5 +117,20 @@ const decision = await limiter.consume({ key: 'demo' })
 ```
 
 Every direct limiter exposes its resolved `policy` and the provider features that affect enforcement and deployment. The memory driver lives in one process. Use it for development, tests, and hosts you know run one process.
+
+`kvRateLimitDriver()` counts in a KV store instead, so every process that uses the store shares the counts. The store needs an atomic `increment`: the `redis`, `database`, and `upstash` KV drivers have one.
+
+```ts
+import { createRateLimiter } from '@vite-hub/rate-limit'
+import { kvRateLimitDriver } from '@vite-hub/rate-limit/drivers/kv'
+import { kv } from 'vite-hub/kv'
+
+const limiter = createRateLimiter({
+  driver: kvRateLimitDriver({ storage: kv.store('limits') }),
+  enforcement: 'strict',
+  limit: 10,
+  window: '1m',
+})
+```
 
 A custom driver returns `[null, result]` after it consumes the counter. It returns `[error, undefined]` only for expected outages that the failure policy handles. Config, provider-contract, and code defects must throw.

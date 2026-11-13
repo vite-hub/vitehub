@@ -47,7 +47,7 @@ const integrationMocks = vi.hoisted(() => ({
   })),
   hubBrowser: vi.fn(() => ({ name: "@vite-hub/browser/vite" })),
   hubChannels: vi.fn(() => ({ name: "@vite-hub/channels/vite" })),
-  hubDb: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
+  hubDatabase: vi.fn(() => ({ name: "@vite-hub/database/vite" })),
   hubEmail: vi.fn(() => ({ name: "@vite-hub/email/vite" })),
   hubEmailOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/email/optional-peer-resolver" })),
   hubEnv: vi.fn((options?: { projectRoot?: string }) => ({
@@ -60,8 +60,8 @@ const integrationMocks = vi.hoisted(() => ({
     },
     name: "@vite-hub/env/vite",
   })),
-  hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
-  hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
+  hubKV: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
+  hubKVOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
   resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
     kv: kv?.stores
       ? { stores: kv.stores }
@@ -109,7 +109,7 @@ vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrows
 vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/database/vite")>(),
-  hubDb: integrationMocks.hubDb,
+  hubDatabase: integrationMocks.hubDatabase,
 }))
 vi.mock("@vite-hub/email/vite", () => ({
   emailConsoleSection: integrationMocks.consoleSection("email"),
@@ -121,8 +121,8 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
   hubEnv: integrationMocks.hubEnv,
 }))
 vi.mock("@vite-hub/kv/vite", () => ({
-  hubKv: integrationMocks.hubKv,
-  hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
+  hubKV: integrationMocks.hubKV,
+  hubKVOptionalPeerResolver: integrationMocks.hubKVOptionalPeerResolver,
   kvNitroCacheDriver: "/kv/dist/runtime/nitro-cache.js",
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
@@ -148,7 +148,7 @@ import { ownerModules } from "../src/internal/owner-modules.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/console-client", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/codemods", "@vite-hub/console-client", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -804,8 +804,8 @@ describe("vitehub", () => {
         blob: "vite-hub/blob",
         connections: false,
         console: false,
-        db: "vite-hub/database/drizzle",
-        email: "vite-hub/email/server",
+        db: "@vite-hub/database/runtime/registry",
+        email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
       },
@@ -823,7 +823,7 @@ describe("vitehub", () => {
       importBase: "vite-hub/blob",
       presetDriver: expect.any(Function),
     })
-    expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
+    expect(integrationMocks.hubDatabase).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
@@ -831,17 +831,17 @@ describe("vitehub", () => {
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "cloudflare-module" })
+    // hubKV() infers the driver itself, so `vite dev` can keep the store local.
+    expect(integrationMocks.hubKV).toHaveBeenCalledWith(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "cloudflare-module" })
     // With `kv` unset, the list also has the KV case for a `github()` Content Source.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
+    expect(integrationMocks.hubKV).toHaveBeenLastCalledWith(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node-server" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
-      databaseImport: "vite-hub/database/drizzle",
+      databaseImport: "@vite-hub/database/runtime/registry",
       importBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
@@ -895,7 +895,7 @@ describe("vitehub", () => {
       workspace: { root: ".data/workspaces" },
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({ imports: false }))
-    expect(integrationMocks.hubDb).toHaveBeenLastCalledWith({ cli: { generate: false } })
+    expect(integrationMocks.hubDatabase).toHaveBeenLastCalledWith({ cli: { generate: false } })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith(
       expect.objectContaining({ provider: "vercel" }),
       expect.any(Object),
@@ -904,19 +904,29 @@ describe("vitehub", () => {
 
     integrationMocks.hubQueue.mockClear()
     expect(pluginNames(vitehub({ host: "vercel", queue: true }))).toContain("@vite-hub/queue/vite")
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" }, { importBase: "vite-hub/queue" })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "vercel" }, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })
     expect(pluginNames(vitehub({ host: "cloudflare", queue: true }))).toContain("@vite-hub/queue/vite")
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" }, { importBase: "vite-hub/queue" })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" }, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })
     vitehub({ host: "cloudflare", queue: { cache: true, binding: "JOBS" } })
-    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ binding: "JOBS", cache: true, provider: "cloudflare" }, { importBase: "vite-hub/queue" })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ binding: "JOBS", cache: true, provider: "cloudflare" }, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })
+    // Node leaves the provider to Queue, which picks `postgres` with a Postgres Default Database, else `local`.
+    expect(pluginNames(vitehub({ host: "node", queue: true }))).toContain("@vite-hub/queue/vite")
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({}, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })
+    vitehub({ host: "node", queue: { cache: false } })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ cache: false }, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })
+    vitehub({ host: "node", queue: { provider: "postgres" } })
+    expect(integrationMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "postgres" }, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })
+    expect(() => vitehub({ host: "vercel", queue: { provider: "postgres" } })).toThrow("works with the \"node\" host only")
 
     integrationMocks.hubRateLimit.mockClear()
     expect(pluginNames(vitehub({ host: "node", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      kvImport: "vite-hub/kv",
       provider: "memory",
     })
     expect(pluginNames(vitehub({ host: "cloudflare", rateLimit: true }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      kvImport: "vite-hub/kv",
       provider: "cloudflare",
     })
     expect(pluginNames(vitehub({
@@ -924,6 +934,7 @@ describe("vitehub", () => {
       rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
     }))).toContain("@vite-hub/rate-limit/vite")
     expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith({
+      kvImport: "vite-hub/kv",
       projectRoot: "packages/policies",
       provider: "cloudflare",
       scanDirs: ["rules"],
@@ -2078,6 +2089,31 @@ describe("vitehub", () => {
     })
   })
 
+  it("counts Node Rate Limits in KV when the app enables KV", async () => {
+    await expect(applyDeploymentConfig({ host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
+    })
+    await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } },
+    })
+    // An explicit provider wins, and the dev server counts in memory.
+    await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "memory" } }, {}, "build")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
+    })
+    await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "serve")).resolves.toMatchObject({
+      [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
+    })
+
+    // Off Node, no KV store has a shared atomic increment that ViteHub selects.
+    for (const preset of ["cloudflare", "vercel"] as const) {
+      expect(() => vitehub({ kv: true, host: preset, rateLimit: { provider: "kv" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0144" }))
+    }
+
+    integrationMocks.hubRateLimit.mockClear()
+    vitehub({ kv: true, host: "node", rateLimit: true })
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
+  })
+
   it("uses the nearest package name for the deployment identity", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-identity-"))
     const appRoot = join(root, "apps/api")
@@ -2283,7 +2319,12 @@ describe("vitehub", () => {
     const nodeQueue = vitehub({ host: "node", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin
     const nodeQueueConfig: Record<string, unknown> = {}
     callHook(nodeQueue.config, [nodeQueueConfig, { command: "build", mode: "production" }])
-    expect(getResolvedFeatureOptions(nodeQueueConfig, "queue")).toEqual({ provider: "local" })
+    expect(getResolvedFeatureOptions(nodeQueueConfig, "queue")).toEqual({ provider: undefined })
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const postgresQueue = vitehub({ host: "node", queue: { provider: "postgres" } }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin
+    const postgresQueueConfig: Record<string, unknown> = {}
+    callHook(postgresQueue.config, [postgresQueueConfig, { command: "build", mode: "production" }])
+    expect(getResolvedFeatureOptions(postgresQueueConfig, "queue")).toEqual({ provider: "postgres" })
 
     const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
       // SAFETY: The explicit Node preset installs the named deployment plugin.

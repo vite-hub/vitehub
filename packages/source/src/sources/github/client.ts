@@ -28,7 +28,33 @@ export interface GitHubClient {
   resolveCommit: (ref: string, token: string | undefined, signal?: AbortSignal) => Promise<string>
   /** One page of the commits that changed `path`, newest first, from `sha` back. */
   commits: (path: string, options: GitHubHistoryOptions, token: string | undefined) => Promise<{ commits: GitHubFileCommit[], more: boolean }>
+  /** The latest commit that changed each path, from `sha` back, in one GraphQL request. Null for a path without commits. */
+  latestCommits: (paths: readonly string[], sha: string, token: string | undefined) => Promise<Array<GitHubFileCommit | null>>
+  /**
+   * The paths that a commit from `base` to `head` changed, with the old path of a rename, including a file that one
+   * commit edits and a later one reverts. One compare request, plus one request per commit when there is more than
+   * one. Undefined when `head` is not `base` or a descendant of it, when there are more than 20 commits, or when GitHub
+   * lists 300 files, its limit, so the list may be cut.
+   */
+  changedPaths: (base: string, head: string, token: string | undefined) => Promise<string[] | undefined>
+  /**
+   * The paths that a pull request adds or changes, without removed files. Undefined when the repository has no such
+   * pull request. GitHub lists at most 3,000 files.
+   */
+  pullPaths: (number: number, token: string | undefined) => Promise<string[] | undefined>
 }
+
+/** GitHub lists at most this many files in a compare response. */
+const compareFileLimit = 300
+/** GitHub lists at most 3,000 files of a pull request, 100 on each page. */
+const pullFilePages = 30
+/**
+ * `changedPaths()` reads the files of each commit between the two commits, up to this many commits. More commits read
+ * every page again.
+ */
+const compareCommitLimit = 20
+/** Commit requests of `changedPaths()` that run at once. */
+const compareCommitConcurrency = 4
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
 export function githubEnvToken(): string | undefined {
@@ -256,6 +282,109 @@ export function createGitHubClient(repo: string): GitHubClient {
         commits: response.data.map(item => fileCommit(repo, item)),
         more: /rel="next"/.test(response.headers.get("link") ?? ""),
       }
+    },
+    async latestCommits(paths, sha, token) {
+      const fields = "oid authoredDate message url author { name user { login } }"
+      const query = [
+        `query FileHistory($owner: String!, $name: String!, $sha: GitObjectID!${paths.map((_, index) => `, $p${index}: String!`).join("")}) {`,
+        "  repository(owner: $owner, name: $name) { object(oid: $sha) { ... on Commit {",
+        ...paths.map((_, index) => `    p${index}: history(first: 1, path: $p${index}) { nodes { ${fields} } }`),
+        "  } } }",
+        "}",
+      ].join("\n")
+      const data = await request(sha, "file history", token, undefined, async (client, repoRef) => (await client.request<unknown>("POST", "/graphql", {
+        body: { query, operationName: "FileHistory", variables: { owner: repoRef.owner, name: repoRef.name, sha, ...Object.fromEntries(paths.map((path, index) => [`p${index}`, path])) } },
+        mutates: false,
+      })).data)
+      if (!isRecord(data) || (Array.isArray(data.errors) && data.errors.length)) {
+        const message: unknown = isRecord(data) && Array.isArray(data.errors) && isRecord(data.errors[0]) ? data.errors[0].message : undefined
+        throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) file history request failed${typeof message === "string" ? `: ${message}` : "."}`)
+      }
+      const commit: unknown = isRecord(data.data) && isRecord(data.data.repository) ? data.data.repository.object : undefined
+      if (!isRecord(commit)) throw malformed(repo, "file history")
+      return paths.map((_, index) => {
+        const history: unknown = commit[`p${index}`]
+        const node: unknown = isRecord(history) && Array.isArray(history.nodes) ? history.nodes[0] : undefined
+        if (!isRecord(history) || !Array.isArray(history.nodes)) throw malformed(repo, "file history")
+        if (node === undefined) return null
+        const author: unknown = isRecord(node) ? node.author : undefined
+        const login: unknown = isRecord(author) && isRecord(author.user) ? author.user.login : undefined
+        const name: unknown = isRecord(author) ? author.name : undefined
+        if (!isRecord(node) || !isNonEmptyString(node.oid) || !isNonEmptyString(node.authoredDate) || !isNonEmptyString(node.url) || typeof node.message !== "string") {
+          throw malformed(repo, "file history")
+        }
+        return {
+          sha: node.oid,
+          date: new Date(node.authoredDate).toISOString(),
+          author: isNonEmptyString(login) ? login : isNonEmptyString(name) ? name : null,
+          message: node.message.split("\n", 1)[0]!.trim(),
+          url: node.url,
+        }
+      })
+    },
+    async changedPaths(base, head, token) {
+      const data = await missingAsUndefined(() => request(`${base}...${head}`, "compare", token, undefined, async (client, repoRef) => (await client.request<unknown>(
+        "GET",
+        `${repoPath(repoRef)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+        { query: { per_page: compareCommitLimit } },
+      )).data))
+      if (data === undefined) return
+      if (!isRecord(data) || typeof data.status !== "string") throw malformed(repo, "compare")
+      if (data.status !== "ahead" && data.status !== "identical") return
+      const paths = (files: unknown, what: string): string[] | undefined => {
+        if (!Array.isArray(files)) throw malformed(repo, what)
+        if (files.length >= compareFileLimit) return
+        return files.flatMap((file) => {
+          if (!isRecord(file) || !isNonEmptyString(file.filename)) throw malformed(repo, what)
+          return isNonEmptyString(file.previous_filename) ? [file.filename, file.previous_filename] : [file.filename]
+        })
+      }
+      const changed = paths(data.files ?? [], "compare")
+      if (!changed) return
+      // The compare files are the net change, so a file that a commit edits and a later one reverts is not in them.
+      // With more than one commit, the files of each commit name every file that a commit touched.
+      const commits: unknown = data.commits ?? []
+      const total: unknown = data.total_commits ?? 0
+      if (!Array.isArray(commits) || typeof total !== "number") throw malformed(repo, "compare")
+      if (total <= 1) return changed
+      if (total > compareCommitLimit || commits.length < total) return
+      const touched = new Set(changed)
+      for (let start = 0; start < commits.length; start += compareCommitConcurrency) {
+        const lists = await Promise.all(commits.slice(start, start + compareCommitConcurrency).map(async (commit: unknown) => {
+          if (!isRecord(commit) || !isNonEmptyString(commit.sha)) throw malformed(repo, "compare")
+          const sha = commit.sha
+          const detail = await request(sha, "commit", token, undefined, async (client, repoRef) => (await client.request<unknown>(
+            "GET",
+            `${repoPath(repoRef)}/commits/${encodeURIComponent(sha)}`,
+            { query: { per_page: compareFileLimit } },
+          )).data)
+          if (!isRecord(detail)) throw malformed(repo, "commit")
+          return paths(detail.files ?? [], "commit")
+        }))
+        for (const list of lists) {
+          if (!list) return
+          for (const path of list) touched.add(path)
+        }
+      }
+      return [...touched]
+    },
+    async pullPaths(number, token) {
+      const paths: string[] = []
+      for (let page = 1; page <= pullFilePages; page++) {
+        const data = await missingAsUndefined(() => request(`pull/${number}`, "pull request files", token, undefined, async (client, repoRef) => (await client.request<unknown>(
+          "GET",
+          `${repoPath(repoRef)}/pulls/${number}/files`,
+          { query: { per_page: 100, page } },
+        )).data))
+        if (data === undefined) return
+        if (!Array.isArray(data)) throw malformed(repo, "pull request files")
+        for (const file of data) {
+          if (!isRecord(file) || !isNonEmptyString(file.filename) || !isNonEmptyString(file.status)) throw malformed(repo, "pull request files")
+          if (file.status !== "removed") paths.push(file.filename)
+        }
+        if (data.length < 100) break
+      }
+      return paths
     },
     async resolveCommit(ref, token, signal) {
       const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))

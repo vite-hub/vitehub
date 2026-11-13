@@ -1,6 +1,6 @@
 import authHandler from "#vitehub/auth/server"
 import scheduleRegistry from "#vitehub/schedule/registry"
-import { email } from "vite-hub/email/server"
+import { email } from "vite-hub/email"
 
 export { authHandler, email }
 export const scheduleNames = Object.keys(scheduleRegistry).sort()

@@ -1011,10 +1011,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     blob: consoleBlobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
     console: consoleOptions ? "vite-hub/console/server" : false,
-    db: options.database ? "vite-hub/database/drizzle" : false,
+    db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // Email and KV capabilities exist only when the app installed their packages.
-    ...ownerModules.emailVite ? { email: "vite-hub/email/server" } : {},
+    ...ownerModules.emailVite ? { email: "vite-hub/email" } : {},
     ...ownerModules.kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
   const consoleInvocationRootState = createConsoleInvocationRootState()
@@ -1100,7 +1100,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
-    const { hubDb: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
+    const { hubDatabase: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 

@@ -8,6 +8,7 @@ export { messageChannelReplyBody, messageChannelDeliveredReplyBody } from "./int
 import type { ForgeTarget } from "./internal/forge-channel.ts"
 import { forgeChannelFetch, forgeActivityComments, forgeDeliveryEffects, forgeIdentity, forgePullRequest, forgePullRequestMetadata, forgeThreadRef, forgeChannelRequest, forgeChannelRead, forgeChannelWrite } from "./internal/forge-channel.ts"
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
+import { cancelReconcileRuns, pullRequestBranchEvent, pullRequestBranchEventsSince, pullRequestBranchMovedNotice, recordPullRequestBranchEvent, releaseReconcileRun, trackReconcileRun } from "./internal/github-reconcile-branch.ts"
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
@@ -570,6 +571,13 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
     }
     triggers?: readonly GitHubPullRequestTrigger[]
     events?: readonly ("opened" | "ready_for_review" | "reopened" | "synchronize" | (string & {}))[]
+    /**
+     * What happens to this pull request's reconcile runs when someone other than a bot pushes to its branch.
+     * `"notify"` (default): a queued run starts on the new head with a notice in its prompt. A running run continues.
+     * `"cancel"`: a queued run is dropped and a running run in this server process is cancelled.
+     * Closing the pull request always drops queued runs and cancels running ones.
+     */
+    headMoves?: "notify" | "cancel"
     mentions?: readonly string[]
     prompt?: string
   }
@@ -1131,6 +1139,12 @@ function githubPullRequestReconcileConcurrencyLimit(
 ): number {
   if (!reconcile || reconcile === true) return 1
   return reconcile.concurrencyLimit ?? 1
+}
+
+function githubPullRequestHeadMoves(
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+): "notify" | "cancel" {
+  return reconcile && reconcile !== true && reconcile.headMoves === "cancel" ? "cancel" : "notify"
 }
 
 function githubPullRequestReconcileDebounce(
@@ -2938,7 +2952,7 @@ function connectorHash(value: string): string {
 }
 
 /** The part of the @vite-hub/kv storage that Chat connectors use for thread roots and receipts. */
-type ConnectorKV = Pick<import("@vite-hub/kv").KVStorage, "del" | "get" | "set">
+type ConnectorKV = Pick<import("@vite-hub/kv").KVStorage, "delete" | "get" | "set">
 
 function connectorKV(name: string): Promise<ConnectorKV> {
   // @vite-hub/kv is optional and loaded only when a Chat connector runs.
@@ -2988,7 +3002,7 @@ async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: 
     // The Chat SDK reports a missing resource as a ResourceNotFoundError with code NOT_FOUND.
     if (!(isRecord(error) && error.code === "NOT_FOUND") && !platform.isNotFound(error)) throw error
   }
-  const [error] = await kv.del(receiptKey)
+  const [error] = await kv.delete(receiptKey)
   if (error) throw error
 }
 
@@ -3463,7 +3477,21 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           ? forgeCommandForTrigger(accepted?.input.context?.forge || accepted?.input.context?.codeHost)
           : accepted?.input.context?.github)
         if (accepted && acceptedPullRequest && acceptedCommand?.deliveryId) {
+          const pullRequestKey = `${acceptedCommand.repository}#${acceptedCommand.issueNumber}`
+          const ownership = {
+            concurrencyGroup: pullRequestKey,
+            concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
+            deliveryId: acceptedCommand.deliveryId,
+          }
           const metadata = await githubPullRequestMetadata(app, context, acceptedCommand, options, undefined, services)
+          const branch = options.reconcile && !services ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, accepted.acceptedAt) : {}
+          const dropped = branch.closed
+            ? "pull_request_closed"
+            : branch.push && githubPullRequestHeadMoves(options.reconcile) === "cancel" ? "head_moved" : undefined
+          if (dropped) {
+            const response = options.ignored?.(dropped) || ignored(dropped)
+            return { ...accepted, webhook: { ...ownership, rehydrate: () => response } }
+          }
           const refreshed = {
             ...acceptedPullRequest,
             pullRequest: {
@@ -3476,27 +3504,56 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               ...metadata,
             },
           }
-          const ownership = {
-            concurrencyGroup: `${acceptedCommand.repository}#${acceptedCommand.issueNumber}`,
-            concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
-            deliveryId: acceptedCommand.deliveryId,
-          }
+          const commandInput = pullRequestCommandInput(acceptedCommand, refreshed, options.ci)
           const invocation: AgentTriggerRunInvokeResult = {
             ...accepted,
             delivery: { finishEffects: githubPullRequestCommentFinishEffects(options) },
             input: {
               ...accepted.input,
-              ...pullRequestCommandInput(acceptedCommand, refreshed, options.ci),
+              ...commandInput,
+              ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
               context: { ...accepted.input.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
             },
             webhook: {
               ...ownership,
-              rehydrate: () => ({ ...invocation, webhook: ownership }),
+              rehydrate: async () => {
+                let abortSignal: AbortSignal | undefined
+                if (options.reconcile && !services && context.channelState) {
+                  const { agentInvocationId } = await import("./invocations.ts")
+                  const agentName = context.agentName || context.agentIdentity?.name
+                  abortSignal = trackReconcileRun(context.channelState, pullRequestKey, () => agentInvocationId(accepted.run?.runId ?? ownership.deliveryId, agentName))
+                  try {
+                    const latest = await pullRequestBranchEventsSince(context.channelState, pullRequestKey, accepted.acceptedAt)
+                    if (latest.closed || (latest.push && githubPullRequestHeadMoves(options.reconcile) === "cancel")) {
+                      releaseReconcileRun(abortSignal)
+                      return ignored(latest.closed ? "pull_request_closed" : "head_moved")
+                    }
+                  }
+                  catch (error) {
+                    releaseReconcileRun(abortSignal)
+                    throw error
+                  }
+                }
+                return { ...invocation, input: { ...invocation.input, ...(abortSignal ? { abortSignal } : {}) }, webhook: ownership }
+              },
             },
           }
           return invocation
         }
         let payload = inputPayloadOrBody(input)
+        // GitHub only: Forge payloads do not mark the Agent's own pushes as bot pushes.
+        const branchEvent = options.reconcile && !services
+          ? pullRequestBranchEvent(maybeString(inputGithubFacts(input)?.event) || (isRecord(payload?.pull_request) ? "pull_request" : undefined), payload)
+          : undefined
+        const branchRepository = maybeString(payload?.repository?.full_name)
+        const branchNumber = maybeNumber(payload?.number) ?? maybeNumber(payload?.pull_request?.number)
+        if (branchEvent && branchRepository && branchNumber) {
+          const pullRequestKey = `${branchRepository}#${branchNumber}`
+          const recorded = await recordPullRequestBranchEvent(context.channelState, pullRequestKey, branchEvent, maybeString(inputGithubFacts(input)?.deliveryId))
+          if (recorded && context.channelState && (branchEvent.kind === "closed" || (branchEvent.kind === "push" && githubPullRequestHeadMoves(options.reconcile) === "cancel"))) {
+            await cancelReconcileRuns(context.channelState, pullRequestKey)
+          }
+        }
         if (payload && pullRequest) {
           const optionsForFilter = pullRequest === true ? {} : pullRequest
           if (!await githubPullRequestMatchesFilter(optionsForFilter, payload, app, context, services)) return optionsForFilter.ignored?.("filtered") || ignored("filtered")

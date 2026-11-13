@@ -1427,7 +1427,7 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(generatedWorkflowDir, { recursive: true })
     await writeFile(join(rootDir, "server", "email.ts"), "export const outboxRuntimeId = \"disabled\"\nexport default { driver: () => ({ send: async () => ({}) }) }\n")
     await writeFile(join(generatedWorkflowDir, "01-collect.ts"), "export default async function collect(input) { return { ...input, collected: true } }\n")
-    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email/server'\nexport default async function send(input) { await email.send(input); return input }\n")
+    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email'\nexport default async function send(input) { await email.send(input); return input }\n")
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,

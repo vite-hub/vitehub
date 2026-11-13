@@ -30,7 +30,7 @@ import { hubAgent } from "@vite-hub/agent/vite"
 import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
-import { hubKv, kvNitroCacheDriver } from "@vite-hub/kv/vite"
+import { hubKV, kvNitroCacheDriver } from "@vite-hub/kv/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
@@ -510,7 +510,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
-    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })])
+    mocks.vitehub.mockReturnValue([hubKV({ driver: "cloudflare-kv-binding", binding: "KV" })])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
     await viteHubNuxtModule({ kv: true, host: "cloudflare" }, nuxt)
     const config: Record<string, unknown> = {}
@@ -837,7 +837,7 @@ describe("ViteHub Nuxt integration", () => {
     const envDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-kv-env-"))
     for (const name of ["KV_REST_API_URL", "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"]) vi.stubEnv(name, undefined)
     await writeFile(resolve(envDir, ".env.development"), "KV_REST_API_URL=https://nuxt-kv.test\nKV_REST_API_TOKEN=nuxt-kv-secret\n")
-    const plugin = hubKv({ remote: true })
+    const plugin = hubKV({ remote: true })
     mocks.vitehub.mockReturnValue([plugin])
     const { nuxt, runNitroConfigHook } = createNuxt(true)
     nuxt.options.vite.envDir = envDir
@@ -865,7 +865,7 @@ describe("ViteHub Nuxt integration", () => {
 
   it("registers Content KV when Nuxt 5 builds Nitro 3 without a Vite environment", async () => {
     const content = hubContent()
-    mocks.vitehub.mockReturnValue([content, hubKv(undefined, { hosting: "node" })])
+    mocks.vitehub.mockReturnValue([content, hubKV(undefined, { hosting: "node" })])
     const { nuxt, runNitroConfigHook } = createNuxt(false)
     Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
     const file = resolve(nuxt.options.serverDir!, "content.ts")
@@ -885,7 +885,7 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each(["application", "layer", "contribution"])("infers Postgres KV from a %s Database when Nuxt skips the Vite build", async (source) => {
-    const plugin = hubKv(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node" })
+    const plugin = hubKV(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node" })
     mocks.vitehub.mockReturnValue([plugin])
     const { nuxt, runNitroConfigHook } = createNuxt(false)
     Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
@@ -913,7 +913,7 @@ describe("ViteHub Nuxt integration", () => {
       if (!load) throw new TypeError("Expected the Nitro KV load hook.")
       const output = await Reflect.apply(load, {}, ["\0#vitehub/kv/config"])
       expect(output).toContain('"driver":"database"')
-      expect(output).toContain('export const loadDatabases = () => import("vite-hub/database/drizzle").then(module => module.databases);')
+      expect(output).toContain('export const loadDatabases = () => import("@vite-hub/database/runtime/registry").then(module => module.databases);')
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -2368,7 +2368,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
-      expect(generated).toContain(`import("vite-hub/database/drizzle")`)
+      expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections("${tmp}/vitehub-nuxt", ["setup","env","databases"])`)
       expect(generated).toContain(`installConsoleDefinitions("${tmp}/vitehub-nuxt", {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"custom-server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
@@ -4132,7 +4132,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": `${tmp}/vitehub-nuxt/.vitehub/database/cloudflare-runtime.mjs`,
+        "@vite-hub/database/runtime/registry": `${tmp}/vitehub-nuxt/.vitehub/database/cloudflare-runtime.mjs`,
         "@vite-hub/database/runtime/state": databaseRuntimeState,
       },
     })
@@ -4212,8 +4212,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(config).toHaveProperty("imports.imports", [
       { from: "#app", name: "useAppConfig" },
       ...names("vite-hub/blob", "blob"),
-      ...names("vite-hub/database/drizzle", "db", "schema", "useDatabase"),
-      ...names("#vitehub/env/server", "useServerEnv"),
+      ...names("vite-hub/database", "db", "schema", "useDatabase"),
+      ...names("vite-hub/env", "useServerEnv"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
       ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
@@ -4233,7 +4233,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ host: "node" }, defaults.nuxt)
     const defaultConfig: Record<string, unknown> = { imports: { imports: [] } }
     await defaults.runNitroConfigHook(defaultConfig)
-    expect(defaultConfig).toHaveProperty("imports.imports", [{ from: "#vitehub/env/server", name: "useServerEnv", priority: -1 }])
+    expect(defaultConfig).toHaveProperty("imports.imports", [{ from: "vite-hub/env", name: "useServerEnv", priority: -1 }])
 
     // A host without a Queue service does not install the Queue package, so it gets no Queue helpers.
     const netlify = createNuxt()

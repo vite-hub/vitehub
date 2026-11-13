@@ -35,9 +35,9 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Database | SQLite | D1 | libSQL / D1 | libSQL | libSQL | Nuxt D1 | SQLite / libSQL |
 | Email | Resend | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
 | KV | fs-lite | Workers KV | Upstash | Upstash | Deno KV | Host driver | Redis / Postgres / fs-lite |
-| Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Local provider |
-| Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory |
-| Realtime | memory | Durable Objects | — | — | — | Host authority | memory |
+| Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local provider |
+| Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
+| Realtime | memory | Durable Objects | — | — | — | Host authority | Postgres or Redis |
 | Sandbox | — | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
 | Workflow | Vercel Workflow | CF Workflows | Vercel Workflow | OpenWorkflow | Vercel Workflow | Host provider | Vercel Workflow |
