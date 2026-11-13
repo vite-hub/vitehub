@@ -74,7 +74,7 @@ const partEntries = entries.filter(({ entry }) => Object.values(entry).some(isCo
 
 describe("server rendering", () => {
   it("covers every entry that has parts", () => {
-    expect(partEntries.length).toBe(63);
+    expect(partEntries.length).toBe(61);
   });
 
   it.each(partEntries)("renders $name with data-slot", async ({ entry, name }) => {

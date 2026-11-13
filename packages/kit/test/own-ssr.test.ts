@@ -2,7 +2,6 @@ import { createSSRApp, h, type VNode } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 
-import { AspectRatio } from "@vite-hub/kit/aspect-ratio";
 import {
   Editable,
   EditableArea,
@@ -34,7 +33,6 @@ import {
   TagsInputItemDelete,
   TagsInputItemText,
 } from "@vite-hub/kit/tags-input";
-import { VisuallyHidden } from "@vite-hub/kit/visually-hidden";
 
 const render = (tree: () => VNode) => renderToString(createSSRApp({ render: tree }));
 
@@ -119,11 +117,5 @@ describe("server rendering of the kit's own components", () => {
     expect(html).toMatch(/<button data-slot="stepper-trigger" type="button" tabindex="0" aria-current="step"/);
     expect(html).toContain('<div data-slot="stepper-item" data-current data-orientation="horizontal">');
     expect(html).toContain('data-slot="stepper-separator" aria-hidden="true"');
-  });
-
-  it("renders AspectRatio and VisuallyHidden with their styles", async () => {
-    const html = await render(() => h("div", [h(AspectRatio, { ratio: 2 }), h(VisuallyHidden, null, () => "Close")]));
-    expect(html).toContain('<div data-slot="aspect-ratio" style="aspect-ratio:2;--aspect-ratio:2;"></div>');
-    expect(html).toMatch(/<span data-slot="visually-hidden" style="position:absolute;[^"]*clip-path:inset\(50%\);[^"]*">Close<\/span>/);
   });
 });
