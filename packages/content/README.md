@@ -89,7 +89,7 @@ await content.sources.unpin("docs")
 ```
 
 - The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
-- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. The GitHub push webhook below calls `advance()` for you.
+- `advance()` loads and parses every document of the latest commit, then runs the error rules of [`content.check()`](#check-documents): frontmatter against the Source `schema`, and links to missing pages. The head moves only when the commit has no error. Warnings, such as a short title, do not hold it back. Otherwise the head stays on the last valid commit, `rejected` names the commit and the first errors, and Content logs `CONTENT_R0019`. A push with a broken document or link never reaches readers. The GitHub push webhook below calls `advance()` for you.
 - Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
 - A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
 - Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
@@ -100,6 +100,42 @@ await content.sources.unpin("docs")
 - When GitHub answers 403 or 429 to the branch lookup, as it does when the rate limit is hit, the head stays where it is. Content logs `CONTENT_R0035` once, and `head()` on that server instance returns it in `diagnostic` until a lookup succeeds.
 - `diagnostic` is `{ code, message, fix }` when the head does not follow the branch: `CONTENT_R0020`, `CONTENT_R0021`, `CONTENT_R0035`, or `CONTENT_R0019`. `vitehub content head` prints it.
 - Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. Completed checks store `checkedAt` under `content:checked:<source>`. An unchanged branch needs no head write unless a stored rejection becomes history; a changed branch needs one. A failed check is tried again after the lease.
+
+### Check documents
+
+`content.check()` checks the documents of the Sources with no built HTML and no network. A `github()` Source is checked at `sha`, or at the latest commit of its branch, and its head does not move.
+
+```ts fragment
+const result = await content.check({ source: "docs", sha })
+// { ok: false, errors: 1, warnings: 2, sources: [{ source: "docs", sha, pages: 357 }], findings: [{ source, path: "guide.md", url: "/guide", line: 12, rule: "link", code: "CONTENT_R0062", severity: "error", message }] }
+```
+
+| Rule | Code | Severity | Finds |
+| --- | --- | --- | --- |
+| `parse` | `CONTENT_R0060` | error | A document that does not load or parse. |
+| `frontmatter` | `CONTENT_R0061` | error | Frontmatter that does not match `contentSource(input, { schema })`. |
+| `link` | `CONTENT_R0062` | error | A link to a missing page below a first path segment that holds pages, such as `/docs/kvv` next to `/docs/kv`. |
+| `route` | `CONTENT_R0063` | warning | A link to a path that no page serves, such as `/learn`. Another route of the app may serve it. |
+| `anchor` | `CONTENT_R0064` | warning | A link to a heading id that the target page does not have. |
+| `title` | `CONTENT_R0065` | warning | No title, or a title outside 10 to 60 characters. |
+| `description` | `CONTENT_R0066` | warning | No description, or one outside 70 to 160 characters. |
+| `duplicate` | `CONTENT_R0067` | warning | Pages with the same title or description. |
+| `heading-order` | `CONTENT_R0068` | warning | A heading that skips a level. The page title counts as the `h1`. |
+
+The search rules and limits are those of the `@vite-hub/docs` `seoAudit`, and they skip pages with `seo.noindex`, `seo.index: false`, or a canonical URL to another page. A page is a Markdown document; its URL comes from the `url` of the Source, else its path. Links resolve in memory against the checked commits and pages from other configured Sources. A head change or a check of one Source uses the published heads of the other Sources, or their branch commits when no head exists. The checked Source never uses pages from its previous head. Links to other origins are not checked. `defineContent({ check })` sets the options:
+
+```ts fragment
+defineContent({
+  sources: { docs: contentSource(github({ repo: "acme/docs", dir: "content" }), { url: "/:id" }) },
+  check: {
+    ignoreLinks: ["/learn", "/docs/*/diagnostics/**"], // paths, globs, or RegExps that other routes serve
+    titleTemplate: "%s · Acme", // the title rule measures the title as the <title> shows it
+  },
+  seo: { site: "https://acme.dev" }, // absolute links to this origin are checked too; `check.site` overrides it
+})
+```
+
+`CONTENT_R0069` means the check could not run, such as for an unknown Source, a `sha` that is not a full commit SHA, or a commit that GitHub does not give. `vitehub content check` prints the same result.
 
 ### GitHub push webhook
 
@@ -127,12 +163,13 @@ ViteHub adds the route only for an `import { github }` in `server/content.ts`. W
 
 The files of a commit never change. Content downloads each commit once per cache key, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so nothing purges a cache, on any host.
 
-- A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- A read tries memory first, then the build snapshot, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- When the build has a GitHub token, such as `VITEHUB_GITHUB_TOKEN`, it resolves the branch of each `github()` Source, parses that commit, and ships it with the server, gzipped. While the head is that commit, a cold server reads it from the bundle and downloads nothing, even with an empty KV. The server inflates it on the first read that needs it, not at start, and only when the head is the build commit. When the head moved, the commit cache works as before. Without a token at build, the build ships no commit. A build commit that does not parse ships nothing, and the build warns.
 - `parserHash` hashes the Comark options, plugin source text, the Source fingerprint, its effective `prefix` and `schema`, and the build. Each build uses new keys.
 - The built-in parser reuses parsed documents from KV. With custom `markdown.plugins` or Content `plugins`, each new runtime parses the cached files again without a download. Function source text cannot identify captured plugin options or implementations. Within one runtime, memory holds the parsed result.
 - Content writes an artifact only after every document parses. A rollback with `pin()` to a valid commit reads it from the cache. A rejected load or failed download stays out of memory, so `advance()` can retry it.
 - Each server instance holds the last 4 commits in memory.
-- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
+- `head().cache` shows the key of the served commit, the reads from memory, from the build snapshot (`build`), and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
 ### Read a branch, a pull request, or a commit
 
@@ -152,7 +189,7 @@ await content.sources.at("9c1e4f…", "docs") // kind: "commit", a full 40-chara
 - The view reads the commit through the commit cache, so it validates like a head. When a document does not parse, `at()` fails with `CONTENT_R0030`. Refs at the same commit share one view and one download.
 - Each server instance holds 8 views open, and closes the least recently used one. A closed view opens again on its next read, from the commit cache. `head().views` lists the open commits.
 - A view works without a token or KV for a public repository. GitHub then allows 60 lookups per hour.
-- `at()` does not check access, and Content serves no route for it. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
+- `at()` does not check access, and serves no route by itself: `previews: true` adds the routes, with `allow()` first. Draft branches, such as the CMS `vitehub/content` branch, and fork pull requests can hold content that is not public. Call `content.sources.allow()` first.
 
 ### Who may read a ref
 
@@ -185,6 +222,37 @@ const view = await content.sources.at(access.target) // the commit that allow() 
 - Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
 - Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
 
+### Preview URLs
+
+Set `previews: true` and Content serves each ref that `allow()` lets through at a URL. Nitro, Nuxt (through `vite-hub/nuxt`), and Vite apps get the URLs from this one option. ViteHub generates a Nitro plugin for it, so you write no route.
+
+```ts
+// server/content.ts
+import { defineContent } from "@vite-hub/content"
+import { github } from "@vite-hub/source"
+
+export default defineContent({
+  sources: { docs: github({ repo: "acme/docs", ref: "main" }) },
+  previews: true,
+})
+```
+
+| URL | Reads |
+| --- | --- |
+| `/tree/<branch>/-/<path>` | The latest commit of a branch. The branch can contain `/`, such as `/tree/feat/x/-/docs/kv`. The part `-` ends the branch name. `/tree/<branch>` alone is the root page. |
+| `/blob/<sha>/<path>` | One commit, by its full 40-character SHA. |
+| `/pr/<number>/<path>` | The head commit of a pull request. |
+
+- The page runs with its production path, such as `/docs/kv`, through the route rules, middleware, and routes of the app. Every read of the `github()` Source in that request, `content.get()`, `list()`, `navigation()`, `search()`, `manifest()`, `stat()`, `query()`, `from()`, `getSource()`, `media`, `instances`, custom plugin methods, and `/api/content` included, returns the commit of the ref. The request keeps the host fields that Nitro and srvx put on it, such as `runtime`, `context`, `ip`, and `waitUntil`. Collections and other Sources read as usual.
+- `content.get()` and `/api/content` put the internal links of the Comark tree under the prefix: `/docs/next` becomes `/pr/12/docs/next`. Links to other sites, `//host` links, and `#anchors` stay as they are. Links that the app writes itself do not change. Put `content.sources.current()?.prefix` before them.
+- `content.sources.current()` returns `{ source, ref, kind, sha, pull, route, prefix, path, url }` in a preview request and null in other requests. `url` is the production URL of the page, from `seo.site` or the request origin. Use it for a preview bar, such as "Viewing PR #12", with a link to production.
+- A ref that `allow()` denies, an invalid ref, and a ref that GitHub does not have all reach the app with the URL as it came, so the app answers with its own 404, as for any unknown path. A response does not tell a private ref from a missing one. Content logs `CONTENT_R0031` once per ref.
+- A preview response has `X-Robots-Tag: noindex`, a `Link: <production URL>; rel="canonical"` header, and a `Cache-Control` for the ref: `private, no-store` with the preview cookie or a `?vitehub-content-token` link, `public, max-age=31536000, immutable` for a `/blob` commit in the published history, and `public, max-age=60` for the other refs. These are upper bounds: application `max-age` and `s-maxage` values can shorten them, and application revalidation directives stay in place. An application response with its own cache policy does not become immutable only because the Source commit is published. A response that the app marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. A same-site redirect stays under the prefix. A ref that a signed link opened keeps `?vitehub-content-token` on its internal links and redirects, so the reader can follow them without the preview cookie. Nitro's cache is bypassed in a preview request, so a cached route never mixes refs.
+- With more than one `github()` Source, name the one to preview: `previews: { source: "docs" }`. Without a `github()` Source, or with a name that is not one, a preview URL fails with `CONTENT_R0045`.
+- An encoded `/`, a dot part such as `%2e%2e`, and a ref that `at()` does not accept never reach the app as a preview, so the page path cannot leave the prefix. A SHA opens only as `/blob/<sha>`, and a pull request only as `/pr/<number>`, so each commit view has one URL shape.
+- The server renders the page at its production path, and the browser keeps the preview URL. In Nuxt, the client router does not know the prefix yet, so a page that reads its route on the client, such as a `useAsyncData()` key from `useRoute().path`, sees the preview URL after hydration.
+- The prefixes sit at the root of the host. `parseContentPreviewPath(pathname)` reads a URL the same way. In another server, add `defineContentPreviewRoutesPlugin(content)` from `vite-hub/content/preview` first in the Nitro 3 plugin list, before async plugins, or call `content.sources.route(request, next)` yourself.
+
 ## Page history
 
 `content.history(path)` lists the published changes of the page at an app path, newest first. Collection documents and `github()` Source pages return one shape, so "last updated", RSS, and a history panel read one API.
@@ -215,7 +283,7 @@ Render a page with ViteHub UI. Its `Markdown` primitive accepts both a parsed Co
 
 ```vue
 <script setup lang="ts">
-import { Markdown } from "@vite-hub/ui/markdown"
+import { Markdown } from "@vite-hub/ui"
 
 const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </script>
@@ -225,7 +293,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-With the framework distribution, import from `vite-hub/ui/markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
+With the framework distribution, import from `vite-hub/ui`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
 
 Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not install `@comark/html`.
 
@@ -352,7 +420,7 @@ With Realtime enabled on a host with a room authority, ViteHub contributes a `co
 
 `content.schedule({ at, expect })` publishes exactly the reviewed draft digests at a later time. A Schedule Definition such as `defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })` runs due schedules on every Schedule host. A draft saved after scheduling makes the run publish nothing and the schedule `failed`, with the `WORKSPACE_CONFLICT` details, until `unschedule(id)` dismisses it. `content.schedules()` lists pending, overdue (more than five minutes late without a run), and failed schedules, and `status()` reports each document's `schedule`. Schedules are JSON files on the `schedules` ref of the Content Workspace, so every change is a revision.
 
-`documents({ url: "/blog/:id" })` maps documents to public URLs, and reads carry `document.url`. `content.resolve("/blog/hello")` maps a page back to its `{ collection, id }` with the same `url`, for an Edit button; a collection without `url` resolves the id after a slash, without a trailing `/index`. `seo()` is a field for per-document `{ title, description, image, canonical, noindex }`; pass `seo({ image: image() })` to store a Blob reference. `contentHead(document, { collection, site, defaults })`, also exported from `@vite-hub/content/client`, returns unhead-shaped `{ title, meta, link, script? }` that merge the `seo()` values, the document fields, and site defaults. It finds the `seo()` field of `collection` by its marker, and resolves Blob images with the served route of the generated Blob config. `defineContent({ seo: { site, sitemap: true, robots: true } })` makes ViteHub generate `/sitemap.xml` and `/robots.txt`; `content.sitemap()` and `content.robots()` return the same output. `seo: { markdown: true }` also serves each published Markdown document at its URL plus `.md`, such as `/blog/hello.md` for `/blog/hello` and `/index.md` for `/`. The copy starts with the document's title, unless the body has its own heading, and its description as a quote, and turns root-relative links into absolute ones. Agents read it, and readers paste it into a chat. `content.markdown("/blog/hello.md")` returns the same text, or null. The sitemap also lists the documents of Sources with `contentSource(input, { url })`, without `lastmod`. Markdown copies read `collections` only. The page URL also returns the copy for `Accept: text/markdown`, with `Vary: Accept`, and a Markdown request that no page answers gets a Markdown 404 body. `seo: { llms: true }`, or `{ title, description }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from the same pages as the sitemap, Markdown collections only, and turns on `markdown` because their links point at the `.md` copies. `content.llms({ file })` returns the same text. The formats match `@vite-hub/docs`.
+`documents({ url: "/blog/:id" })` maps documents to public URLs, and reads carry `document.url`. `content.resolve("/blog/hello")` maps a page back to its `{ collection, id }` with the same `url`, for an Edit button; a collection without `url` resolves the id after a slash, without a trailing `/index`. `seo()` is a field for per-document `{ title, description, image, canonical, noindex }`; pass `seo({ image: image() })` to store a Blob reference. `contentHead(document, { collection, site, defaults })`, also exported from `@vite-hub/content/client`, returns unhead-shaped `{ title, meta, link, script? }` that merge the `seo()` values, the document fields, and site defaults. It finds the `seo()` field of `collection` by its marker, and resolves Blob images with the served route of the generated Blob config. `defineContent({ seo: { site, sitemap: true, robots: true } })` makes ViteHub generate `/sitemap.xml` and `/robots.txt`; `content.sitemap()` and `content.robots()` return the same output. `seo: { markdown: true }` also serves each published Markdown document at its URL plus `.md`, such as `/blog/hello.md` for `/blog/hello` and `/index.md` for `/`. The copy starts with the document's title, unless the body has its own heading, and its description as a quote, and turns root-relative links into absolute ones. Agents read it, and readers paste it into a chat. `content.markdown("/blog/hello.md")` returns the same text, or null. The sitemap also lists the documents of Sources with `contentSource(input, { url })`, with `lastmod` from the latest GitHub commit when a token is set. Markdown copies read `collections` only. The page URL also returns the copy for `Accept: text/markdown`, with `Vary: Accept`, and a Markdown request that no page answers gets a Markdown 404 body. `seo: { llms: true }`, or `{ title, description }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from the same pages as the sitemap, Markdown collections only, and turns on `markdown` because their links point at the `.md` copies. `content.llms({ file })` returns the same text. The formats match `@vite-hub/docs`. `seo: { rss: true }`, or `{ title, description, limit }`, serves `/rss.xml`: an RSS 2.0 feed of the Markdown pages that the sitemap lists, newest first by the date of their latest `content.history()` entry, 20 by default. The dates are cached per head commit in memory and ViteHub KV. The first read after a push asks GitHub for the pages that changed: one compare request and one GraphQL request per 150 changed pages. With no earlier dates, it asks for every page, so 2,600 pages cost 18 GraphQL requests, under the 50 subrequests of a free Cloudflare Worker. When the host has `waitUntil`, the generated routes do not wait for this: until the new dates are ready, they answer with the dates of the previous head and `Cache-Control: no-store`, and compute the new dates after the response. Blocking reads, background reads, and webhook warming share in-flight work within one Content instance. For several server instances, set `seo.dateLeases` to the same shared atomic `LeaseStore`, such as `createSqlLeaseStore()` from `@vite-hub/runtime`. It holds each Source/head for 60 seconds, including cache propagation time after success; a failure releases it for retry. A follower serves cached dates until it can see the new set, also without `waitUntil`. Cloudflare KV cannot lock a refresh. Without `dateLeases`, each instance can compute the same dates; use one refresh instance when shared leases are not available. A push webhook that moves the head computes them right away. Pass `{ waitUntil }` to `content.sitemap()` or `content.rss()` for the same behavior; without it they wait. Without a token, a Source page uses its `date` field, else it has no `pubDate` and goes last. `content.rss()` returns the same XML, and `contentHead(document, { rss: true })` adds the `alternate` link.
 
 ```ts fragment
 useHead(contentHead(post, { site: { url: "https://vitehub.dev", name: "ViteHub" }, defaults: { description: settings.data.description } }))
@@ -381,7 +449,11 @@ vitehub content head [source]
 vitehub content advance [source]
 vitehub content pin <sha> [source]
 vitehub content unpin [source]
+vitehub content check [source] [--sha <sha>]
+vitehub content check [source] --dir <folder> [--page-url <pattern>] [--schema <file>] [--site <url>] [--ignore <path>...] [--title-template <pattern>]
 ```
+
+`check` prints each finding as `path:line  severity  code  message`, and exits with status 1 when one is an error. Against the app it calls `content.check()`. With `--dir` it checks a folder of the working tree as one Source and needs no app, for CI on content pull requests. `--json` prints the `ContentCheckResult`.
 
 `head`, `advance`, `pin`, and `unpin` call `content.sources` of the app. Without a name, `head` shows every `github()` Source, and the others move the only one. With more than one, they ask for the name. Each head shows the commit, the pin, the last check, the rejected commit, the last webhook delivery, and `diagnostic` with its fix: `CONTENT_R0020` (no token), `CONTENT_R0021` (no KV store), `CONTENT_R0019` (the newest commit does not parse, and the head did not move after it), or `CONTENT_R0035` (GitHub answered 403 or 429 to the branch lookup). `advance` and `unpin` exit with status 1 when the head is held back. They need the `content` section of the Console access; `head` needs only `content:read`.
 

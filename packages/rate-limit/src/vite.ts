@@ -9,7 +9,7 @@ import {
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -141,8 +141,8 @@ function resolveProvider(options: RateLimitOptions, command: "build" | "serve", 
 }
 
 function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitOptions, nitro: unknown): boolean {
-  // ViteHub records the deployment preset separately from its memory runtime provider in dev.
-  if (getDeploymentPreset(config) === "cloudflare") return true
+  // ViteHub records the host separately from its memory runtime provider in dev.
+  if (getDeploymentHost(config) === "cloudflare") return true
   if (configured.provider === "cloudflare") return true
   return (configured.provider ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
 }

@@ -36,11 +36,11 @@ export default defineEventHandler(async (event) => {
 
 ```ts
 // vite.config.ts
-import { hubKv } from "@vite-hub/kv/vite"
+import { hubKV } from "@vite-hub/kv/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubKv({
+  plugins: [hubKV({
     driver: "fs-lite",
     base: ".vitehub/data/kv",
   })],
@@ -49,7 +49,7 @@ export default defineConfig({
 
 ## Vite Integration
 
-Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
+Use `hubKV()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
 Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted), Redis over TCP (`redis`), and a table in the app's Database (`database`). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 
@@ -74,7 +74,7 @@ Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitti
 
 ## Development stays local
 
-In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. When ViteHub infers the driver, Upstash env vars and the Vercel preset do not select Upstash in development: the store is `fs-lite` in `.vitehub/data/kv`. On the Cloudflare preset, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner. Without one, for example on Nitro's default Node runner, it uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>` with the Workers KV limits.
+In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. When ViteHub infers the driver, Upstash env vars and the Vercel host do not select Upstash in development: the store is `fs-lite` in `.vitehub/data/kv`. On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner. Without one, for example on Nitro's default Node runner, it uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>` with the Workers KV limits.
 
 `kv: { remote: true }` lets development infer the hosted store as a build does. On Cloudflare, ViteHub then writes `remote: true` on the generated Wrangler KV binding. The first operation prints `KV store "<name>" is remote`, and `vitehub inspect definitions --kind kv` shows `Development: Remote`. Writes change real data.
 
@@ -117,7 +117,7 @@ The mode limits this API, not the host. The KV binding or provider token keeps f
 
 Call `disposeKVStores()` from `@vite-hub/kv` (or `vite-hub/kv`) after stopping new application work. It disposes every initialized default and named store, waits for pending store initialization and cleanup, and reports cleanup failures with an `AggregateError`. Concurrent teardown calls share one promise. Later operations create fresh stores; old process-local cursors cannot resume.
 
-For an explicit Redis store or an inferred Node store, `hubKv()` registers this cleanup on Nitro's `close` hook, so the Redis connection does not keep the process alive after a stop signal. For other stores, register the cleanup in a server plugin:
+For an explicit Redis store or an inferred Node store, `hubKV()` registers this cleanup on Nitro's `close` hook, so the Redis connection does not keep the process alive after a stop signal. For other stores, register the cleanup in a server plugin:
 
 ```ts fragment
 // server/plugins/kv-cleanup.ts
@@ -130,7 +130,7 @@ export default defineNitroPlugin((nitroApp) => {
 
 ## CLI
 
-`hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
+`hubKV()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `delete <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
 Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 

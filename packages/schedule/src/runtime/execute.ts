@@ -4,7 +4,7 @@ import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
 import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
-import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
+import { getScheduleRunStore } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
@@ -40,8 +40,6 @@ interface ExecuteStaticScheduleOptions {
 }
 
 export interface RunScheduleOptions {
-  /** Loads the definition from this registry instead of the registry that the build installs. */
-  registry?: ScheduleDefinitionRegistry
   /**
    * The time the handler receives as `scheduledAt`, as if the cron fired then. A string is an ISO 8601 date-time with a
    * time zone, such as `"2026-01-31T23:59:00Z"`. Defaults to now. The run records this time.
@@ -257,15 +255,10 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && Object.hasOwn(value, "cron")
 }
 
-async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry | undefined): Promise<ScheduleDefinition | undefined> {
-  let loaded: unknown
-  if (registry) {
-    const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-    loaded = typeof entry === "function" ? await entry() : undefined
-  }
-  else {
-    loaded = await loadScheduleDefinition(name)
-  }
+async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
+  const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
+  const loaded: unknown = typeof entry === "function" ? await entry() : undefined
   const record = isObjectRecord(loaded) ? loaded : undefined
   const definition = record && isStaticScheduleDefinition(record)
     ? record
@@ -275,9 +268,9 @@ async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefi
   return definition
 }
 
-/** Runs a manually dispatchable static Schedule Definition immediately. */
-export async function runSchedule(name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
-  const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, options.registry) : undefined
+/** Runs a manually dispatchable static Schedule Definition of `registry` immediately. */
+export async function runScheduleFrom(registry: ScheduleDefinitionRegistry, name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
+  const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, registry) : undefined
   if (!definition) {
     throw createScheduleError("SCHEDULE_DEFINITION_NOT_FOUND")
   }

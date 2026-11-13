@@ -23,14 +23,14 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { preset: 'node', agent: true, connections: true, database: true }],
+    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
     '@vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
 })
 ```
 
-For Cloudflare Workers, use `preset: 'cloudflare'` instead of `'node'`.
+For Cloudflare Workers, use `host: 'cloudflare'` instead of `'node'`.
 
 Add the Agent. It answers from the pages in `content/`:
 

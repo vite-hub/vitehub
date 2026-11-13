@@ -14,7 +14,7 @@ icon: i-lucide-database-zap
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // Node supports shared stores and local files
       kv: true,
     },
@@ -30,7 +30,7 @@ icon: i-lucide-database-zap
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // Node supports shared stores and local files
         kv: true,
       }),
@@ -47,7 +47,7 @@ icon: i-lucide-database-zap
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // Node supports shared stores and local files
         kv: true,
       }),
@@ -86,7 +86,7 @@ icon: i-lucide-database-zap
 
   // Remove the key and its value
   export default defineEventHandler(async () => {
-    const [error] = await kv.del('settings')
+    const [error] = await kv.delete('settings')
     if (error) throw error
     return { ok: true }
   })

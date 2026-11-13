@@ -32,14 +32,14 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Share counts on Node
 
-On the `node` preset, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` provider instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the window length, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
+On the `node` host, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` provider instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the window length, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', kv: true, rateLimit: true },
+  vitehub: { host: 'node', kv: true, rateLimit: true },
 })
 ```
 :::
@@ -51,7 +51,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', kv: true, rateLimit: true }), nitro()],
+  plugins: [vitehub({ host: 'node', kv: true, rateLimit: true }), nitro()],
 })
 ```
 :::
@@ -62,7 +62,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', kv: true, rateLimit: true })],
+  plugins: [vitehub({ host: 'node', kv: true, rateLimit: true })],
 })
 ```
 :::
@@ -80,18 +80,18 @@ KV selects its driver at build time: `database` with a Postgres Default Database
 [vitehub] Rate Limit counts in the memory of this process, because the KV store "default" uses fs-lite, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.
 ```
 
-A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. `provider: 'kv'` works with the `node` preset only, and other presets fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
+A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. `provider: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
 
 ## Deploy to Cloudflare
 
-With the `cloudflare` preset, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
+With the `cloudflare` host, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true },
+  vitehub: { host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true },
 })
 ```
 :::
@@ -104,7 +104,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true }),
+    vitehub({ host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true }),
     nitro(),
   ],
 })
@@ -117,7 +117,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', name: 'acme-image-service-production', rateLimit: true })],
+  plugins: [vitehub({ host: 'cloudflare', name: 'acme-image-service-production', rateLimit: true })],
 })
 ```
 :::

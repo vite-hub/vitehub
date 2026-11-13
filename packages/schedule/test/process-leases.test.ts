@@ -35,7 +35,7 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
   it("claims occurrences in the Default Database when the app has the Database plugin", async () => {
     const generated = await generatedPlugin([[{ name: "@vite-hub/database/vite" }]])
 
-    expect(generated).toContain("import { databases } from \"@vite-hub/database/drizzle\"")
+    expect(generated).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
     expect(generated).toContain("const leases = scheduleLeaseStoreFromDatabase(databases.default.db)")
     expect(generated).toContain("...(leases ? { leases } : {}),")
     expect(generated).toContain("\"leaseTtlMs\": 30000")
@@ -57,7 +57,7 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("claims each Schedule occurrence in memory"))
 
     warn.mockClear()
-    await createScheduleNitroConfig({ command: "build", leaseDatabaseImport: "vite-hub/database/drizzle", projectRoot: root, providerOutput: false, root, runtime: { driver: "process" } } as Parameters<typeof createScheduleNitroConfig>[0])
+    await createScheduleNitroConfig({ command: "build", leaseDatabaseImport: "@vite-hub/database/runtime/registry", projectRoot: root, providerOutput: false, root, runtime: { driver: "process" } } as Parameters<typeof createScheduleNitroConfig>[0])
     await createScheduleNitroConfig({ command: "serve", projectRoot: root, providerOutput: false, root, runtime: { driver: "process" } })
     expect(warn).not.toHaveBeenCalled()
   })

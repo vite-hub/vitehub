@@ -27,7 +27,7 @@ pnpm add @vite-hub/agent @anthropic-ai/claude-agent-sdk@0.3.246
 
 The SDK installs one native Claude Code package for your OS and CPU. ViteHub uses that package and downloads nothing during the build or at startup.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -35,7 +35,7 @@ The SDK installs one native Claude Code package for your OS and CPU. ViteHub use
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -51,7 +51,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   }), nitro()],
@@ -66,7 +66,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -220,7 +220,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `preset: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |

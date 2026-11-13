@@ -23,7 +23,7 @@ The [Cloudflare Rate Limiting binding](https://developers.cloudflare.com/workers
 | `enforcement: 'strict'` | `RATE_LIMIT_R0015` |
 | `window` other than `10s` or `1m`, for example `30s` or `1h` | `RATE_LIMIT_R0016` |
 
-The dev server counts in memory, but checks the same policies when the build targets Cloudflare: `vitehub({ preset: 'cloudflare' })`, `hubRateLimit({ provider: 'cloudflare' })`, or the Cloudflare Nitro preset with no provider set. Then `vite dev` fails to start with the same code, and saving a file with an unsupported policy logs the error. Without a Cloudflare target, the dev server accepts every valid policy.
+The dev server counts in memory, but checks the same policies when the build targets Cloudflare: `vitehub({ host: 'cloudflare' })`, `hubRateLimit({ provider: 'cloudflare' })`, or the Cloudflare Nitro preset with no provider set. Then `vite dev` fails to start with the same code, and saving a file with an unsupported policy logs the error. Without a Cloudflare target, the dev server accepts every valid policy.
 
 ## Memory limits
 

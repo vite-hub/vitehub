@@ -35,7 +35,7 @@ export default defineDatabase({
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')
@@ -74,7 +74,7 @@ Before a query reaches D1, through the binding or D1 HTTP, ViteHub checks these 
 | SQL statement length, in UTF-8 bytes | 100,000 bytes | `DATABASE_D1_STATEMENT_TOO_LONG` |
 | One bound string or BLOB | 2,000,000 bytes | `DATABASE_D1_VALUE_TOO_LARGE` |
 
-Without a D1 binding, `vite dev` uses local SQLite, which accepts more than D1. So when the build targets Cloudflare (`vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset), the dev server runs the same checks for each database with D1 options. A query that D1 rejects then fails in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
+Without a D1 binding, `vite dev` uses local SQLite, which accepts more than D1. So when the build targets Cloudflare (`vitehub({ host: 'cloudflare' })` or the Cloudflare Nitro preset), the dev server runs the same checks for each database with D1 options. A query that D1 rejects then fails in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
 
 D1 also limits a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations from `vitehub database migrate` are not checked.
 
@@ -104,7 +104,7 @@ One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store lar
 
 ### DATABASE_DISABLED
 
-Code read the Default Database, but the runtime has none. If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDb()` to the Vite plugins and do not pass `false` to it.
+Code read the Default Database, but the runtime has none. If the app has only Named Databases, read one with `useDatabase('<name>')`, or add a Default Database. Otherwise, set `database` in `vitehub()`. With `@vite-hub/database` alone, add `hubDatabase()` to the Vite plugins and do not pass `false` to it.
 
 ### DATABASE_INVALID_D1_HTTP_URL
 
@@ -140,9 +140,9 @@ A Postgres Database runs on PGlite in development, and the app cannot load `@ele
 
 ### DATABASE_NOT_FOUND
 
-`useDatabase(name)`, `agentDb.database(name)`, or `useDatabaseBinding(name)` received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
+`useDatabase(name)`, `useDatabaseBinding(name)`, or the Database Agent Capability received a name that has no Database Definition, or `useDatabase()` was called without a name in an app with no Database. `error.why` from `useDatabase()` lists the Database names. A query on a Named Database that has no runtime configuration also throws it.
 
-The `db` export and `databases.default` exist in every app. When the app has no Default Database, a query on them throws `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`.
+The `db` export exists in every app. When the app has no Default Database, a query on it throws `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`.
 
 Run `vitehub inspect definitions --kind database` to see the database names.
 
@@ -174,7 +174,7 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
-`migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node preset and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment.
+`migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node host and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment.
 
 ## Export errors
 

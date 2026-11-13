@@ -7,7 +7,7 @@ navigation.group: Storage
 icon: i-simple-icons-vercel
 ---
 
-Set `preset: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub picks the `vercel-blob` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`; the driver bundles it.
+Set `host: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub picks the `vercel-blob` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`; the driver bundles it.
 
 ## What Vercel Blob is
 
@@ -20,14 +20,14 @@ Your code calls the same `blob` API as on Cloudflare R2, Netlify Blobs, S3, or l
 
 ## Set up Vercel Blob
 
-### Enable Blob with the Vercel preset
+### Enable Blob with the Vercel host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', blob: true },
+  vitehub: { host: 'vercel', blob: true },
 })
 ```
 :::
@@ -39,7 +39,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', blob: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel', blob: true }), nitro()],
 })
 ```
 :::
@@ -50,13 +50,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', blob: true })],
+  plugins: [vitehub({ host: 'vercel', blob: true })],
 })
 ```
 :::
 ::
 
-On the `vercel` preset, `blob: true` picks `driver: 'vercel-blob'` with `access: 'public'`. For a private store, set the driver and access mode yourself:
+On the `vercel` host, `blob: true` picks `driver: 'vercel-blob'` with `access: 'public'`. For a private store, set the driver and access mode yourself:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -64,7 +64,7 @@ On the `vercel` preset, `blob: true` picks `driver: 'vercel-blob'` with `access:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     blob: { driver: 'vercel-blob', access: 'private' },
   },
 })
@@ -80,7 +80,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: { driver: 'vercel-blob', access: 'private' },
     }),
     nitro(),
@@ -97,7 +97,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: { driver: 'vercel-blob', access: 'private' },
     }),
   ],
@@ -120,7 +120,7 @@ ViteHub picks credentials at runtime in this order:
 
 When neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN` is set at runtime, ViteHub throws `BLOB_C0009`.
 
-`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel preset, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel-blob'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel host, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel-blob'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
 Create the store in one of two ways:
 
@@ -164,7 +164,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.handleUpload()` checks each file's size and type, then saves it. Every Blob method returns `[error, value]`. On a public store, the saved object has a `url` the browser can open. See [Blob server API](/docs/blob/server-api) for `put()`, `list()`, `del()`, and `head()`.
+`blob.handleUpload()` checks each file's size and type, then saves it. Every async Blob method except `serve()` returns `[error, value]`. On a public store, the saved object has a `url` the browser can open. See [Blob server API](/docs/blob/server-api) for `put()`, `list()`, `delete()`, and `head()`.
 
 ### Serve files from a private store
 
@@ -176,7 +176,7 @@ A private store has no public URL. Set `serve` to add a route that streams files
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     blob: {
       driver: 'vercel-blob',
       access: 'private',
@@ -196,7 +196,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: {
         driver: 'vercel-blob',
         access: 'private',
@@ -217,7 +217,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: {
         driver: 'vercel-blob',
         access: 'private',
@@ -240,7 +240,7 @@ See [Serve blob-backed assets](/docs/blob/configure#serve-blob-backed-assets) an
 
 ## How to use Vercel Blob locally
 
-With the `vercel` preset, the dev server also uses Vercel Blob and needs the token. Link the app to the project and copy its variables to `.env.local`:
+With the `vercel` host, the dev server also uses Vercel Blob and needs the token. Link the app to the project and copy its variables to `.env.local`:
 
 ```bash [Terminal]
 vercel link
@@ -279,9 +279,9 @@ Some limits come from Vercel and some from the ViteHub driver. Read [Vercel Blob
 
 ## Move the same code to another host
 
-Routes that import `blob` stay the same. Change the preset, and ViteHub picks the new host's default store:
+Routes that import `blob` stay the same. Change the host, and ViteHub picks the new host's default store:
 
-| Preset | Default Blob store |
+| Host | Default Blob store |
 | --- | --- |
 | `cloudflare` | A Cloudflare R2 bucket named after the app, with binding `BLOB`. |
 | `netlify` | Netlify Blobs. |

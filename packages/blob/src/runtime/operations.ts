@@ -228,7 +228,7 @@ function encodeBase64(bytes: Uint8Array): string {
  * Runs one `blob.*` operation against the Blob stores of this runtime. The Nitro runtime owns the stores and their
  * bindings, so this runs where the app does.
  */
-export async function runBlobOperation(operation: "list" | "head" | "get" | "put" | "del" | "media" | "variants", input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
+export async function runBlobOperation(operation: "list" | "head" | "get" | "put" | "delete" | "media" | "variants", input: BlobOperationInput, stores?: readonly BlobDevStore[]): Promise<unknown> {
   const available = stores ?? await listBlobDevStores()
   const selected = selectStore(available, input.store)
   switch (operation) {
@@ -313,11 +313,11 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       const result: BlobDevVariantsResult = { pathname, store: selected.name, variants: unwrap(await selected.storage.media.variants(pathname)) }
       return result
     }
-    case "del": {
+    case "delete": {
       const pathname = requirePathname(operation, input)
       requireWritablePath(operation, pathname)
       const existed = await headOrUndefined(selected.storage, pathname)
-      unwrap(await selected.storage.del(pathname))
+      unwrap(await selected.storage.delete(pathname))
       const result: BlobDevDeleteResult = { deleted: Boolean(existed), pathname, store: selected.name }
       return result
     }

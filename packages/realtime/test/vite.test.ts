@@ -280,7 +280,7 @@ describe("hubRealtime", () => {
     const config = { root, nitro: { preset: "node-server" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
 
-    await expect(hook(config)).rejects.toMatchObject({ code: "REALTIME_AUTHORITY_CONFLICT", why: expect.stringContaining("the node deployment preset") })
+    await expect(hook(config)).rejects.toMatchObject({ code: "REALTIME_AUTHORITY_CONFLICT", why: expect.stringContaining("the node host") })
     expect(config.nitro.preset).toBe("node-server")
   })
 
@@ -310,7 +310,7 @@ describe("hubRealtime", () => {
     const config = { root, nitro: { preset: "deno-deploy" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
 
-    await expect(hook(config)).rejects.toMatchObject({ code: "REALTIME_AUTHORITY_CONFLICT", why: expect.stringContaining("the deno deployment preset") })
+    await expect(hook(config)).rejects.toMatchObject({ code: "REALTIME_AUTHORITY_CONFLICT", why: expect.stringContaining("the deno host") })
   })
   it.each([
     { name: "Cloudflare", nitro: { preset: "cloudflare" }, command: "build", options: {}, authority: "cloudflare" },

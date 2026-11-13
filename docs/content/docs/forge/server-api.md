@@ -10,7 +10,7 @@ Import `useForge()` from `vite-hub/forge`. It re-exports `@vite-hub/forge`.
 
 | Call | Returns |
 | --- | --- |
-| `useForge({ forge, baseUrl, env, fetch, userAgent })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
+| `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
 | `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
 | `forge.token({ repository, refresh, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `repository`, or for `VITEHUB_GITHUB_INSTALLATION_ID`. |
 | `forge.provider({ repository, refresh, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
@@ -38,6 +38,8 @@ export default defineEventHandler(async () => {
 ```
 
 A GitHub provider also has `graphql()`. Get a new provider for each job, because an installation token expires. See [Limits](/docs/forge/limits-and-errors#limits).
+
+A GitHub provider sends a repeated `GET` with `If-None-Match` and the ETag of the last response. When nothing changed, GitHub answers `304 Not Modified`, which doesn't count against the rate limit, and the provider returns the body it kept. Each page of a list is kept on its own. The bodies live in memory, up to 32 MiB per process, and are kept per App installation, so they outlast the hourly token rotation. Every read still goes to GitHub, so a kept body is never returned unless GitHub says it is current. Turn it off with `useForge({ conditionalRequests: false })`.
 
 ## Give a token to git or gh
 
@@ -92,6 +94,7 @@ export async function gitlab() {
 | `forgeEnv` | The [Server Env](/docs/forge/configure#server-env) table. |
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
+| `conditionalFetch(fetch, { identity, cache })`, `forgeMemoryCache({ maxSize, maxEntrySize })` | The `fetch` wrapper behind `conditionalRequests`, and its in-memory LRU. The default cache holds up to 32 MiB of bodies per process and skips bodies over 1 MiB. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
 | `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `NotFoundError`, `RateLimitedError`, `repoRef` | The bundled `forges` classes and helper. Import them from here, so that `instanceof` matches errors from `forgeProvider()`. The [`vitehub/forge-error-imports`](/docs/reference/doctor-rules#vhub0026) Doctor rule checks it. |

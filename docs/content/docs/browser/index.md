@@ -69,7 +69,7 @@ icon: i-lucide-monitor
 
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
-    vitehub: { preset: 'cloudflare', browser: true },
+    vitehub: { host: 'cloudflare', browser: true },
   })
   ```
   ::::
@@ -82,7 +82,7 @@ icon: i-lucide-monitor
   // Adds the Cloudflare browser setting for you
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'cloudflare', browser: true }),
+      vitehub({ host: 'cloudflare', browser: true }),
       nitro(),
     ],
   })
@@ -96,7 +96,7 @@ icon: i-lucide-monitor
   // Adds the Cloudflare browser setting for you
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'cloudflare', browser: true }),
+      vitehub({ host: 'cloudflare', browser: true }),
     ],
   })
   ```

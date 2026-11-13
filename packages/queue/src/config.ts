@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
@@ -18,7 +18,7 @@ export const defaultLocalQueueBase = ".vitehub/data/queue"
 
 /** A self-hosted Node server has no hosted Queue, so it runs Queue Definitions in its own process. */
 function isLocalHosting(hosting: string): boolean {
-  return hosting === "local" || deploymentPresetFromNitro(hosting) === "node"
+  return hosting === "local" || hostFromNitroPreset(hosting) === "node"
 }
 
 function readOwnOption(options: Record<string, unknown>, key: string): unknown {
