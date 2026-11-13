@@ -69,6 +69,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0060: withFix("Keep one abilities file at `shared/abilities.ts`. Remove the other files listed in the message, or add the app file to replace layer rules."),
     AUTH_C0061: withFix("Return `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Or return another Better Auth adapter. Remove `database` to keep sessions in memory."),
     AUTH_C0062: withFix("Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, or remove `secondaryStorage`."),
+    AUTH_C0063: withFix("Write each access route as a literal path. To guard a path and every path below it, end the route with `/**`, for example `/api/users/**` in place of `/api/users/:id` or `/api/admin/*`. Check the parameter in the handler."),
     AUTH_B0001: withFix("Set `env.projectRoot` of `@vite-hub/auth/nuxt` to the `projectRoot` of the `hubEnv()` plugin, or remove `env.projectRoot`."),
     AUTH_B0002: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a rule for the guarded path that turns the cache off, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. If the page is public, remove the route from `access.routes`."),
     AUTH_R0005: withFix("Add `server/auth.ts` with `export default defineAuth({})`. For a Nuxt layer, add it to the app."),

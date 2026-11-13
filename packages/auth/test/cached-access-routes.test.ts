@@ -158,14 +158,16 @@ describe("Auth access routes with cache route rules", () => {
     await expect(runBuildHooks(nitro)).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
-  it("reads guard paths literally, as the access middleware matches them", async () => {
-    // The access middleware matches `(`, `)`, `:`, and `*` in a guard path as literal characters.
-    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/\\(drafts\\)/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/reports/(drafts)'"], { "/reports/\\(drafts\\)": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/files/:name'"], { "/files/:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/drafts/**": { swr: 60 } })).resolves.toBeUndefined()
-    await expect(buildViteApp(["'/files/:name'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
-    await expect(buildViteApp(["'/files/*'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
+  it("stops the build for a guard path with route pattern syntax", async () => {
+    for (const route of ["'/reports/(drafts)/**'", "'/files/:name'", "'/files/*'"]) {
+      await expect(buildViteApp([route], { "/files/report": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_C0063" })
+    }
+  })
+
+  it("reads guard paths as the access middleware matches them", async () => {
+    await expect(buildViteApp(["'/reports/'"], { "/reports": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/a+b'"], { "/files/a+b": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/a+b'"], { "/files/ab": { swr: 60 } })).resolves.toBeUndefined()
   })
 
   it("logs a warning and keeps the route rules when a development update caches a guarded route", async () => {

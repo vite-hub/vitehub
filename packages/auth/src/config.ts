@@ -4,6 +4,7 @@ import { defaultExportExpression, objectProperties, scanModule, staticString, st
 
 import type { CallExpression, Expression, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
+import { accessRouteSyntaxError } from "./application-path.ts"
 import { discoverAuthAbilities, discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
@@ -176,12 +177,18 @@ function readAuthRouteConfig(body: ObjectExpression | undefined): false | string
   throw authErrorDiagnostics.AUTH_C0008({ message: "`defineAuth()` route can only be `false` when provided." })
 }
 
+function assertLiteralAccessRoute(route: string, label: string): void {
+  const message = accessRouteSyntaxError(route, label)
+  if (message) throw authErrorDiagnostics.AUTH_C0063({ message })
+}
+
 function readAuthAccessRoute(entry: Expression | undefined, index: number): ResolvedAuthAccessRoute {
   const route = staticString(entry)
   if (typeof route !== "undefined") {
     if (!route.startsWith("/")) {
       throw authErrorDiagnostics.AUTH_C0009({ message: `\`defineAuth()\` access.routes[${index}] must start with \`/\`.` })
     }
+    assertLiteralAccessRoute(route, `access.routes[${index}]`)
     return { route }
   }
 
@@ -196,6 +203,7 @@ function readAuthAccessRoute(entry: Expression | undefined, index: number): Reso
   if (!resolvedRoute) {
     throw authErrorDiagnostics.AUTH_C0011({ message: `\`defineAuth()\` access.routes[${index}].route is required.` })
   }
+  assertLiteralAccessRoute(resolvedRoute, `access.routes[${index}].route`)
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
   const authorize = readObjectEntries(routeObject).find(entry => entry.key === "authorize")

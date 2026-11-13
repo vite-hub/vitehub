@@ -296,7 +296,7 @@ App Auth loads Better Auth on demand. Nitro imports the Auth route on its first 
 Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback. The callback returns all the options in one object, and Auth does not merge it with other options. `defineAuth()` rejects the removed `runtime` option with `AUTH_C0039`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
 
 
-`access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
+Each access route is a literal path, or a literal path that ends with `/**` to match the path and every path below it. Other pattern syntax (`*`, `:name`, `(`, `{`, `?`) fails with `AUTH_C0063`. The access middleware compares paths after the same normalization as the Nitro router: it decodes needless percent escapes and ignores one trailing slash. `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 `database` and `secondaryStorage` take Better Auth adapters only. In a static Definition, `database` takes only `authDatabase()`. `authDatabase("auth")` uses the Named Database `auth`:
 
