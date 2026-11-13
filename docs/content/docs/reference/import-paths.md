@@ -64,7 +64,7 @@ the same behavior.
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
-| `vite-hub/content/markdown` | Markdown negotiation middleware and Markdown 404 helpers. Pass a Content runtime or a loader that defers Content until a Markdown request. |
+| `vite-hub/content/markdown` | Markdown negotiation middleware and Markdown 404 helpers. Pass a Content runtime or a loader that defers Content until a Markdown request or an HTML page. |
 | `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
 | `vite-hub/content/sqlite` | In-memory SQLite database for full-text search on Node and Cloudflare Workers. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |

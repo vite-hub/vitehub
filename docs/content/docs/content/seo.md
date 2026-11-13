@@ -124,6 +124,7 @@ Nuxt has `useHead()` built in. In a Vue app, install `@unhead/vue`. In a plain s
 | `resolveImage` | Turns an image value into a URL. By default, strings stay as they are, and a Blob reference of the `default` store becomes its [`blob.serve`](/docs/blob/configure) URL, with its `route` and `publicBaseUrl`. The default reads the generated Blob config, so it works on the server. In the browser, or for signed or CDN URLs, pass your own. |
 | `type` | `og:type`. Defaults to `article` for a document with a URL, else `website`. |
 | `rss` | `true` adds `<link rel="alternate" type="application/rss+xml">` for [`/rss.xml`](#rss-feed), titled with `site.name`. `{ href, title }` links another feed. |
+| `markdown` | `true` adds `<link rel="alternate" type="text/markdown">` for the [Markdown copy](#markdown-for-agents) of a document with a URL, such as `/blog/hello.md`. Pass `{ prefix: '/raw' }` when `seo.markdown` has that prefix. |
 | `jsonLd` | `true` adds an `Article` or `WebPage` JSON-LD script. You can pass your own object. `<` is escaped, so document text cannot close the script. |
 
 The result has `description`, `robots: noindex` when set, Open Graph `og:title`, `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`, and `og:locale`, Twitter `summary_large_image` or `summary` card tags, and a `canonical` link. Empty tags are left out.
@@ -316,7 +317,7 @@ export default defineContent({
 
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 
-Responses that can be Markdown carry `Vary: Accept`, so a cache keeps the HTML and the Markdown apart. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. JSON, assets, and redirects keep their headers. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
 
 Check the output from code:
 
@@ -328,10 +329,11 @@ export async function checkAgentFiles() {
   await content.llms({ file: 'llms-full.txt' })
   await content.llms({ file: 'sitemap.md' })
   await content.markdown('/blog/hello.md')       // the copy, or null
+  await content.hasMarkdown('/blog/hello.md')    // true when the copy exists
 }
 ```
 
-ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
+ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown or gets an HTML page. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
 
 ## Console
 
