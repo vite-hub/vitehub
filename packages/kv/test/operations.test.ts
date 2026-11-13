@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
+import { kvErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { kv } from "../src/index.ts"
 import { kvOperations } from "../src/operations.ts"
 import { KVOperationError, listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
@@ -47,7 +48,7 @@ async function handle(body: Record<string, unknown>, stores?: readonly KVDevStor
     }
     catch (error) {
       if (!(error instanceof KVOperationError)) throw error
-      return { json: async () => ({ error: { code: error.code, message: error.message } }), status: error.status }
+      return { json: async () => ({ error: { code: error.code, fix: error.fix, message: error.message } }), status: error.status }
     }
   }
   const result = await runOperation(registry, `kv.${String(operation)}`, input, { access, surface: "cli", user: null })
@@ -62,14 +63,14 @@ async function run(body: Record<string, unknown>): Promise<{ body: Record<string
 }
 
 describe("kv operations", () => {
-  it.each(["get", "has", "set", "del"] as const)("passes empty keys through the %s runtime operation", async operation => {
+  it.each(["get", "has", "set", "delete"] as const)("passes empty keys through the %s runtime operation", async operation => {
     const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, "empty key"])
     const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, true])
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
-    const del = vi.spyOn(kv, "del").mockResolvedValue([undefined, undefined])
+    const del = vi.spyOn(kv, "delete").mockResolvedValue([undefined, undefined])
     try {
       expect(await run({ key: "", operation, ...(operation === "set" ? { value: "empty key" } : {}) })).toMatchObject({ status: 200, body: { key: "" } })
-      const storageCall = { get, has, set, del }[operation]
+      const storageCall = { get, has, set, delete: del }[operation]
       expect(storageCall.mock.calls[0]?.[0]).toBe("")
       expect((await run({ operation, ...(operation === "set" ? { value: "empty key" } : {}) })).status).toBe(400)
     }
@@ -173,8 +174,8 @@ describe("kv operations", () => {
     expect(cursor).toBeUndefined()
     expect(keys.sort()).toEqual(["users:1", "users:2"])
 
-    expect((await run({ key: "settings", operation: "del" })).body).toEqual({ deleted: true, key: "settings", store: "default" })
-    expect((await run({ key: "settings", operation: "del" })).body).toEqual({ deleted: false, key: "settings", store: "default" })
+    expect((await run({ key: "settings", operation: "delete" })).body).toEqual({ deleted: true, key: "settings", store: "default" })
+    expect((await run({ key: "settings", operation: "delete" })).body).toEqual({ deleted: false, key: "settings", store: "default" })
     expect((await run({ key: "settings", operation: "get" })).body).toEqual({ found: false, key: "settings", store: "default" })
     expect((await run({ key: "settings", operation: "has" })).body).toEqual({ exists: false, key: "settings", store: "default" })
   })
@@ -183,7 +184,7 @@ describe("kv operations", () => {
     expect((await run({ key: "stale-delete", operation: "set", value: "remove me" })).status).toBe(200)
     const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, false])
     try {
-      expect((await run({ key: "stale-delete", operation: "del" })).body).toEqual({ deleted: false, key: "stale-delete", store: "default" })
+      expect((await run({ key: "stale-delete", operation: "delete" })).body).toEqual({ deleted: false, key: "stale-delete", store: "default" })
       expect((await run({ key: "stale-delete", operation: "get" })).body).toMatchObject({ found: false })
     }
     finally { has.mockRestore() }
@@ -220,7 +221,7 @@ describe("kv operations", () => {
     await kv.set("vitehub:state", "x")
     for (const key of ["vitehub:state", "VITEHUB:state", "vitehub/state", ":vitehub::state"]) {
       await expect(run({ key, operation: "set", value: "y" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
-      await expect(run({ key, operation: "del" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
+      await expect(run({ key, operation: "delete" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
     }
     await expect(run({ key: "vitehub:state", operation: "get" })).resolves.toMatchObject({ body: { found: true, value: "x" }, status: 200 })
     await expect(run({ key: "vitehubby", operation: "set", value: "ok" })).resolves.toMatchObject({ status: 200 })
@@ -274,7 +275,7 @@ describe("kv operations", () => {
   it("reports disabled KV", async () => {
     const response = await handle({ key: "a", operation: "get" }, [])
     expect(response.status).toBe(409)
-    expect(await response.json()).toMatchObject({ error: { code: "KV_DISABLED" } })
+    expect(await response.json()).toMatchObject({ error: { code: "KV_DISABLED", fix: kvErrorDiagnostics.KV_DISABLED().fix } })
   })
 
   it("answers only to a call whose access includes the kv section", async () => {
@@ -287,7 +288,7 @@ describe("kv operations", () => {
 
   it("marks the write and the delete, and lists every command once", () => {
     expect(kvOperations.map(operation => [operation.name, operation.kind])).toEqual([
-      ["kv.list", "read"], ["kv.get", "read"], ["kv.has", "read"], ["kv.set", "write"], ["kv.del", "destructive"],
+      ["kv.list", "read"], ["kv.get", "read"], ["kv.has", "read"], ["kv.set", "write"], ["kv.delete", "destructive"],
     ])
   })
 })

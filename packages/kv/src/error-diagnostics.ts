@@ -74,7 +74,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     KV_DISABLED: {
       why: "KV is not configured in this runtime.",
-      fix: "Add `hubKv()` to the Vite config and do not set `kv: false`.",
+      fix: "Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKV()` to the Vite plugins and do not pass `false` to it.",
     },
     KV_INVALID_CONFIG: {
       why: ({ path }: { path: "kv" | "kv.stores" }) => `\`${path}\` must be a plain object.`,
@@ -93,7 +93,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? `The KV store "${store}" sets \`remote: true\`, but it uses the local \`${driver}\` driver in \`vite dev\`.`
         : `The KV store "${store}" sets \`remote: false\`, but the \`${driver}\` driver is always remote.`,
       fix: ({ remote }: { driver: string, remote: boolean, store: string }) => remote
-        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare preset."
+        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare host."
         : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
     },
     KV_INVALID_STORE_MODE: {

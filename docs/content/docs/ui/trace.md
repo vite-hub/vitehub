@@ -13,13 +13,13 @@ icon: i-lucide-route
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/trace`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Trace, TraceLine } from "@vite-hub/ui";
 ```
 
-`TraceRun` has its own entry, `@vite-hub/ui/trace-run`.
+`TraceRun` is in `@vite-hub/ui` too.
 
 ## Usage
 

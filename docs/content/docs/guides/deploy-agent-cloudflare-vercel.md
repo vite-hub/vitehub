@@ -1,6 +1,6 @@
 ---
 title: Deploy an Agent on Cloudflare and Vercel
-description: Keep one TypeScript Agent and HTTP route while changing the ViteHub deployment preset for Cloudflare Workers or Vercel.
+description: Keep one TypeScript Agent and HTTP route while changing the ViteHub host for Cloudflare Workers or Vercel.
 navigation.title: Deploy an Agent
 navigation.order: 2
 navigation.group: Agents
@@ -8,7 +8,7 @@ icon: i-lucide-cloud-upload
 ---
 
 Deploy one greeting Agent on Cloudflare Workers and on Vercel. The Agent and
-route stay the same. Only the preset, which picks the host output, changes.
+route stay the same. Only the host, which picks the host output, changes.
 
 Start with the app from [Installation](/docs/getting-started/installation),
 with its pinned Nitro and H3 versions, Node.js 22.22 or newer, and pnpm. A
@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
 
 ## Build for Cloudflare Workers
 
-Select the Cloudflare preset. Turn off Workflow, because this Agent finishes
+Select the Cloudflare host. Turn off Workflow, because this Agent finishes
 inside the request. Turn off Console, so the check needs no run log.
 
 ::tabs{sync="framework"}
@@ -59,7 +59,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
   	name: 'vitehub-greeting',
-  	preset: 'cloudflare',
+  	host: 'cloudflare',
   	agent: true,
   	workflow: false,
   	console: false,
@@ -77,7 +77,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
 	plugins: [vitehub({
 		name: 'vitehub-greeting',
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		agent: true,
 		workflow: false,
 		console: false,
@@ -94,7 +94,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
 	plugins: [vitehub({
 		name: 'vitehub-greeting',
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		agent: true,
 		workflow: false,
 		console: false,
@@ -123,7 +123,7 @@ Sandbox, or provisioning.
 
 ## Build for Vercel
 
-Change `preset: 'cloudflare'` to `preset: 'vercel'` and keep everything else.
+Change `host: 'cloudflare'` to `host: 'vercel'` and keep everything else.
 Link the project and pull its preview config with the Vercel CLI:
 
 ```bash [Terminal]

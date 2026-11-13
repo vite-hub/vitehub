@@ -67,7 +67,7 @@ Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, T
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+  vitehub: { host: 'node', agent: { channels: { simulate: true } } },
 })
 ```
 :::
@@ -79,7 +79,7 @@ import { vitehub } from 'vite-hub'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } }), nitro()],
 })
 ```
 :::
@@ -90,7 +90,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } })],
 })
 ```
 :::
@@ -332,7 +332,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -352,7 +352,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -371,7 +371,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -385,7 +385,7 @@ export default defineConfig({
 
 ```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export default defineChannel({
   adapter: webhook({
@@ -863,6 +863,45 @@ export default defineAgent({
 - Queued reconciliation reloads the PR head, comments, and files before the Driver starts.
 - Eligibility is decided on acceptance and kept while the delivery waits.
 
+### When the branch moves or the pull request closes
+
+`concurrencyLimit: 1` stops two Agent runs from writing one branch, but a person can still push to it. ViteHub watches `pull_request` events for this even when `reconcile.events` leaves them out, such as `events: []`. `pullRequest.reconcile.headMoves` sets what happens after a push by an account that is not a bot:
+
+| Run state | `headMoves: 'notify'` (default) | `headMoves: 'cancel'` |
+| --- | --- | --- |
+| Queued | Starts on the new head. Its prompt names the commit and the person who pushed it, and tells the Agent to check that the request still applies before it edits or pushes. | Is dropped and does not start. |
+| Running | Continues. | Is cancelled. |
+
+```ts fragment
+reconcile: {
+  concurrencyLimit: 1,
+  events: [],
+  headMoves: 'cancel',
+  mentions: ['@agent'],
+}
+```
+
+A `closed` event, including a merge, always drops the queued runs of the pull request and cancels its running runs. `reopened` lets new runs start again.
+
+- Pushes from bot accounts, such as the Agent's own GitHub App, are ignored, the same as for `synchronize` runs.
+- A cancelled run is final. The queue does not retry it, and the Invocation shows as cancelled.
+- Cancellation reaches runs in the server process that receives the webhook. With one server process, that is every run. With more than one, a run on another process continues until it ends.
+- Queued runs need the Channel State of a durable webhook State, such as SQLite or libSQL, to see a push that came while they waited.
+- A run that is already running gets no notice with `notify`. Use `cancel` when a person and the Agent often push to the same branch.
+
+### Hosted CI
+
+`pullRequest.ci` tells the run what to do with hosted CI after it pushes:
+
+- `'report'` (default): the Agent runs the project's local checks before it pushes, then reports the hosted checks that are still pending and finishes. The run does not wait for CI.
+- `'wait'`: the Agent waits for hosted CI after it pushes and fixes failures until all checks pass. The run stays open, and its tokens and time are spent, until CI finishes. Use it only when the Agent must see green checks before it finishes, and set a [deadline](#deadline) that covers your CI time.
+
+```ts [server/agents/reviewer.ts] fragment
+github({ app: true, pullRequest: { ci: 'wait', reconcile: { mentions: ['@agent'] } } })
+```
+
+Reconcile does not start a run on a failed check. To fix CI failures, ask the Agent in a comment, or let a workflow post a comment on failure that `reconcile.comments` accepts. Mention triggers skip bot comments.
+
 ### Deadline
 
 Persisted inline webhook runs time out after 15 minutes by default. Set `messages.timeout` in milliseconds, such as `30 * 60_000`. A timeout on the persisted input wins. Values must be positive, finite, and at most `2_147_483_647`, or the default applies. Replayed or rehydrated input can change the deadline after setup, minus setup time already spent, but setup keeps the first deadline. The deadline includes Workspace preparation, and expiry cancels the Invocation.
@@ -874,6 +913,8 @@ Review bots often post on every push, even with no findings. List those body pre
 ### Pull request Workspace
 
 The Workspace (the Agent's files) gets the PR checkout at `pullRequest.workspace.mount`. Without `workspace`, the mount is `portal`. `workspace: true` and `workspace: {}` mount at the root. `workspace: false` turns it off.
+
+With the Workspace, the Channel also adds the `vitehub-resolving-merge-conflicts` Skill at `.agents/skills/vitehub-resolving-merge-conflicts/SKILL.md`, and the prompt tells the Agent to use it for merge and rebase conflicts. Without the Workspace, the prompt gives the same steps in one line.
 
 The checkout uses the exact head SHA, so the PR loads before the Invocation starts. If that fails, the delivery fails with `AGENT_R0370` and the GitHub error, such as a connection reset, 401, or 404. With `workspace: false`, PR details are best effort: a failure leaves them out and sets `pullRequest.metadata.unavailable`.
 
@@ -889,7 +930,7 @@ A github() Channel with `app` gives its Agent forge access (GitHub repository ac
 
 Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -916,7 +957,7 @@ export default defineAgent({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 :::
@@ -929,7 +970,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
     nitro(),
   ],
 })
@@ -943,7 +984,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
   ],
 })
 ```

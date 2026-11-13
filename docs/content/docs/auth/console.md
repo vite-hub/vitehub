@@ -52,7 +52,7 @@ export default defineDatabase({ name: 'auth', schema: {} })
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineAuth(() => ({
   database: authDatabase('auth'),

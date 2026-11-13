@@ -3,8 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { usePublicEnv } from "#vitehub/env/public";
-import { useServerEnv } from "#vitehub/env/server";
+import { usePublicEnv, useServerEnv } from "@vite-hub/env";
 
 const publicEnv = usePublicEnv();
 const serverEnv = useServerEnv();

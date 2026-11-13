@@ -381,7 +381,7 @@ describe("vitehub deploy", () => {
   it.each(["vercel", "netlify", "node"])("rejects a linked Cloudflare host conflicting with configured %s before building or uploading stale output", async (preset) => {
     const root = await builtProject("cloudflare", {
       ".vitehub/link.json": JSON.stringify({ host: "cloudflare", linkedAt: "", project: { name: "my-app" }, schemaVersion: 1, verified: true }),
-      "vite.config.ts": `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ preset: "${preset}" })] }\n`,
+      "vite.config.ts": `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ host: "${preset}" })] }\n`,
     })
     const hosts = await fakeHosts(cloudflareEnv)
     const spawned: string[] = []
@@ -403,10 +403,10 @@ describe("vitehub deploy", () => {
     const noScript = await builtProject("cloudflare", { "package.json": JSON.stringify({ name: "my-app" }) })
     expect((await deploy(["--yes"], noScript, (await fakeHosts(cloudflareEnv)).env)).json.error?.code).toBe("SETUP_DEPLOY_BUILD_FAILED")
 
-    const unbuilt = await createProject({ "package.json": JSON.stringify({ name: "my-app" }), "vite.config.ts": "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ preset: \"cloudflare\" })] }\n" })
+    const unbuilt = await createProject({ "package.json": JSON.stringify({ name: "my-app" }), "vite.config.ts": "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ host: \"cloudflare\" })] }\n" })
     expect((await deploy(["--no-build", "--yes"], unbuilt, (await fakeHosts(cloudflareEnv)).env)).json.error?.code).toBe("SETUP_DEPLOY_OUTPUT_MISSING")
 
-    const mismatch = await builtProject("cloudflare", { ".output/deployment.json": JSON.stringify({ preset: "node" }) })
+    const mismatch = await builtProject("cloudflare", { ".output/deployment.json": JSON.stringify({ host: "node" }) })
     const result = await deploy(["--no-build", "--yes"], mismatch, (await fakeHosts(cloudflareEnv)).env)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_DEPLOY_HOST_MISMATCH")

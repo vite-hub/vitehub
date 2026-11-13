@@ -1,4 +1,4 @@
-export { disposeKVStores, kv } from "./runtime/storage.ts"
+export { disposeKVStores, getKVStoreDriver, kv } from "./runtime/storage.ts"
 export type {
   CloudflareKVStoreConfig,
   DatabaseKVStoreConfig,

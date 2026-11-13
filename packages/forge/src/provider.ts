@@ -1,6 +1,10 @@
 import type { ForgeProvider } from "forges"
 import type { GitHubProvider } from "forges/github"
 
+import { conditionalFetch } from "./conditional.ts"
+
+import type { ForgeConditionalRequests } from "./conditional.ts"
+
 /** The Forges that ViteHub supports. */
 export type ForgeKind = "github" | "gitlab" | "forgejo"
 
@@ -16,6 +20,11 @@ export interface ForgeConnection {
   userAgent?: string
   /** Request timeout in milliseconds. Default 30000. */
   timeout?: number
+  /**
+   * Revalidate repeated authenticated GETs with `If-None-Match`, so an unchanged response comes back as a `304`
+   * that GitHub does not count against the rate limit. Default: on for GitHub. `false` turns it off.
+   */
+  conditionalRequests?: boolean | ForgeConditionalRequests
 }
 
 /**
@@ -29,9 +38,13 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
   const auth = connection.token
     ? { type: "token" as const, token: connection.token }
     : { type: "anonymous" as const }
+  const conditional = connection.conditionalRequests ?? connection.forge === "github"
+  const fetcher = conditional
+    ? conditionalFetch(connection.fetch ?? ((input, init) => globalThis.fetch(input, init)), conditional === true ? {} : conditional)
+    : connection.fetch
   const options = {
     ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
-    ...(connection.fetch ? { fetch: connection.fetch } : {}),
+    ...(fetcher ? { fetch: fetcher } : {}),
     userAgent: connection.userAgent ?? "vitehub",
     ...(connection.timeout === undefined ? {} : { timeout: connection.timeout }),
     ...(connection.readOnly === undefined ? {} : { readOnly: connection.readOnly }),

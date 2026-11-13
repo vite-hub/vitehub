@@ -1,12 +1,12 @@
 import { contentSource, defineContent } from "@vite-hub/content"
 import agent from "#docs/agent"
 import manifest from "#docs/manifest"
-import { useKV } from "nitro/kv"
 import { useRuntimeConfig } from "nitro/runtime-config"
 import { docsAgentCopy, docsAgentPages, docsContentSource } from "../agent-copy.ts"
 import { docsDocumentOf, docsMarkdown } from "../markdown.ts"
 import { docsManifestPages, docsRawPath, findDocsPage } from "../navigation.ts"
 import { docsParserOptions } from "./documents.ts"
+import { readDocsFile } from "./files.ts"
 
 import type { ContentDocumentsRuntime, ContentRuntime } from "@vite-hub/content"
 import type { DocsMarkdownCopy } from "../agent-copy.ts"
@@ -16,13 +16,13 @@ import type { DocsPage } from "../types.ts"
 
 type ContentSource = Extract<NonNullable<Parameters<typeof defineContent>[0]>["sources"], object>[string]
 
-/** The pages of one docs folder from the server assets that the build bundles, as a Content Source. */
-function serverAssets(base: string): ContentSource {
-  const storage = useKV(`assets:${base}`)
+/** One docs folder as a Content Source, from the production bundle or development server assets. */
+function bundledPages(base: string): ContentSource {
+  const read = (key: string) => readDocsFile(base, key)
   return {
-    keys: async () => (await storage.getKeys()).map(key => key.replaceAll(":", "/")),
-    getItem: async (key: string) => String(await storage.getItem(key) ?? ""),
-    getItemRaw: (key: string) => storage.getItemRaw(key),
+    keys: async () => docsManifestPages(manifest).filter(page => (page.source ?? "docs") === base).map(page => page.file),
+    getItem: async (key: string) => await read(key) ?? "",
+    getItemRaw: read,
   }
 }
 
@@ -33,7 +33,7 @@ let content: { runtime: DocsContent, siteUrl: string } | undefined
 
 /** The agent copy of a page from its file. The `rawMarkdown` option runs at build time, and the build keeps each page that it changed. */
 async function docsPageCopy(page: DocsPage, text: string, siteUrl: string): Promise<DocsMarkdownCopy> {
-  const rewritten = await useKV("assets:docs-agent").getItem<string>(`${docsContentSource(page)}/${page.file}`)
+  const rewritten = await readDocsFile("docs-agent", `${docsContentSource(page)}/${page.file}`)
   return docsAgentCopy(manifest, page, rewritten === null ? text : String(rewritten), siteUrl)
 }
 
@@ -48,7 +48,7 @@ export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
   // One copy per page: `/raw/docs/kv/index.md` is not the copy of `/docs/kv`.
   if (!found || docsRawPath(found.page.path) !== rawPath) return null
   const config = useRuntimeConfig().public.docs as DocsPublicConfig
-  const text = await useKV(`assets:${found.page.source ?? "docs"}`).getItem(found.page.file)
+  const text = await readDocsFile(found.page.source ?? "docs", found.page.file)
   if (text === null) return null
   const copy = await docsPageCopy(found.page, String(text), `${config.site.url}${config.appBase.replace(/\/+$/, "")}`)
   return `${copy.markdown}${copy.footer}`
@@ -68,7 +68,7 @@ export function docsContent(): DocsContent {
   const assets = new Map(docsManifestPages(manifest).map(page => [docsContentSource(page), page.source ?? "docs"]))
   const sources = Object.fromEntries([...assets].map(([name, base]) => {
     const byKey = pages.get(name) ?? new Map<string, DocsPage>()
-    return [name, contentSource(serverAssets(base), {
+    return [name, contentSource(bundledPages(base), {
       url: ({ key }) => key === undefined ? null : byKey.get(key)?.path ?? null,
       label: "Docs",
       seo: ({ key }) => {

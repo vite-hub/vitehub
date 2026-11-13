@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 
+import type { DocsPackedFiles } from "../src/files.ts"
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
 import { docsAgentCopy } from "../src/agent-copy.ts"
 import { createDocsManifest } from "../src/manifest.ts"
@@ -384,7 +385,7 @@ describe("docs Nuxt setup", () => {
         { baseName: "docs-1", dir: join(dir, "b"), pattern: "**/*.md" },
       ]),
     );
-    expect(nitro.serverAssets).toEqual(expect.arrayContaining([{ baseName: "docs-agent", dir: join(options.buildDir, "docs/agent") }]));
+    expect(nitro.serverAssets).toEqual(expect.arrayContaining([{ baseName: "docs-agent", dir: join(options.buildDir, "docs/agent"), pattern: "**/*.md" }]));
     expect(templates.get("docs/custom-components.mjs")?.()).toContain("markdown-components.ts");
     expect(watchContent.mock.calls.map((call) => call[0])).toEqual([
       join(dir, "a"),
@@ -392,7 +393,7 @@ describe("docs Nuxt setup", () => {
     ]);
   });
 
-  it("copies the pages of a github() Source into the build, where the server reads them", async () => {
+  it.each([true, false])("copies and serves the pages of a github() Source (dev: %s)", async (dev) => {
     const fake = createFakeGitHub({ owner: "acme", repo: "docs" });
     vi.stubGlobal("fetch", vi.fn(fake.fetch));
     vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token");
@@ -409,24 +410,66 @@ describe("docs Nuxt setup", () => {
       {
         base: "/",
         sources: [{ source: github({ repo: "acme/docs", root: "docs" }), mount: "/remote", exclude: ["draft.md"] }],
+        rawMarkdown: markdown => `${markdown}\nRewritten.`,
       },
       "/",
-      true,
+      dev,
     );
     const copied = join(options.buildDir, "docs/sources/docs-0");
     expect(readFileSync(join(copied, "guide/start.md"), "utf8")).toBe("---\ntitle: Start\n---\nFrom a Source");
     expect(existsSync(join(copied, "draft.md"))).toBe(false);
-    const nitro: { serverAssets?: unknown[] } = {};
+    const nitro: { serverAssets?: unknown[], virtual?: Record<string, string | (() => string)> } = {};
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
-    expect(nitro.serverAssets).toContainEqual({ baseName: "docs-0", dir: copied, pattern: "**/*.md" });
+    if (dev) expect(nitro.serverAssets).toContainEqual({ baseName: "docs-0", dir: copied, pattern: "**/*.md" });
+    else expect(nitro.serverAssets ?? []).toEqual([]);
     // `nuxi build` empties the build folder after the modules load, so the copy is written again before the build.
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
     for (const hook of hooks.get("build:before") ?? []) await hook();
     expect(readFileSync(join(copied, "guide/start.md"), "utf8")).toContain("From a Source");
+    expect(readFileSync(join(options.buildDir, "docs/agent/docs_0/guide/start.md"), "utf8")).toContain("Rewritten.");
+    if (!dev) {
+      const template = nitro.virtual?.["#docs/files"];
+      if (typeof template !== "function") throw new Error("#docs/files is not generated");
+      const { default: files } = await import(`data:text/javascript,${encodeURIComponent(template())}`) as { default: DocsPackedFiles };
+      expect(files.index["docs-0"]?.["guide/start.md"]).toBeDefined();
+      expect(files.index["docs-0"]?.["draft.md"]).toBeUndefined();
+      expect(files.index["docs-agent"]?.["docs_0/guide/start.md"]).toBeDefined();
+    }
     // Content renders the raw copy on request, so the build writes none.
     expect(existsSync(join(options.buildDir, "docs/raw"))).toBe(false);
     // A Source has no folder to watch.
     expect(watchContent).not.toHaveBeenCalled();
+  });
+
+  it("packs the pages and rewritten agent copies of a build into one module instead of a server asset per file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-packed-"));
+    roots.push(dir);
+    for (const name of ["a", "b"]) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "index.md"), `---\ntitle: ${name}\n---\nSource ${name}`);
+    }
+    await setupDocs({ base: "/", sources: [{ source: join(dir, "a"), mount: "/a" }, { source: join(dir, "b"), mount: "/b" }], rawMarkdown: markdown => `${markdown}\nRewritten.` });
+    const nitro: { serverAssets?: Array<{ baseName: string }>, virtual?: Record<string, string | (() => string)> } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    expect(nitro.serverAssets?.filter(asset => asset.baseName.startsWith("docs")) ?? []).toEqual([]);
+    for (const hook of hooks.get("build:before") ?? []) await hook();
+    const template = nitro.virtual?.["#docs/files"];
+    if (typeof template !== "function") throw new Error("#docs/files is not generated at build time");
+    const { default: files } = await import(`data:text/javascript,${encodeURIComponent(template())}`) as { default: DocsPackedFiles };
+    vi.doMock("#docs/files", () => ({ default: files }));
+    vi.doMock("nitro/kv", () => ({ useKV: () => { throw new Error("A build must not read server assets") } }));
+    vi.resetModules();
+    const { readDocsFile } = await import("../src/runtime/files.ts");
+    expect(await readDocsFile("docs-0", "index.md")).toBe("---\ntitle: a\n---\nSource a");
+    expect(await readDocsFile("docs-1", "index.md")).toBe("---\ntitle: b\n---\nSource b");
+    expect(await readDocsFile("docs-agent", "docs_1/index.md")).toContain("Source b");
+    for (const [store, file] of [["docs-0", "missing.md"], ["docs-agent", "constructor"], ["__proto__", "index.md"], ["docs-agent", "../a/index.md"]]) {
+      expect(await readDocsFile(store!, file!)).toBeNull();
+    }
+    // Each page sits next to its rewritten agent copy in the packed bytes.
+    expect(files.index["docs-0"]!["index.md"]![1]).toBe(files.index["docs-agent"]!["docs_0/index.md"]![0]);
+    vi.doUnmock("#docs/files");
+    vi.doUnmock("nitro/kv");
   });
 
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {

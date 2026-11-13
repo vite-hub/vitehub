@@ -1,4 +1,4 @@
-export { codemods } from "./registry.ts"
+export { codemods, upgradeCodemods } from "./registry.ts"
 export { findCodemod, formatDiff, formatReport, runCodemod } from "./runner.ts"
 export { runCli } from "./cli-main.ts"
 export { detectCodemods, formatMigrationReport, runMigration } from "./migrate.ts"

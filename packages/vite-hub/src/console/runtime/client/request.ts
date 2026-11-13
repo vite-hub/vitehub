@@ -69,6 +69,9 @@ const textField = (value: unknown): string | undefined =>
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
 export function consoleErrorFields(value: unknown): ConsoleErrorFields {
   const body = record(value)
+  // An Auth guard refusal only has the HTTP phrase as its message. The Console code and sentence of the status say more.
+  const authRefusal = record(body?.data)?.code
+  if (body?.code === undefined && (authRefusal === "SIGNED_OUT" || authRefusal === "FORBIDDEN")) return {}
   const nested = record(body?.error)
   const source = nested ?? body
   const docs = textField(source?.docs)
@@ -139,6 +142,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "status": { operation: "status.get", strings: ["agent"] },
   "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
+  "workspace-files": { operation: "workspaces.files", strings: ["cursor", "name", "path", "ref", "revision"] },
 }
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -202,15 +206,15 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     // A POST names its operation: a read of one key by default, or a write or a delete from the editor.
     if (call.method === "POST") {
       const { action, ...input } = body
-      if (action === "set" || action === "del") return { input, operation: `kv.${action}` }
+      if (action === "set" || action === "delete") return { input, operation: `kv.${action}` }
       return { input: { ...input, preview: true }, operation: "kv.get" }
     }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
   }
   if (route === "blob" && call.method === "POST") {
-    // The Blob page uploads and deletes through the same route as it lists.
+    // The Blob page uploads, deletes, and opens files through the same route as it lists.
     const { action, ...input } = body
-    if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
+    if (action === "put" || action === "delete" || action === "get") return { input, operation: `blob.${action}` }
     throw new ConsoleRequestError(400, "Unsupported Blob action.")
   }
   if (route === "rate-limit" && call.method === "POST") {

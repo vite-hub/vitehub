@@ -3,12 +3,11 @@ import { resolve } from "node:path"
 
 import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
-import { vitehub } from "vite-hub"
+import { detectHost, vitehub } from "vite-hub"
 import { env } from "vite-hub/env"
-import { detectHost } from "vite-hub/runtime"
 
 // The Console is a ViteHub app: Auth signs people in, and the Database keeps the linked projects. The host comes from
-// VITEHUB_HOSTING or the build variables of the host, and is `node` without them.
+// VITEHUB_HOST or the build variables of the host, and is `node` without them.
 const host = detectHost() ?? "node"
 
 // The Console page is the Console client of vite-hub in `account` mode. Build it first with
@@ -48,7 +47,7 @@ export default defineConfig({
           },
         },
       },
-      preset: host,
+      host: host,
       ...(host === "node" ? { dataDir: process.env.VITEHUB_DATA_DIR ?? ".data" } : {}),
     }),
     {

@@ -1,5 +1,4 @@
 import { Diagnostic } from "nostics"
-import { $fetch } from "ofetch"
 import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 
 import type { ComputedRef, MaybeRefOrGetter, Ref } from "vue"
@@ -45,8 +44,36 @@ export interface UseCollectionReturn<TCollection extends AnyCollection> {
   refresh: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
 }
 
+/** Thrown by the default requester when a Collection route answers with an error status. */
+class CollectionRequestError extends Diagnostic {
+  readonly status: number
+
+  constructor(endpoint: string, status: number) {
+    super(sourceErrorDiagnostics.SOURCE_R0034({ endpoint, status }), CollectionRequestError)
+    this.name = "CollectionRequestError"
+    this.status = status
+  }
+}
+
+function queryString(query: Record<string, unknown> = {}): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item === undefined) continue
+      params.append(key, item === null ? "" : String(item) === item ? item : JSON.stringify(item))
+    }
+  }
+  const search = params.toString()
+  return search ? `?${search}` : ""
+}
+
 const defaultRequester: CollectionRequester = async (endpoint: string, options: CollectionRequestOptions) => {
-  return await $fetch<unknown>(endpoint, options)
+  const response = await fetch(`${endpoint}${queryString(options.query)}`, {
+    headers: { accept: "application/json" },
+    signal: options.signal,
+  })
+  if (!response.ok) throw new CollectionRequestError(endpoint, response.status)
+  return await response.json()
 }
 
 /** A Collection route rejected the request: `401` without a session, `403` when `authorize` denied it. */

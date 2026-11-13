@@ -262,6 +262,30 @@ test('persistent filters apply to discovery, labels, and claims; event rules onl
   assert.equal(await inbox.get(repository, 8), undefined)
 })
 
+test('a PR passes on either author allow list, a bot login matches in both spellings, and either deny list rejects', async t => {
+  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: {
+    authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] }, author: { allow: ['renovate[bot]'], deny: ['Blocked'] },
+  }})
+  t.onTestFinished(() => inbox.close())
+  const eligible = (login: string, association: string) => inbox.eligible(repository, normalizePullRequest(pr({ user: { login }, author_association: association })))
+  assert.equal(eligible('alice', 'MEMBER'), true)
+  assert.equal(eligible('renovate[bot]', 'NONE'), true)
+  // GraphQL names the same App 'renovate'; snapshot sync and the pre-push check read it that way.
+  assert.equal(inbox.eligible(repository, normalizePullRequest({ number: 9, state: 'OPEN', author: { login: 'renovate', __typename: 'Bot' }, authorAssociation: 'NONE', headRefOid: 'a', headRefName: 'deps', baseRefName: 'main' })), true)
+  assert.equal(eligible('mallory', 'NONE'), false)
+  assert.equal(eligible('blocked', 'OWNER'), false)
+  await post(inbox, 'opened-bot', 'pull_request', { action: 'opened', sender: { login: 'renovate[bot]' }, pull_request: pr({ user: { login: 'renovate[bot]', type: 'Bot' }, author_association: 'NONE' }) })
+  await post(inbox, 'opened-outsider', 'pull_request', { action: 'opened', sender: { login: 'mallory' }, pull_request: pr({ number: 8, user: { login: 'mallory' }, author_association: 'NONE' }) })
+  assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [7])
+})
+
+test('event actor rules match a bot login in either spelling', async t => {
+  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: { actor: { allow: ['renovate'] } }})
+  t.onTestFinished(() => inbox.close())
+  await post(inbox, 'opened', 'pull_request', { action: 'opened', sender: { login: 'renovate[bot]' }, pull_request: pr() })
+  assert.equal((await inbox.claim(1)).length, 1)
+})
+
 test('a newly opened PR is admitted when its lifecycle label is present', async t => {
   const inbox = new PullRequestInbox({
     path: ':memory:',
@@ -269,9 +293,9 @@ test('a newly opened PR is admitted when its lifecycle label is present', async 
     filter: resolveBabysitterLifecycleFilter({}, { labels: { require: ['repair'], deny: ['paused'] } }),
   })
   t.onTestFinished(() => inbox.close())
-  await post(inbox, 'opened-with-label', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ labels: ['repair'] }) })
+  await post(inbox, 'opened-with-label', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ labels: ['repair'], author_association: 'OWNER' }) })
   assert.equal((await inbox.claim(1)).length, 1)
-  await post(inbox, 'opened-paused', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ number: 8, labels: ['repair', 'paused'] }) })
+  await post(inbox, 'opened-paused', 'pull_request', { action: 'opened', sender: { login: 'maintainer' }, pull_request: pr({ number: 8, labels: ['repair', 'paused'], author_association: 'OWNER' }) })
   assert.equal((await inbox.claim(1)).length, 0)
 })
 

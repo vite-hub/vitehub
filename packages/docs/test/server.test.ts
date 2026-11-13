@@ -24,6 +24,8 @@ const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase" | "mcp">
 
 // The handlers use the real `nitro/h3`. Storage and runtime config need a Nitro build, so they are fakes.
 vi.mock("nitro/kv", () => ({ useKV }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: docsConfig } }) }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/agent", () => ({ default: { llms: { details: "Rules for agents.", sections: [{ title: "Links", links: [{ title: "API", href: "https://docs.example.com/openapi.json" }] }] } } }))

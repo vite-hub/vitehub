@@ -2,7 +2,7 @@ import { env } from "vite-hub/env";
 
 export default defineNuxtConfig({
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     env: {
       server: {
         databaseUrl: env({ secret: true, source: env.source("DATABASE_URL") }),

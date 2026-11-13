@@ -115,6 +115,7 @@ Nuxt has `useHead()` built in. In a Vue app, install `@unhead/vue`. In a plain s
 | --- | --- |
 | `site.url` | Public origin for absolute canonical, `og:url`, and image URLs. |
 | `site.name` | `og:site_name`, and the default title template `%s · <name>`. |
+| `rss` | `true` adds an RSS discovery link to `/rss.xml`. |
 | `site.locale` | `og:locale`, such as `en_US`. |
 | `defaults` | `{ title?, description?, image? }` fallbacks, often from a [settings document](/docs/content/configure#singletons-and-data-files). ViteHub has no settings schema, so you map your fields. |
 | `titleTemplate` | `'%s \| Docs'`, a function, or `null` for none. A document without a title uses the default title as is. |
@@ -178,7 +179,7 @@ The sitemap lists:
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
-Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
+Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every host. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
 
 Check the output from code:
 
