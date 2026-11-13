@@ -14,6 +14,7 @@ icon: i-lucide-circle-alert
 - These throw `CONTENT_R0006`: `collections` without `workspace` or `extends: cms`, `extends` with `workspace`, a collection not made by `documents()`, or a collection named like a Source.
 - `documents()` paths are relative globs with `*`, `**`, and `?` that end in one extension, such as `posts/**/*.md`. `path` can be a list of globs with that extension. An empty list, a repeated glob, mixed extensions, or a glob without a wildcard throws `CONTENT_R0006`. `content.resolve()` throws `CONTENT_R0008` for a path that is not a string. Every field is a Standard Schema validator.
 - `defineContent()` needs `AsyncLocalStorage` from `node:async_hooks` in the runtime.
+- Generated Content HTTP routes require Nitro 3, including Nuxt 5. Routes expose `fetch(request)` with a Web `Request`; Markdown middleware reads `event.req`.
 
 ## Sources
 
@@ -45,7 +46,7 @@ icon: i-lucide-circle-alert
 
 - `VITEHUB_CONTENT_KEY` signs preview tokens. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
 - A token lives 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token early. Rotating the key ends all of them.
-- Preview covers requests through Nitro 3, in Vite and in Nuxt 5. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Preview covers requests through Nitro 3, in Vite and in Nuxt 5. The preview plugin throws `CONTENT_R0008` on an app without Nitro 3's fetch entry. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
 - Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so make it skip its cache for preview requests. See [Caching](/docs/content/preview#caching).
 
 ## Sessions
@@ -69,7 +70,7 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
-| `CONTENT_R0008` | An unknown collection, a bad document id or ref, bad call options, such as a malformed session token or a `lease` other than `'override'`, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |
+| `CONTENT_R0008` | An unknown collection, a bad document id or ref, bad call options, such as a malformed session token or a `lease` other than `'override'`, `content.preview.enable()` without collections, or the preview plugin on an app without Nitro 3's fetch entry. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. Run the preview plugin on Nitro 3, including Nuxt 5. |
 | `CONTENT_R0009` | Bad `publish()` options, such as `ids` without `collection`, `expect` with `collection` or `ids`, an empty or repeated `expect` entry, or a bad digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
 | `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on each instance. |
 | `CONTENT_R0011` | Bad `schedule()` options: `at` not in the future or without a time zone, a bad `expect`, every document already published as reviewed, or a document with a pending schedule. | Pass a future time with a zone, and `unschedule()` the old schedule first. See [Scheduling](/docs/content/scheduling). |
@@ -79,6 +80,11 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0016` | `schedule()` ran on the GitHub store, which keeps no schedules. | Use `content.publish()`, or the Blob + Database store. See [GitHub store](/docs/cms/configure#github-store). |
 | `CONTENT_R0017` | `publish()` on the GitHub store with `publish: 'pr'` named a document that an open publish pull request covers. | Merge or close the named pull request, then publish again. See [Pull request mode](/docs/cms/configure#pull-request-mode). |
 | `CONTENT_R0018` | SQLite WASM for `sqlite()` from `vite-hub/content/sqlite` could not start on Cloudflare Workers, usually because only a file other than `server/content.ts` imports it. | Import `sqlite` from `vite-hub/content/sqlite` in `server/content.ts`. See [Providers](/docs/content/configure#providers). |
+| `CONTENT_R0075` | `content.sources.previewLinks()` or `vitehub content previews comment` named a pull request that GitHub does not have. | Check the number. A private repository needs `VITEHUB_GITHUB_TOKEN` with read access to pull requests. |
+| `CONTENT_R0076` | A publish with `publish: 'pr'` opened its pull request, but Content could not sign its preview links, so the result has no `previews`. Content logs it as a warning. | Set `VITEHUB_CONTENT_KEY`. `vitehub content previews comment --pr <number>` prints the links later. |
+| `CONTENT_R0077` | `vitehub content previews comment --post` has no `VITEHUB_GITHUB_TOKEN`. | Set a token that can write pull request comments, or leave out `--post` to print the comment. |
+| `CONTENT_R0078` | GitHub refused to list, create, or update the preview comment. | Check that the token can write issues and pull requests of the repository. |
+| `CONTENT_R0079` | `content.sources.previewLinks()` ran without `defineContent({ previews: true })`. | Set `previews: true`, so the app serves `/pr/<number>/<path>`. |
 | `CONTENT_UNDEFINED` | `vitehub content` found no default-exported `defineContent()` runtime. | Write `export default defineContent({ ... })` in `server/content.ts`. |
 | `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` or `schedule` ran without an interactive terminal or `--yes`. | Pass `--yes`, or `--dry-run` to only list changes. |
 | `CONTENT_DEV_RUNTIME_UNAVAILABLE` | The Development Server does not run Nitro in the Vite process, as with Nuxt or plain Vite. | Run the commands against a Vite + Nitro app. |

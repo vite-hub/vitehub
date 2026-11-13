@@ -7,7 +7,7 @@ export default defineNuxtConfig({
   alias: { "@vite-hub/docs/assistant": fileURLToPath(new URL("../dist/assistant-worker.js", import.meta.url)) },
   modules: [
     ["vite-hub/nuxt", {
-      preset: "cloudflare",
+      host: "cloudflare",
       name: "vitehub-docs-demo",
       publicUrl,
       auth: true,

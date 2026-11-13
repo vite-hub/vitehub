@@ -8,86 +8,88 @@ icon: i-lucide-folder-input
 ---
 
 ::product-hero{tagline="Read files from your project, GitHub, or your own data, and turn lists into paged API routes." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree
-  ```ts [server/sources/docs.ts]
-  import { github, glob } from 'vite-hub/source'
+  :hero-figure{name="source"}
+::
 
-  // Markdown files from your docs folder
-  export const docs = glob({
-    cwd: 'docs',
-    include: '**/*.md',
+::code-tree
+```ts [server/sources/docs.ts]
+import { github, glob } from 'vite-hub/source'
+
+// Markdown files from your docs folder
+export const docs = glob({
+  cwd: 'docs',
+  include: '**/*.md',
+})
+
+// Files from a GitHub repository
+export const handbook = github({
+  repo: 'acme/handbook',
+  ref: 'main',
+})
+```
+
+```ts [server/api/intro.get.ts]
+import { defineEventHandler } from 'h3'
+import { createSource } from 'vite-hub/source'
+import { docs } from '../sources/docs'
+
+// Read one file: docs/intro.md
+export default defineEventHandler(async () => {
+  const reader = createSource(docs)
+  return reader.read('intro.md')
+})
+```
+
+```ts [server/api/handbook.get.ts]
+import { defineEventHandler } from 'h3'
+import { createSource } from 'vite-hub/source'
+import { handbook } from '../sources/docs'
+
+// List the path of every file in the repository
+export default defineEventHandler(async () => {
+  const reader = createSource(handbook)
+  return reader.keys()
+})
+```
+
+```ts [server/collections/articles.ts]
+import {
+  array,
+  defineCollection,
+} from 'vite-hub/source'
+
+// ViteHub serves this list at /api/articles
+export const articles = defineCollection({
+  source: array([
+    { slug: 'hello', title: 'Hello', tag: 'news' },
+    { slug: 'vite', title: 'Why Vite', tag: 'guide' },
+  ], {
+    filters: ['tag'],
+    search: ['title'],
+  }),
+})
+```
+
+```vue [app/pages/articles.vue]
+<script setup lang="ts">
+import { useCollection } from 'vite-hub/source/client'
+
+// Load the guides, one page at a time
+const { items, hasMore, loadMore } =
+  useCollection('articles', {
+    filter: { tag: 'guide' },
   })
+</script>
 
-  // Files from a GitHub repository
-  export const handbook = github({
-    repo: 'acme/handbook',
-    ref: 'main',
-  })
-  ```
-
-  ```ts [server/api/intro.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { createSource } from 'vite-hub/source'
-  import { docs } from '../sources/docs'
-
-  // Read one file: docs/intro.md
-  export default defineEventHandler(async () => {
-    const reader = createSource(docs)
-    return reader.read('intro.md')
-  })
-  ```
-
-  ```ts [server/api/handbook.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { createSource } from 'vite-hub/source'
-  import { handbook } from '../sources/docs'
-
-  // List the path of every file in the repository
-  export default defineEventHandler(async () => {
-    const reader = createSource(handbook)
-    return reader.keys()
-  })
-  ```
-
-  ```ts [server/collections/articles.ts]
-  import {
-    array,
-    defineCollection,
-  } from 'vite-hub/source'
-
-  // ViteHub serves this list at /api/articles
-  export const articles = defineCollection({
-    source: array([
-      { slug: 'hello', title: 'Hello', tag: 'news' },
-      { slug: 'vite', title: 'Why Vite', tag: 'guide' },
-    ], {
-      filters: ['tag'],
-      search: ['title'],
-    }),
-  })
-  ```
-
-  ```vue [app/pages/articles.vue]
-  <script setup lang="ts">
-  import { useCollection } from 'vite-hub/source/client'
-
-  // Load the guides, one page at a time
-  const { items, hasMore, loadMore } =
-    useCollection('articles', {
-      filter: { tag: 'guide' },
-    })
-  </script>
-
-  <template>
-    <p v-for="article in items" :key="article.slug">
-      {{ article.title }}
-    </p>
-    <button v-if="hasMore" @click="loadMore()">
-      More
-    </button>
-  </template>
-  ```
-  :::
+<template>
+  <p v-for="article in items" :key="article.slug">
+    {{ article.title }}
+  </p>
+  <button v-if="hasMore" @click="loadMore()">
+    More
+  </button>
+</template>
+```
 ::
 
 ::product-features

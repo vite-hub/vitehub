@@ -1,4 +1,4 @@
-resend: moved 3 emails.send() calls to email.send() with the ViteHub Resend driver, deployment preset "node".
+resend: moved 3 emails.send() calls to email.send() with the ViteHub Resend driver, host "node".
 Dry run: no files were written.
 
 Files to change (5):
@@ -9,7 +9,7 @@ Files to change (5):
   package.json
 
 Manual follow-ups (6):
-  1. nuxt.config.ts:9 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  1. nuxt.config.ts:9 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
   2. Resend clients use different API-key sources. ViteHub Email uses one credential: the first available source. Check that all clients use the same account before using the migrated sends. Keep clients with different credentials on the Resend SDK or configure them separately by hand.
   3. server/api/mail.ts:8 email.send() returns an [error, sent] tuple, where Resend returned { data, error }. Update the code that reads this result.
   4. server/utils/resend.ts:6 ViteHub Email does not send React elements. Render the element to html first, for example with render() from @react-email/render.

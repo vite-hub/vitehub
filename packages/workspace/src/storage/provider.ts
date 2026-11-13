@@ -168,7 +168,7 @@ export function resolveWorkspaceDefinitionStore(
   const runtimeStore = runtimeConfig ? runtimeConfig.store : undefined
   return normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
     env: typeof process !== "undefined" ? process.env : {},
-    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING : undefined,
+    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOST : undefined,
     rootDir,
     runtime: true,
     ...input,

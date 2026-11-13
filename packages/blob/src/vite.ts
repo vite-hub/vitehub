@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
@@ -169,10 +169,6 @@ function hasLocalStore(blob: BlobViteRuntimeConfig["blob"]): boolean {
 /** Merges the generated Blob registrations into the Nitro config. */
 function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string, signedRoute = false): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
-  const externals = cloneNitroConfig(nitro.externals)
-  const inline = Array.isArray(externals.inline) ? externals.inline : []
-  // Generated file imports and package imports must share Nitro's bundled runtime.
-  nitro.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, blobPackageName])] }
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
@@ -228,9 +224,9 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
 
 type ImageModule = "photon" | "sharp"
 
-// Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
+// Under `vitehub()`, the dev server config names the host, and Nitro has none.
 function devServerHost(config: object) {
-  return getHostingProvider(resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }))
+  return getHostingProvider(resolveHost({ hosting: getDeploymentHost(config), nitro: Reflect.get(config, "nitro") }))
 }
 
 // Keep sharp's existing node_modules-based auto detection independent of NODE_PATH, which pnpm scripts set.

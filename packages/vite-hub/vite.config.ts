@@ -107,6 +107,7 @@ const runtimeEntries = [
   "src/console/runtime/client/route-query.ts",
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
+  "src/console/runtime/client/site-access.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
   "src/console/runtime/auth-operations.ts",
@@ -114,6 +115,7 @@ const runtimeEntries = [
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
+  "src/console/runtime/site-access.ts",
   "src/console/runtime/skills.ts",
   // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
   "src/console/runtime/server/access-policy.ts",
@@ -161,6 +163,10 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
+        {
+          from: "src/console/runtime/components/console-lazy-views.ts",
+          to: "dist/console/runtime/components",
+        },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -271,6 +277,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-kv.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-site.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -537,6 +547,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/route-query"];
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
+          delete exports["./console/runtime/client/site-access"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/auth-operations"];
@@ -544,6 +555,7 @@ export default defineConfig({
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
+          delete exports["./console/runtime/site-access"];
           delete exports["./console/runtime/skills"];
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];

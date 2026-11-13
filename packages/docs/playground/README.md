@@ -20,7 +20,7 @@ The docs assistant: the **Ask** button on every page opens a chat that answers f
 
 | File | Use |
 | --- | --- |
-| `nuxt.config.ts` | `vite-hub/nuxt` with the `cloudflare` preset, and `@vite-hub/docs/nuxt` |
+| `nuxt.config.ts` | `vite-hub/nuxt` with the `cloudflare` host, and `@vite-hub/docs/nuxt` |
 | `content/` | The docs pages |
 | `app/pages/`, `app/components/` | The landing, blog, and changelog pages, and the `::illustration` and `::illustrated-cards` blocks |
 | `blog/`, `changelog/`, `authors/` | The seed of the CMS collections. `scripts/seed-content.mjs` saves and publishes them through `vitehub content` |

@@ -178,7 +178,7 @@ describe("Workflow Provider Output lifecycle", () => {
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow("requires resolved Vite config")
   })
 
-  it("keeps Provider Output work in the Nuxt 4 SSR environment", async () => {
+  it("keeps Provider Output work in the Nuxt SSR environment when Nitro builds outside Vite", async () => {
     const plugin = await createPlugin({ nitroPlugin: true, viteHubNitroContext: true })
     await runSuccessfulProviderLifecycle(plugin, "client")
 
@@ -197,7 +197,7 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.finalize).toHaveBeenCalledOnce()
   })
 
-  it("cleans staged Provider Output after a Nuxt 4 SSR render failure", async () => {
+  it("cleans staged Provider Output after a Nuxt SSR render failure when Nitro builds outside Vite", async () => {
     await runRenderFailureLifecycle(await createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), "ssr")
 
     expect(lifecycle.capture).toHaveBeenCalledOnce()

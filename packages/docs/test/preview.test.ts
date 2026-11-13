@@ -35,10 +35,12 @@ vi.mock("nitro/kv", () => ({ useKV: () => ({ getItem }) }))
 vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: fixtures, base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: fixtures, base: "/docs" }) }
 })
 vi.mock("#docs/content", () => ({ content }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: {}, githubRepo: null }))
 
 const { default: page } = await import("../src/runtime/server/page.ts")

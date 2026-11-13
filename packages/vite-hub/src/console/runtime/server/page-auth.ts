@@ -28,12 +28,16 @@ export function isAuthAdmin(plugins: readonly unknown[] | undefined, user: { id:
   return strings(role).some(name => adminRoles.includes(name)) || strings(option(admin, "adminUserIds")).includes(user.id)
 }
 
-/** The ViteHub Auth user of a page request, for the Console page tool. Generated Console output loads it for apps with Auth. */
+/**
+ * The ViteHub Auth user of a page request, for the Console page tool: an admin of `admin()`, or a user with the
+ * `console` role, which Site access gives to Console members, gets the link. Generated Console output loads it for apps
+ * with Auth.
+ */
 export async function consolePageAuthUser(request: Request): Promise<ConsolePageUser | undefined> {
   const auth = useAuth(request)
   const session = await auth.api.getSession({ headers: request.headers })
   const user: unknown = session?.user
   if (user === null || typeof user !== "object" || !("id" in user) || typeof user.id !== "string") return undefined
   const person: ConsoleUser = { ...user, id: user.id }
-  return { user: person, admin: isAuthAdmin(auth.options.plugins, person) }
+  return { user: person, console: isAuthAdmin(auth.options.plugins, person) || strings(person.role).includes("console") }
 }

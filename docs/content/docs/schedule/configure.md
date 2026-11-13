@@ -14,7 +14,7 @@ icon: i-lucide-sliders-horizontal
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     kv: true,
     schedule: {
       runtime: {
@@ -36,7 +36,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: true,
       schedule: {
         runtime: {
@@ -59,7 +59,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: true,
       schedule: {
         runtime: {
@@ -129,7 +129,7 @@ Some hosts limit cron. Vercel Hobby runs cron jobs at most once a day. Set `cron
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     // server/schedules/cleanup.ts declares cron: '0 * * * *'
     schedule: { cron: { cleanup: '0 0 * * *' } },
   },
@@ -146,7 +146,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       // server/schedules/cleanup.ts declares cron: '0 * * * *'
       schedule: { cron: { cleanup: '0 0 * * *' } },
     }),
@@ -164,7 +164,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       // server/schedules/cleanup.ts declares cron: '0 * * * *'
       schedule: { cron: { cleanup: '0 0 * * *' } },
     }),

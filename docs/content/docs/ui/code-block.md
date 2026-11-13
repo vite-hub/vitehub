@@ -15,13 +15,13 @@ Syntax highlighting with [Shiki](https://shiki.style) is optional and lives in a
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/code-block`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { CodeBlock, CodeBlockContent, useHighlightedCode } from "@vite-hub/ui";
 ```
 
-`@vite-hub/ui/code-block` also exports `useHighlightedCode` for [syntax highlighting](#syntax-highlighting).
+`@vite-hub/ui` also exports `useHighlightedCode` for [syntax highlighting](#syntax-highlighting).
 
 ## Usage
 

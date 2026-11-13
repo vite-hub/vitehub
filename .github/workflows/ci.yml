@@ -665,7 +665,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      VITEHUB_HOSTING: cloudflare
+      VITEHUB_HOST: cloudflare
       VITEHUB_CONSOLE_D1_ID: 8d505e03-74c1-4565-9e0d-984292802d42
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

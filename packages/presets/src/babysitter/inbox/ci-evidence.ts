@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import * as v from 'valibot'
 import type { Claim, PullRequestInbox } from './store.ts'
 import type { GitHubEvidence } from './types.ts'
+import { isBabysitterCheckRun } from '../check-run.ts'
 import { compactCiLog, diagnosticExcerpt } from '../../github/ci-logs.ts'
 const jobSchema = v.looseObject({ id: v.number(), run_id: v.number(), head_sha: v.string(), status: v.string(), conclusion: v.nullish(v.string()),
   name: v.optional(v.string()), run_attempt: v.optional(v.number()), completed_at: v.nullish(v.string()), updated_at: v.nullish(v.string()),
@@ -19,6 +20,18 @@ const failures = new Set(['failure', 'timed_out', 'startup_failure', 'action_req
 const key = (kind: string, value: unknown) => `ci-evidence:v1:${kind}:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
 export const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => item.status === 'completed' && failures.has(item.conclusion ?? '')
 const sourceUrl = (repository: string, job: ActionJob) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`
+
+/**
+ * The run of one check that counts: the newer one, unless it was cancelled beside a finished run. On
+ * onmax/comark-plugins#87 and #103 the push and pull_request runs of one workflow shared a concurrency
+ * group, the later one was cancelled, and the PRs waited 17 h on checks that had already passed.
+ */
+export function newestCheckRun<T extends { id?: unknown; status?: unknown; state?: unknown; conclusion?: unknown }>(previous: T | undefined, check: T): T {
+  if (!previous) return check
+  const [newer, older] = Number(check.id ?? 0) >= Number(previous.id ?? 0) ? [check, previous] : [previous, check]
+  const cancelled = (run: T) => String(run.conclusion ?? run.state) === 'cancelled'
+  return cancelled(newer) && !cancelled(older) && older.status === 'completed' ? older : newer
+}
 
 export function actionLocation(repository: string, check: GitHubEvidence): { runId: number; jobId?: number } | undefined {
   if (check.app?.slug && check.app.slug !== 'github-actions') return undefined
@@ -43,7 +56,7 @@ export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Cl
   const evidence: CiEvidence[] = [], seenJobs = new Set<number>()
   let remaining = 48_000
   for (const check of Object.values(claim.snapshot.checks)) {
-    if (!headSha || check.head_sha !== headSha || !failed(check)) continue
+    if (!headSha || check.head_sha !== headSha || !failed(check) || isBabysitterCheckRun(check)) continue
     const common = { checkId: check.id, checkName: check.name, headSha, conclusion: check.conclusion, sourceURL: check.details_url ?? check.html_url }
     const location = actionLocation(repository, check)
     if (!location) {

@@ -7,10 +7,11 @@ import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ConsoleUser } from "../../auth-types.ts"
 
-/** The ViteHub Auth user of a page request, and whether Better Auth's `admin()` plugin counts them as an admin. */
+/** The ViteHub Auth user of a page request, and whether they get the Console link without `authorize`. */
 export interface ConsolePageUser {
   user: ConsoleUser
-  admin: boolean
+  /** An admin of Better Auth's `admin()` plugin, or a user with the `console` role that Site access gives. */
+  console: boolean
 }
 
 export interface ConsolePageToolOptions {
@@ -29,14 +30,15 @@ export interface ConsolePageToolOptions {
  * - A development server shows it to every visitor.
  * - With `console.authorize`, it runs with `via: "page"` and the app's Auth `user`. `true`, or `{ sections }` with at
  *   least one section, shows the link.
- * - Without `authorize`, it shows to a ViteHub Auth user that Better Auth's `admin()` plugin counts as an admin.
+ * - Without `authorize`, it shows to a ViteHub Auth user that Better Auth's `admin()` plugin counts as an admin, or
+ *   that has the `console` role, which Site access gives to Console members.
  */
 export async function consolePageToolAllowed(request: Request, options: Pick<ConsolePageToolOptions, "user"> = {}): Promise<boolean> {
   if (isConsoleDevelopmentBuild()) return true
   const policy = installedConsoleAccessPolicy()
   if (!policy || policy.mode === "local") return false
   const person = await options.user?.(request)
-  if (!policy.authorize) return person?.admin === true
+  if (!policy.authorize) return person?.console === true
   const result: unknown = await policy.authorize(person ? { request, user: person.user, via: "page" } : { request, via: "page" })
   if (result === true) return true
   return !isRuntimeResponse(result) && (consoleAuthorizedSections(result)?.length ?? 0) > 0

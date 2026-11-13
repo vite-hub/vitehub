@@ -84,7 +84,7 @@ const cell = (status: SupportLevel, detail: string, display?: string): SupportMa
   status,
 });
 
-/** The catalog host of each column. Nitro is not a ViteHub preset, so its cells are written by hand. */
+/** The catalog host of each column. Nitro is not a ViteHub host, so its cells are written by hand. */
 export const supportMatrixCatalogHosts: Record<Exclude<SupportHost, "nitro">, FeatureHost> = {
   local: "dev",
   cloudflare: "cloudflare",
@@ -151,7 +151,7 @@ const serverPrimitives: SupportMatrixGroup = {
   rows: [
     featureRow("browser", "Provider-backed browser operations", cell(
       "none",
-      "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
+      "Browser Definitions require ViteHub's Cloudflare host, not a generic Nitro preset.",
       "—",
     )),
     featureRow("blob", "Object storage", cell(
@@ -191,7 +191,7 @@ const serverPrimitives: SupportMatrixGroup = {
     ), "rate-limit"),
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",
-      "Cloudflare Nitro output uses Durable Objects. A single-process Node server can select memory explicitly.",
+      "Cloudflare Nitro output uses Durable Objects. Node servers share rooms through Postgres or Redis.",
       "Host authority",
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(
@@ -248,12 +248,12 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console endpoint runs in the Nitro output of the selected preset. The Console at console.vitehub.dev calls it with signed requests.",
+      "The Console endpoint runs in the Nitro output of the selected host. The Console at console.vitehub.dev calls it with signed requests.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(
       "package",
-      "Variables are validated at build and in the Nitro output of the selected preset.",
+      "Variables are validated at build and in the Nitro output of the selected host.",
       "Nitro runtime",
     )),
     featureRow("i18n", "Source-text messages in the request locale", cell(
@@ -263,12 +263,12 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("mcp", "The app's own MCP server", cell(
       "package",
-      "The MCP route runs in the Nitro output of the selected preset.",
+      "The MCP route runs in the Nitro output of the selected host.",
       "Nitro route",
     )),
     featureRow("observability", "Request logs, log sources, and Agent telemetry", cell(
       "package",
-      "Evlog runs in the Nitro output of the selected preset.",
+      "Evlog runs in the Nitro output of the selected host.",
       "Evlog",
     )),
   ],

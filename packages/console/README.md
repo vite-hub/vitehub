@@ -80,7 +80,7 @@ Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console can
 
 ```sh
 wrangler d1 create vitehub-console    # note the database id
-VITEHUB_HOSTING=cloudflare VITEHUB_CONSOLE_D1_ID=<id> vp build
+VITEHUB_HOST=cloudflare VITEHUB_CONSOLE_D1_ID=<id> vp build
 wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json
 wrangler secret put VITEHUB_CONSOLE_SECRET --config .output/server/wrangler.json   # and BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET
 wrangler deploy --config .output/server/wrangler.json
@@ -91,8 +91,8 @@ wrangler deploy --config .output/server/wrangler.json
 Add a Turso database from the Vercel Marketplace to the project, so the project has `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Then:
 
 ```sh
-VITEHUB_HOSTING=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub database migrate
-VITEHUB_HOSTING=vercel vp build
+VITEHUB_HOST=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub database migrate
+VITEHUB_HOST=vercel vp build
 vercel env add VITEHUB_CONSOLE_SECRET    # and BETTER_AUTH_SECRET, BETTER_AUTH_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 vercel deploy --prebuilt --prod
 ```

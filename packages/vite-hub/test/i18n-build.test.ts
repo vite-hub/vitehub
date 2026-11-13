@@ -9,7 +9,7 @@ import { vitehub } from "../src/index.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { contentDefinition, createProject, path, runCli } from "./support/content-cms.ts"
 
-const app = () => [vue(), vitehub({ i18n: { locales: ["en", "es"] }, preset: "node" })]
+const app = () => [vue(), vitehub({ i18n: { locales: ["en", "es"] }, host: "node" })]
 
 async function translatePo(file: string, translations: Record<string, string>): Promise<void> {
   let po = await readFile(file, "utf8")
@@ -105,7 +105,7 @@ describe("i18n in a built Nitro 3 app", () => {
   }, 120_000)
 
   it("serves a translation that a Workspace publishes, without a rebuild", async () => {
-    const live = () => [vue(), vitehub({ i18n: { locales: ["en", "es"], workspace: "content" }, preset: "node" })]
+    const live = () => [vue(), vitehub({ i18n: { locales: ["en", "es"], workspace: "content" }, host: "node" })]
     const root = await createProject({
       "index.html": "<!doctype html><html lang=\"en\"><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.ts\"></script></body></html>\n",
       "package.json": JSON.stringify({ name: "i18n-workspace", private: true, type: "module" }),

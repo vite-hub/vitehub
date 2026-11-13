@@ -11,8 +11,8 @@ import ConsoleState from "./console-state.vue";
 import { useConsoleWordWrap } from "./console-wrap";
 import "./console-session.css";
 
-const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
-const ConsoleFileDiff = defineAsyncComponent(() => import("@vite-hub/ui/file-diff").then(module => module.FileDiff));
+const ConsoleFileTree = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileTree));
+const ConsoleFileDiff = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileDiff));
 
 /**
  * Browses one Workspace like the session Workspace: its refs and revisions, the file tree, then the open file. A changed

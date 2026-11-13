@@ -26,14 +26,14 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
     await writeFile(definition, `export default defineDatabase({ name: ${JSON.stringify(name)}, schema: {} })\n`)
     await writeFile(join(root, "nuxt.config.ts"), [
       'import { writeFile } from "node:fs/promises"',
-      `import { hubDb } from ${JSON.stringify(pathToFileURL(join(packageRoot, "src/nuxt.ts")).href)}`,
+      `import { hubDatabase } from ${JSON.stringify(pathToFileURL(join(packageRoot, "src/nuxt.ts")).href)}`,
       "export default defineNuxtConfig({",
       `  buildDir: ${JSON.stringify(buildDir)},`,
       "  dev: false, devtools: { enabled: false }, telemetry: false,",
-      "  modules: [hubDb()], nitro: { preset: 'node-server' },",
+      "  modules: [hubDatabase()], nitro: { preset: 'node-server' },",
       "  hooks: {",
       "    'nitro:init': async (nitro) => {",
-      `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/drizzle']))`,
+      `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/runtime/registry']))`,
       "    },",
       "  },",
       "})",
@@ -48,7 +48,8 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
     const runtime: string = JSON.parse(await readFile(aliasFile, "utf8"))
     const source = await readFile(runtime, "utf8")
     expect(source).toContain(`[${JSON.stringify(name)}]: {`)
-    expect(source).toContain("export const useDatabase = createUseDatabase(")
+    expect(source).toContain("export function useDatabase(name) {")
+    expect(source).toContain("return createUseDatabase(databases, Object.keys(configured()))(name)")
     await expect(readFile(join(buildDir, "nuxt.d.ts"), "utf8")).resolves.toContain("reference")
   }
   finally {
