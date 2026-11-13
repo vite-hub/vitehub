@@ -1174,6 +1174,36 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("retargets open stacked children onto its base before a merge deletes their base branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    const headRef = f.pr().head.ref;
+    let childBase = headRef;
+    f.command.mockImplementation(async (args, request) => {
+      const text = args.join(" ");
+      if (args.includes("repos/acme/app")) {
+        const repository = JSON.parse((await command(args, request)).stdout);
+        return { stdout: JSON.stringify({ ...repository, delete_branch_on_merge: true }), stderr: "" };
+      }
+      if (text.includes("-X PATCH") && text.includes("repos/acme/app/pulls/13")) {
+        childBase = args.find(arg => arg.startsWith("base="))!.slice(5);
+        return { stdout: JSON.stringify({ number: 13, state: "open", base: { ref: childBase } }), stderr: "" };
+      }
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path.includes("pulls?") && path.includes("state=open") && path.includes(`base=${encodeURIComponent(headRef)}`)) {
+        const child = { number: 13, state: "open", base: { ref: childBase }, head: { ref: "child", repo: { full_name: "acme/app" } } };
+        return { stdout: childBase === headRef ? JSON.stringify(child) : "", stderr: "" };
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(childBase).toBe("main");
+      expect(f.events).toHaveBeenCalledWith("babysitter.stack.children_retargeted", expect.objectContaining({ children: [13], base: "main" }));
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(true);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   /** A required `test` Actions job that fails on the PR head and on the base tip with `log` and `baseLog`. */
   function inheritFailure(f: Awaited<ReturnType<typeof fixture>>, log: string, baseLog = log) {
     const command = f.command.getMockImplementation()!;
@@ -1754,8 +1784,20 @@ describe("Babysitter preset runtime", () => {
         expect(markReady(f)[0]![0]).toContain("id=PR_12");
         expect(f.passes).toHaveLength(0);
         expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
-        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the reviewed draft ready for review so it can merge." });
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the draft ready for review so it can merge." });
         expect(f.events).toHaveBeenCalledWith("babysitter.draft.ready", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("marks a listed author's green draft ready before any review assessment", async () => {
+      const f = await fixture(false, false, { merge: { strategy: "direct", markDraftsReady: ["Developer"] }, draft: true });
+      try {
+        await f.runtime.inbox.ingest("draft-opened", "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: f.pr() });
+        expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeUndefined();
+        await f.reconcile();
+        expect(markReady(f)).toHaveLength(1);
+        expect(f.passes).toHaveLength(0);
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the draft ready for review so it can merge." });
       } finally { await f.runtime.inbox.close(); }
     });
 
