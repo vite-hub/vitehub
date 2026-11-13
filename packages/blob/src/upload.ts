@@ -41,9 +41,10 @@ function isMultipartAction(value: string | undefined): value is MultipartAction 
 }
 
 // Browsers send the bare file name; drop any directory part so the client cannot pick a folder.
-// put() decodes pathnames once, so encode the name to store it as written.
+// Pathnames must not contain `%XX`, so replace that `%` with `_`. put() decodes pathnames once, so encode the name.
 function uploadedFileName(file: File): string {
-  return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
+  const name = file.name.split(/[\\/]/).pop() || "file"
+  return encodeURIComponent(name.replace(/%(?=[\da-f]{2})/gi, "_"))
 }
 
 function payloadTooLarge(bytes: number, limit: number): Error {

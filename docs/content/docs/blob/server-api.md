@@ -119,7 +119,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
@@ -144,7 +144,7 @@ export default defineEventHandler((event) => {
 })
 ```
 
-`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
+`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
 
 HEAD responses keep the same status and headers as GET, with no body.
 
@@ -227,6 +227,8 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 `blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
 for each file. The file name, without folders, is the pathname. ViteHub does
 not URL-decode it, so a file named `..%2Fevil.txt` stays inside `prefix`.
+It replaces the `%` of each `%XX` sequence with `_`, so `Q3 100%25.pdf` is
+stored as `Q3 100_25.pdf`.
 It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
