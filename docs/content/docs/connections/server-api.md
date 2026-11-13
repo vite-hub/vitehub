@@ -16,6 +16,15 @@ icon: i-lucide-code-2
 | `createConnectionsHandler` from `vite-hub/connections` | Management, connect, and callback routes. `connections.management` mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
 
+The runtime methods that make a decision are `approve`, `deny`, `authorize`, `complete`, `revoke`, and `setKey`. Each one requires `actor`, such as `user:<id>`, and records it as the manager. There is no default actor. Pass the signed-in user of your app:
+
+```ts fragment
+const runtime = getConnectionsRuntime()
+await runtime.approve({ actor: `user:${session.user.id}`, id })
+```
+
+A missing or empty `actor` fails with `CONNECTIONS_INVALID_ACTOR`. The management routes pass the actor that your `actor` policy returns.
+
 ## Management routes
 
 The routes are `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback`, after the Vite `base` if set.
