@@ -59,7 +59,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`, `lock()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -112,7 +112,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 
 `increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
 
-`deleteIfEquals(key, expected)` deletes the key only when it holds `expected`, in one atomic step, and returns `true` when this call deleted it. Use it to free a token that only its owner may free:
+`deleteIfEquals(key, expected)` deletes the key only when it holds `expected`, in one atomic step, and returns `true` when this call deleted it. Use it to free a token that only its owner may free. For a lock, use [`kv.lock()`](#locks), which does this for you:
 
 ```ts [server/jobs/report.ts] fragment
 const owner = crypto.randomUUID()
@@ -126,6 +126,51 @@ if (claimed) {
 ```
 
 KV compares the stored text with `expected` serialized as `set()` stores it, so objects with the same fields in another order are not equal. The `redis`, `database`, and `upstash` drivers support it. Other drivers return `KV_UNSUPPORTED_OPERATION`. The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support an operation. Use the [Rate Limit primitive](/docs/rate-limit) when provider-managed request budgets fit the application.
+
+## Locks
+
+`kv.lock(key, { ttl })` gives a lock that one runner holds at a time, across all server processes that share the store. Use it for a cron job or a sync that must not run twice at once. `run()` takes the lock, calls your function, and releases the lock, also when the function throws:
+
+```ts [server/tasks/daily-report.ts] fragment
+const [error, result] = await kv.lock('cron:daily-report', { ttl: 60 }).run(async () => {
+  return await sendDailyReport()
+})
+if (error) throw error
+if (!result.acquired) return // Another runner holds the lock.
+console.log(result.value)
+```
+
+- `ttl` is required, in seconds. The lock expires after `ttl`, so a crashed runner never keeps it. Pick a value longer than the work.
+- `wait` is optional, in seconds. Without it, `run()` returns `{ acquired: false }` at once when the lock is held. With it, `run()` polls with backoff until the lock is free or `wait` ends.
+- An error from your function is thrown again after the release. A failed release returns `KV_OPERATION_FAILED`, after your function ran. The lock then expires after `ttl`.
+
+Each lock writes a random owner token with `setIfAbsent()`, and the release frees it with `deleteIfEquals()`. A runner whose lock expired cannot delete the lock of the next runner.
+
+KV does not renew a lock. There is no compare-and-set that changes only the TTL, so a runner cannot extend a lock. When the work runs longer than `ttl`, another runner can take the lock while the first one still runs.
+
+When you must hold the lock across code that does not fit in one function, use `acquire()`. Call `release()` in `finally`:
+
+```ts [server/sync.ts] fragment
+const [error, lock] = await kv.lock('sync:github', { ttl: 30, wait: 5 }).acquire()
+if (error) throw error
+if (!lock.acquired) return
+try {
+  await syncGitHub()
+}
+finally {
+  // `true`: deleted. `false`: the lock had expired, so another runner can hold it now.
+  const [releaseError, released] = await lock.release()
+  if (releaseError || !released) console.warn('sync:github lock expired before the release')
+}
+```
+
+| Driver | `lock()` |
+| --- | --- |
+| `redis`, `upstash` | Atomic. `SET NX` with a TTL, and a script that deletes the key only when it holds the owner token. Upstash rounds `ttl` up to whole seconds. |
+| `database` | Atomic. One `INSERT ... ON CONFLICT` statement, and one `DELETE` that checks the owner token. Expiry uses the clock of the Database. |
+| `deno-kv`, `fs-lite`, `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
+
+The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`.
 
 ## Runtime helper
 

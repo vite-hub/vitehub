@@ -174,13 +174,14 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "lock" | "set" | "setIfAbsent"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
   | "KV_INVALID_CURSOR"
   | "KV_INVALID_LIMIT"
   | "KV_INVALID_TTL"
+  | "KV_INVALID_WAIT"
   | "KV_KEY_TOO_LONG"
   | "KV_METADATA_TOO_LARGE"
   | "KV_OPERATION_FAILED"
@@ -211,6 +212,47 @@ type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 export interface KVSetIfAbsentOptions {
   /** Seconds until the key expires. `fs-lite` never expires keys, so its key stays until you delete it. */
   ttl?: number
+}
+
+/** Options of `kv.lock()`. */
+export interface KVLockOptions {
+  /**
+   * Seconds until the lock expires, so a crashed holder never keeps it. Pick a value longer than the work.
+   * KV does not renew a lock: when the work runs longer than `ttl`, another runner can take the lock.
+   */
+  ttl: number
+  /** Seconds to wait for a held lock, polling with backoff. Default `0`: return `{ acquired: false }` at once. */
+  wait?: number
+}
+
+/** Codes that `kv.lock().run()` and `kv.lock().acquire()` return. */
+export type KVLockErrorCode = "KV_INVALID_TTL" | "KV_INVALID_WAIT" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION"
+
+/** The data of `kv.lock().run()`: the callback's value, or `acquired: false` when another runner held the lock. */
+export type KVLockRunResult<T> = { acquired: true, value: T } | { acquired: false }
+
+/** The data of `kv.lock().acquire()`. */
+export type KVLockAcquisition =
+  | {
+    acquired: true
+    /**
+     * Deletes the lock only when this runner still holds it. Returns `true` when it deleted the lock and `false` when
+     * the lock had expired, so another runner can hold it now.
+     */
+    release(): Promise<Result<boolean, "KV_OPERATION_FAILED">>
+  }
+  | { acquired: false }
+
+/** A lock on one key. Create it with `kv.lock(key, options)`. */
+export interface KVLock {
+  /**
+   * Takes the lock, runs `fn`, and releases the lock, also when `fn` throws. An error from `fn` is thrown again after
+   * the release. Returns `{ acquired: false }` without calling `fn` when another runner holds the lock after `wait`.
+   * A release that fails returns `KV_OPERATION_FAILED` after `fn` ran; the lock then expires after `ttl`.
+   */
+  run<T>(fn: () => T): Promise<Result<KVLockRunResult<Awaited<T>>, KVLockErrorCode>>
+  /** Takes the lock and returns a `release()` function. Prefer `run()`, which always releases. */
+  acquire(): Promise<Result<KVLockAcquisition, KVLockErrorCode>>
 }
 
 export interface KVListPage {
@@ -254,6 +296,13 @@ export interface KVStorage {
   increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
   list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
+  /**
+   * A lock on `key` that one runner holds at a time, across server processes that share the store. It writes a random
+   * owner token with `setIfAbsent()` and a TTL, and frees it with `deleteIfEquals()`, so a runner never deletes a lock
+   * that another runner took after it expired. Nothing renews a lock.
+   * The drivers in {@link KVDriversWith}`<"deleteIfEquals">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
+   */
+  lock(key: string, options: KVLockOptions): KVLock
   /** Cloudflare KV stores return `KV_KEY_TOO_LONG`, `KV_VALUE_TOO_LARGE`, `KV_METADATA_TOO_LARGE`, and `KV_TTL_TOO_SHORT` before a write that Cloudflare rejects. */
   set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>
   /**
