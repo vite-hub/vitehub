@@ -15,6 +15,7 @@ import { defineAbilities, deny, guest } from "../src/abilities.ts"
 import { defineAuth } from "../src/definition.ts"
 import authRoute, { AbilityError, can, requireAbility, resetAuth } from "../src/internal/server.ts"
 import abilities from "./fixtures/abilities.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "https://app.example.com"
 const credentials = { email: "author@example.com", name: "Author", password: "correct-horse-battery" }
@@ -26,13 +27,14 @@ let db: Record<string, unknown[]> = {}
 function authOptions() {
   return {
     emailAndPassword: { enabled: true },
-    runtime: { database: memoryAdapter(db), secret: "abcdefghijklmnopqrstuvwxyz0123456789" },
+    database: memoryAdapter(db),
+    secret: "abcdefghijklmnopqrstuvwxyz0123456789",
   }
 }
 
 beforeEach(async () => {
   db = { account: [], session: [], user: [], verification: [] }
-  definition.current = defineAuth(authOptions())
+  definition.current = defineFixedAuth(authOptions())
   const signUp = await authRoute.fetch(new Request(`${origin}/api/auth/sign-up/email`, {
     body: JSON.stringify(credentials),
     headers: { "content-type": "application/json", origin },
