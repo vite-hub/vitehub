@@ -40,6 +40,8 @@ export default defineConfig({
       // `console: true`, a Console can link this one as an app, with signed calls, to triage them.
       comments: true,
       console: true,
+      // Node cannot trust Host or forwarding headers as the identity of this deployment.
+      publicUrl: process.env.VITEHUB_CONSOLE_PUBLIC_URL,
       // The ViteHub MCP. /mcp serves the docs tools to anyone. /mcp/account adds the tools of the person's team, after
       // OAuth sign-in with the Console account (mcpOAuth() in server/auth.ts).
       mcp: { publicRoute: "/mcp", route: "/mcp/account" },
