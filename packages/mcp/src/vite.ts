@@ -4,7 +4,7 @@ import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/intern
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { resolve } from "pathe"
+import { dirname, relative, resolve } from "pathe"
 
 import { mcpErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -62,14 +62,44 @@ function discoverMcpFiles(kind: "prompts" | "resources", options: { rootDir: str
   return discoverDefinitions<DiscoveredMcpTool>(kind === "prompts" ? "MCP prompt" : "MCP resource", [createDirectoryDefinitionSource(`server-mcp-${kind}`, serverDirs, `mcp/${kind}`)])
 }
 
+const hooksExtensions = [".ts", ".mts", ".js", ".mjs"]
+
+/** The `mcp.ts` hooks module of the server directories, if there is one. */
+function discoverMcpHooks(options: { rootDir: string, serverDirs: readonly string[] }): string | undefined {
+  const files = options.serverDirs.flatMap(directory => hooksExtensions.map(extension => resolve(directory, `mcp${extension}`))).filter(file => existsSync(file))
+  if (files.length > 1) {
+    throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] Only one MCP hooks module is allowed. Keep one of: ${files.map(file => relativeDefinitionFile(options.rootDir, file)).join(", ")}.` })
+  }
+  return files[0]
+}
+
 interface McpDefinitionFiles {
   tools: DiscoveredMcpTool[]
   prompts: DiscoveredMcpTool[]
   resources: DiscoveredMcpTool[]
+  hooks?: string
 }
 
 function discoverAll(options: { rootDir: string, serverDirs: readonly string[] }): McpDefinitionFiles {
-  return { tools: discoverMcpTools(options), prompts: discoverMcpFiles("prompts", options), resources: discoverMcpFiles("resources", options) }
+  const hooks = discoverMcpHooks(options)
+  return { tools: discoverMcpTools(options), prompts: discoverMcpFiles("prompts", options), resources: discoverMcpFiles("resources", options), ...(hooks ? { hooks } : {}) }
+}
+
+/** A relative `import()` type specifier that resolves under NodeNext and bundler resolution: `mcp.ts` becomes `mcp.js`. */
+function typeImportSpecifier(from: string, file: string): string {
+  const path = relative(from, file).replace(/\.([cm]?)ts$/, ".$1js")
+  return path.startsWith(".") ? path : `./${path}`
+}
+
+/** Gives handlers the type of the value that `resolveCaller` of `server/mcp.ts` returns. */
+function renderTypes(typesFile: string, hooks: string | undefined): string {
+  if (!hooks) return "export {}\n"
+  return [
+    "declare namespace ViteHub {",
+    `  interface McpRegistry { hooks: typeof import(${JSON.stringify(typeImportSpecifier(dirname(typesFile), hooks))}).default }`,
+    "}",
+    "",
+  ].join("\n")
 }
 
 function normalizeRoute(value: string, option: "publicRoute" | "route"): string {
@@ -96,7 +126,7 @@ interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> 
 }
 
 function renderHandler(files: McpDefinitionFiles, options: RenderOptions): string {
-  const field = (key: keyof McpDefinitionFiles, prefix: string) => {
+  const field = (key: "prompts" | "resources" | "tools", prefix: string) => {
     const entries = `{ ${files[key].map((file, index) => `${JSON.stringify(file.name)}: ${prefix}${index}`).join(", ")} }`
     return options.only === "public"
       ? `  ${key}: Object.fromEntries(Object.entries(${entries}).filter(([, ${prefix}]) => ${prefix}.public === true)),`
@@ -108,6 +138,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     ...files.tools.map((tool, index) => `import tool${index} from ${JSON.stringify(tool.handler)}`),
     ...files.prompts.map((prompt, index) => `import prompt${index} from ${JSON.stringify(prompt.handler)}`),
     ...files.resources.map((resource, index) => `import resource${index} from ${JSON.stringify(resource.handler)}`),
+    ...files.hooks ? [`import hooks from ${JSON.stringify(files.hooks)}`] : [],
     "",
     "export default createMcpHandler({",
     `  name: ${JSON.stringify(options.name)},`,
@@ -117,6 +148,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     field("tools", "tool"),
     ...files.prompts.length ? [field("prompts", "prompt")] : [],
     ...files.resources.length ? [field("resources", "resource")] : [],
+    ...files.hooks ? ["  hooks,"] : [],
     ...options.auth ? ["  verify: request => verifyMcpRequest(request),"] : [],
     "})",
     "",
@@ -135,6 +167,7 @@ function renderDiscovery(options: { authMcp: string, runtime: string }): string 
 
 function isDefinitionFile(file: string, serverDirs: readonly string[]): boolean {
   const normalized = file.replaceAll("\\", "/")
+  if (serverDirs.some(directory => hooksExtensions.some(extension => normalized === resolve(directory, `mcp${extension}`)))) return true
   return serverDirs.some(directory => ["tools", "prompts", "resources"].some(kind => normalized.startsWith(`${resolve(directory, "mcp", kind)}/`)))
     && /\.(?:c|m)?[jt]sx?$/i.test(normalized)
 }
@@ -143,7 +176,8 @@ function isDefinitionFile(file: string, serverDirs: readonly string[]): boolean 
  * The app MCP server: each file in `server/mcp/tools/` is one tool, each file in `server/mcp/prompts/` one prompt, and
  * each file in `server/mcp/resources/` one resource. The server answers at `route` (`/mcp`). With
  * `auth`, every request needs an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`, and the server answers
- * the OAuth discovery documents at the origin root. `publicRoute` serves the tools with `public: true` to anyone.
+ * the OAuth discovery documents at the origin root. `publicRoute` serves the tools with `public: true` to anyone. The
+ * default export of `server/mcp.ts` gives the hooks, and `.vitehub/types/mcp.d.ts` gives handlers the type of its caller.
  */
 export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   const route = normalizeRoute(options.route ?? "/mcp", "route")
@@ -159,11 +193,15 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
 
   const handlerFile = () => resolve(projectRoot, generatedDir, "handler.ts")
   const publicHandlerFile = () => resolve(projectRoot, generatedDir, "public.ts")
+  const typesFile = () => resolve(projectRoot, ".vitehub/types/mcp.d.ts")
   const name = () => options.name ?? packageName(projectRoot) ?? "app"
   const server = { instructions: options.instructions, serverInfo: options.serverInfo }
   const write = (writer: (file: string, contents: string) => unknown) => {
     const files = discoverAll({ rootDir: projectRoot, serverDirs })
-    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, name: name(), route: `${base}${route}` }))]
+    const written = [
+      writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, name: name(), route: `${base}${route}` })),
+      writer(typesFile(), renderTypes(typesFile(), files.hooks)),
+    ]
     if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, name: name(), only: "public", route: `${base}${publicRoute}` })))
     return written
   }

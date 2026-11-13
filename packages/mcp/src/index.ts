@@ -1,8 +1,15 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
-import type { McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations } from "@vite-hub/internal/runtime/mcp-server"
+import type { McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 
-export type { McpContentBlock, McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations } from "@vite-hub/internal/runtime/mcp-server"
+export type { McpContentBlock, McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
+
+declare global {
+  namespace ViteHub {
+    /** Generated declarations set `hooks` to the type of the default export of `server/mcp.ts`. */
+    interface McpRegistry {}
+  }
+}
 
 /** A Standard Schema that also gives its JSON Schema, such as a Zod 4 object or Valibot's `toStandardJsonSchema()`. */
 export type McpToolInput = StandardSchemaV1 & StandardJSONSchemaV1
@@ -19,12 +26,21 @@ export interface McpToolCaller {
   clientName: string | undefined
 }
 
+/**
+ * The `caller` of the handlers: what `resolveCaller` of `server/mcp.ts` returns, else the signed-in {@link McpToolCaller}
+ * or `undefined`.
+ */
+export type McpCaller = ViteHub.McpRegistry extends { hooks: McpHooks<infer TCaller> } ? TCaller : McpToolCaller | undefined
+
 /** The second argument of a tool, prompt, or resource handler. */
 export interface McpToolContext {
   /** The H3 event of the MCP request. `event.req` is the web `Request`. */
   event: H3Event
-  /** The signed-in caller when `mcpOAuth()` protects the server, else `undefined`. */
-  caller: McpToolCaller | undefined
+  /**
+   * The signed-in caller when `mcpOAuth()` protects the server, else `undefined`. With `resolveCaller` in
+   * `server/mcp.ts`, it is the value that `resolveCaller` returns.
+   */
+  caller: McpCaller
 }
 
 /** One tool of the app MCP server, the default export of a file in `server/mcp/tools/`. The file name is the tool name. */
@@ -71,6 +87,54 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
  */
 export function defineMcpTool<TInput extends McpToolInput | undefined = undefined>(definition: McpToolDefinition<TInput>): McpToolDefinition<TInput> {
   return definition
+}
+
+/** One tool call, as `onToolCall` of `server/mcp.ts` sees it after the handler ran. */
+export interface McpToolCall<TCaller = McpCaller> {
+  /** The tool name. */
+  name: string
+  /** The arguments after the input schema checked them. */
+  input: unknown
+  /** The caller that the handler got. `undefined` when `resolveCaller` threw. */
+  caller: TCaller | undefined
+  /** The H3 event of the MCP request. */
+  event: H3Event
+  /** How long the handler ran, in milliseconds. */
+  durationMs: number
+  /** The result that the Agent reads. A failed call has `isError: true`. */
+  result: McpToolResult
+  /** What the handler or `resolveCaller` threw. Absent when nothing threw. */
+  error?: unknown
+}
+
+/** The default export of `server/mcp.ts`: functions that the app MCP server calls for each request. */
+export interface McpHooks<TCaller = McpToolCaller | undefined> {
+  /**
+   * Maps the caller of a request to the app's own identity, such as a user row with its team. The server calls it once
+   * per request, before the first tool, prompt, or resource handler, and passes its result as `caller`. `caller` here is
+   * the signed-in caller of `mcpOAuth()`, else `undefined`. Throw an error with a 4xx `status` to refuse the call with
+   * its message.
+   */
+  resolveCaller?(context: { event: H3Event, caller: McpToolCaller | undefined }): TCaller | Promise<TCaller>
+  /** Runs after each tool call whose arguments passed the input schema, such as to log the call. Its errors are logged. */
+  onToolCall?(call: McpToolCall<TCaller>): void | Promise<void>
+}
+
+/**
+ * Define the hooks of the app MCP server. Put them in `server/mcp.ts` as the default export. The type of the value that
+ * `resolveCaller` returns becomes the type of `caller` in every handler.
+ *
+ * ```ts [server/mcp.ts]
+ * import { defineMcpHooks } from "vite-hub/mcp"
+ *
+ * export default defineMcpHooks({
+ *   resolveCaller: ({ caller }) => caller && findMember(caller.user.id),
+ *   onToolCall: ({ name, durationMs, result }) => console.info(name, durationMs, result.isError),
+ * })
+ * ```
+ */
+export function defineMcpHooks<TCaller = McpToolCaller | undefined>(hooks: McpHooks<TCaller>): McpHooks<TCaller> {
+  return hooks
 }
 
 /** A Standard Schema with a JSON Schema for the arguments of a prompt. Each field is a string. */

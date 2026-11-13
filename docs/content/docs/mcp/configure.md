@@ -62,7 +62,7 @@ export default defineAuth(({ requestOrigin }) => ({
 
 A request without a valid token gets `401` with `WWW-Authenticate: Bearer resource_metadata="…"`, and the MCP client starts the OAuth flow. The server also answers the discovery documents at `/.well-known/`. The `caller` of a handler has the `user`, the approved `scopes`, and the `clientName`, such as `Claude Code`. See [MCP OAuth](/docs/auth/configure#sign-mcp-clients-in) for the options of `mcpOAuth()`.
 
-Set `mcp: { auth: false }` for a public server in an app with Auth, or to check callers in each handler.
+Set `mcp: { auth: false }` for a public server in an app with Auth, or to check callers in each handler. To give the handlers the app's own user instead of the Auth user, add `resolveCaller` in [`server/mcp.ts`](/docs/mcp/server-api#resolve-the-caller-and-log-tool-calls).
 
 ## Serve the app below a base path
 

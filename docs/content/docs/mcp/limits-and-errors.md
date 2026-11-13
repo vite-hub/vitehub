@@ -18,7 +18,7 @@ The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/d
 
 ## Errors
 
-A wrong route or tool file name fails the build.
+A wrong route, a wrong tool file name, or a second hooks module fails the build.
 
 ### MCP_B0001
 
@@ -27,3 +27,7 @@ A wrong route or tool file name fails the build.
 ### MCP_B0002
 
 A file in `server/mcp/tools/` has a name that MCP does not allow as a tool name. Rename the file.
+
+### MCP_B0003
+
+More than one server directory has an `mcp.ts` hooks module, such as `server/mcp.ts` and `app/mcp.ts`. Keep one `defineMcpHooks()` module.
