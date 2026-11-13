@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import { createSource } from "@vite-hub/source"
-import type { GitHubPullRequest, GitHubRef, GitHubRefTarget, Source, SourceItem, SourceRevision } from "@vite-hub/source"
+import type { GitHubRefTarget, GitHubSource, Source, SourceItem, SourceRevision } from "@vite-hub/source"
 import { contentHub } from "comark-content"
 import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
 import { formatDiagnostic } from "nostics"
@@ -138,12 +138,7 @@ export interface ContentSourceHeads {
 }
 
 /** A `github()` Source definition. */
-type GitHubDefinition = Source<string, unknown, object> & {
-  authenticated(): Promise<boolean>
-  resolveRef?(ref: GitHubRef, options?: { signal?: AbortSignal }): Promise<GitHubRefTarget | undefined>
-  contains?(sha: string, options?: { signal?: AbortSignal }): Promise<boolean>
-  pullsAt?(sha: string, options?: { signal?: AbortSignal }): Promise<GitHubPullRequest[]>
-}
+export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "resolveRef" | "contains" | "pullsAt">>
 
 /** The KV value of a head. */
 interface StoredHead {
@@ -308,6 +303,13 @@ interface ContentSourceHeadsRuntime {
   attach(name: string, instance: ComarkContent): void
   /** Close every view after its current reads finish. */
   dispose(): Promise<void>
+  /** The `github()` definition of a Source, or undefined for other Sources. */
+  github(name: string): GitHubDefinition | undefined
+  /**
+   * The commit that readers get from a `github()` Source: its head, else the commit that this server instance serves
+   * when KV fails, else the latest commit of its branch. Null when GitHub gives no immutable commit.
+   */
+  published(name: string): Promise<string | null>
   /** The names of the `github()` Sources. */
   names(): string[]
   /** The names of the `github()` Sources that follow `ref` of `repo`. `defaultBranch` resolves a Source without `ref`. */
@@ -974,6 +976,22 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
           return served && (await load(state, served)).commit
         }),
       }
+    },
+    github: name => states.get(name)?.definition,
+    async published(name: string): Promise<string | null> {
+      const state = stateOf(name)
+      if (await isLive(state)) {
+        try {
+          const head = await current(state)
+          if (head?.sha) return head.sha
+        }
+        catch (error) {
+          if (!isKVFailure(error)) throw error
+          if (state.served) return state.served.sha
+        }
+      }
+      const revision = await createSource(state.definition).revision()
+      return revision?.immutable ? revision.id : null
     },
     attach(name: string, instance: ComarkContent): void {
       const state = states.get(name)

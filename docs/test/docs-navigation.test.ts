@@ -31,6 +31,7 @@ const serverPrimitiveSections = [
   "i18n",
   "kv",
   "logs",
+  "mcp",
   "queue",
   "rate-limit",
   "realtime",

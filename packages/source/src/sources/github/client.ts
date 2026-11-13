@@ -3,7 +3,7 @@ import { forgeArchive, forgeEnv, forgeErrorStatus, forgeProvider, readForgeEnv }
 import { sourceError } from "../../core/errors.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
-import type { GitHubPullRequest } from "./types.ts"
+import type { GitHubFileCommit, GitHubHistoryOptions, GitHubPullRequest } from "./types.ts"
 
 type GitHubProvider = Awaited<ReturnType<typeof forgeProvider>>
 
@@ -26,6 +26,8 @@ export interface GitHubClient {
   /** Undefined for a directory or another path that is not a regular file. */
   metadata: (path: string, ref: string, token: string | undefined, signal?: AbortSignal) => Promise<{ sha: string } | undefined>
   resolveCommit: (ref: string, token: string | undefined, signal?: AbortSignal) => Promise<string>
+  /** One page of the commits that changed `path`, newest first, from `sha` back. */
+  commits: (path: string, options: GitHubHistoryOptions, token: string | undefined) => Promise<{ commits: GitHubFileCommit[], more: boolean }>
 }
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
@@ -40,6 +42,25 @@ export function githubErrorStatus(error: unknown): number | undefined {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0
+}
+
+function fileCommit(repo: string, item: unknown): GitHubFileCommit {
+  const commit: unknown = isRecord(item) ? item.commit : undefined
+  const author: unknown = isRecord(commit) ? commit.author : undefined
+  const login: unknown = isRecord(item) && isRecord(item.author) ? item.author.login : undefined
+  const name: unknown = isRecord(author) ? author.name : undefined
+  const date: unknown = isRecord(author) ? author.date : undefined
+  const message: unknown = isRecord(commit) ? commit.message : undefined
+  if (!isRecord(item) || !isNonEmptyString(item.sha) || !isNonEmptyString(item.html_url) || !isNonEmptyString(date) || typeof message !== "string") {
+    throw malformed(repo, "commits")
+  }
+  return {
+    sha: item.sha,
+    date: new Date(date).toISOString(),
+    author: isNonEmptyString(login) ? login : isNonEmptyString(name) ? name : null,
+    message: message.split("\n", 1)[0]!.trim(),
+    url: item.html_url,
+  }
 }
 
 /** Undefined when GitHub answers that the ref does not exist: 404, or 422 for an unknown commit SHA. */
@@ -223,6 +244,18 @@ export function createGitHubClient(repo: string): GitHubClient {
       if (Array.isArray(entry)) return
       if (!isRecord(entry) || !isNonEmptyString(entry.type) || !isNonEmptyString(entry.sha)) throw malformed(repo, "content")
       return entry.type === "file" ? { sha: entry.sha } : undefined
+    },
+    async commits(path, { sha, page, perPage }, token) {
+      const response = await request(sha, "commits", token, undefined, async (client, repoRef) => await client.request<unknown>(
+        "GET",
+        `/repos/${encodeURIComponent(repoRef.owner)}/${encodeURIComponent(repoRef.name)}/commits`,
+        { query: { path, sha, page, per_page: perPage } },
+      ))
+      if (!Array.isArray(response.data)) throw malformed(repo, "commits")
+      return {
+        commits: response.data.map(item => fileCommit(repo, item)),
+        more: /rel="next"/.test(response.headers.get("link") ?? ""),
+      }
     },
     async resolveCommit(ref, token, signal) {
       const sha: unknown = await request(ref, "commit", token, signal, async (client, repoRef) => await client.contents.resolveRef(repoRef, ref, { signal }))
