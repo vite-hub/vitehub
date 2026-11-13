@@ -20,7 +20,7 @@ const screenshots = process.env.STYLES_SCREENSHOTS
 if (screenshots) mkdirSync(screenshots, { recursive: true })
 
 // Elements of the ui-sdk examples, not kit parts: the layout helpers of the ui-sdk docs.
-const exampleSlots = new Set(["card", "files", "grid", "grip", "hint", "initials", "row", "stack", "tile", "visually-hidden"])
+const exampleSlots = new Set(["card", "files", "grid", "grip", "hint", "initials", "row", "stack", "tile"])
 // Visible parts that need no rule: groups and list wrappers, whose items carry the look.
 const unstyledSlots = new Set([
   "autocomplete-list",

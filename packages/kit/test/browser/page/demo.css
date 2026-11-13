@@ -72,15 +72,6 @@ body {
   font-weight: 600;
 }
 
-[data-slot="visually-hidden"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 [data-slot="grip"] {
   align-self: center;
   width: 2.5rem;

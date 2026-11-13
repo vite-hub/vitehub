@@ -53,6 +53,16 @@
     padding: 0;
   }
 
+  /* Text for screen readers only, as ui-sdk writes it: `<span data-slot="visually-hidden">`. */
+  [data-slot="visually-hidden"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
   :is(
     [data-slot="field-description"],
     [data-slot="field-error"],

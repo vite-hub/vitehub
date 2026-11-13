@@ -90,6 +90,7 @@ The parts have no styles until you load a style family. A family is one CSS file
 - **No Tailwind needed.** The family is plain CSS in the `components` cascade layer, so utility classes and your own CSS win over it. With Tailwind, keep these lines above `@import "tailwindcss"`.
 - **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`.
 - **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, cards 2 times, and menus and dialogs 3 times.
+- Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
 - **Variants** are attributes: `data-variant="solid"` for the main action, `data-variant="ghost"` for toolbar and row actions, and `data-variant="destructive"`.
 - **Motion:** dialogs, toasts, and panels fade in through `data-starting-style` and `data-ending-style`. Menus, selects, popovers, and tooltips appear at once. Under `prefers-reduced-motion`, only the fades stay.
 
