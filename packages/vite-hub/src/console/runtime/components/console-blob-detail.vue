@@ -13,7 +13,7 @@ import ConsoleStatGrid from "./console-stat-grid.vue";
 
 /**
  * The raw metadata of one Blob object, next to the Blob browser: what the store recorded, HTTP metadata, and custom
- * metadata. The Console does not download object contents.
+ * metadata. A double click in the list opens the contents.
  */
 const props = defineProps<{
   file: ConsoleMediaFile;
@@ -22,7 +22,7 @@ const props = defineProps<{
   store: string;
 }>();
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; open: [] }>();
 
 const type = computed(() => consoleMediaType(props.file.contentType));
 const facts = computed(() => [
@@ -48,6 +48,10 @@ const customMetadata = computed(() => sorted(props.object?.customMetadata));
     <header class="flex h-(--ui-header-height) shrink-0 items-center gap-2 border-b border-default px-4">
       <UIcon :name="consoleMediaTypeIcons[type]" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
       <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted" :title="file.pathname">{{ file.name }}</h2>
+      <!-- The list opens a file with a double click. This button is the keyboard and touch way to do the same. -->
+      <UTooltip text="Open in a new tab">
+        <UButton variant="ghost" size="sm" icon="i-lucide-arrow-up-right" :aria-label="`Open ${file.name} in a new tab`" @click="emit('open')" />
+      </UTooltip>
       <UTooltip text="Close" :kbds="['esc']">
         <UButton variant="ghost" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
       </UTooltip>
@@ -72,7 +76,7 @@ const customMetadata = computed(() => sorted(props.object?.customMetadata));
       <ConsolePropertyList title="Recorded by the store" :items="recorded" />
       <ConsolePropertyList title="HTTP metadata" count :items="httpMetadata" empty="No HTTP metadata" empty-description="The store returned none for this object." />
       <ConsolePropertyList title="Custom metadata" count :items="customMetadata" empty="No custom metadata" empty-description="Metadata that the app sets on upload shows here." />
-      <p class="text-xs text-muted">Metadata only. The Console does not download object contents or change Blob Stores.</p>
+      <p class="text-xs text-muted">Open, or double-click the file in the list, to see its contents in a new tab.</p>
     </div>
   </aside>
 </template>

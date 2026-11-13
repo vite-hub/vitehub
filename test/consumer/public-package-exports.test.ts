@@ -978,8 +978,8 @@ describe("published declaration diagnostics", () => {
     expect(fixtureSpecs).toMatchObject({
       "@aws-sdk/client-s3": peerSpecs["@aws-sdk/client-s3"],
       "@azure/storage-blob": peerSpecs["@azure/storage-blob"],
+      "@google-cloud/storage": peerSpecs["@google-cloud/storage"],
       "@types/node": "1.0.0",
-      uploadthing: peerSpecs.uploadthing,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })

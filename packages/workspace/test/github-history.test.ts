@@ -108,7 +108,8 @@ beforeEach(() => {
     if (url.pathname.includes("/commits/heads%2F")) {
       const ref = decodeURIComponent(url.pathname.split("/commits/heads%2F")[1] || "")
       const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
-      return sha ? json({ sha }) : new Response("missing", { status: 404 })
+      // GitHub answers a branch with its whole head commit.
+      return sha ? json(commits[sha]) : new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/git/trees/")) {
       const ref = url.pathname.split("/git/trees/")[1]
@@ -137,7 +138,11 @@ beforeEach(() => {
         ? json([commits.c2], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
         : page === 2 ? json([commits.c1]) : json([])
       if (ref === "feature/draft") return json(page === 1 ? [commits.c3, commits.c1] : [])
-      if (ref === "c2") return json(page === 1 ? [commits.c2, commits.c1] : [])
+      if (ref === "c2") {
+        const perPage = Number(url.searchParams.get("per_page") || "30")
+        const items = [commits.c2, commits.c1].slice((page - 1) * perPage, page * perPage)
+        return json(items, page * perPage < 2 ? { link: `<https://api.github.com/repos/onmax/repo/commits?sha=c2&per_page=${perPage}&page=${page + 1}>; rel="next"` } : {})
+      }
       return new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/compare/")) {

@@ -2,7 +2,7 @@ import { formatDiagnostic } from "nostics"
 
 import { parserHash } from "./commit-cache.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
-import { contentKV } from "./source-heads.ts"
+import { contentKV } from "./kv.ts"
 
 import type { GitHubFileCommit } from "@vite-hub/source"
 import type { ContentRevision, ContentRevisionsOptions, ContentRevisionsResult, ContentResolved } from "./collections-runtime.ts"
