@@ -128,7 +128,7 @@ export default defineConfig({
 ::
 
 ```ts [server/agents/support.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { remoteMcpServer } from 'vite-hub/agent/mcp'

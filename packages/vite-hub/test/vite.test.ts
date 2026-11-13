@@ -148,7 +148,7 @@ import { ownerModules } from "../src/internal/owner-modules.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/console-client", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/codemods", "@vite-hub/console-client", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -804,8 +804,8 @@ describe("vitehub", () => {
         blob: "vite-hub/blob",
         connections: false,
         console: false,
-        db: "vite-hub/database/drizzle",
-        email: "vite-hub/email/server",
+        db: "@vite-hub/database/runtime/registry",
+        email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
       },
@@ -832,16 +832,16 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
     // hubKv() infers the driver itself, so `vite dev` can keep the store local.
-    expect(integrationMocks.hubKv).toHaveBeenCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "cloudflare-module" })
+    expect(integrationMocks.hubKv).toHaveBeenCalledWith(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "cloudflare-module" })
     // With `kv` unset, the list also has the KV case for a `github()` Content Source.
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith(undefined, { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node-server" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
-      databaseImport: "vite-hub/database/drizzle",
+      databaseImport: "@vite-hub/database/runtime/registry",
       importBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),

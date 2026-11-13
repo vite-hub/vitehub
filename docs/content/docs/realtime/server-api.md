@@ -66,7 +66,7 @@ export default defineDatabase({
 
 ```ts [server/realtime/pages.ts]
 import { and, eq } from 'drizzle-orm'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({

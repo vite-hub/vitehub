@@ -9,7 +9,7 @@ seo.title: "EMAIL_NOT_CONFIGURED: configure the Email provider"
 
 `error.why` tells which case you have:
 
-- `No Email provider is configured.` Email is off. `vitehub()` has no `email` option, or it has `email: false`. Then `vite-hub/email/server` loads an empty Email definition.
+- `No Email provider is configured.` Email is off. `vitehub()` has no `email` option, or it has `email: false`. Then `vite-hub/email` loads an empty Email definition.
 - `The options of the <driver> Email driver are not valid.` The driver rejected its options when ViteHub created it. `error.cause` names the option. The Resend driver needs an `apiKey` string that starts with `re_`, and an `endpoint` must be an HTTP or HTTPS URL. The Cloudflare Email driver needs the `EMAIL` binding in the Worker env.
 
 In `vite dev` without `remote: true`, a send stays in the development outbox, and ViteHub does not create the driver. So invalid driver options show only in a build, or in `vite dev` with `remote: true`.

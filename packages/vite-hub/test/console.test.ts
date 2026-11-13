@@ -317,7 +317,7 @@ describe("Agent invocation console", () => {
         runtimeCapabilityImports: {
           blob: "vite-hub/blob",
           console: "vite-hub/console/server",
-          db: "vite-hub/database/drizzle",
+          db: "@vite-hub/database/runtime/registry",
           i18n: "vite-hub/i18n/server",
           kv: "vite-hub/kv",
         },
@@ -331,8 +331,8 @@ describe("Agent invocation console", () => {
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       // The capabilities load with the first Console invocation, not when the server starts.
-      expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/drizzle|i18n\/server|kv)/m)
-      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { console: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("vite-hub/database/drizzle"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
+      expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/runtime\/registry|i18n\/server|kv)/m)
+      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { console: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -731,7 +731,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
-      expect(generated).toContain(`import("vite-hub/database/drizzle")`)
+      expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)

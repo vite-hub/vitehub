@@ -20,7 +20,7 @@ through [Capabilities](/docs/agents/capabilities).
 | --- | --- | --- |
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
-| `db` and `schema` from `@nuxthub/db` | `db` and `schema` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
+| `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
@@ -168,12 +168,12 @@ export default defineDatabase({
 })
 ```
 
-`vite-hub/database/drizzle` exports `db` and `schema` for the `default`
+`vite-hub/database` exports `db` and `schema` for the `default`
 Database, so only the import path changes. Queries do not change.
 
 ```diff [server/api/users.get.ts]
 -import { db, schema } from "@nuxthub/db"
-+import { db, schema } from "vite-hub/database/drizzle"
++import { db, schema } from "vite-hub/database"
 
  export default defineEventHandler(async () => {
    return await db.select().from(schema.users)

@@ -47,5 +47,9 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_B0005: withFix("Add the provider to `vitehub({ env: { providers } })` or `hubEnv({ providers })`, or use a configured provider name in `env.provider()`."),
     ENV_B0006: withFix("Change the env-spec schema file at the file and line that the message names, so that it follows the env-spec format."),
     ENV_B0007: withFix("Stop other Vite processes of this project. If none runs, delete `.vitehub/env/secret.lock` and run the command again."),
+    ENV_NOT_GENERATED: {
+      why: ({ accessor }: { accessor: string }) => `\`${accessor}()\` ran outside a Vite build, so ViteHub did not generate the Env registry that it reads.`,
+      fix: "Run the code through `vite dev`, `vite build`, or a framework that uses them, with `vitehub()` and Env on. A test that calls it needs the Vite plugin too.",
+    },
   },
 })

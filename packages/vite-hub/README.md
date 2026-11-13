@@ -127,7 +127,7 @@ vitehub({
 
 See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
-Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDb()` still provides Database.
+Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database` or `@vite-hub/database` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDb()` still provides Database.
 
 If an enabled capability is not supported by the host, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
@@ -178,7 +178,7 @@ export default defineDatabase({
 
 ```ts
 // server/tasks/db/seed.ts
-import { useDatabase } from "vite-hub/database/drizzle";
+import { useDatabase } from "vite-hub/database";
 import { defineTask } from "nitro/task";
 
 export default defineTask({

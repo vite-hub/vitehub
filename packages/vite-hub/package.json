@@ -372,11 +372,6 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
-    "./database/drizzle": {
-      "types": "./dist/database/drizzle.d.ts",
-      "import": "./dist/database/drizzle.js",
-      "default": "./dist/database/drizzle.js"
-    },
     "./decisions": {
       "types": "./dist/decisions.d.ts",
       "import": "./dist/decisions.js",
@@ -417,11 +412,6 @@
       "import": "./dist/email/markdown.js",
       "default": "./dist/email/markdown.js"
     },
-    "./email/server": {
-      "types": "./dist/email/server.d.ts",
-      "import": "./dist/email/server.js",
-      "default": "./dist/email/server.js"
-    },
     "./email/test": {
       "types": "./dist/email/test.d.ts",
       "import": "./dist/email/test.js",
@@ -446,6 +436,11 @@
       "types": "./dist/env/seal.d.ts",
       "import": "./dist/env/seal.js",
       "default": "./dist/env/seal.js"
+    },
+    "./env/server": {
+      "types": "./dist/env/server.d.ts",
+      "import": "./dist/env/server.js",
+      "default": "./dist/env/server.js"
     },
     "./forge": {
       "types": "./dist/forge.d.ts",
@@ -913,6 +908,7 @@
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
@@ -993,6 +989,7 @@
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
@@ -1097,6 +1094,9 @@
       "optional": true
     },
     "@vite-hub/cms": {
+      "optional": true
+    },
+    "@vite-hub/codemods": {
       "optional": true
     },
     "@vite-hub/comments": {
