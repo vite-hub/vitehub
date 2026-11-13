@@ -12,7 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `kv` from `vite-hub/kv` | Read and write the default store or a named store. |
 | `disposeKVStores` from `vite-hub/kv` | Close all cached stores in a shutdown hook. |
-| `hubKv` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
+| `hubKV` from `@vite-hub/kv/vite` | Register KV in the Vite config. |
 | `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve the KV config by hand. |
 
 `vite-hub/kv` also exports all driver, store, module, and storage types.
@@ -58,7 +58,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `del()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -138,7 +138,7 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
-| `kv.del(key)` | Deletes one key. |
+| `kv.delete(key)` | Deletes one key. |
 | `kv.deleteIfEquals<T>(key, expected)` | Atomically deletes the key when it holds `expected`. Returns `true` when this call deleted it. On `redis`, `database`, and Upstash. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |

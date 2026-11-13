@@ -75,8 +75,8 @@ describe("blob pathname validation", () => {
 
     await expect(storage.get(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.head(pathname)).rejects.toMatchObject(invalidPathname)
-    await expect(storage.del(pathname)).rejects.toMatchObject(invalidPathname)
-    await expect(storage.del(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
+    await expect(storage.delete(pathname)).rejects.toMatchObject(invalidPathname)
+    await expect(storage.delete(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
     await expect(storage.put(pathname, "x")).rejects.toMatchObject(invalidPathname)
     const served = await storage.serve(new Request("https://example.test/x"), pathname)
     expect(served.status).toBe(400)

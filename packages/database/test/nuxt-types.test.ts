@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { createProgram, flattenDiagnosticMessageText, getPreEmitDiagnostics, ModuleKind, ModuleResolutionKind, ScriptTarget } from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 const tempDirs: string[] = []
 
@@ -60,7 +60,7 @@ describe("Database types in a Nuxt app", () => {
     await writeModule(join(root, "nuxt.config.ts"), ["export default {}"])
     const buildDir = join(root, ".nuxt")
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
       },
@@ -76,7 +76,7 @@ describe("Database types in a Nuxt app", () => {
     const options: Record<string, unknown> = { buildDir, dev: false, rootDir: root, serverDir: join(root, "server"), srcDir: join(root, "app"), vite: {} }
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     const prepareTypesHooks: Array<(context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
         if (name === "prepare:types") prepareTypesHooks.push(callback as (context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void)

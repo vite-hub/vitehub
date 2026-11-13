@@ -37,7 +37,8 @@ afterEach(async () => {
 describe("root app secret", () => {
   it("generates and keeps a development secret when none is configured", async () => {
     vi.stubEnv("VITEHUB_SECRET", "")
-    vi.stubEnv("NUXT_APP_SECRET", "")
+    // Nuxt's app secret is not a ViteHub root secret.
+    vi.stubEnv("NUXT_APP_SECRET", "nuxt-root-secret-at-least-32-characters")
     vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
     const root = await runConfig("serve")
     const secretPath = join(root, ".vitehub", "env", "secret")
@@ -48,7 +49,7 @@ describe("root app secret", () => {
     expect(process.env.VITEHUB_SECRET).toBe("")
     expect(process.env.VITEHUB_SECRET_GENERATED).toBe("")
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await expect(deriveSecret("app:session", undefined, secret, true)).resolves.toBe(await deriveViteHubSecret(secret, "app:session"))
+    await expect(deriveSecret("app:session", { root: secret }, { generated: true })).resolves.toBe(await deriveViteHubSecret(secret, "app:session"))
     const config = await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
     expect(config).toHaveProperty("__vitehubEnvDevelopmentSecret", secret)
     expect(await readFile(secretPath, "utf8")).toBe(secret)
@@ -78,7 +79,6 @@ describe("root app secret", () => {
 
   it("isolates generated, configured, and later generated projects", async () => {
     vi.stubEnv("VITEHUB_SECRET", undefined)
-    vi.stubEnv("NUXT_APP_SECRET", undefined)
     vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
     const projectRoots = await Promise.all(["first", "configured", "last"].map(name => mkdtemp(join(tmpdir(), `vitehub-${name}-`))))
     roots.push(...projectRoots)
@@ -99,9 +99,9 @@ describe("root app secret", () => {
     await expect(stat(join(configured!, ".vitehub/env/secret"))).rejects.toThrow()
   })
 
-  it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("honors a project %s and preserves shell precedence", async (name) => {
-    vi.stubEnv("VITEHUB_SECRET", undefined)
-    vi.stubEnv("NUXT_APP_SECRET", undefined)
+  it("honors a project VITEHUB_SECRET and preserves shell precedence", async () => {
+    const name = "VITEHUB_SECRET"
+    vi.stubEnv(name, undefined)
     const root = await mkdtemp(join(tmpdir(), "vitehub-configured-secret-"))
     roots.push(root)
     const projectSecret = "project-root-secret-at-least-32-characters"
@@ -135,7 +135,7 @@ describe("root app secret", () => {
     vi.stubEnv("VITEHUB_SECRET", "short")
     await expect(deriveSecret("app:session")).rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" })
     vi.stubEnv("VITEHUB_SECRET", "")
-    vi.stubEnv("NUXT_APP_SECRET", "")
+    vi.stubEnv("NUXT_APP_SECRET", "nuxt-root-secret-at-least-32-characters")
     await expect(deriveSecret("app:session")).rejects.toMatchObject({ code: "ENV_REQUIRED_MISSING" })
   })
 

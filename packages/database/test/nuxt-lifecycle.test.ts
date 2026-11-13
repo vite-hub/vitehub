@@ -26,11 +26,11 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
     await writeFile(definition, `export default defineDatabase({ name: ${JSON.stringify(name)}, schema: {} })\n`)
     await writeFile(join(root, "nuxt.config.ts"), [
       'import { writeFile } from "node:fs/promises"',
-      `import { hubDb } from ${JSON.stringify(pathToFileURL(join(packageRoot, "src/nuxt.ts")).href)}`,
+      `import { hubDatabase } from ${JSON.stringify(pathToFileURL(join(packageRoot, "src/nuxt.ts")).href)}`,
       "export default defineNuxtConfig({",
       `  buildDir: ${JSON.stringify(buildDir)},`,
       "  dev: false, devtools: { enabled: false }, telemetry: false,",
-      "  modules: [hubDb()], nitro: { preset: 'node-server' },",
+      "  modules: [hubDatabase()], nitro: { preset: 'node-server' },",
       "  hooks: {",
       "    'nitro:init': async (nitro) => {",
       `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/runtime/registry']))`,

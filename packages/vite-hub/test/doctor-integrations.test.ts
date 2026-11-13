@@ -181,8 +181,8 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
   it("accepts module options and contributed plugins", async () => {
     expect(await codes(noViteHubPluginInNuxt, {
       "nuxt.config.ts": lines(
-        "import { hubDb } from \"@vite-hub/database/vite\"",
-        "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { host: \"node\" }]], vite: { plugins: [hubDb()] } })",
+        "import { hubDatabase } from \"@vite-hub/database/vite\"",
+        "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", { host: \"node\" }]], vite: { plugins: [hubDatabase()] } })",
       ),
     }, "nuxt")).toEqual([])
   })
@@ -231,22 +231,21 @@ describe("vitehub/no-nuxthub-leftovers", () => {
     }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
   })
 
-  it("reports schema imports, NuxtHub helper calls, and blob.delete()", async () => {
+  it("reports schema imports and NuxtHub helper calls", async () => {
     expect(await codes(noNuxtHubLeftovers, {
       "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
       "shared/types/db.ts": "import type { chats } from \"hub:db:schema\"\nexport type Chat = typeof chats.$inferSelect\n",
       "server/routes/assets/[...pathname].get.ts": "export default defineEventHandler(event => hubBlob().serve(event, \"a\"))\n",
       "server/api/pages.ts": "export default defineEventHandler(() => hubKV().keys())\n",
-      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
-      "server/api/auto.delete.ts": "export default defineEventHandler(() => blob.delete(\"a.png\"))\n",
-    }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032", "VHUB0032"])
+    }, "nuxt")).toEqual(["VHUB0032", "VHUB0032", "VHUB0032"])
   })
 
-  it("accepts local helpers named like NuxtHub ones and blob.del()", async () => {
+  it("accepts local helpers named like NuxtHub ones, the ViteHub plugins, and blob.delete()", async () => {
     expect(await codes(noNuxtHubLeftovers, {
       "package.json": JSON.stringify({ type: "module", dependencies: { "vite-hub": "*" } }),
       "server/utils/storage.ts": "function hubKV() { return {} }\nexport const store = hubKV()\n",
-      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.del(\"a.png\"))\n",
+      "vite.config.ts": "import { hubDatabase } from \"@vite-hub/database/vite\"\nimport { hubKV } from \"@vite-hub/kv/vite\"\nexport default { plugins: [hubDatabase(), hubKV()] }\n",
+      "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
       "server/api/other.ts": "const files = { delete: (key: string) => key }\nexport default defineEventHandler(() => files.delete(\"a\"))\n",
     }, "nuxt")).toEqual([])
   })

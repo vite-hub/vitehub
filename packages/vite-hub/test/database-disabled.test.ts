@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { runViteHubCli } from "@vite-hub/cli"
-import { hubDb } from "@vite-hub/database/vite"
+import { hubDatabase } from "@vite-hub/database/vite"
 import { build, resolveConfig, type InlineConfig, type Plugin, type PluginOption } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -82,7 +82,7 @@ describe("vitehub() without database", () => {
   it("lets an explicitly composed Database integration provide the runtime", async () => {
     const root = await createProject({ "server/databases/default.ts": databaseDefinition })
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
-    const databasePlugin = hubDb() as unknown as Plugin
+    const databasePlugin = hubDatabase() as unknown as Plugin
     const plugins = [vitehub({ host: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
@@ -97,7 +97,7 @@ describe("vitehub() without database", () => {
     const root = await createProject({})
 
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
-    const databasePlugin = hubDb() as unknown as Plugin
+    const databasePlugin = hubDatabase() as unknown as Plugin
     const plugins = [vitehub({ host: "node", env: false }), databasePlugin]
     const config = await resolveConfig(serverBuild(root, plugins), "build")
     const guard = config.plugins.find(plugin => plugin.name === "vite-hub/database-disabled")
@@ -113,7 +113,7 @@ describe("vitehub() without database", () => {
     })
 
     // SAFETY: Both packages use the same Vite API, but pnpm resolves separate peer type instances.
-    const databasePlugin = hubDb() as unknown as Plugin
+    const databasePlugin = hubDatabase() as unknown as Plugin
     const plugins = [vitehub({ host: "node", database: false, env: false }), databasePlugin]
     await expect(build(serverBuild(root, plugins))).rejects.toThrow(
       `Database is disabled but ${JSON.stringify(join(root, "src/server.ts"))} imports "vite-hub/database". Set \`database: true\` in vitehub() to enable Database.`,

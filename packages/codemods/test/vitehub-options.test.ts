@@ -90,6 +90,7 @@ describe("vitehub-options transform", () => {
 
   it.each([
     ["hubKv", "kv", "{ driver: 'fs-lite' }"],
+    ["hubKV", "kv", "{ driver: 'fs-lite' }"],
     ["hubEnv", "env", "{ server: {} }"],
   ])("leaves unrelated %s calls unchanged", (name, key, value) => {
     const input = `import { env } from 'vite-hub/env'\nfunction ${name}() {}\nexport default { plugins: [${name}()], ${key}: ${value} }\n`
@@ -100,6 +101,8 @@ describe("vitehub-options transform", () => {
     ["vitehub", "vite-hub", "{ logs: true }", ""],
     ["hubEnv", "@vite-hub/env/vite", "", ", env: { server: {} }"],
     ["hubKv", "@vite-hub/kv/vite", "", ", kv: { driver: 'fs-lite' }"],
+    ["hubKV", "@vite-hub/kv/vite", "", ", kv: { driver: 'fs-lite' }"],
+    ["hubDatabase", "@vite-hub/database/vite", "", ", database: { cli: false }"],
   ])("leaves shadowed %s calls unchanged", (name, source, argument, options) => {
     const input = `import { ${name} } from '${source}'\nexport default defineConfig((${name}) => ({ plugins: [${name}(${argument})]${options} }))\n`
     expect(migrateViteHubOptions("vite.config.ts", input).code).toBe(input)
@@ -109,6 +112,8 @@ describe("vitehub-options transform", () => {
     ["vitehub", "vite-hub", "{ logs: true }", "", "observability: { logs: true }"],
     ["hubEnv", "@vite-hub/env/vite", "", ", env: { server: {} }", "hubEnv({ server: {} })"],
     ["hubKv", "@vite-hub/kv/vite", "", ", kv: { driver: 'fs-lite' }", "hubKv({ driver: 'fs-lite' })"],
+    ["hubKV", "@vite-hub/kv/vite", "", ", kv: { driver: 'fs-lite' }", "hubKV({ driver: 'fs-lite' })"],
+    ["hubDatabase", "@vite-hub/database/vite", "", ", database: { cli: false }", "hubDatabase({ cli: false })"],
   ])("migrates imported %s calls beside unrelated nested bindings", (name, source, argument, options, expected) => {
     const input = `import { ${name} } from '${source}'\nfunction helper(${name}) { return ${name}(${argument}) }\nexport default { plugins: [${name}(${argument})]${options} }\n`
     const result = migrateViteHubOptions("vite.config.ts", input)
@@ -296,6 +301,28 @@ describe("vitehub-options transform", () => {
 })
 
 describe("vitehub-options codemod", () => {
+  it.each([
+    ["vitehub-options", "renamed-apis"],
+    ["renamed-apis", "vitehub-options"],
+  ])("composes API and options migrations in order %s, %s", async (first, second) => {
+    await mkdir(scratch, { recursive: true })
+    const cwd = await mkdtemp(join(scratch, "app-"))
+    const config = join(cwd, "vite.config.ts")
+    await writeFile(config, lines(
+      "import { hubKv } from '@vite-hub/kv/vite'",
+      "import { hubDb } from '@vite-hub/database/vite'",
+      "export default { plugins: [hubKv(), hubDb()], kv: { driver: 'fs-lite' }, database: { cli: false } }",
+    ))
+    for (const name of [first, second]) {
+      const run = await runCodemod(name, { cwd })
+      expect(run.result.followUps).toEqual([])
+    }
+    const output = await readFile(config, "utf8")
+    expect(output).toContain("hubKV({ driver: 'fs-lite' })")
+    expect(output).toContain("hubDatabase({ cli: false })")
+    expect(output).not.toMatch(/\b(?:hubKv|hubDb)\b/)
+  })
+
   it("edits config files and reports renamed option types", async () => {
     await mkdir(scratch, { recursive: true })
     const cwd = await mkdtemp(join(scratch, "app-"))
