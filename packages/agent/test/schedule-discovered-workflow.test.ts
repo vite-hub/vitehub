@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -17,7 +17,13 @@ it.each([
 ])("dispatches the discovered Workflow from a retained standalone Schedule (%j)", async ({ explicit, skills }) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-discovered-workflow-"))
   try {
-    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    // Externalized Runtime helpers must resolve from the standalone output too.
+    const modules = resolve(import.meta.dirname, "../../../node_modules/@vite-hub")
+    await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
+    for (const name of await readdir(modules)) {
+      await symlink(join(modules, name), join(root, "node_modules/@vite-hub", name), "dir")
+    }
+    await symlink(resolve(import.meta.dirname, "../../runtime"), join(root, "node_modules/@vite-hub/runtime"), "dir")
     const agentDir = join(root, "server/agents/reporter")
     const schedule = join(root, "server/schedules/daily.ts")
     await mkdir(agentDir, { recursive: true })

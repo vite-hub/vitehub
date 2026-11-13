@@ -186,8 +186,8 @@ describe("vitehub/check-rate-limit-decision", () => {
       "server/api/og.get.ts": [
         'import { checkRateLimit } from "vite-hub/rate-limit"',
         "export default defineEventHandler(async (event) => {",
-        '  const decision = await checkRateLimit(event, "og", { limit: 10, window: "1m" })',
-        "  if (!decision.allowed) return",
+        '  const [error, decision] = await checkRateLimit(event, "og", { limit: 10, window: "1m" })',
+        "  if (error || !decision.allowed) return",
         "})",
       ].join("\n"),
     })).toEqual([])

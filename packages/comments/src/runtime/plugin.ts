@@ -1,5 +1,5 @@
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
-import { installRequestStandardContext } from "@vite-hub/runtime"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { commentsRoleGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"

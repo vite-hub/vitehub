@@ -184,7 +184,6 @@ Operations return `[error, data]`. Errors have a typed code, a cause for server 
 
 `inspect.overview()` returns the totals, chart data, and recent events of Overview. `inspect.activity({ group: 'admin', userId: 'user-id', limit: 25 })` returns safe display records and a `nextCursor`. For the next page, pass that cursor with the same filters.
 
-Manual hosts can use `createAuthConsole(auth, consoleOptions, eventStore)` from `vite-hub/auth/console-runtime`, where `auth` is the app's Better Auth instance. Pass the `events.store` store, or leave it out to turn off event reads.
 
 ::warning
 Read methods do not check HTTP access. Check your access policy before you expose them in a route.

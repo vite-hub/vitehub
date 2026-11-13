@@ -91,7 +91,7 @@ export default defineAgent({
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
@@ -130,7 +130,7 @@ Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer ne
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -170,7 +170,7 @@ import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {

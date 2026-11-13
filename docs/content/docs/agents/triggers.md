@@ -18,7 +18,7 @@ import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
   const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.pipe(v.string(), v.nonEmpty()) })))
@@ -63,7 +63,7 @@ Call the Trigger from a server route:
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
   const { text, threadId } = await readBody<{

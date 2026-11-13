@@ -79,6 +79,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./internal/server": {
+      "types": "./dist/internal/server.d.ts",
+      "import": "./dist/internal/server.js",
+      "default": "./dist/internal/server.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",

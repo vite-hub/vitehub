@@ -20,8 +20,7 @@ The Node adapter watches process, host, and Linux cgroup resources:
 
 ```ts [server/agents/worker.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { diagnostics } from 'vite-hub/agent/capabilities'
-import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   name: 'worker',
@@ -39,7 +38,7 @@ The default reporter logs to the console. Pass `reporter` for your own sink:
 ```ts [server/agents/worker.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { diagnostics } from 'vite-hub/agent/capabilities'
-import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+import { nodeRuntimeResources } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   name: 'worker',
@@ -93,7 +92,7 @@ Sampling is bounded, so a slow inspector or reporter cannot queue polls without 
 ## Requirements
 
 - `diagnostics()` needs no Server Primitive.
-- Sampling needs a `RuntimeResourceInspector`, such as `nodeRuntimeResources()` from `vite-hub/runtime/node`.
+- Sampling needs a `RuntimeResourceInspector`, such as `nodeRuntimeResources()` from `vite-hub/agent/capabilities`.
 - `interval` must not exceed `heartbeat`. Durations are positive milliseconds.
 
 ## Security and approval
