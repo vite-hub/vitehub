@@ -11,6 +11,7 @@ import taskList from "@comark/vue/plugins/task-list";
 import { defineComponent, h, shallowRef, type PropType } from "vue";
 import { markdownMath } from "../internal/markdown-math.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 
 type Katex = typeof import("katex").default;
 
@@ -94,6 +95,9 @@ export const MarkdownRenderer = defineComponent({
       ];
       const plugins = [...new Map(builtInPlugins.map(plugin => [plugin.name, plugin])).values()];
       for (const plugin of props.plugins ?? []) {
+        if (plugin.name === "html") {
+          throw uiErrorDiagnostics.UI_R0002({ message: "Markdown does not render raw HTML, so it does not take a plugin named `html`. Remove it from `plugins`." });
+        }
         const index = plugins.findIndex(existing => existing.name === plugin.name);
         if (index >= 0) plugins[index] = plugin;
         else plugins.push(plugin);
