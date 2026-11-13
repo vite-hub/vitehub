@@ -15,7 +15,7 @@ icon: i-lucide-gauge
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'node',
+      host: 'node',
       // On Node, counts stay in memory
       rateLimit: true,
     },
@@ -31,7 +31,7 @@ icon: i-lucide-gauge
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // On Node, counts stay in memory
         rateLimit: true,
       }),
@@ -48,7 +48,7 @@ icon: i-lucide-gauge
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'node',
+        host: 'node',
         // On Node, counts stay in memory
         rateLimit: true,
       }),

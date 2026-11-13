@@ -39,7 +39,7 @@ Turn on KV with the `fs-lite` driver, which stores values under
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: "node",
+    host: "node",
     kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
   },
 })
@@ -55,7 +55,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
     }),
     nitro(),
@@ -72,7 +72,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
     }),
   ],

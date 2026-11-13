@@ -21,17 +21,17 @@ The `kv.*` operations behind the Console KV section and the `vitehub kv` command
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
    modules: ['vite-hub/nuxt'],
--  vitehub: { preset: 'node' },
-+  vitehub: { preset: 'node', kv: true },
+-  vitehub: { host: 'node' },
++  vitehub: { host: 'node', kv: true },
  })
 ```
 
-`kv: true` turns KV on with the default driver of the preset. Pass an object to select a driver or add named stores.
+`kv: true` turns KV on with the default driver of the host. Pass an object to select a driver or add named stores.
 
 ```diff [vite.config.ts]
  export default defineConfig({
--  plugins: [vitehub({ preset: 'node' })],
-+  plugins: [vitehub({ preset: 'node', kv: true })],
+-  plugins: [vitehub({ host: 'node' })],
++  plugins: [vitehub({ host: 'node', kv: true })],
  })
 ```
 

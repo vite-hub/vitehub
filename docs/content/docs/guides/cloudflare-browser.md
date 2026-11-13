@@ -23,7 +23,7 @@ even in local Wrangler dev.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-  	preset: 'cloudflare',
+  	host: 'cloudflare',
   	browser: { remote: true },
   },
 })
@@ -38,7 +38,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		browser: { remote: true },
 	}), nitro()],
 })
@@ -52,7 +52,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		browser: { remote: true },
 	})],
 })

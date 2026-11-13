@@ -18,6 +18,8 @@ export default defineConfig({
       "database": "src/database.ts",
       "editor": "src/editor.ts",
       "index": "src/index.ts",
+      // Markdown negotiation without the Content runtime, for the generated Markdown middleware.
+      "markdown": "src/markdown-entry.ts",
       "operations": "src/operations.ts",
       // The preview API without the Content runtime, for the generated preview plugin.
       "preview": "src/preview-entry.ts",

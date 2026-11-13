@@ -18,7 +18,7 @@ import { vitehub } from 'vite-hub'
 import { doctor } from 'vite-doctor'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), doctor()],
+  plugins: [vitehub({ host: 'node' }), doctor()],
 })
 ```
 
@@ -896,7 +896,7 @@ The rule reads only number literals, not variables or spreads.
 
 **Import Forge error classes from `@vite-hub/forge`.** Rule `vitehub/forge-error-imports`.
 
-An app that depends on `@vite-hub/forge` imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
+An app that depends on [`@vite-hub/forge`](/docs/forge) imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
 
 ```ts [server/utils/pull-request.ts] fragment
 // Invalid
@@ -966,13 +966,13 @@ It skips options from a variable or a spread.
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vite: { plugins: [vitehub({ preset: 'node' })] },
+  vite: { plugins: [vitehub({ host: 'node' })] },
 })
 
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
 })
 ```
 
@@ -984,12 +984,15 @@ Plugins that add Database tables, such as `hubDb()`, can stay in `vite.plugins`.
 
 The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vite-hub/nuxt` options in `nuxt.config.ts`, have a value that ViteHub ignores or later rejects:
 
+- `preset` was renamed to `host`.
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
 - `logs` moved into `observability`, as `observability: { logs }`.
 - `contentImportBase` was removed.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
+
+The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.
 
 ```ts [vite.config.ts] fails=TS2769
 import { defineConfig } from 'vite'
@@ -999,7 +1002,7 @@ import { env } from 'vite-hub/env'
 // Invalid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
-  plugins: [vitehub({ preset: 'vercel' })],
+  plugins: [vitehub({ host: 'vercel' })],
 })
 ```
 
@@ -1010,7 +1013,7 @@ import { env } from 'vite-hub/env'
 
 // Valid
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
+  plugins: [vitehub({ host: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
 ```
 
@@ -1040,7 +1043,7 @@ export default defineNuxtConfig({
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', kv: true },
+  vitehub: { host: 'node', kv: true },
 })
 ```
 

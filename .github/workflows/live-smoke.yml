@@ -23,27 +23,46 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     environment: Production
+    outputs:
+      sha: ${{ steps.green.outputs.sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Require successful CI for the current main commit
+      # Main gets a merge every few minutes and CI takes longer, so the head of main rarely has a
+      # finished CI run. Test the newest main commit with green CI instead.
+      - name: Pick the newest main commit with successful CI
+        id: green
         env:
           GH_TOKEN: ${{ github.token }}
+          # Green main commits are less than 16 hours apart when main is healthy. 48 hours covers
+          # two nightly runs and GitHub's late cron starts. A main that is red for longer fails here.
+          MAX_CI_AGE_HOURS: "48"
         run: |
-          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          if [ "$GITHUB_SHA" != "$main_sha" ]; then
-            echo "::error::Live smoke deployment requires the current main commit ($main_sha). Selected: $GITHUB_SHA."
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Live smoke runs only from main. Selected: $GITHUB_REF."
             exit 1
           fi
-          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            --method GET -f head_sha="$GITHUB_SHA" -f branch=main -f event=push -f per_page=1 \
-            --jq '.workflow_runs[0].conclusion // "missing"')
-          if [ "$conclusion" != "success" ]; then
-            echo "::error::Live smoke deployment requires successful CI for $GITHUB_SHA on main. Result: $conclusion."
+          since=$(date -u -d "-$MAX_CI_AGE_HOURS hours" +%Y-%m-%dT%H:%M:%SZ)
+          green=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            --method GET -f branch=main -f event=push -f status=success -f created=">=$since" -f per_page=1 \
+            --jq '.workflow_runs[0] | select(.) | "\(.head_sha) \(.html_url)"')
+          if [ -z "$green" ]; then
+            echo "::error::No main commit has successful CI since $since. Fix main before the live smoke can run."
             exit 1
           fi
+          sha=${green%% *}
+          run_url=${green#* }
+          # A force push can remove a green commit from main. Test only commits that main still contains.
+          position=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...main" --jq '.status')
+          if [ "$position" != "ahead" ] && [ "$position" != "identical" ]; then
+            echo "::error::$sha has successful CI but is not on main. Compare status: $position."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Live smoke tests $sha. Successful CI: $run_url" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.green.outputs.sha }}
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages
@@ -75,6 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.setup-cloudflare.outputs.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup
 
@@ -206,7 +226,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VITEHUB_HOSTING: cloudflare
+          VITEHUB_HOST: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider cloudflare
 
@@ -217,7 +237,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_HOSTING: vercel
+          VITEHUB_HOST: vercel
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider vercel
 
@@ -230,7 +250,7 @@ jobs:
         env:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_HOSTING: cloudflare
+          VITEHUB_HOST: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:build
 
@@ -259,7 +279,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_HOSTING: vercel
+          VITEHUB_HOST: vercel
           VITEHUB_VITE_MODE: e2e
           VITEHUB_WORKSPACE_BLOB_PREFIX: e2e/vite
         run: vp run playground:vite:build
@@ -448,6 +468,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Empty when setup failed before it picked a commit. Checkout then uses the run commit.
+          ref: ${{ needs.setup-cloudflare.outputs.sha }}
           persist-credentials: false
 
       - run: mkdir -p live-smoke-evidence

@@ -40,7 +40,7 @@ function resolveVercelDependency(specifier: "@vercel/functions" | "@vercel/queue
 }
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
-type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
+export type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
 
 export interface CloudflareQueueBindings {
   consumers: Array<{ queue: string }>
@@ -162,14 +162,15 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
     "export default defineMiddleware((event) => {",
     ...(cloudflare ? ["  const runtimeEvent = event as any"] : []),
     ...(vercel ? ["  Object.assign(event, { waitUntil: vitehubWaitUntil })"] : []),
-    ...(cloudflare ? [`  Object.assign(event, { env: runtimeEvent.env ?? runtimeEvent.context?.cloudflare?.env ?? runtimeEvent.context?._platform?.cloudflare?.env ?? runtimeEvent.req?.runtime?.cloudflare?.env ?? runtimeEvent.node?.req?.runtime?.cloudflare?.env${cloudflareGlobals ? " ?? vitehubEnv, waitUntil: vitehubWaitUntil" : ""} })`] : []),
+    ...(cloudflare ? [`  Object.assign(event, { env: runtimeEvent.env ?? runtimeEvent.context?.cloudflare?.env ?? runtimeEvent.context?._platform?.cloudflare?.env ?? runtimeEvent.req?.runtime?.cloudflare?.env${cloudflareGlobals ? " ?? vitehubEnv, waitUntil: vitehubWaitUntil" : ""} })`] : []),
     "  enterQueueRuntimeEvent(event)",
     "})",
     "",
   ].join("\n")
 }
 
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
+/** Writes the generated Queue integration and returns the Queue config that its Nitro plugin uses. */
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<NormalizedQueueOptions> {
   await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -205,6 +206,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
       "",
     ].join("\n"), "utf8")] : []),
   ])
+  return queueConfig
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {

@@ -1,8 +1,8 @@
 // A primitive hero shows a `vite.config.ts` written for one host. These helpers rewrite that file for another host:
-// the `preset` line, the options of `vitehub({...})` that the host needs, and the imports those options use.
+// the `host` line, the options of `vitehub({...})` that the host needs, and the imports those options use.
 // Route files never change, which is the point of the picker.
 
-/** The hosts of the hero picker, in display order. Each one is also the value of `preset`. */
+/** The hosts of the hero picker, in display order. Each one is also the value of `host`. */
 export const pickerHosts = ["node", "cloudflare", "vercel", "netlify", "deno"] as const;
 export type PickerHost = (typeof pickerHosts)[number];
 
@@ -25,16 +25,16 @@ export type HostConfig = {
 
 export type HostConfigs = Partial<Record<PickerHost, HostConfig>>;
 
-const presetPattern = /(\bpreset:\s*)'([\w-]+)'/;
+const hostPattern = /(\bhost:\s*)'([\w-]+)'/;
 
 function isPickerHost(value: string): value is PickerHost {
   return (pickerHosts as readonly string[]).includes(value);
 }
 
-/** The host that a config file is written for, read from its `preset` line. */
+/** The host that a config file is written for, read from its `host` line. */
 export function configHost(code: string): PickerHost | undefined {
-  const preset = code.match(presetPattern)?.[2];
-  return preset && isPickerHost(preset) ? preset : undefined;
+  const host = code.match(hostPattern)?.[2];
+  return host && isPickerHost(host) ? host : undefined;
 }
 
 /** The index of the line where a value that starts on line `start` ends, by bracket depth outside strings and comments. */
@@ -95,7 +95,7 @@ function setImports(lines: string[], wanted: readonly string[], known: ReadonlyS
 }
 
 /**
- * Rewrites a config file for `host`. It sets the preset and the host's options, removes the options it does not
+ * Rewrites a config file for `host`. It sets the host and the host's options, removes the options it does not
  * need, and keeps every other line.
  * Rewrite the authored code each time, not an earlier result, so the authored host gets the authored code back.
  * Returns `undefined` when the host does not support the feature.
@@ -103,8 +103,8 @@ function setImports(lines: string[], wanted: readonly string[], known: ReadonlyS
 export function rewriteHostConfig(code: string, configs: HostConfigs, host: PickerHost): string | undefined {
   const config = configs[host];
   if (!config) return undefined;
-  if (!presetPattern.test(code)) throw new Error("The config has no `preset: '<host>'` line.");
-  let lines = code.replace(presetPattern, `$1'${host}'`).split("\n");
+  if (!hostPattern.test(code)) throw new Error("The config has no `host: '<host>'` line.");
+  let lines = code.replace(hostPattern, `$1'${host}'`).split("\n");
   for (const [name, option] of Object.entries(config.options)) lines = setOption(lines, name, option);
   for (const name of config.remove ?? []) lines = removeOption(lines, name);
   const known = new Set(Object.values(configs).flatMap((entry) => entry.imports ?? []));

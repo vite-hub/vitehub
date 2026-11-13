@@ -44,8 +44,8 @@ published on 27 October 2026.
 | Feature | NuxtHub v0.10 | ViteHub |
 | --- | --- | --- |
 | Frameworks | Nuxt | Vite with Nitro, and Nuxt 5 |
-| Host selection | Detects the host and sets up drivers | You set `preset`. A feature the preset cannot provide fails the build. |
-| Hosts | The announcement names Cloudflare, Vercel, and AWS | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
+| Host selection | Detects the host and sets up drivers | You set `host`. A feature the host cannot provide fails the build. |
+| Hosts | The announcement names Cloudflare, Vercel, and AWS | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` hosts |
 | Database | Drizzle ORM with SQLite, PostgreSQL, or MySQL | Drizzle ORM with SQLite, libSQL, Cloudflare D1, or Postgres |
 | KV | Upstash Redis, Cloudflare KV, Deno KV, Redis, file system, or another unstorage driver | `fs-lite`, Workers KV, Upstash Redis, or Deno KV |
 | Blob | File system, Amazon S3, Vercel Blob, or Cloudflare R2 | File system, R2, Vercel Blob, Netlify Blobs, S3-compatible stores, and other drivers |
@@ -88,10 +88,10 @@ integration.
 ## Hosts
 
 Both run on more than one host, but pick providers in different ways. NuxtHub
-detects the host. ViteHub needs a `preset`, which picks the default provider
-for each feature. If the preset cannot provide a feature you turned on, the
+detects the host. ViteHub needs a `host`, which picks the default provider
+for each feature. If the host cannot provide a feature you turned on, the
 build fails. ViteHub does not fall back to another provider. Read
-[Choose a preset](/docs/frameworks-hosts#choose-a-preset).
+[Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 ## Server Primitives
 

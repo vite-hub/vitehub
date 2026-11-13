@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createReusableTemplate, useEventListener, usePreferredReducedMotion } from "@vueuse/core"
-import { CopyButton } from "@vite-hub/ui/copy-button"
+import { CopyButton } from "@vite-hub/ui"
 import { computed, nextTick, onScopeDispose, ref, useId, watch, watchEffect } from "vue"
 
 import { useAgent, useChat } from "vite-hub/agent/vue"

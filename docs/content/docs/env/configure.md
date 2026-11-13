@@ -18,7 +18,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -46,7 +46,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -73,7 +73,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -95,7 +95,7 @@ export default defineConfig({
 
 ## Integration options
 
-Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.env` in Nuxt.
+Pass these to the `env` option of `vitehub({ host: 'node' })`, or to `vitehub.env` in Nuxt.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -143,7 +143,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -168,7 +168,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -192,7 +192,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -252,7 +252,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -275,7 +275,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -297,7 +297,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -333,7 +333,7 @@ import { envSchema } from '@vite-hub/env/vite'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   },
 })
@@ -349,7 +349,7 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   }), nitro()],
 })
@@ -364,7 +364,7 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   })],
 })
@@ -388,7 +388,7 @@ VITEHUB_API_TOKEN=
 
 This example gives `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so prepare and build do not need a deployment-only secret.
 
-It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
+It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions. To move an app from that module, run the [`nuxt-safe-runtime-config` codemod](/docs/codemods/nuxt-modules#nuxt-safe-runtime-config).
 
 The [schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) builds a browser bundle and a Node server from one schema. Its production test checks types, startup failures, redaction, browser output, and server values that change between restarts. Public Env values are fixed at build.
 
@@ -448,7 +448,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -471,7 +471,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -493,7 +493,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.

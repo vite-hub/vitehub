@@ -14,10 +14,10 @@ Realtime is for collaborative documents, presence, and explicit Workspace checkp
 ## Install
 
 ```sh
-pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3 nitro vite vue
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5 h3 nitro vite vue
 ```
 
-ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both.
+ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both. It also declares `drizzle-orm` as a peer: Realtime depends on Auth, and Auth uses the app's copy of Drizzle.
 
 ## Connect one document
 
@@ -112,7 +112,7 @@ console.log(checkpoint.snapshot.id)
 ## Deployment and security boundaries
 
 - The Vue adapter connects to the generated same-origin `/api/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions.
-- `authority: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed host presets. It retains at most 128 active rooms.
+- `authority: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed hosts. It retains at most 128 active rooms.
 - `authority: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `authority: "auto"` selects it only when a Cloudflare Nitro preset or hosting environment can be resolved. Other production builds require an explicit authority.
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
 - Realtime Definitions are public by default. Set `auth: true` only after configuring ViteHub Auth; this verifies the session and replaces client-supplied presence identity. Presence in a public definition is untrusted and must not authorize application actions.

@@ -7,6 +7,7 @@ import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "../github/index.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -117,7 +118,7 @@ function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
   const signals = new Map<string, GitHubEvidence>();
   for (const check of Object.values(s.checks)) {
     // Suites and workflow runs have no producing app; check runs do.
-    if (!head || check.head_sha !== head || check.deleted || !check.name || !check.app) continue;
+    if (!head || check.head_sha !== head || check.deleted || !check.name || !check.app || isBabysitterCheckRun(check)) continue;
     signals.set(`check:${String(check.id)}`, check);
   }
   for (const status of Object.values(s.statuses)) {
@@ -294,7 +295,7 @@ export function checksDependencyEvidence(checks: Page<Check>): string {
   const records = (type: Check["ref"]["type"]) => checks.items.filter(check => check.ref.type === type).map(check => {
     if (!isRuntimeRecord(check.raw)) throw new Error("Invalid dependency check evidence.");
     return check.raw;
-  });
+  }).filter(check => !isBabysitterCheckRun(check));
   return hash({
     checks: records("check_run").map(check => JSON.stringify([check.id, check.status, check.conclusion])).sort(),
     statuses: records("status").map(status => JSON.stringify([status.id, status.context, status.state])).sort(),
