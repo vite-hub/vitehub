@@ -32,7 +32,7 @@ Controlled `curl` is a Just Bash command that goes through the Source network gr
 > [!WARNING]
 > Source responses are buffered before output checks and truncation. The Source executor must limit response bytes or memory while it reads.
 
-Read `runtime.boundary` or `session.boundary` to see what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output limits. These are declarations for inspection. They do not make an in-process provider an OS isolate.
+Read `runtime.boundary` or `session.boundary` to see what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output limits. These are declarations for inspection. They do not make an in-process provider an OS isolate. When a provider declares `timeout.enforcedBy: "runtime"`, the runtime enforces the timeout: `exec()` returns `command_timed_out` and aborts the provider signal, and a background process is stopped.
 
 To run Shell calls in another runtime, implement a custom `ShellExecutionProvider`.
 
@@ -54,7 +54,7 @@ To run Shell calls in another runtime, implement a custom `ShellExecutionProvide
 | `maxOutputLength` | `number` | `policy`, `exec` | Character limit (zero or more) for stdout and stderr. When both are set, the lower one applies. |
 | `maxShellCalls` | `number` | `policy` | Most `exec()` calls in one session. |
 | `maxProcesses` | `number` | `policy` | Most tracked background processes, when the provider supports them. |
-| `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. `exec` wins. |
+| `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. When both are set, the lower one applies. |
 | `signal` | `AbortSignal` | `exec` | Cancels the command and provider work, such as a controlled Source request. |
 | `cwd` | `string` | `exec` | Working directory, when the provider supports CWD. |
 | `stdin` | `string` | `exec` | Standard input, when the provider supports it. Just Bash passes it to the script. |

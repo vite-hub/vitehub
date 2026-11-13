@@ -14,7 +14,7 @@ import type {
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
-  const limit = normalizeOutputLength(maxLength)
+  const limit = normalizeLimit(maxLength)
   if (limit === undefined) return result
   const next: ShellObservation = {
     command: result.command,
@@ -41,20 +41,23 @@ function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellOb
   return truncated ? { ...next, outputTruncated: true } : next
 }
 
-function normalizeOutputLength(value: number | undefined): number | undefined {
+function normalizeLimit(value: number | undefined): number | undefined {
   if (value === undefined) return undefined
   if (value === Number.POSITIVE_INFINITY) return undefined
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
+/** A per-call limit can only lower the policy limit. */
+function lowerLimit(requested: number | undefined, policy: number | undefined): number | undefined {
+  const call = normalizeLimit(requested)
+  const bound = normalizeLimit(policy)
+  if (call === undefined) return bound
+  if (bound === undefined) return call
+  return Math.min(call, bound)
+}
+
 function limitOutputOptions(options: ShellRuntimeExecOptions, policy: ShellSessionPolicy): ShellRuntimeExecOptions {
-  const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
-  const policyOutputLength = normalizeOutputLength(policy.maxOutputLength)
-  const maxOutputLength = requestedOutputLength === undefined
-    ? policyOutputLength
-    : policyOutputLength === undefined
-      ? requestedOutputLength
-      : Math.min(requestedOutputLength, policyOutputLength)
+  const maxOutputLength = lowerLimit(options.maxOutputLength, policy.maxOutputLength)
   let stdoutRemaining = maxOutputLength
   let stderrRemaining = maxOutputLength
   const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
@@ -69,8 +72,50 @@ function limitOutputOptions(options: ShellRuntimeExecOptions, policy: ShellSessi
   return {
     ...options,
     maxOutputLength,
+    timeout: lowerLimit(options.timeout, policy.timeout),
     onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
     onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
+  }
+}
+
+function createTimeoutObservation(command: string, cwd: string | undefined, timeout: number): ShellObservation {
+  return {
+    command,
+    cwd,
+    event: "command_timed_out",
+    exitCode: null,
+    stderr: `[vitehub] Shell command timed out after ${timeout}ms.\n`,
+    stdout: "",
+    timedOut: true,
+  }
+}
+
+/** Race the provider against the timeout, then abort the provider work. */
+async function execWithRuntimeTimeout(
+  provider: ShellExecutionProvider,
+  command: string,
+  options: ShellRuntimeExecOptions,
+  timeout: number,
+): Promise<ShellObservation> {
+  const controller = new AbortController()
+  const running = provider.exec(command, {
+    ...options,
+    signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
+  })
+  // The provider may reject after the timeout aborts it. That late result is not observed.
+  running.catch(() => {})
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<ShellObservation>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(createTimeoutObservation(command, options.cwd, timeout))
+      controller.abort()
+    }, timeout)
+  })
+  try {
+    return await Promise.race([running, timedOut])
+  }
+  finally {
+    clearTimeout(timer)
   }
 }
 
@@ -131,13 +176,15 @@ class RuntimeShellSession implements ShellSession {
     const signal = options.budget && options.signal && options.signal !== options.budget.signal
       ? AbortSignal.any([options.signal, options.budget.signal])
       : options.budget?.signal ?? options.signal
-    const result = await this.provider.exec(command, {
+    const execOptions = {
       ...options,
       env: { ...this.env, ...options.env },
       maxOutputLength,
       signal,
-      timeout: options.timeout ?? this.policy.timeout,
-    })
+    }
+    const result = this.boundary.timeout.enforcedBy === "runtime" && options.timeout !== undefined
+      ? await execWithRuntimeTimeout(this.provider, command, execOptions, options.timeout)
+      : await this.provider.exec(command, execOptions)
     options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
     const timedOut = result.timedOut
@@ -182,7 +229,6 @@ class RuntimeShellSession implements ShellSession {
         ...options,
         signal,
         env: { ...this.env, ...options.env },
-        timeout: options.timeout ?? this.policy.timeout,
       })
     }
     catch (error) {
@@ -192,7 +238,9 @@ class RuntimeShellSession implements ShellSession {
 
     let stopTask: Promise<ShellObservation> | undefined
     let trackedProcess: ShellProcess
+    let timer: ReturnType<typeof setTimeout> | undefined
     const stop = () => {
+      clearTimeout(timer)
       if (stopTask) return stopTask
       stopTask = Promise.resolve().then(() => process.stop()).then(
         result => {
@@ -214,6 +262,10 @@ class RuntimeShellSession implements ShellSession {
     }
     this.#processes.add(trackedProcess)
     finishStart()
+    const timeout = options.timeout
+    if (this.boundary.timeout.enforcedBy === "runtime" && timeout !== undefined && !this.#disposed) {
+      timer = setTimeout(() => { stop().catch(() => {}) }, timeout)
+    }
     if (this.#disposed) {
       try {
         await stop()
