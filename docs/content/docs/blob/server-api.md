@@ -318,9 +318,17 @@ Pass `ensure` to limit the upload, with the same options as
 [`ensureBlob()`](#ensureblobblob-options). The client chooses the pathname and
 the content type, so set it when users who are not fully trusted can upload:
 
-```ts
-const [error, result] = await blob.handleMultipartUpload(event, {
-  ensure: { maxSize: '1GB', types: ['video'] },
+```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The client chooses the pathname.
+  const [error, result] = await blob.handleMultipartUpload(event, {
+    ensure: { maxSize: '1GB', types: ['video'] },
+  })
+  if (error) throw error
+  return result
 })
 ```
 
