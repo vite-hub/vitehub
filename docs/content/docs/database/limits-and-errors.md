@@ -176,6 +176,10 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 `migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node host and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment.
 
+### DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED
+
+`migrateOnDeploy` puts `wrangler d1 migrations apply` before `wrangler deploy`, so it works only for a Cloudflare build where each Database has a D1 binding. The build fails for another host, a Database on D1 over HTTP or Postgres, a Nitro deploy command that is not a shell command, or a Nuxt build that learns its Cloudflare preset after the Database module configures Nitro. Build with the Cloudflare host and a D1 binding for each Database, or remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+
 ## Export errors
 
 ### DATABASE_EXPORT_FAILED
