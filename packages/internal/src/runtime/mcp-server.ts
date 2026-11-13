@@ -200,17 +200,23 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+/** A literal of a template as a client expands it, percent-encoded, or as written. */
+function literalPattern(part: string): string {
+  const encoded = part.includes("%") ? part : encodeURI(part)
+  return encoded === part ? escapeRegExp(part) : `(?:${escapeRegExp(encoded)}|${escapeRegExp(part)})`
+}
+
 /**
  * Matches `uri` against an RFC 6570 template and returns the values of its variables. `{name}` matches one path
- * segment, and `{+name}` also matches `/`. Other operators match nothing.
+ * segment, and `{+name}` also matches `/`. A value may be empty. Other operators match nothing.
  */
 export function matchMcpUriTemplate(template: string, uri: string): Record<string, string> | undefined {
   const names: string[] = []
   const pattern = template.split(/(\{[^}]*\})/).map((part) => {
     const variable = /^\{(\+?)([\w.]+)\}$/.exec(part)
-    if (!variable) return escapeRegExp(part)
+    if (!variable) return literalPattern(part)
     names.push(variable[2]!)
-    return variable[1] ? "(.+)" : "([^/?#]+)"
+    return variable[1] ? "(.*)" : "([^/?#]*)"
   }).join("")
   const match = new RegExp(`^${pattern}$`).exec(uri)
   if (!match) return undefined
