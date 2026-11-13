@@ -141,7 +141,8 @@ loaded document recovers without a reset.
 
 `blobDocument(store, { prefix, contentType })` stores each document's body as
 one Blob file at `prefix + documentId`. To keep the drafts private, use a store
-that `blob.serve` does not serve, or serve it with `authorize: true`. The digest
+that `blob.serve` does not serve, or serve it with `authorize: true`. On Vercel
+Blob, such a store also writes private objects. The digest
 is the SHA-256 of the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
 the document id stays a literal `%` in the Blob pathname, so `a%2Fb.md` and
 `a/b.md` are two files.

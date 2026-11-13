@@ -596,7 +596,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `driver` | `'vercel-blob'` | Required | Vercel Blob. |
-| `access` | `'private' \| 'public'` | `'public'` | Store access policy. A `blob.put()` call can override it. |
+| `access` | `'private' \| 'public'` | `'public'` when `serve: { public: true }` serves the store, else `'private'` | Provider access of every object in the store. A public object has a public Vercel Blob URL. `'public'` on a store that `serve: { authorize: true }` serves fails with `BLOB_C0022`. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |
 | `token` | `string` | OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN` | Vercel Blob read-write token. Without it, ViteHub uses Vercel OIDC when `BLOB_STORE_ID` is set, else `BLOB_READ_WRITE_TOKEN`. |

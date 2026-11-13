@@ -157,7 +157,7 @@ describe("blob config", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
-        access: "public",
+        access: "private",
         driver: "vercel-blob",
         token: "********",
       },
@@ -187,7 +187,7 @@ describe("blob config", () => {
       env: { BLOB_READ_WRITE_TOKEN: "build-token" },
     })
 
-    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********", tokenFromConfig: true })
+    expect(config?.store).toEqual({ access: "private", driver: "vercel-blob", token: "********", tokenFromConfig: true })
     if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
     expect(resolveRuntimeVercelBlobStore(config.store, {
       BLOB_READ_WRITE_TOKEN: "runtime-token",
@@ -198,10 +198,10 @@ describe("blob config", () => {
     const config = normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
       env: { BLOB_READ_WRITE_TOKEN: "default-token", MEDIA_BLOB_TOKEN: "store-token" },
     })
-    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", secretEnv: { token: "MEDIA_BLOB_TOKEN" }, token: "********" })
+    expect(config?.store).toEqual({ access: "private", driver: "vercel-blob", secretEnv: { token: "MEDIA_BLOB_TOKEN" }, token: "********" })
     if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
     expect(resolveRuntimeVercelBlobStore(resolveRuntimeBlobSecrets(config.store, { BLOB_READ_WRITE_TOKEN: "default-token", MEDIA_BLOB_TOKEN: "store-token" }), {}))
-      .toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+      .toEqual({ access: "private", driver: "vercel-blob", token: "store-token" })
   })
 
   it.each(["single", "named"] as const)("keeps a masked configured token ahead of OIDC in a %s Vercel Blob store", (form) => {
@@ -217,7 +217,7 @@ describe("blob config", () => {
     expect(resolveRuntimeVercelBlobStore(runtimeStore, {
       BLOB_READ_WRITE_TOKEN: "runtime-token",
       BLOB_STORE_ID: "oidc-store",
-    })).toEqual({ access: "public", driver: "vercel-blob", token: "runtime-token" })
+    })).toEqual({ access: "private", driver: "vercel-blob", token: "runtime-token" })
     expect(() => resolveRuntimeVercelBlobStore(runtimeStore, { BLOB_STORE_ID: "oidc-store" }))
       .toThrow(expect.objectContaining({ code: "BLOB_C0009", message: expect.stringContaining("`BLOB_READ_WRITE_TOKEN`") }))
   })
@@ -679,7 +679,7 @@ describe("blob config", () => {
 
   it("infers Vercel Blob from BLOB_STORE_ID", () => {
     expect(normalizeBlobOptions({}, { env: { BLOB_STORE_ID: "store_1" } })?.store).toEqual({
-      access: "public",
+      access: "private",
       driver: "vercel-blob",
       token: "********",
     })
@@ -830,7 +830,7 @@ describe("blob config in vite dev", () => {
 
   it("uses the hosted store with remote: true", () => {
     expect(normalizeBlobOptions({ remote: true }, { dev: true, env })?.store).toEqual({
-      access: "public",
+      access: "private",
       driver: "vercel-blob",
       remote: true,
       token: "********",
@@ -839,7 +839,7 @@ describe("blob config in vite dev", () => {
 
   it("keeps an explicit driver without remote", () => {
     expect(normalizeBlobOptions({ driver: "vercel-blob" }, { dev: true, env })?.store).toEqual({
-      access: "public",
+      access: "private",
       driver: "vercel-blob",
       token: "********",
     })

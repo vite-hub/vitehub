@@ -226,14 +226,31 @@ function resolveCloudflareStore(
   )
 }
 
+/**
+ * Vercel Blob sets access on each object, and a public object has a public provider URL. So a store is private unless
+ * its config sets `access: "public"` or a `public: true` serve route serves it.
+ */
+function resolveVercelAccess(
+  config: Partial<VercelBlobStoreConfig>,
+  served: ResolvedBlobModuleOptions["serve"],
+  path: string,
+): ResolvedVercelBlobStoreConfig["access"] {
+  if (config.access === "public" && served?.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0022({ message: `\`${path}.access\` is "public", but \`blob.serve\` requires \`authorize: true\` for this store. Anyone could read its objects from their public Vercel Blob URLs.` })
+  }
+  return config.access ?? (served?.public ? "public" : "private")
+}
+
 function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
+  served?: ResolvedBlobModuleOptions["serve"],
+  path = "blob",
 ): ResolvedVercelBlobStoreConfig {
   const token = resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE
   return {
     ...config,
-    access: config.access ?? "public",
+    access: resolveVercelAccess(config, served, path),
     driver: "vercel-blob",
     token,
     ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
@@ -279,6 +296,8 @@ function resolveMinioStore(
 function resolveExplicitStore(
   store: BlobStoreConfig,
   env: Record<string, string | undefined>,
+  served: ResolvedBlobModuleOptions["serve"],
+  path: string,
 ) {
   switch (store.driver) {
     case "cloudflare-r2":
@@ -290,7 +309,7 @@ function resolveExplicitStore(
     case "netlify-blobs":
       return resolveNetlifyStore(store)
     case "vercel-blob":
-      return resolveVercelStore(store, env)
+      return resolveVercelStore(store, env, served, path)
     case "azure":
     case "gcs":
     case "s3":
@@ -381,6 +400,10 @@ function normalizeImagesOptions(value: unknown): ResolvedBlobModuleOptions["imag
     images.sizes = [...new Set(sizes)].sort((left, right) => left - right)
   }
   return images
+}
+
+function servedRoute(serve: ResolvedBlobModuleOptions["serve"], store: string): ResolvedBlobModuleOptions["serve"] {
+  return serve?.store === store ? serve : undefined
 }
 
 function assertServeStore(
@@ -488,7 +511,7 @@ export function normalizeBlobOptions(
       Object.entries(options.stores).map(([name, store]) => {
         const path = `blob.stores.${name}.remote`
         const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
-        return [name, applyDevelopmentMode(resolveExplicitStore(store, env), { dev, env, inferred: false, path, remote })]
+        return [name, applyDevelopmentMode(resolveExplicitStore(store, env, servedRoute(serve, name), `blob.stores.${name}`), { dev, env, inferred: false, path, remote })]
       }),
     )
     const defaultStore = resolvedStores.default
@@ -500,7 +523,7 @@ export function normalizeBlobOptions(
   const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
 
   if (explicit?.driver) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env, servedRoute(serve, "default"), "blob"), mode), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {
@@ -512,11 +535,11 @@ export function normalizeBlobOptions(
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
   }
 
   return createResolvedConfig(env, applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
