@@ -117,6 +117,11 @@ export interface CloudflareHyperdriveConfig {
 
 export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
+  /**
+   * Read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. `db.$replica` sends a query to one of them, picked at
+   * random. Other queries use `url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore them.
+   */
+  replicas?: Array<DatabaseConfigValue | undefined>
 }
 
 /**
@@ -183,7 +188,13 @@ export type MergeDatabaseRelations<TSchema extends Record<string, unknown>, TPar
 export type RuntimePostgresDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = PgAsyncDatabase<PgQueryResultHKT, TRelations>
+> = PgAsyncDatabase<PgQueryResultHKT, TRelations> & {
+  /**
+   * The database on one read replica of `connection.replicas`, picked at random for each read. It is the primary
+   * database when there are no replicas, or when Hyperdrive or PGlite serves the database. Writes belong on `db`.
+   */
+  readonly $replica: PgAsyncDatabase<PgQueryResultHKT, TRelations>
+}
 
 export interface DatabaseDefinition<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
