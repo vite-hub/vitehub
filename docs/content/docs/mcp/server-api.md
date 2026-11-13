@@ -141,6 +141,9 @@ Put one `defineMcpHooks()` default export in `server/mcp.ts`. The server calls i
 import { defineMcpHooks } from 'vite-hub/mcp'
 import { HTTPError } from 'h3'
 
+const members = new Map([['user-1', { teamId: 'core' }]])
+const findMember = async (userId: string) => members.get(userId)
+
 export default defineMcpHooks({
   async resolveCaller({ caller }) {
     const member = caller && await findMember(caller.user.id)

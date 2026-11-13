@@ -13,6 +13,6 @@ export const mcpErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     // A file in `server/mcp/tools/` has a name that MCP does not allow as a tool name.
     MCP_B0002: dynamicError,
     // More than one server directory has an `mcp.ts` hooks module.
-    MCP_B0003: dynamicError,
+    MCP_B0003: { ...dynamicError, fix: "Keep one `mcp.ts` with the `defineMcpHooks()` default export, in one server directory." },
   },
 })
