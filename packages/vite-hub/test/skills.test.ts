@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
 
 import { parseTarGzip } from "nanotar"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { defineSkill, defineSkills, serveSkills, skillArchive, skillDigest, skillsMcp } from "../src/skills.ts"
+import { defineSkill, defineSkills, isSkillSettings, serveSkills, skillArchive, skillDigest, skillSettings, skillsMcp } from "../src/skills.ts"
 
-import type { Skill } from "../src/skills.ts"
+import type { Skill, SkillSettingsStore } from "../src/skills.ts"
 
 const releaseMd = "---\nname: release\ndescription: Ship a release.\nlicense: MIT\n---\n\n# Release\n"
 const handoffMd = "---\nname: handoff\ndescription: Hand work to the next agent.\n---\n\n# Handoff\n"
@@ -289,5 +289,91 @@ describe("skillsMcp", () => {
     expect(await mcp.read("skill://release/assets/logo.png")).toEqual([undefined, { cacheScope: "private", resultType: "complete", ttlMs: 0, contents: [{ blob: "iVBORw==", mimeType: "image/png", uri: "skill://release/assets/logo.png" }] }])
     const [error] = await mcp.read("skill://release/missing.md")
     expect(error?.code).toBe("SKILL_NOT_FOUND")
+  })
+})
+
+/** A KV-like store whose reads and writes the test counts and can make fail. */
+function memoryStore(initial?: unknown) {
+  const values = new Map<string, unknown>(initial === undefined ? [] : [["vitehub:skills:disabled", initial]])
+  const state = { fail: false, reads: 0 }
+  const failure = { code: "KV_OPERATION_FAILED", message: "KV is down." }
+  const store: SkillSettingsStore = {
+    get: async (key) => {
+      state.reads++
+      // SAFETY: The settings read only `code` and `message` of a store error.
+      return state.fail ? [failure as never, undefined] : [undefined, values.get(key) ?? null]
+    },
+    set: async (key, value) => {
+      if (state.fail) return [failure as never, undefined]
+      values.set(key, value)
+      return [undefined, undefined]
+    },
+  }
+  return { state, store, values }
+}
+
+describe("skillSettings", () => {
+  it("serves every skill until one is turned off, then leaves it out of discovery and MCP", async () => {
+    const { store, values } = memoryStore()
+    const settings = skillSettings([release, handoff], { store })
+    expect(isSkillSettings(settings)).toBe(true)
+    expect(isSkillSettings([release])).toBe(false)
+    expect((await settings.enabled()).map(skill => skill.name)).toEqual(["release", "handoff"])
+
+    expect(await settings.set("release", false)).toEqual([undefined, { enabled: false, skill: release }])
+    expect(values.get("vitehub:skills:disabled")).toEqual(["release"])
+    expect(await settings.list()).toEqual([undefined, [{ enabled: false, skill: release }, { enabled: true, skill: handoff }]])
+    const index = await json(await serveSkills(get("/.well-known/skills/index.json"), settings.enabled)) as { skills: Array<{ name: string }> }
+    expect(index.skills.map(skill => skill.name)).toEqual(["handoff"])
+    expect((await serveSkills(get("/.well-known/skills/release/SKILL.md"), settings.enabled))?.status).toBe(404)
+    expect((await skillsMcp(settings.enabled).read("skill://release/SKILL.md"))[0]?.code).toBe("SKILL_NOT_FOUND")
+
+    await settings.set("release", true)
+    expect(values.get("vitehub:skills:disabled")).toEqual([])
+    expect((await settings.enabled()).map(skill => skill.name)).toEqual(["release", "handoff"])
+  })
+
+  it("refuses a name that is not in the list", async () => {
+    const { store, values } = memoryStore()
+    const [error] = await skillSettings([release], { store }).set("missing", false)
+    expect(error?.code).toBe("SKILL_NOT_FOUND")
+    expect(values.size).toBe(0)
+  })
+
+  it("reuses a read for ttlMs, and keeps changes that another instance wrote", async () => {
+    vi.useFakeTimers()
+    try {
+      const { state, store } = memoryStore(["release"])
+      const here = skillSettings([release, handoff], { store, ttlMs: 1000 })
+      const there = skillSettings([release, handoff], { store, ttlMs: 1000 })
+      expect((await here.enabled()).map(skill => skill.name)).toEqual(["handoff"])
+      await there.set("handoff", false)
+      // This instance still uses its read, then reads again after ttlMs.
+      expect((await here.enabled()).map(skill => skill.name)).toEqual(["handoff"])
+      expect(state.reads).toBe(2)
+      vi.advanceTimersByTime(1000)
+      expect(await here.enabled()).toEqual([])
+      // A write reads the store first, so it keeps the other instance's change.
+      await here.set("release", true)
+      expect(await there.list()).toEqual([undefined, [{ enabled: true, skill: release }, { enabled: false, skill: handoff }]])
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("fails with SKILL_SETTINGS_UNAVAILABLE when the store fails, and reads again on the next call", async () => {
+    const { state, store } = memoryStore()
+    const settings = skillSettings([release], { store })
+    state.fail = true
+    await expect(settings.enabled()).rejects.toMatchObject({ code: "SKILL_SETTINGS_UNAVAILABLE", cause: { code: "KV_OPERATION_FAILED" } })
+    expect((await settings.set("release", false))[0]?.code).toBe("SKILL_SETTINGS_UNAVAILABLE")
+    state.fail = false
+    expect(await settings.enabled()).toEqual([release])
+  })
+
+  it("ignores a stored value that is not a list of names", async () => {
+    const { store } = memoryStore({ release: false })
+    expect(await skillSettings([release], { store }).enabled()).toEqual([release])
   })
 })

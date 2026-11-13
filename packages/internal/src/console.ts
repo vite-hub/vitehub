@@ -49,10 +49,18 @@ export interface ViteHubConsoleOperationColumn {
   /**
    * `datetime` shows a time in milliseconds since the epoch as a relative date, such as `5m ago`. `excerpt` cuts a long
    * text. `status` shows the value as a status with a colored dot, such as `Open`. `tones` picks the color of each value.
+   * `switch` shows a boolean as a switch that calls the `switch` operation.
    */
-  format?: "datetime" | "excerpt" | "status"
+  format?: "datetime" | "excerpt" | "status" | "switch"
   /** The color of each value of a `status` column, such as `{ open: "info", resolved: "success" }`. Other values are neutral. */
   tones?: Readonly<Record<string, "error" | "info" | "neutral" | "success" | "warning">>
+  /**
+   * What a `switch` column calls when the user flips it: `operation` with an input that maps each key of `input` to a
+   * dot path of the item, and the column `key` to the new value. `{ operation: "skills.set", input: { name: "name" } }`
+   * on the column `enabled` calls `skills.set` with `{ name, enabled }`, then loads the list again. A user who may only
+   * read the section sees the switch disabled.
+   */
+  switch?: { operation: string, input: Readonly<Record<string, string>> }
 }
 
 /** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
@@ -949,10 +957,17 @@ export function describeViteHubConsoleRuntimeReader<TOptions>(section: ViteHubCo
   return checkedServerExport(section, section.runtime, "runtime")
 }
 
+const operationNamePattern = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
+
 /** A checked copy of an operation view that only holds JSON. */
 export function describeOperationView(view: ViteHubConsoleOperationView): ViteHubConsoleOperationView {
-  if (String(view.operation) !== view.operation || !/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/.test(view.operation)) {
+  if (String(view.operation) !== view.operation || !operationNamePattern.test(view.operation)) {
     throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(view.operation)}.`)
+  }
+  for (const column of view.columns) {
+    if ((column.format === "switch") !== (column.switch !== undefined) || (column.switch && !operationNamePattern.test(column.switch.operation))) {
+      throw new TypeError(`[vitehub] The Console column ${JSON.stringify(column.key)} needs both \`format: "switch"\` and a \`switch\` operation name such as "skills.set".`)
+    }
   }
   // SAFETY: The view holds strings, numbers, booleans, and plain objects, so a JSON round trip copies it.
   return JSON.parse(JSON.stringify(view)) as ViteHubConsoleOperationView

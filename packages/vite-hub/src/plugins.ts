@@ -49,6 +49,7 @@ import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOpti
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
@@ -1711,6 +1712,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
+  // The skills of `server/skills.ts`, listed and turned on and off with `vitehub served-skills` and the Console.
+  plugins.push(viteHubServedSkillsPlugin())
   // A Node server prints where each primitive keeps its state, and fails at boot when several instances would split it.
   if (plan.host === "node") plugins.push(viteHubDurabilityPlugin(options.node))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
