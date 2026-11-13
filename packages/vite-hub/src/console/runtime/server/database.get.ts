@@ -79,6 +79,7 @@ interface DatabaseTableConfig {
   foreignKeys: ReadonlyArray<{ reference(): { columns: readonly Column[], foreignColumns: readonly Column[], foreignTable: PgTable | SQLiteTable } }>
   indexes: ReadonlyArray<{ config: { columns: readonly object[], unique: boolean, where?: SQL | undefined } }>
   name: string
+  schema?: string | undefined
   primaryKeys: ReadonlyArray<{ columns: readonly Column[] }>
   uniqueConstraints: ReadonlyArray<{ columns: readonly Column[] }>
 }
@@ -161,7 +162,13 @@ function databaseTables(schema: Record<string, unknown>): DatabaseTableEntry[] {
     .map((table) => {
       // SAFETY: Drizzle's table column map contains Column values, while Object.entries only erases that value type.
       const columns = Object.entries(getTableColumns(table)) as Array<[string, Column]>
-      return { columns, name: tableConfig(table).name, table }
+      const config = tableConfig(table)
+      // Quote separators so a literal dot in an identifier cannot collide with schema qualification.
+      const identifier = (name: string) => /[."]/.test(name) ? `"${name.replaceAll('"', '""')}"` : name
+      const name = is(table, PgTable)
+        ? [config.schema, config.name].filter((part): part is string => part !== undefined).map(identifier).join(".")
+        : config.name
+      return { columns, name, table }
     })
     .sort((left, right) => left.name.localeCompare(right.name))
 }

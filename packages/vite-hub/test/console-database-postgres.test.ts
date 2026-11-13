@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgSchema, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 import { consoleState } from "../src/console/internal.ts";
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
@@ -76,6 +76,46 @@ describe("Console database inspection on Postgres", () => {
       expect.objectContaining({ key: "createdAt", name: "created_at", type: "timestamp" }),
     ]);
     expect(value.relationships).toContainEqual({ from: { column: "author_id", table: "posts" }, to: { column: "id", table: "users" } });
+  });
+
+  it("keeps same-name tables and relationship endpoints distinct across schemas", async () => {
+    const alpha = pgSchema("alpha");
+    const beta = pgSchema("beta");
+    const alphaUsers = alpha.table("users", { id: integer("id").primaryKey() });
+    const betaUsers = beta.table("users", {
+      id: integer("id").primaryKey(),
+      alphaId: integer("alpha_id").references(() => alphaUsers.id),
+    });
+    const client = new PGlite();
+    clients.push(client);
+    await client.exec(`
+      create schema alpha;
+      create schema beta;
+      create table alpha.users (id integer primary key);
+      create table beta.users (id integer primary key, alpha_id integer references alpha.users(id));
+      insert into alpha.users values (1);
+      insert into beta.users values (42, 1);
+    `);
+    installConsoleSections("/project", ["databases"], ["databases"]);
+    installConsoleDatabase("/project", {
+      default: { db: drizzle({ client }), schema: { alphaUsers, betaUsers } },
+    }, ["default"]);
+
+    expect(await call("databases.tables", {})).toMatchObject({
+      ok: true,
+      value: {
+        tables: [{ name: "alpha.users" }, { name: "beta.users" }],
+        relationships: [{
+          from: { column: "alpha_id", table: "beta.users" },
+          to: { column: "id", table: "alpha.users" },
+        }],
+      },
+    });
+    for (const [table, id] of [["alpha.users", "1"], ["beta.users", "42"]]) {
+      expect(await call("databases.browse", { table })).toMatchObject({
+        ok: true, value: { table, total: 1, rows: [{ id: { value: id } }] },
+      });
+    }
   });
 
   it("pages, sorts, and filters the rows of a Postgres table", async () => {
