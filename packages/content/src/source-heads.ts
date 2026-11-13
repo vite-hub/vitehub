@@ -9,11 +9,13 @@ import { formatDiagnostic } from "nostics"
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
 import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
 import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
 import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
+import type { ContentKV } from "./kv.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
 import type { ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 import type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
@@ -38,10 +40,31 @@ export interface ContentSourceHead {
   pinned: boolean
   /** The newest commit that failed validation, and why. Null after the head moves past it. */
   rejected: { sha: string, at: string, reason: string } | null
+  /** When Content last resolved the branch, as an ISO date. Content resolves it again after one hour without a push. */
+  checkedAt: string | null
+  /** The last GitHub push webhook delivery for this Source, or null when none arrived. */
+  webhook: ContentSourceWebhookDelivery | null
   /** How this server instance read commits of the Source: from memory, from ViteHub KV, or from a GitHub archive. */
   cache: ContentCommitCacheStats
   /** The commits of the Source that this server instance holds open for `at()`, the most recently used last. */
   views: string[]
+}
+
+/** One GitHub push webhook delivery that matched a Source. */
+export interface ContentSourceWebhookDelivery {
+  /** The `X-GitHub-Delivery` id. GitHub shows it under Recent Deliveries. */
+  id: string | null
+  /** When Content received the delivery, as an ISO date. */
+  at: string
+  /** The commit that the push names in `after`. */
+  sha: string | null
+  /**
+   * What `advance()` did: `moved` to a new commit, `kept` the same head, `rejected` the pushed commit because a document
+   * did not parse, kept a `pinned` head, or `failed` with `error`.
+   */
+  result: "failed" | "kept" | "moved" | "pinned" | "rejected"
+  /** The error of a `failed` delivery. */
+  error?: string
 }
 
 /**
@@ -117,6 +140,14 @@ interface StoredHead {
   movedAt: string | null
   pinned: boolean
   rejected: ContentSourceHead["rejected"]
+  /** The check time in heads stored before polling metadata moved to its own key. */
+  checkedAt?: string | null
+}
+
+/** The last completed branch check, separate from both head authority and the short check lease. */
+interface StoredCheck {
+  origin: string
+  at: string
 }
 
 /** One commit loaded through the commit cache. `commit` is missing when a document does not parse, and `reason` says why. */
@@ -170,6 +201,10 @@ interface OpenView {
 
 /** How long a server instance serves a head before it reads KV again. */
 const HOLD_MS = 5_000
+/** How long a head waits for a push before a read resolves the branch again. A push webhook moves it sooner. */
+const CHECK_MS = 60 * 60 * 1000
+/** How long the lease of an hourly check holds off the checks of other server instances. */
+const CHECK_LEASE_MS = 60_000
 /** How long a server instance holds the commit that a branch or pull request ref resolved to. */
 const REF_HOLD_MS = 30_000
 /** The ref lookups that one server instance holds. */
@@ -203,6 +238,21 @@ function headKey(name: string): string {
   return `content:head:${name}`
 }
 
+/** The KV key of the lease of the hourly check of a Source, such as `content:check:docs`. */
+function checkKey(name: string): string {
+  return `content:check:${name}`
+}
+
+/** The KV key of the last completed branch check, such as `content:checked:docs`. */
+function checkedKey(name: string): string {
+  return `content:checked:${name}`
+}
+
+/** The KV key of the last push webhook delivery of a Source, such as `content:webhook:docs`. */
+function webhookKey(name: string): string {
+  return `content:webhook:${name}`
+}
+
 function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
   return typeof value === "function"
 }
@@ -211,19 +261,6 @@ function isGitHubDefinition(definition: Source<string, unknown, object> | undefi
   return definition?.name === "github" && "authenticated" in definition && typeof definition.authenticated === "function"
 }
 
-/** The part of a ViteHub KV store that Content uses, such as `kv` from `@vite-hub/kv`. */
-export interface ContentKV {
-  get<T>(key: string): Promise<readonly [unknown, T | null | undefined]>
-  set<T>(key: string, value: T): Promise<readonly [unknown, unknown]>
-}
-
-let installedKV: ContentKV | undefined
-/**
- * The build that registered KV. Plugin options can live in closures that the parser hash cannot read, so each build
- * gets its own commit cache keys.
- */
-let installedBuild: string | undefined
-
 /** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
 const kvFailures = new WeakSet<object>()
 
@@ -231,15 +268,6 @@ type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
 
 function isKVFailure(error: unknown): error is KVFailure {
   return error instanceof Error && kvFailures.has(error)
-}
-
-/**
- * Give Content the KV store that keeps the heads of `github()` Sources. When the app enables ViteHub KV, the build
- * calls it at the top of `server/content.ts`; you do not call it yourself. Without it, no Source is live.
- */
-export function registerContentKV(store: ContentKV | undefined, build?: string): void {
-  installedKV = store
-  installedBuild = build
 }
 
 /** The head state of one Content runtime. */
@@ -254,6 +282,19 @@ interface ContentSourceHeadsRuntime {
   attach(name: string, instance: ComarkContent): void
   /** Close every view after its current reads finish. */
   dispose(): Promise<void>
+  /** The names of the `github()` Sources. */
+  names(): string[]
+  /** The names of the `github()` Sources that follow `ref` of `repo`. `defaultBranch` resolves a Source without `ref`. */
+  match(repo: string, ref: string, defaultBranch: string | undefined): { repository: boolean, sources: string[] }
+  /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
+  deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
+}
+
+const runtimes = new WeakMap<ContentSourceHeads, ContentSourceHeadsRuntime>()
+
+/** The runtime behind `content.sources`, for the push webhook route. */
+export function contentSourceHeadsRuntime(api: ContentSourceHeads): ContentSourceHeadsRuntime | undefined {
+  return runtimes.get(api)
 }
 
 /** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
@@ -288,14 +329,15 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   async function isLive(state: HeadState): Promise<boolean> {
     state.live ??= state.definition.authenticated().then((authenticated) => {
       if (!authenticated) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0020({ source: state.name })))
-      else if (!installedKV) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0021({ source: state.name })))
-      return authenticated && Boolean(installedKV)
+      else if (!contentKV()) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0021({ source: state.name })))
+      return authenticated && Boolean(contentKV())
     })
     return await state.live
   }
 
   function kv(state: HeadState): ContentKV {
-    if (installedKV) return installedKV
+    const store = contentKV()
+    if (store) return store
     throw contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
   }
 
@@ -326,6 +368,16 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   async function write(state: HeadState, head: StoredHead): Promise<void> {
     await kvCall(state, store => store.set(headKey(state.name), head))
+  }
+
+  async function lastCheck(state: HeadState, head: StoredHead): Promise<string | null> {
+    const stored = await kvCall(state, store => store.get<StoredCheck>(checkedKey(state.name)))
+    const at = head.checkedAt ?? head.movedAt
+    return stored?.origin === origin(state) && Date.parse(stored.at) >= (Date.parse(at ?? "") || 0) ? stored.at : at ?? null
+  }
+
+  async function checked(state: HeadState): Promise<void> {
+    await kvCall(state, store => store.set(checkedKey(state.name), { origin: origin(state), at: new Date().toISOString() }))
   }
 
   /** Load and parse every document of `input`. Returns the documents, or the error when a document does not parse. */
@@ -366,12 +418,12 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   function hashOf(state: HeadState): Promise<string> {
     const { prefix, schema } = contentSource(state.input)
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: installedBuild ?? null })
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: contentKVBuild() ?? null })
     return state.hash
   }
 
   async function readCommit(key: string): Promise<ContentCommit | undefined> {
-    const store = installedKV
+    const store = contentKV()
     if (!store) return
     let result: readonly [unknown, CacheArtifact | null | undefined]
     // A KV store that throws counts as a miss, so the page still loads the commit from GitHub.
@@ -391,7 +443,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   async function writeCommit(state: HeadState, key: string, commit: ContentCommit): Promise<void> {
-    const store = installedKV
+    const store = contentKV()
     if (!store) return
     let failure: unknown
     try {
@@ -449,14 +501,21 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
-  /** Move the head to the latest valid commit of the branch, and return the stored head. */
-  async function move(state: HeadState): Promise<StoredHead | null> {
+  /** Move the head to the latest valid commit of the branch, and record a completed check separately. */
+  async function move(state: HeadState, recheck = false): Promise<StoredHead | null> {
     const before = await read(state)
     if (before?.pinned) return before
     // A fresh reader resolves the branch, not the head that the instance reads.
     const revision = await createSource(state.definition).revision()
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
-    if (!revision?.immutable || revision.id === before?.sha) return before
+    if (!revision?.immutable) return before
+    if (revision.id === before?.sha) {
+      const latest = await read(state)
+      if (!recheck || JSON.stringify(latest) !== JSON.stringify(before)) return latest
+      await checked(state)
+      // A pin or webhook may have completed during the branch lookup. A check never restores the old head.
+      return await read(state)
+    }
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
@@ -466,6 +525,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const latest = await read(state)
     if (JSON.stringify(latest) !== JSON.stringify(before)) return latest
     await write(state, next)
+    await checked(state)
     return next
   }
 
@@ -476,11 +536,28 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha })))
   }
 
+  /**
+   * The head without a push for one hour resolves its branch again, so it moves without a webhook too. The server
+   * instance that reads it first takes a one-minute lease under another KV key, so other server instances do not check
+   * too. A separate completion key stores `checkedAt`, so a check-only write cannot replace head authority or write the
+   * lease key twice within the provider's one-second limit. A failed check is tried again after the lease.
+   */
+  async function recheck(state: HeadState, head: StoredHead): Promise<StoredHead | null> {
+    if (head.pinned) return head
+    const checkedAt = Date.parse(await lastCheck(state, head) ?? "")
+    if (Date.now() - (Number.isNaN(checkedAt) ? 0 : checkedAt) < CHECK_MS) return head
+    const lease = await kvCall(state, store => store.get<{ at: number }>(checkKey(state.name)))
+    if (lease && Date.now() - lease.at < CHECK_LEASE_MS) return head
+    await kvCall(state, store => store.set(checkKey(state.name), { at: Date.now() }))
+    return await move(state, true)
+  }
+
   /** The head held in memory, or read from KV. The first read of a Source without a stored head resolves one. */
   async function current(state: HeadState): Promise<StoredHead | null> {
     if (state.held && Date.now() - state.held.at < HOLD_MS) return state.held.head
     state.reading ??= (async () => {
-      const head = await read(state) ?? await move(state)
+      const stored = await read(state)
+      const head = stored ? await recheck(state, stored) : await move(state)
       hold(state, head)
       return head
     })().finally(() => {
@@ -519,6 +596,14 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
+  async function lastDelivery(state: HeadState): Promise<ContentSourceWebhookDelivery | null> {
+    const store = contentKV()
+    if (!store) return null
+    const [error, delivery] = await store.get<ContentSourceWebhookDelivery>(webhookKey(state.name))
+    if (error) throw error
+    return delivery ?? null
+  }
+
   /**
    * What a read serves when KV fails: the commit that this server instance already serves, which passed validation,
    * or else no head, so the Source reads the latest commit of its branch as it does without KV.
@@ -541,6 +626,8 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       movedAt: head?.movedAt ?? null,
       pinned: head?.pinned ?? false,
       rejected: head?.rejected ?? null,
+      checkedAt: live && head ? await lastCheck(state, head) : null,
+      webhook: await lastDelivery(state),
       cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, kv: kvHits }, misses },
       views: [...views.values()].filter(open => open.state === state).map(open => open.sha),
     }
@@ -718,7 +805,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       if (typeof sha !== "string" || !fullSha.test(sha)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.pin() needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
       }
-      if (!await isLive(state)) throw installedKV ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
+      if (!await isLive(state)) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })
@@ -800,7 +887,17 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     },
   }
 
-  return {
+  /** The `repo` and `ref` of a `github()` Source. `ref` is undefined for the default branch. */
+  function target(state: HeadState): { repo: string, ref: string | undefined } | undefined {
+    const fingerprint: unknown = state.definition.fingerprint
+    if (typeof fingerprint !== "object" || fingerprint === null) return
+    const repo: unknown = Reflect.get(fingerprint, "repo")
+    const ref: unknown = Reflect.get(fingerprint, "ref")
+    if (typeof repo !== "string") return
+    return { repo, ref: typeof ref === "string" && ref !== "default" ? ref : undefined }
+  }
+
+  const runtime: ContentSourceHeadsRuntime = {
     api,
     async dispose() {
       disposed = true
@@ -863,5 +960,40 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         },
       })
     },
+    names: () => [...states.keys()],
+    match(repo, ref, defaultBranch) {
+      const result: { repository: boolean, sources: string[] } = { repository: false, sources: [] }
+      for (const state of states.values()) {
+        const source = target(state)
+        if (!source || source.repo.toLowerCase() !== repo.toLowerCase()) continue
+        result.repository = true
+        const branch = source.ref ?? defaultBranch
+        if (branch && (ref === `refs/heads/${branch}` || ref === branch)) result.sources.push(state.name)
+      }
+      return result
+    },
+    async deliver(name, { id, sha }) {
+      const state = stateOf(name)
+      const at = new Date().toISOString()
+      let delivery: ContentSourceWebhookDelivery
+      try {
+        const before = await isLive(state) ? await read(state) : null
+        const head = await api.advance(name)
+        if (!head.live) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: name }) : contentErrorDiagnostics.CONTENT_R0021({ source: name })
+        const result = head.pinned ? "pinned" : sha && head.rejected?.sha === sha ? "rejected" : head.sha !== (before?.sha ?? null) ? "moved" : "kept"
+        delivery = { id, at, sha, result }
+      }
+      catch (error) {
+        delivery = { id, at, sha, result: "failed", error: error instanceof Error ? error.message : String(error) }
+      }
+      const store = contentKV()
+      if (store) {
+        const [error] = await store.set(webhookKey(name), delivery)
+        if (error) throw error
+      }
+      return delivery
+    },
   }
+  runtimes.set(api, runtime)
+  return runtime
 }

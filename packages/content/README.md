@@ -61,7 +61,7 @@ it. When `server/content.ts` imports it, the generated
 `.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
 because a Worker compiles WebAssembly only then.
 
-Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()` and `defineContentRobotsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on.
+Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()`, `defineContentRobotsHandler()`, and `defineContentLlmsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on. It takes the Content runtime or a function that loads it; with a function, it loads Content only for requests that ask for Markdown. `@vite-hub/content/markdown` exports it without the Content runtime, for the generated middleware that loads when the server starts.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
@@ -82,14 +82,14 @@ export default defineContent({
 ```
 
 ```ts fragment
-await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, cache }
+await content.sources.head("docs") // { source: "docs", live: true, sha, ref: "main", movedAt, pinned: false, rejected: null, checkedAt, webhook, cache, views }
 await content.sources.advance("docs") // move to the latest commit of main when every document parses
 await content.sources.pin(sha, "docs") // serve this commit until unpin(), for example to roll back
 await content.sources.unpin("docs")
 ```
 
 - The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
-- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. Call `advance()` after a push, for example from a GitHub push webhook route.
+- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. The GitHub push webhook below calls `advance()` for you.
 - Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
 - A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
 - Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
@@ -97,6 +97,29 @@ await content.sources.unpin("docs")
 - ViteHub turns KV on when `server/content.ts` imports `github()` and `vitehub()` leaves `kv` unset. You do not add KV yourself. The head uses the `default` KV store. On Cloudflare, it is the KV namespace bound as `KV`. `vitehub kv get content:head:docs` shows the stored head.
 - Without a KV store, such as with `kv: false` or when `server/content.ts` gets its Sources from another file, the Source is not live: it reads its branch as without a token, and Content logs `CONTENT_R0021` once.
 - When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
+- Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. Completed checks store `checkedAt` under `content:checked:<source>`. An unchanged branch needs no head write; a changed branch needs one. A failed check is tried again after the lease.
+
+### GitHub push webhook
+
+When `server/content.ts` imports `github` from `vite-hub/source`, ViteHub adds the route `POST /_vitehub/content/github`. A signed `push` to the branch of a `github()` Source moves its head within seconds, without a deploy.
+
+1. Generate a secret, such as `openssl rand -hex 32`, and set it as `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env. `FORGES_GITHUB_WEBHOOK_SECRET` also works.
+2. In the repository on GitHub, open Settings, Webhooks, Add webhook. Set the payload URL to `https://<your site>/_vitehub/content/github`, the content type to `application/json`, and the secret to the same value. Select "Just the push event".
+
+The route checks `X-Hub-Signature-256` against the raw body in constant time, with the same verifier as Channels.
+
+| Request | Response |
+| --- | --- |
+| No `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env | 404. Content logs `CONTENT_R0026` once. The hourly check still moves the head. |
+| Missing or wrong signature | 401 with `CONTENT_R0024`. Nothing moves. |
+| `ping` | 200 `{ ok: true }` |
+| `push` to the branch of a Source | `advance()` for each matching Source. When the host gives the request `waitUntil`, such as Cloudflare Workers, 202 `{ sources }` and the work runs after the response. Otherwise 200 `{ sources, deliveries }`. |
+| `push` to another branch, a deleted branch, or another event | 200 `{ ignored }` |
+| `push` to a repository that no Source reads | 200, and Content logs `CONTENT_R0025`. |
+
+A Source without `ref` follows the default branch in the payload. `content.sources.head()` shows the last delivery in `webhook`: `{ id, at, sha, result }`, where `id` is the `X-GitHub-Delivery` id and `result` is `moved`, `kept`, `rejected`, `pinned`, or `failed` with `error`. `vitehub kv get content:webhook:docs` shows the same record. A delivery with a bad signature writes nothing, so only the log shows it.
+
+ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route.
 
 ### Commit cache
 
@@ -309,7 +332,7 @@ With Realtime enabled on a host with a room authority, ViteHub contributes a `co
 
 `content.schedule({ at, expect })` publishes exactly the reviewed draft digests at a later time. A Schedule Definition such as `defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })` runs due schedules on every Schedule host. A draft saved after scheduling makes the run publish nothing and the schedule `failed`, with the `WORKSPACE_CONFLICT` details, until `unschedule(id)` dismisses it. `content.schedules()` lists pending, overdue (more than five minutes late without a run), and failed schedules, and `status()` reports each document's `schedule`. Schedules are JSON files on the `schedules` ref of the Content Workspace, so every change is a revision.
 
-`documents({ url: "/blog/:id" })` maps documents to public URLs, and reads carry `document.url`. `content.resolve("/blog/hello")` maps a page back to its `{ collection, id }` with the same `url`, for an Edit button; a collection without `url` resolves the id after a slash, without a trailing `/index`. `seo()` is a field for per-document `{ title, description, image, canonical, noindex }`; pass `seo({ image: image() })` to store a Blob reference. `contentHead(document, { collection, site, defaults })`, also exported from `@vite-hub/content/client`, returns unhead-shaped `{ title, meta, link, script? }` that merge the `seo()` values, the document fields, and site defaults. It finds the `seo()` field of `collection` by its marker, and resolves Blob images with the served route of the generated Blob config. `defineContent({ seo: { site, sitemap: true, robots: true } })` makes ViteHub generate `/sitemap.xml` and `/robots.txt`; `content.sitemap()` and `content.robots()` return the same output. `seo: { markdown: true }` also serves each published Markdown document at its URL plus `.md`, such as `/blog/hello.md` for `/blog/hello` and `/index.md` for `/`. The copy starts with the document's title, unless the body has its own heading, and its description as a quote, and turns root-relative links into absolute ones. Agents read it, and readers paste it into a chat. `content.markdown("/blog/hello.md")` returns the same text, or null. The sitemap also lists the documents of Sources with `contentSource(input, { url })`, without `lastmod`. Markdown copies read `collections` only.
+`documents({ url: "/blog/:id" })` maps documents to public URLs, and reads carry `document.url`. `content.resolve("/blog/hello")` maps a page back to its `{ collection, id }` with the same `url`, for an Edit button; a collection without `url` resolves the id after a slash, without a trailing `/index`. `seo()` is a field for per-document `{ title, description, image, canonical, noindex }`; pass `seo({ image: image() })` to store a Blob reference. `contentHead(document, { collection, site, defaults })`, also exported from `@vite-hub/content/client`, returns unhead-shaped `{ title, meta, link, script? }` that merge the `seo()` values, the document fields, and site defaults. It finds the `seo()` field of `collection` by its marker, and resolves Blob images with the served route of the generated Blob config. `defineContent({ seo: { site, sitemap: true, robots: true } })` makes ViteHub generate `/sitemap.xml` and `/robots.txt`; `content.sitemap()` and `content.robots()` return the same output. `seo: { markdown: true }` also serves each published Markdown document at its URL plus `.md`, such as `/blog/hello.md` for `/blog/hello` and `/index.md` for `/`. The copy starts with the document's title, unless the body has its own heading, and its description as a quote, and turns root-relative links into absolute ones. Agents read it, and readers paste it into a chat. `content.markdown("/blog/hello.md")` returns the same text, or null. The sitemap also lists the documents of Sources with `contentSource(input, { url })`, without `lastmod`. Markdown copies read `collections` only. The page URL also returns the copy for `Accept: text/markdown`, with `Vary: Accept`, and a Markdown request that no page answers gets a Markdown 404 body. `seo: { llms: true }`, or `{ title, description }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from the same pages as the sitemap, Markdown collections only, and turns on `markdown` because their links point at the `.md` copies. `content.llms({ file })` returns the same text. The formats match `@vite-hub/docs`.
 
 ```ts fragment
 useHead(contentHead(post, { site: { url: "https://vitehub.dev", name: "ViteHub" }, defaults: { description: settings.data.description } }))

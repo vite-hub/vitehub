@@ -1,4 +1,5 @@
 import virtualSchema from "#vitehub/database/schema"
+import { ensureDatabaseMigrations } from "./migrate-on-start.ts"
 
 import { createAgentDatabase, createDatabaseBindingLookup } from "./agent.ts"
 import { getRuntimeDatabases } from "./drizzle-runtime.ts"
@@ -125,3 +126,19 @@ export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegist
 
 /** The Database Agent Capability handle. Generated Agent routes pass it to the Capability. */
 export const agentDb = createAgentDatabase(databases)
+
+/**
+ * Applies the pending migrations of the Database `name`, or of every Database, once in this process. It runs the same
+ * path as the server start: a Postgres database migrates under the advisory lock, so other processes apply nothing
+ * twice. Parallel calls share one run, and the server start shares it too. A failed run is forgotten, so the next call
+ * tries again.
+ *
+ * @example
+ * await ensureMigrations()
+ */
+export function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string): Promise<void> {
+  // A dynamic import keeps the migration SQL out of the server start until a call needs it.
+  const load = () => import("#vitehub/database/migrations").then(module => module.default)
+  return ensureDatabaseMigrations({ databases, load }, name === undefined ? undefined : [name])
+}
+

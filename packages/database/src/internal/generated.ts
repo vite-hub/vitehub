@@ -5,6 +5,8 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { dirname, isAbsolute, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
+import { localPgliteDir } from "../runtime/local-path.ts"
+import { postgresEnvNames } from "../runtime/postgres-env.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./schema-tables.ts"
@@ -142,18 +144,30 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   await writeFileIfChanged(file, renderGeneratedDrizzleSchema(file, definition, parts, activeContributions.map(item => item.contribution)))
 }
 
-function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
-  if (database.dialect === "postgresql") {
-    const url = renderConfigValueExpression(database.connection?.url)
-    if (typeof database.connection?.url === "string") {
-      return database.connection.url.trim()
-        ? ["  dbCredentials: {", `    url: ${JSON.stringify(database.connection.url.trim())},`, "  },"]
-        : ["  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },"]
-    }
-    // Without a URL, Drizzle Kit needs `host` and `database`. Its Postgres driver reads the other PG* variables.
-    const env = "{ host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] }"
-    return [`  dbCredentials: ${url ? `(${url})?.trim() ? { url: (${url}).trim() } : ${env}` : env},`]
+/**
+ * Drizzle Kit connects to a Postgres Database like `vite dev`: with the URL, else with the PG* variables, else to the
+ * PGlite folder. `driver: "pglite"` always uses the folder. The preamble goes before `export default`.
+ */
+function renderPostgresKitConfig(database: ResolvedDrizzleDatabaseConfig): { entries: string[], preamble: string[] } {
+  const pglite = `{ driver: "pglite", dbCredentials: { url: ${JSON.stringify(localPgliteDir(database.name))} } }`
+  if (database.driver === "pglite") return { entries: [`  ...${pglite},`], preamble: [] }
+  const literal = typeof database.connection?.url === "string" ? database.connection.url.trim() : undefined
+  if (literal) return { entries: ["  dbCredentials: {", `    url: ${JSON.stringify(literal)},`, "  },"], preamble: [] }
+  const url = literal === undefined ? renderConfigValueExpression(database.connection?.url) : undefined
+  // Without a URL, Drizzle Kit needs `host` and `database`. Its Postgres driver reads the other PG* variables.
+  const server = `postgresEnv ? { dbCredentials: { host: process.env["PGHOST"], database: process.env["PGDATABASE"] } } : ${pglite}`
+  return {
+    entries: [`  ...(${url ? `url ? { dbCredentials: { url } } : ` : ""}${server}),`],
+    preamble: [
+      ...url ? [`const url = (${url})?.trim()`] : [],
+      `const postgresEnv = ${JSON.stringify(postgresEnvNames)}.some(name => process.env[name]?.trim())`,
+      "",
+    ],
   }
+}
+
+function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
+  if (database.dialect === "postgresql") return renderPostgresKitConfig(database).entries
 
   const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)
   if (database.cloudflare?.http && databaseId) {
@@ -190,6 +204,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
       "}",
       "",
     ] : []),
+    ...(database.dialect === "postgresql" ? renderPostgresKitConfig(database).preamble : []),
     "export default {",
     ...(sqlite ? [
       '  dialect: /^(?:libsql:|https?:\\/\\/|wss?:\\/\\/)/i.test(dbCredentials.url) || dbCredentials.authToken ? "turso" : "sqlite",',

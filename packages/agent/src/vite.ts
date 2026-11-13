@@ -8,6 +8,8 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { resolveDurabilityModule } from "@vite-hub/internal/durability"
+import { sqliteUrlInput } from "@vite-hub/runtime/durability"
 import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { scanModule } from "@vite-hub/internal/build/scan-module"
 import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
@@ -16,6 +18,8 @@ import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
+import type { AgentStateDurabilityInput } from "./durability.ts"
 import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -86,7 +90,7 @@ import type { AgentOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOption
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface AgentCliContributingPlugin {
-  vitehub?: ViteHubInspectionPluginMetadata & {
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     agent?: {
       transformWorkflowRegistry: (code: string, id: string) => string
       /** Checks direct folder Agent imports in a server build that does not run Vite transforms. */
@@ -726,6 +730,16 @@ function resolveLibsqlAgentState(
   }
 }
 
+/** The Agent state store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
+function agentStateDurabilityInput(options: ResolvedAgentModuleOptions, config: unknown, cloudflare: boolean): AgentStateDurabilityInput | undefined {
+  if (cloudflare) return { provider: "cloudflare" }
+  const { driver } = options.providers.state
+  if (driver === "memory") return { provider: "memory" }
+  const libsql = resolveLibsqlAgentState(options, config)
+  if (!libsql) return
+  return { provider: "libsql", ...(libsql.url ? { url: sqliteUrlInput(libsql.url) } : {}) }
+}
+
 function cloneStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined
 }
@@ -1010,8 +1024,27 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  const sourceSymbol = Symbol.for('vitehub.agent.definitionSource')",
     "  if (resolvedAgent !== agent) Object.defineProperty(resolvedAgent, sourceSymbol, { configurable: true, value: agent })",
-    "  if (Object.keys(skills).length && typeof setDiscoveredSkills !== 'function') {",
-    "    const descriptor = { configurable: true, enumerable: true, value: skills }",
+    "  const currentSkillsGetter = Object.getOwnPropertyDescriptor(agent, skillsSymbol)?.get",
+    "  const updateSymbol = Symbol.for('vitehub.agent.discoveredSkillsUpdate')",
+    "  const updateSkills = currentSkillsGetter && Reflect.get(currentSkillsGetter, updateSymbol)",
+    "  if (typeof updateSkills === 'function') updateSkills(skills)",
+    "  if (Object.keys(skills).length && typeof setDiscoveredSkills !== 'function' && typeof updateSkills !== 'function') {",
+    "    // Skills extend by name. A Skill folder of this Agent replaces the inherited folder with the same name, including its references.",
+    "    // Read the inherited Skills when the Agent runs, because the registry can load this Agent before its parent.",
+    "    const inheritedSkills = Object.getOwnPropertyDescriptor(agent, skillsSymbol)?.get",
+    `    const skillName = (source${typescript ? ": unknown" : ""}) => {`,
+    "      const path = source && typeof source === 'object' ? Reflect.get(source, 'workspacePath') : undefined",
+    "      return typeof path === 'string' ? path.split('/')[2] : undefined",
+    "    }",
+    "    let localSkills = skills",
+    "    const update = (sources" + (typescript ? ": typeof skills | undefined" : "") + ") => { localSkills = sources || {} }",
+    "    const extendedSkills = () => {",
+    "      const inherited = inheritedSkills?.call(agent)",
+    "      const ownSkillNames = new Set(Object.values(localSkills).map(skillName))",
+    "      return { ...Object.fromEntries(Object.entries(inherited && typeof inherited === 'object' ? inherited : {}).filter(([, source]) => !ownSkillNames.has(skillName(source)))), ...localSkills }",
+    "    }",
+    "    Object.defineProperty(extendedSkills, updateSymbol, { value: update })",
+    "    const descriptor = inheritedSkills ? { configurable: true, enumerable: true, get: extendedSkills } : { configurable: true, enumerable: true, value: skills }",
     "    Object.defineProperty(agent, skillsSymbol, descriptor)",
     "    if (resolvedAgent !== agent) {",
     "      Object.defineProperty(resolvedAgent, skillsSymbol, descriptor)",
@@ -2248,7 +2281,7 @@ async function writeAgentWebhookRouteHandler(
             "  const startedAt = performance.timeOrigin",
             "  // Start one second after the server starts, so the Agent routes do not compile while the server answers its",
             "  // first requests, or at once when a request loads them. Invocations that started before this process are",
-            "  // interrupted unless a queued delivery runs them again.",
+            "  // interrupted unless a queued delivery runs them again or a live run in another process holds their claim.",
             "  // The warm-up builds registrations, secrets, and State before the first delivery needs them.",
             "  // /api/_vitehub/ready starts it at once and answers 503 until it finishes.",
             "  function startNow() {",
@@ -2743,6 +2776,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   const buildEnvironment = (context: { environment?: object } | undefined): object =>
     context?.environment ?? context ?? fallbackEnvironment
   let resolved: ResolvedConfig | undefined
+  // The Agent state store that the server uses, when the app has hosted Agents.
+  let stateDurability: AgentStateDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
 
@@ -3060,6 +3095,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       },
     },
     vitehub: {
+      durability: () => stateDurability
+        ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }]
+        : [],
       // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
       operations: () => [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: agentRuntimeModule("operations") }],
       providerOutput: {
@@ -3155,6 +3193,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
       const stateDriver = resolved && resolved.providers.state.driver
+      stateDurability = resolved && hasHostedAgents && !denoOutput ? agentStateDurabilityInput(resolved, environment ? { ...config, command: environment.command } : config, installCloudflareState) : undefined
       const installWebhookQueue = Boolean(
         resolved
         && hasHostedAgents

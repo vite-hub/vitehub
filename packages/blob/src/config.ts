@@ -43,11 +43,153 @@ export const DEFAULT_BLOB_SERVE_ROUTE = "/api/_vitehub/blob"
 const MINIO_ACCESS_KEY_ENV = ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"] as const
 const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"] as const
 
+const S3_COMPATIBLE_OPTIONS = (prefix: string): BlobDriverOptions => ({
+  options: ["bucket", "endpoint", "publicBaseUrl", "region"],
+  secrets: { accessKeyId: `${prefix}_ACCESS_KEY_ID`, secretAccessKey: `${prefix}_SECRET_ACCESS_KEY` },
+})
+
+interface BlobDriverOptions {
+  /** The string options that are not credentials, by option path. */
+  options: readonly string[]
+  /** The credential options, by option path, with an example env variable for the `BLOB_C0019` message. */
+  secrets: Record<string, string>
+}
+
+/**
+ * The string options of each driver. ViteHub writes the resolved config into the server bundle, so it writes only the
+ * options in `options`. Every other string option, also one that the driver types do not have, is a credential. Its
+ * value must come from an env variable.
+ */
+const BLOB_DRIVER_OPTIONS: Record<BlobStoreConfig["driver"], BlobDriverOptions> = {
+  azure: {
+    options: ["accountName", "container", "endpoint", "publicBaseUrl"],
+    secrets: { accountKey: "AZURE_STORAGE_KEY", connectionString: "AZURE_STORAGE_CONNECTION_STRING", sasToken: "AZURE_STORAGE_SAS_TOKEN" },
+  },
+  "cloudflare-r2": { ...S3_COMPATIBLE_OPTIONS("R2"), options: ["accountId", "binding", "bucketName", "jurisdiction", "publicBaseUrl"] },
+  fs: { options: ["base", "urlBaseUrl"], secrets: {} },
+  gcs: {
+    options: ["bucket", "credentials.client_email", "keyFilename", "projectId", "publicBaseUrl"],
+    secrets: { "credentials.private_key": "GCS_PRIVATE_KEY" },
+  },
+  minio: S3_COMPATIBLE_OPTIONS("MINIO"),
+  "netlify-blobs": { options: ["consistency", "name", "siteID"], secrets: { token: "NETLIFY_AUTH_TOKEN" } },
+  s3: {
+    options: ["bucket", "endpoint", "publicBaseUrl", "region"],
+    secrets: { "credentials.accessKeyId": "AWS_ACCESS_KEY_ID", "credentials.secretAccessKey": "AWS_SECRET_ACCESS_KEY", "credentials.sessionToken": "AWS_SESSION_TOKEN" },
+  },
+  "vercel-blob": { options: ["access"], secrets: { token: "BLOB_READ_WRITE_TOKEN" } },
+}
+
+/** Options that ViteHub sets itself and that hold no credential. */
+const RESOLVED_STORE_OPTIONS = new Set(["driver", "localFallback", "secretEnv"])
+
+/** The R2 HTTP credentials. The binding does not use them, so the R2 driver reads them only when it needs them. */
+const LAZY_R2_SECRETS = new Set(["accessKeyId", "secretAccessKey"])
+
+function withOptionPath(target: Record<string, unknown>, [key, ...rest]: string[], value: string): Record<string, unknown> {
+  if (!key) return target
+  const current = target[key]
+  return { ...target, [key]: rest.length ? withOptionPath(isPlainObject(current) ? current : {}, rest, value) : value }
+}
+
+/** The string and array options of a store, by option path. ViteHub cannot hide a value in an array, so an array is a credential that fails. */
+function readStringOptions(value: Record<string, unknown>, prefix = ""): Array<[string, unknown]> {
+  return Object.entries(value).flatMap(([key, option]): Array<[string, unknown]> => {
+    if (!prefix && RESOLVED_STORE_OPTIONS.has(key)) return []
+    const path = `${prefix}${key}`
+    if (isPlainObject(option)) return readStringOptions(option, `${path}.`)
+    return typeof option === "string" || Array.isArray(option) ? [[path, option]] : []
+  })
+}
+
+/** A URL with a user name, password, or query, such as an Azure endpoint with a SAS token, holds a credential. */
+function isCredentialUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false
+  const url = new URL(value)
+  return Boolean(url.username || url.password || url.search)
+}
+
+const listFormat = new Intl.ListFormat("en", { type: "conjunction" })
+
+/**
+ * Replaces each credential option with the mask and records the env variable that holds its value at build time, so
+ * the generated output has no secret. The value must be in exactly one env variable: a literal value fails with
+ * `BLOB_C0019`, and a value in more than one variable fails with `BLOB_C0020`.
+ */
+function hideConfiguredSecrets(
+  store: ResolvedBlobStoreConfig,
+  env: Record<string, string | undefined>,
+  path: string,
+): ResolvedBlobStoreConfig {
+  const { options, secrets } = BLOB_DRIVER_OPTIONS[store.driver]
+  const secretEnv: Record<string, string> = {}
+  let hidden: Record<string, unknown> = { ...store }
+  for (const [option, raw] of readStringOptions(hidden)) {
+    const value = typeof raw === "string" ? raw.trim() : undefined
+    if (value === "" || value === MASKED_BLOB_RUNTIME_VALUE) continue
+    const example = secrets[option]
+    const known = options.includes(option)
+    if (known && value && !isCredentialUrl(value)) continue
+    const reason = example
+      ? `\`${path}.${option}\` is a literal credential`
+      : known
+        ? `\`${path}.${option}\` holds a credential, because it is a URL with a user name, password, or query`
+        : `\`${path}.${option}\` is not a known option of the ${store.driver} driver, so ViteHub treats it as a credential`
+    const names = value ? Object.keys(env).filter(name => trimmed(env[name]) === value).sort() : []
+    if (names.length > 1) {
+      throw blobErrorDiagnostics.BLOB_C0020({ message: `${reason}, and ${listFormat.format(names.map(name => `\`${name}\``))} hold its value at build time. ViteHub cannot tell which variable the config reads.` })
+    }
+    const [name] = names
+    if (!name) {
+      throw blobErrorDiagnostics.BLOB_C0019({ message: `${reason}: no variable in \`process.env\` holds its value when the Vite config loads. ViteHub does not write credentials into the build output. Read it from an env variable${example ? `, for example \`process.env.${example}\`` : ""}.` })
+    }
+    secretEnv[option] = name
+    hidden = withOptionPath(hidden, option.split("."), MASKED_BLOB_RUNTIME_VALUE)
+  }
+  if (!Object.keys(secretEnv).length) return store
+  // SAFETY: Only string options of the same driver changed to the mask, so the store keeps its driver-specific shape.
+  return { ...hidden, secretEnv } as ResolvedBlobStoreConfig
+}
+
+/** Reads a credential from the env variable that `hideConfiguredSecrets()` recorded, or fails with `BLOB_R0044`. */
+export function readBlobSecretEnv(env: Record<string, string | undefined>, name: string, option: string, driver: string): string {
+  const value = readEnv(env, name)
+  if (!value) {
+    throw blobErrorDiagnostics.BLOB_R0044({ message: `Missing runtime environment variable \`${name}\` for the \`${option}\` option of the ${driver} Blob store.` })
+  }
+  return value
+}
+
+/**
+ * Reads at runtime the credentials that `hideConfiguredSecrets()` replaced with an env variable name. It keeps the R2
+ * HTTP credentials in `secretEnv`: the R2 driver reads them only without an active binding or to sign a URL.
+ *
+ * @example
+ * resolveRuntimeBlobSecrets({ driver: "s3", bucket: "assets", credentials: { accessKeyId: "********", secretAccessKey: "********" }, secretEnv: { "credentials.accessKeyId": "S3_KEY", "credentials.secretAccessKey": "S3_SECRET" } }, process.env)
+ * // { driver: "s3", bucket: "assets", credentials: { accessKeyId: process.env.S3_KEY, secretAccessKey: process.env.S3_SECRET } }
+ */
+export function resolveRuntimeBlobSecrets<TStore extends ResolvedBlobStoreConfig>(
+  store: TStore,
+  env: Record<string, string | undefined>,
+): TStore {
+  const { secretEnv, ...config } = store
+  if (!secretEnv) return store
+  const lazy: Record<string, string> = {}
+  let resolved: Record<string, unknown> = config
+  for (const [option, name] of Object.entries(secretEnv)) {
+    if (store.driver === "cloudflare-r2" && LAZY_R2_SECRETS.has(option)) lazy[option] = name
+    else resolved = withOptionPath(resolved, option.split("."), readBlobSecretEnv(env, name, option, store.driver))
+  }
+  // SAFETY: Only the masked string options changed to their runtime values, so the store keeps its shape.
+  return (Object.keys(lazy).length ? { ...resolved, secretEnv: lazy } : resolved) as TStore
+}
+
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedFsBlobStoreConfig {
-  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE") }, { base: ".vitehub/data/blob", driver: "fs" as const })
+  const urlBaseUrl = trimmed(config.urlBaseUrl)
+  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE"), ...(urlBaseUrl ? { urlBaseUrl } : {}) }, { base: ".vitehub/data/blob", driver: "fs" as const })
 }
 
 const CLOUDFLARE_R2_JURISDICTIONS = { eu: true, fedramp: true, us: true } satisfies Record<CloudflareR2Jurisdiction, true>
@@ -149,19 +291,9 @@ function resolveExplicitStore(
       return resolveNetlifyStore(store)
     case "vercel-blob":
       return resolveVercelStore(store, env)
-    case "akamai":
     case "azure":
-    case "box":
-    case "digitalocean-spaces":
-    case "dropbox":
     case "gcs":
-    case "google-drive":
-    case "hetzner":
-    case "onedrive":
     case "s3":
-    case "storj":
-    case "supabase":
-    case "uploadthing":
       return store
     default:
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
@@ -249,11 +381,14 @@ function assertServeStore(
 }
 
 function createResolvedConfig(
-  store: ResolvedBlobModuleOptions["store"],
-  stores?: Record<string, ResolvedBlobModuleOptions["store"]>,
+  env: Record<string, string | undefined>,
+  configuredStore: ResolvedBlobModuleOptions["store"],
+  configuredStores?: Record<string, ResolvedBlobModuleOptions["store"]>,
   serve?: ResolvedBlobModuleOptions["serve"],
   images?: ResolvedBlobModuleOptions["images"],
 ): ResolvedBlobModuleOptions {
+  const stores = configuredStores && Object.fromEntries(Object.entries(configuredStores).map(([name, store]) => [name, hideConfiguredSecrets(store, env, `blob.stores.${name}`)]))
+  const store = stores?.default ?? hideConfiguredSecrets(configuredStore, env, "blob")
   assertServeStore(serve, stores ? { default: store, ...stores } : { default: store })
   const shared = { ...(serve ? { serve } : {}), ...(images === undefined ? {} : { images }) }
   return stores
@@ -347,33 +482,33 @@ export function normalizeBlobOptions(
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw blobErrorDiagnostics.BLOB_C0008({ message: "`blob.stores.default` is required when using named Blob stores." })
-    return createResolvedConfig(defaultStore, resolvedStores, serve, images)
+    return createResolvedConfig(env, defaultStore, resolvedStores, serve, images)
   }
 
   const remote = readRemote(explicit?.remote, "blob.remote")
   const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
 
   if (explicit?.driver) {
-    return createResolvedConfig(applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(applyDevelopmentMode(resolveCloudflareStore(implicitCloudflare, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveCloudflareStore(implicitCloudflare, env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(applyDevelopmentMode(resolveNetlifyStore(), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveNetlifyStore(), mode), undefined, serve, images)
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
   }
 
-  return createResolvedConfig(applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
+  return createResolvedConfig(env, applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
 }
 
 export function warnVercelBlobFallback(

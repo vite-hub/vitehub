@@ -43,6 +43,11 @@
       "import": "./dist/drivers/memory.js",
       "default": "./dist/drivers/memory.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",

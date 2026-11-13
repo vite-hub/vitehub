@@ -40,6 +40,8 @@ export interface ConsoleAccessBuild {
   authorize?: string
   /** `console.impersonation`. */
   impersonation?: true
+  /** `console.sections`: the sections that the app leaves out of its Console. */
+  hiddenSections?: readonly ConsoleSectionId[]
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -103,6 +105,20 @@ export interface ConsoleNitroPluginOptions {
   access?: ConsoleAccessBuild
   runtimeCapabilityImports?: Record<string, false | string>
   development?: boolean
+  /**
+   * Add the **Console** link to the page tools pill. `base` is the app base, such as `/portal/`. Leave it out for the
+   * development RPC without Console options.
+   */
+  pageTool?: { base: string }
+}
+
+/** The URL of the Console page tool script below the app base. Its version query changes when the script changes. */
+export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=1"
+
+function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
+  if (!pageTool) return "export default function viteHubConsolePlugin() {}"
+  const user = auth ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)` : ""
+  return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
 function renderConsoleNitroPlugin(
@@ -116,12 +132,14 @@ function renderConsoleNitroPlugin(
     access,
     runtimeCapabilityImports,
     development = false,
+    pageTool,
   }: ConsoleNitroPluginOptions,
 ): string {
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
+    .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const agentSkills = agents.map(agent => requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler))
@@ -180,6 +198,8 @@ function renderConsoleNitroPlugin(
   return [
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
+    // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
+    ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
@@ -197,7 +217,8 @@ function renderConsoleNitroPlugin(
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
       : []),
-    "export default function viteHubConsolePlugin() {}",
+    // The Auth reader of the Console page tool loads with the first page tools session.
+    renderConsolePageTool(pageTool, configuredSections.includes("auth")),
     "",
   ].join("\n")
 }

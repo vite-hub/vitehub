@@ -2,7 +2,7 @@ import { fixtureFetch } from "forges/testing"
 import type { Fixture } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
-import { forgeBranchRules, forgeProvider, githubBranchRuleDetails, repoRef, retargetPullRequest } from "../src/index.ts"
+import { forgeBranchRules, forgeMerge, forgeProvider, ForgeTimeoutError, githubBranchRuleDetails, MergeBlockedError, repoRef, retargetPullRequest } from "../src/index.ts"
 
 const api = "https://api.github.com"
 const rule = (context = "CI", integration_id: number | null = 42) => ({
@@ -117,5 +117,44 @@ describe("retargetPullRequest()", () => {
     await retargetPullRequest(provider, thread(provider), "main")
     expect(fixture.calls[0]?.body).toBe(JSON.stringify({ base: "main" }))
     await expect(retargetPullRequest(provider, thread(provider), " ")).rejects.toMatchObject({ code: "FORGE_R0009" })
+  })
+})
+
+describe("forgeMerge()", () => {
+  const head = "a".repeat(40)
+  const thread = (provider: Awaited<ReturnType<typeof github>>["provider"]) => ({ ...repoRef(provider, "acme/app"), repo: repoRef(provider, "acme/app"), kind: "pull_request" as const, number: "12" })
+  const mergePath = `${api}/repos/acme/app/pulls/12/merge-async`
+  const put = (status: number, body: unknown): Fixture => ({ request: { method: "PUT", url: mergePath }, response: { status, body } })
+  const poll = (uuid: string, body: unknown): Fixture => ({ request: { method: "GET", url: `${mergePath}/${uuid}` }, response: { status: 200, body } })
+  const pending = (details: Record<string, unknown> = {}) => ({ status: "pending", details: { uuid: "u-1", expected_head_sha: head, merge_method: "squash", merge_action: "direct_merge", bypass_rules: true, ...details } })
+
+  it("asks GitHub to bypass branch rules and waits for the pending merge", async () => {
+    const { provider, fixture } = await github([put(202, pending()), poll("u-1", { status: "merged", details: { sha: "b".repeat(40) } })])
+    await expect(forgeMerge(provider, thread(provider), { method: "squash", sha: head, bypassRules: true })).resolves.toMatchObject({ status: "merged", sha: "b".repeat(40) })
+    expect(JSON.parse(fixture.calls[0]!.body!)).toEqual({ merge_method: "squash", sha: head, merge_action: "direct_merge", bypass_rules: true })
+  })
+
+  it("joins a pending request only when it asked for the same bypass merge", async () => {
+    const joined = await github([put(409, pending()), poll("u-1", { status: "merged", details: {} })])
+    await expect(forgeMerge(joined.provider, thread(joined.provider), { method: "squash", sha: head, bypassRules: true })).resolves.toMatchObject({ status: "merged" })
+    const other = await github([put(409, pending({ bypass_rules: false }))])
+    await expect(forgeMerge(other.provider, thread(other.provider), { method: "squash", sha: head, bypassRules: true })).rejects.toBeInstanceOf(MergeBlockedError)
+  })
+
+  it("rejects a merge GitHub refuses, and names a merge that outlasts the timeout", async () => {
+    const failed = await github([put(200, { status: "failed", details: { message: "Rule bypass not allowed" } })])
+    await expect(forgeMerge(failed.provider, thread(failed.provider), { method: "squash", sha: head, bypassRules: true })).rejects.toThrow("Rule bypass not allowed")
+    const refused = await github([put(400, { message: "Pull Request is not mergeable" })])
+    await expect(forgeMerge(refused.provider, thread(refused.provider), { method: "squash", sha: head, bypassRules: true })).rejects.toBeInstanceOf(MergeBlockedError)
+    const slow = await github([put(202, pending()), poll("u-1", pending())])
+    await expect(forgeMerge(slow.provider, thread(slow.provider), { method: "squash", sha: head, bypassRules: true, timeout: 50 })).rejects.toBeInstanceOf(ForgeTimeoutError)
+  })
+
+  it("needs the method and head for a bypass, and leaves other merges to threads.merge()", async () => {
+    const { provider, fixture } = await github([put(200, { status: "merged", details: { sha: "b".repeat(40) } })])
+    await expect(forgeMerge(provider, thread(provider), { bypassRules: true, sha: head })).rejects.toMatchObject({ code: "FORGE_R0009" })
+    expect(fixture.calls).toHaveLength(0)
+    await expect(forgeMerge(provider, thread(provider), { method: "squash", sha: head })).resolves.toMatchObject({ status: "merged" })
+    expect(JSON.parse(fixture.calls[0]!.body!)).not.toHaveProperty("bypass_rules")
   })
 })

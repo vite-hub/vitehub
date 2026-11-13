@@ -10,7 +10,7 @@ A query on `db`, or on `useDatabase('default').db`, throws `DATABASE_DISABLED`. 
 The generated Database registry has no `default` entry. ViteHub then gives the Default Database a placeholder that throws on first use. This occurs when:
 
 - The app has only Named Databases, such as `server/databases/analytics.ts`. No Database is named `default`. The Agent `db()` Capability without a `database` option also reads `default`.
-- `hubDb()` is registered and the Vite config sets `database: false`. The registry is then empty.
+- An app that uses `@vite-hub/database` alone passes `false` to `hubDb()`. The registry is then empty.
 
 With `vitehub()`, a disabled Database fails earlier. The build stops with `VITE_HUB_B0013` when code imports accessors from `vite-hub/database`. An enabled Vite Database without a Definition always has an empty Default Database.
 
@@ -32,12 +32,12 @@ Use the name of the Named Database that has the tables. For an Agent, set `db({ 
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [hubDb()],
--  database: false,
+-  plugins: [hubDb(false)],
++  plugins: [hubDb()],
  })
 ```
 
-Remove `database: false` when you register `hubDb()` directly. With `vitehub()`, set `database: true`.
+Remove `false` when you register `hubDb()` directly. With `vitehub()`, set `database: true`.
 
 ## Check the fix
 

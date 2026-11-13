@@ -14,10 +14,12 @@ const privateEntries = new Set([
   "./runtime/libsql",
   "./runtime/libsql-disabled",
   "./runtime/migrate-on-start",
+  "./runtime/pglite",
   "./runtime/postgres",
   "./runtime/relations",
   "./runtime/use-database",
   "./runtime/virtual-databases",
+  "./runtime/virtual-migrations",
   "./runtime/virtual-schema",
 ]);
 
@@ -29,7 +31,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "postgres", "@vite-hub/database/runtime/registry", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql"],
+      neverBundle: ["vite", "postgres", "@vite-hub/database/runtime/registry", "@electric-sql/pglite", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime", "#vitehub/database/libsql", "#vitehub/database/migrations"],
       onlyBundle: false,
     },
     plugins: [{
@@ -42,6 +44,7 @@ export default defineConfig({
       },
     }],
     entry: [
+      "src/durability.ts",
       "src/index.ts",
       "src/cli.ts",
       "src/config.ts",
@@ -66,6 +69,7 @@ export default defineConfig({
       "src/runtime/libsql-disabled.ts",
       "src/runtime/libsql-drizzle.ts",
       "src/runtime/migrate-on-start.ts",
+      "src/runtime/pglite.ts",
       "src/runtime/postgres.ts",
       "src/runtime/registry.ts",
       "src/runtime/relations.ts",
@@ -73,6 +77,7 @@ export default defineConfig({
       "src/runtime/state.ts",
       "src/runtime/use-database.ts",
       "src/runtime/virtual-databases.ts",
+      "src/runtime/virtual-migrations.ts",
       "src/runtime/virtual-schema.ts",
     ],
     exports: {

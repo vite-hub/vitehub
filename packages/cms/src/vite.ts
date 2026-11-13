@@ -82,7 +82,7 @@ const defaultImports: CmsWorkspaceImports = {
   blob: "@vite-hub/blob",
   blobDatabase: "@vite-hub/workspace/blob-database",
   contentDatabase: "@vite-hub/content/database",
-  database: "vite-hub/database",
+  database: "@vite-hub/database",
   workspace: "@vite-hub/workspace",
 }
 

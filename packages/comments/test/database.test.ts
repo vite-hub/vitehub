@@ -53,7 +53,9 @@ it("installs Comments on the sole named Database in a generated runtime registry
     chunkParametersImport: "@vite-hub/database",
     createAgentDatabaseImport: "@vite-hub/database/runtime/agent",
     databaseEntries: ["  main: { db: main },"],
+    ensureMigrationsImport: "@vite-hub/database/runtime/migrate-on-start",
     imports: [],
+    migrations: { unsupported: "The test ships no migrations." },
     useDatabaseImport: "@vite-hub/database/runtime/use-database",
   })
   const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn databases"

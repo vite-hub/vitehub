@@ -43,6 +43,7 @@
       "default": "./dist/runtime/definition-local.js"
     },
     "#vitehub/database/libsql": "./dist/runtime/libsql.js",
+    "#vitehub/database/migrations": "./dist/runtime/virtual-migrations.js",
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {
@@ -70,6 +71,11 @@
       "types": "./dist/connect/node.d.ts",
       "import": "./dist/connect/node.js",
       "default": "./dist/connect/node.js"
+    },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -129,6 +135,7 @@
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
@@ -143,12 +150,16 @@
     "postgres": "catalog:database"
   },
   "peerDependencies": {
+    "@electric-sql/pglite": "catalog:database",
     "drizzle-kit": ">=1.0.0-rc.5 <2.0.0",
     "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": true
+    },
     "drizzle-kit": {
       "optional": true
     },
