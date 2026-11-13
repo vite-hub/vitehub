@@ -18,9 +18,23 @@ icon: i-lucide-circle-alert
 - `array()` Collections tie each cursor to the data digest and query. A cursor used after the data changed, or with another filter or search, returns HTTP `409` with `SOURCE_R0027`. Reload from the first page.
 - `array()` loads the whole array on each request. Keep it small enough to filter in memory, or use `table()`.
 - Collection `authorize` controls the whole route. It does not filter rows per user.
+- Each routed Collection must set `authorize`. `authorize: false` is the only way to make a route public.
+- A public Collection over `table()` must set `transform`, because `table()` selects every column.
 
 ## SOURCE_R0034
 
 The default `useCollection()` requester received an unsuccessful HTTP status. The error keeps the status in `status` and identifies the Collection endpoint in `why`.
 
 Check the Collection route and server logs for that status, correct the request or server error, then refresh the Collection. HTTP `401` and `403` still become `CollectionAccessError` with `SOURCE_R0026`.
+
+## SOURCE_R0035
+
+A Collection has a route but no `authorize`. Such a route would serve every item to anyone, so `defineCollection()` and `defineCollectionHandler()` throw.
+
+Set `authorize: true` to require a signed-in session, a callback to decide each request, or `authorize: false` for a public route. Set `route: false` to keep the Collection server-only.
+
+## SOURCE_R0036
+
+A Collection over `table()` sets `authorize: false` without `transform`. `table()` selects every column, so the route would serve columns such as password hashes or emails.
+
+Add `transform` that returns only the public fields, or set `authorize: true` or a callback.

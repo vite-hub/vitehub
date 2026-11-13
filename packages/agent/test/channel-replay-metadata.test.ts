@@ -19,7 +19,7 @@ afterEach(() => vi.unstubAllGlobals())
 function channel() {
   return channelAdapter("mailbox", {
     history: {
-      collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
+      collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }),
       key: item => item.id,
     },
     triggers: {
@@ -48,7 +48,7 @@ describe.each(["replay", "forced replay", "dispatch"])("%s Invocation references
       ...(source === "explicit" ? { name: "support" } : {}), runtime: false, invocations, driver: { run: () => "done" },
       channels: { mailbox: channelAdapter("mailbox", {
         messages: false,
-        history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+        history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
         triggers: { received: defineChannelTrigger({
           prepare: (_context, invocation) => prepare(invocation),
           tasks: { mirror: { prepare: (_context, invocation) => prepare(invocation), run: (_context, invocation) => taskRun(invocation) } },

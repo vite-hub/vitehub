@@ -99,6 +99,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
             `// route: false belongs to an unrelated comment`,
             ``,
             `export const articles = defineCollection(async () => [{ id: "a", title: "A" }], {`,
+            `  authorize: false,`,
             `  cursor: article => article.id,`,
             `  cursorSchema: v.string(),`,
             `})`,

@@ -11,6 +11,7 @@ interface HistoryItem {
 }
 
 const collection = defineCollection(async () => [{ id: "m1", subject: "Invoice" }], {
+  route: false,
   cursor: (item: HistoryItem) => item.id,
   cursorSchema: v.string(),
 })

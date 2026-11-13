@@ -27,6 +27,7 @@ function labeller() {
     const offset = cursor ? messages.findIndex(message => message.id === cursor) + 1 : 0
     return messages.slice(offset, offset + limit)
   }, {
+    route: false,
     cursor: (message: { id: string }) => message.id,
     cursorSchema: v.string(),
     querySchema: v.object({ folder: v.optional(v.string()) }),

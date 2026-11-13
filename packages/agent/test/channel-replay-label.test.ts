@@ -14,7 +14,7 @@ function fixture() {
     name: "support", runtime: false, invocations, driver: { run: () => "Synthetic answer" },
     channels: { mailbox: channelAdapter("mailbox", {
       messages: false,
-      history: { collection: defineCollection(async () => [{ id: "m1", thread: "t1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id, thread: item => item.thread },
+      history: { collection: defineCollection(async () => [{ id: "m1", thread: "t1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id, thread: item => item.thread },
       webhooks: { secretHeader: "x-signature", secretToken: "secret", signature: "github-sha256" },
       triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string(), thread: v.string() }), invoke }) },
     }) },
@@ -69,7 +69,7 @@ describe("trusted Channel replay metadata", () => {
     const thread = vi.fn(() => "t1")
     const agent = defineAgent({ runtime: false, driver: { run: () => "answer" }, channels: {
       mailbox: channelAdapter("mailbox", { messages: false,
-        history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key, thread, trigger: "received" },
+        history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key, thread, trigger: "received" },
         triggers: {
           received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "received" } }) }),
           deleted: defineChannelTrigger({ invoke: () => ({ input: { prompt: "deleted" } }) }),

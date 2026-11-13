@@ -206,7 +206,7 @@ describe("content preview", { timeout: 30_000 }, () => {
         event.res.headers.set("cache-control", "s-maxage=60")
         return { bypass: shouldBypassCache(), title: (await posts.get("hello"))?.data.title }
       })
-      .get("/posts", defineCollectionHandler(posts))
+      .get("/posts", defineCollectionHandler({ ...posts, authorize: false }))
       .all("/api/content/**", defineContentHandler(content))
     // The shape of a Nitro 3 app: plugins may replace the fetch entry before presets read it.
     const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }

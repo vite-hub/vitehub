@@ -59,8 +59,8 @@ export interface Collection<
   TQueryInput extends object = TQuery,
 > {
   readonly [collectionQueryInput]?: TQueryInput
-  /** Access rule for the generated route. Omit it for a public Collection. */
-  readonly authorize?: AccessAuthorizeOption
+  /** Access rule for the generated route. `false` makes the route public. Undefined only with `route: false`. */
+  readonly authorize?: CollectionAuthorizeOption
   readonly route?: false
   readonly get?: (key: string, options?: { signal?: AbortSignal }) => Promise<TItem | null | undefined>
   page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
@@ -180,20 +180,34 @@ export type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (opti
 
 type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
 
+/** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. `false` makes the route public. */
+export type CollectionAuthorizeOption = AccessAuthorizeOption | false
+
+/**
+ * Who can read the generated `/api/<name>` route. A routed Collection must set `authorize`, so a route is never public
+ * by accident. Set `route: false` to keep the Collection server-only.
+ */
+export type CollectionAccess =
+  | { authorize: CollectionAuthorizeOption; route?: undefined }
+  | { authorize?: AccessAuthorizeOption; route: false }
+
+/** The access of a source that returns whole table rows without `transform`. The route cannot be public. */
+type RawRowsAccess =
+  | { authorize: AccessAuthorizeOption; route?: undefined }
+  | { authorize?: AccessAuthorizeOption; route: false }
+
 /**
  * A cursor the loader must not mutate. Only object cursors become readonly, so `AnyCollectionSource` keeps `any`
  * instead of `Readonly<any>`, an index-signature object that rejects string and number cursors.
  */
 type ReadonlyCursor<TCursorInput> = TCursorInput extends object ? Readonly<TCursorInput> : TCursorInput
 
-export interface CollectionOptions<
+interface CollectionLoaderOptions<
   TSourceItem,
   TQuery extends object,
   TCursorInput extends CollectionCursorValue,
   TCursorOutput extends CollectionCursorValue = TCursorInput,
 > {
-  /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
-  authorize?: AccessAuthorizeOption
   cursor(item: NoInfer<TSourceItem>): ReadonlyCursor<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
@@ -201,12 +215,16 @@ export interface CollectionOptions<
   querySchema?: StandardSchemaV1<unknown, TQuery>
   transform?: CollectionTransform<TSourceItem>
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
-  route?: false
 }
 
-export interface ProviderCollectionOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> {
-  authorize?: AccessAuthorizeOption
-  route?: false
+export type CollectionOptions<
+  TSourceItem,
+  TQuery extends object,
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue = TCursorInput,
+> = CollectionLoaderOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> & CollectionAccess
+
+interface ProviderCollectionLoaderOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> {
   pagination: "provider"
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
   defaultLimit?: number
@@ -215,11 +233,19 @@ export interface ProviderCollectionOptions<TSourceItem, TQuery extends object = 
   transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
 }
 
+export type ProviderCollectionOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> =
+  ProviderCollectionLoaderOptions<TSourceItem, TQuery, TItem> & CollectionAccess
+
 interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery extends object> {
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
   defaultLimit?: number
   maxLimit?: number
   querySchema?: StandardSchemaV1<TQueryInput, TQuery>
+  /**
+   * `true` when the source returns whole rows, such as every column of a database table. A Collection over it needs
+   * `transform` to pick the public fields before it can set `authorize: false`.
+   */
+  rawRows?: boolean
 }
 
 /** A loader whose rows carry their own cursor. The Collection requests one extra row to detect the next page. */
@@ -290,17 +316,15 @@ type SourceContract<TSource> =
       : { load: (options: Omit<LoadOptionsOf<TSource>, "query"> & { query: TQuery }) => unknown }
     : unknown)
 
-export interface SourceCollectionOptions<TSource extends AnyCollectionSource> {
-  /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
-  authorize?: AccessAuthorizeOption
-  route?: false
-  source: TSource & SourceContract<TSource>
-}
+export type SourceCollectionOptions<TSource extends AnyCollectionSource> = { source: TSource & SourceContract<TSource> } & CollectionAccess
+
+/** A source with `rawRows: true` and no `transform` cannot have a public route. */
+type SourceAccessWithoutTransform<TSource> = TSource extends { rawRows: true } ? RawRowsAccess : unknown
 
 type CollectionDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue> = Omit<
-  CollectionOptions<TSourceItem, TQuery, TCursorInput>,
+  CollectionLoaderOptions<TSourceItem, TQuery, TCursorInput>,
   "cursorSchema" | "querySchema" | "transform"
->
+> & CollectionAccess
 
 type CursorInput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferInput<TSchema>] extends [
   CollectionCursorValue,
@@ -371,7 +395,7 @@ export function defineCollection<
   options: SourceCollectionOptions<TSource> & { transform: TTransform },
 ): Collection<Awaited<ReturnType<TTransform>>, SourceQueryOf<TSource>, SourceQueryInputOf<TSource>>
 export function defineCollection<TSource extends AnyCollectionSource>(
-  options: SourceCollectionOptions<TSource> & { transform?: undefined },
+  options: SourceCollectionOptions<TSource> & { transform?: undefined } & SourceAccessWithoutTransform<TSource>,
 ): Collection<SourceItemOf<TSource>, SourceQueryOf<TSource>, SourceQueryInputOf<TSource>>
 export function defineCollection<
   TSourceItem,
@@ -478,12 +502,13 @@ export function defineCollection<
   // Cross-realm functions do not pass an `instanceof Function` check.
   // `typeof` accepts callbacks created by another JavaScript realm while
   // still rejecting non-callable values at runtime.
-  if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
-    throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
+  if (authorize !== undefined && authorize !== true && authorize !== false && typeof authorize !== "function") {
+    throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true, false, or a function." })
   }
+  if (authorize === undefined && definition.route !== false) throw sourceErrorDiagnostics.SOURCE_R0035()
 
   const collection: Collection<TItem, TQuery, object> = {
-    ...(authorize ? { authorize } : {}),
+    ...(authorize === undefined ? {} : { authorize }),
     route: definition.route,
     async page(request) {
       request.signal?.throwIfAborted()
@@ -602,6 +627,9 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
   const { authorize, route, source, transform } = input
   if (Object(source) !== source || typeof source.load !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
+  }
+  if (source.rawRows === true && authorize === false && route !== false && transform === undefined) {
+    throw sourceErrorDiagnostics.SOURCE_R0036()
   }
   const shared = {
     authorize,

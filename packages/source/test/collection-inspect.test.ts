@@ -75,6 +75,7 @@ describe("inspectCollectionDefinitions", () => {
     const summary = await inspectOne(`
       export const articles = defineCollection({
         source: array(load, { schema: z.object({ slug: z.string(), "title": z.string() }), sort: { field: "title" } }),
+        authorize: false,
       })
     `)
     expect(summary?.fields).toEqual([
@@ -83,6 +84,7 @@ describe("inspectCollectionDefinitions", () => {
       { label: "Schema fields", value: "slug, title" },
       { label: "Sort", value: "title asc" },
       { label: "Transform", value: "No" },
+      { label: "Authorize", value: "Public" },
       { label: "Route", value: "GET /api/articles" },
     ])
   })

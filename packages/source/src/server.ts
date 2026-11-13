@@ -19,7 +19,7 @@ export type CollectionAuthorizationGuard = <TResult>(
 ) => (request: Request) => Promise<TResult | Response>
 
 export interface CollectionHandlerOptions {
-  /** Required when the Collection declares `authorize`. Generated routes pass Auth's `withAuthorization`. */
+  /** Required unless the Collection sets `authorize: false`. Generated routes pass Auth's `withAuthorization`. */
   withAuthorization?: CollectionAuthorizationGuard
 }
 
@@ -123,7 +123,9 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   if (collection.route === false) return { fetch: async () => errorResponse(404, "Not Found") }
   const { authorize } = collection
   const { withAuthorization } = options
-  if (authorize && !withAuthorization) {
+  // Fail closed: a Collection object that does not say who can read it gets no route.
+  if (authorize === undefined) throw sourceErrorDiagnostics.SOURCE_R0035()
+  if (authorize !== false && !withAuthorization) {
     // Fail closed: without Auth, the route cannot read a session.
     throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
   }
@@ -149,5 +151,5 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
       throw cause
     }
   }
-  return { fetch: authorize && withAuthorization ? withAuthorization(authorize, handlePage) : handlePage }
+  return { fetch: authorize !== false && withAuthorization ? withAuthorization(authorize, handlePage) : handlePage }
 }

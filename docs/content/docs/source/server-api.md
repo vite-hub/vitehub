@@ -174,6 +174,7 @@ import { table } from 'vite-hub/source/drizzle'
 const { db, schema } = useDatabase('default')
 
 export const articles = defineCollection({
+  authorize: false,
   source: table({
     db,
     table: schema.articles,
@@ -195,6 +196,8 @@ export const articles = defineCollection({
 
 `column` and `tieBreaker` must be non-null columns, and `tieBreaker` unique. `table()` applies `where` before the cursor condition, orders both columns the same way, fetches one extra row, and hides the cursor from clients. Omit `querySchema` and `where` without filters.
 
+`table()` selects every column. A public Collection (`authorize: false`) over it must set `transform` and return only the public fields. Without `transform`, `defineCollection()` throws `SOURCE_R0036`, so a column such as a password hash never reaches the route.
+
 Pass a loader function to `defineCollection` when the data is not one Drizzle table, such as a Source reader, SDK, HTTP API, or joined query. The loader then handles its own cursor.
 
 ```ts [server/collections/articles.ts]
@@ -213,6 +216,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
   if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
   return await response.json() as Article[]
 }, {
+  authorize: false,
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
   defaultLimit: 25,
@@ -229,7 +233,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
 | `defaultLimit`, `maxLimit` | Page size without `limit` (default `50`), and the largest `limit` (default `100`). |
 | `querySchema` | Standard Schema for filter input. Its output type goes to the loader. |
 | `transform` | Maps a server row to the client item, and sets the client item type. |
-| `authorize` | `true` or an Auth access callback ([Protect a Collection](#protect-a-collection)). |
+| `authorize` | Required unless `route: false`. `true`, an Auth access callback, or `false` for a public route ([Protect a Collection](#protect-a-collection)). |
 
 The Collection asks the loader for one extra row, enforces the limits, and turns the last row into a cursor. Only `transform()` output reaches the client, so private columns and provider objects stay out.
 
@@ -241,6 +245,7 @@ When all the data fits in memory, use `array()`. It filters, searches, sorts, an
 import { array, defineCollection } from 'vite-hub/source'
 
 export const articles = defineCollection({
+  authorize: false,
   source: array(() => loadArticles(), {
     filters: ['category', 'authors.name'],
     search: ['title', 'summary'],
@@ -278,7 +283,8 @@ ViteHub finds modules in `server/collections` and generates their types and read
 - Export a Collection named like the file: `articles.ts` exports `articles` and serves `/api/articles`. Do not add a matching `server/api` handler.
 - Nuxt auto-imports `useCollection`. Elsewhere, import it from `vite-hub/source/client`.
 - Restart Nuxt after you add, remove, or rename a Collection, so Nitro rebuilds its handler list.
-- Set `route: false` to keep a Collection server-only. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
+- Each routed Collection must set `authorize`. Without it, `defineCollection()` throws `SOURCE_R0035`.
+- Set `route: false` to keep a Collection server-only. Then `authorize` is optional. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
 
 To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
 
@@ -289,17 +295,17 @@ import { articles } from '../collections/articles'
 export default defineCollectionHandler(articles)
 ```
 
-A Collection with `authorize` also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`.
+A Collection with `authorize: true` or a callback also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`. A Collection object without `authorize` throws `SOURCE_R0035`.
 
 `useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` moves the cursor. For a small Collection, `all: true` fetches every page in the background. It returns `items`, `pending`, `error`, `hasMore`, `loadMore()`, and `refresh()`, plus `total` and `facets` from the latest page when present.
 
 ### Protect a Collection
 
 ::warning
-A Collection route is public unless it sets `authorize`.
+A routed Collection must set `authorize`. `authorize: false` makes the route public, so set it only when every item is safe for anyone to read.
 ::
 
-`authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+`authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`. `authorize: false` needs no Auth.
 
 ```ts [server/collections/drafts.ts]
 import { useDatabase } from 'vite-hub/database'
@@ -334,7 +340,7 @@ export function useDraftsSignedOut() {
 }
 ```
 
-Enable Auth and add `server/auth.ts` before you use `authorize`. Without Auth, the route cannot read a session and denies every request with `SOURCE_R0025`.
+Enable Auth and add `server/auth.ts` before you use `authorize: true` or a callback. Without Auth, the route cannot read a session and denies every request with `SOURCE_R0025`.
 
 ### Inspect Collections
 

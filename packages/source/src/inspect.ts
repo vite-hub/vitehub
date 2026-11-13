@@ -193,7 +193,7 @@ function definitionFields(collection: DiscoveredCollection): ViteHubDefinitionFi
   if (authorize) {
     fields.push({
       label: "Authorize",
-      value: !authorize.method && staticValue(authorize.value) === true ? "Signed-in session" : isFunction(authorize) ? "Callback" : dynamic,
+      value: isFunction(authorize) ? "Callback" : staticValue(authorize.value) === true ? "Signed-in session" : staticValue(authorize.value) === false ? "Public" : dynamic,
     })
   }
   return fields

@@ -420,7 +420,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
   it.each(["ts", "mts", "cts"])("uses %s Collection file paths and only registers the matching route-enabled export", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/collection-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "collection-page.md", pageRoot })
-    const collection = "defineCollection({ source: array([{ id: 'intro', title: 'Introduction' }]) })"
+    const collection = "defineCollection({ authorize: false, source: array([{ id: 'intro', title: 'Introduction' }]) })"
     const imports = "import { array, defineCollection } from '@vite-hub/source'\n"
     const snippets = [
       snippet(`server/collections/docs/guides.${extension}`, `${imports}const local = ${collection}\nexport { local as guides }\nexport const unrelated = ${collection}`),

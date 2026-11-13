@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { defineCollection } from "../src/index.ts"
 import { table } from "../src/drizzle.ts"
+import { defineCollectionHandler } from "../src/server.ts"
 
 const meals = sqliteTable("meals", {
   id: text("id").primaryKey(),
@@ -10,6 +11,11 @@ const meals = sqliteTable("meals", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 })
 const other = sqliteTable("other", { id: text("id").primaryKey() })
+const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+})
 
 const rows = [
   { createdAt: new Date(3_000), id: "c", kind: "dinner" },
@@ -46,6 +52,7 @@ describe("@vite-hub/source/drizzle", () => {
         orderBy: { column: meals.createdAt, direction: "desc", tieBreaker: meals.id },
         table: meals,
       }),
+      route: false,
     })
 
     const page = await collection.page({ query: {} })
@@ -80,5 +87,46 @@ describe("@vite-hub/source/drizzle", () => {
       orderBy: { column: other.id, direction: "asc", tieBreaker: meals.id },
       table: meals,
     })).toThrow(expect.objectContaining({ code: "SOURCE_R0030" }))
+  })
+
+  describe("public access", () => {
+    function usersDatabase() {
+      const rows = [{ id: "u1", name: "Ada", passwordHash: "$argon2id$secret" }]
+      return { select: () => ({ from: () => ({ where: () => ({ orderBy: () => ({ limit: async () => rows }) }) }) }) }
+    }
+    function usersSource() {
+      return table({ db: usersDatabase(), orderBy: { column: users.id, direction: "asc", tieBreaker: users.id }, table: users })
+    }
+
+    it("does not give a table Collection without authorize a route", () => {
+      // A users table with password hashes was served to anyone at /api/users.
+      // @ts-expect-error A routed Collection must set authorize.
+      expect(() => defineCollectionHandler(defineCollection({ source: usersSource() })))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
+    })
+
+    it("refuses a public table Collection without transform", () => {
+      // @ts-expect-error A public Collection over table() must pick its fields with transform.
+      expect(() => defineCollection({ authorize: false, source: usersSource() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0036" }))
+    })
+
+    it("serves only the transformed fields of a public table Collection", async () => {
+      const collection = defineCollection({
+        authorize: false,
+        source: usersSource(),
+        transform: ({ id, name }) => ({ id, name }),
+      })
+
+      const response = await defineCollectionHandler(collection).fetch(new Request("https://app.test/api/users"))
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ items: [{ id: "u1", name: "Ada" }], nextCursor: null })
+    })
+
+    it("keeps whole rows for signed-in and server-only Collections", () => {
+      expect(defineCollection({ authorize: true, source: usersSource() }).authorize).toBe(true)
+      expect(defineCollection({ route: false, source: usersSource() }).route).toBe(false)
+    })
   })
 })

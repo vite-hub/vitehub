@@ -565,10 +565,11 @@ import { applyLabels, listEmails } from '../lib/mailbox'
 
 const email = v.object({ id: v.string(), subject: v.string() })
 
-// Keep history Collections out of server/collections. That directory is a public read model.
+// `route: false` keeps this history Collection server-only.
 const inbox = defineCollection(async ({ cursor, limit, query }) => {
   return await listEmails({ after: cursor, folder: query.folder, limit })
 }, {
+  route: false,
   cursor: message => message.id,
   cursorSchema: v.string(),
   querySchema: v.object({ folder: v.optional(v.picklist(['archive', 'inbox']), 'inbox') }),

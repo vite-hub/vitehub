@@ -116,6 +116,8 @@ export const consoleSearch = defineCollection(
     return rows
   },
   {
+    // The `search.query` Console operation checks access before it calls this handler.
+    authorize: false,
     cursor: row => row.summary.cursor,
     cursorSchema,
     defaultLimit: 12,

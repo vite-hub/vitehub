@@ -45,6 +45,14 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ endpoint, status }: { endpoint: string; status: number }) => `[vitehub] Collection request to ${endpoint} failed with status ${status}.`,
       fix: "Check the Collection route and server logs for this HTTP status, correct the request or server error, then refresh the Collection.",
     },
+    SOURCE_R0035: {
+      why: "[vitehub] A routed Collection must set authorize. Without it, the generated /api route would serve every item to anyone.",
+      fix: "Set `authorize: true` to require a signed-in session, a callback to decide each request, or `authorize: false` for a public route. Set `route: false` to keep the Collection server-only.",
+    },
+    SOURCE_R0036: {
+      why: "[vitehub] A public Collection over table() would serve every column of each row, such as password hashes or emails.",
+      fix: "Add `transform` that returns only the public fields, or set `authorize: true` or a callback.",
+    },
     SOURCE_B0001: dynamicError,
     SOURCE_B0002: dynamicError,
     SOURCE_B0003: dynamicError,

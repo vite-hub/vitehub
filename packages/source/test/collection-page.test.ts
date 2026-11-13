@@ -33,6 +33,7 @@ function mealsCollection() {
   )
   return {
     collection: defineCollection(load, {
+      route: false,
       cursor: (row: Row) => [row.createdAt, row.id] as const,
       cursorSchema: v.tuple([v.number(), v.string()]),
       defaultLimit: 2,
@@ -49,8 +50,8 @@ function mealsCollection() {
 describe("Collections", () => {
   it("exposes the query schema that parseQuery() uses", async () => {
     const querySchema = v.object({ day: v.optional(v.string()) })
-    const withSchema = defineCollection(async () => [], { cursor: () => 0, cursorSchema: v.number(), querySchema })
-    const withoutSchema = defineCollection(async () => [], { cursor: () => 0, cursorSchema: v.number() })
+    const withSchema = defineCollection(async () => [], { route: false, cursor: () => 0, cursorSchema: v.number(), querySchema })
+    const withoutSchema = defineCollection(async () => [], { route: false, cursor: () => 0, cursorSchema: v.number() })
 
     expect(withSchema.querySchema).toBe(querySchema)
     expect(withoutSchema.querySchema).toBeUndefined()
@@ -107,6 +108,7 @@ describe("Collections", () => {
       cursor === undefined ? [{ id: "2" }, { id: "1" }] : [],
     )
     const collection = defineCollection(load, {
+      route: false,
       cursor: (row: { id: string }) => row.id,
       cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
       defaultLimit: 1,
@@ -124,6 +126,7 @@ describe("Collections", () => {
       ? [{ id: "日本語 🌍" }, { id: "next" }]
       : [])
     const collection = defineCollection(load, {
+      route: false,
       cursor: row => row.id,
       cursorSchema: v.pipe(v.string(), v.transform(value => value.toUpperCase())),
       defaultLimit: 1,
@@ -135,6 +138,7 @@ describe("Collections", () => {
     expect(load).toHaveBeenLastCalledWith({ cursor: "日本語 🌍", limit: 2, query: {}, signal: undefined })
 
     const invalidOutput = defineCollection(async () => [{ id: 1 }, { id: 2 }], {
+      route: false,
       cursor: row => row.id,
       cursorSchema: v.pipe(v.number(), v.transform(() => Number.POSITIVE_INFINITY)),
       defaultLimit: 1,
@@ -149,6 +153,7 @@ describe("Collections", () => {
     // SAFETY: Node's VM evaluates the exact plain cursor object literal owned by this fixture.
     const cursor = runInNewContext("({ id: 'one' })") as { id: string }
     const collection = defineCollection(async () => [cursor, { id: "two" }], {
+      route: false,
       cursor: row => row,
       cursorSchema: v.object({ id: v.string() }),
       defaultLimit: 1,
@@ -162,7 +167,7 @@ describe("Collections", () => {
 
   it("accepts source loaders created in another realm", async () => {
     const load = runInNewContext("() => [{ id: 'one' }]") as () => readonly { id: string }[]
-    const collection = defineCollection({ source: array(load) })
+    const collection = defineCollection({ route: false, source: array(load) })
 
     await expect(collection.page({ query: {} })).resolves.toMatchObject({ items: [{ id: "one" }] })
   })
@@ -177,6 +182,7 @@ describe("Collections", () => {
         : [],
     )
     const collection = defineCollection(load, {
+      route: false,
       cursor: row => row.createdAt,
       cursorSchema: v.number(),
       defaultLimit: 1,
@@ -199,10 +205,11 @@ describe("Collections", () => {
     const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
     expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
     expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize: true }).authorize).toBe(true)
-    expect(defineCollection(async () => [{ id: 1 }], options)).not.toHaveProperty("authorize")
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize: false }).authorize).toBe(false)
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, route: false })).not.toHaveProperty("authorize")
     // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
     expect(() => defineCollection(async () => [{ id: 1 }], { ...options, authorize: "yes" as never }))
-      .toThrow("Collection authorize must be true or a function.")
+      .toThrow("Collection authorize must be true, false, or a function.")
   })
 
   it("accepts authorize callbacks created in another realm", () => {
@@ -214,10 +221,10 @@ describe("Collections", () => {
 
   it("accepts loaders created in another realm", async () => {
     const load = runInNewContext("async ({ limit }) => [{ id: limit }]") as (options: { limit: number }) => Promise<Array<{ id: number }>>
-    const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 3 })
+    const collection = defineCollection(load, { route: false, cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 3 })
 
     await expect(collection.page({ query: {} })).resolves.toEqual({ items: [{ id: 4 }], nextCursor: null })
-    const fromSource = defineCollection({ source: { load, cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 2 } })
+    const fromSource = defineCollection({ route: false, source: { load, cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 2 } })
     await expect(fromSource.page({ query: {} })).resolves.toEqual({ items: [{ id: 3 }], nextCursor: null })
   })
 
@@ -245,6 +252,7 @@ describe("Collections", () => {
     )
 
     const negativeZero = defineCollection(async () => [{ id: -0 }, { id: 1 }], {
+      route: false,
       cursor: row => row.id,
       cursorSchema: v.number(),
       defaultLimit: 1,
@@ -257,6 +265,7 @@ describe("Collections", () => {
     expect(() =>
       // SAFETY: This empty fixture preserves the row contract needed to test invalid limits.
       defineCollection(async () => [] as Array<{ id: string }>, {
+        route: false,
         cursor: (row: { id: string }) => row.id,
         cursorSchema: v.string(),
         defaultLimit: 2,
@@ -269,6 +278,7 @@ describe("Collections", () => {
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
     const cyclicCollection = defineCollection(async () => [cyclic, {}], {
+      route: false,
       cursor: row => row,
       cursorSchema: v.any(),
       defaultLimit: 1,
@@ -280,6 +290,7 @@ describe("Collections", () => {
     )
 
     const prototypeCollection = defineCollection(async () => [new URL("https://vitehub.dev"), new URL("https://vitehub.dev/next")], {
+      route: false,
       // SAFETY: This fixture deliberately violates the cursor type contract to verify runtime rejection.
       cursor: row => row as never,
       cursorSchema: v.any(),
@@ -319,6 +330,7 @@ describe("Collections", () => {
 
   it("passes provider total and facets through and validates total", async () => {
     const collection = defineCollection({
+      route: false,
       source: {
         pagination: "provider",
         load: async () => ({ facets: { kind: [{ count: 1, value: "a" }] }, items: [{ id: 1 }], nextCursor: null, total: 1 }),
@@ -326,12 +338,12 @@ describe("Collections", () => {
     })
     await expect(collection.page({ query: {} })).resolves.toEqual({ facets: { kind: [{ count: 1, value: "a" }] }, items: [{ id: 1 }], nextCursor: null, total: 1 })
 
-    const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { pagination: "provider" })
+    const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { route: false, pagination: "provider" })
     await expect(invalid.page({ query: {} })).rejects.toThrow("total must be a non-negative integer")
     // @ts-expect-error -- a facet value must be a string. The runtime check must reject an untyped loader too.
-    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: 1, count: 1 }] } }), { pagination: "provider" })
+    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: 1, count: 1 }] } }), { route: false, pagination: "provider" })
     await expect(invalidFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
-    const negativeFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: "a", count: -1 }] } }), { pagination: "provider" })
+    const negativeFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: "a", count: -1 }] } }), { route: false, pagination: "provider" })
     await expect(negativeFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
   })
 })

@@ -58,8 +58,9 @@ import {
   defineCollection,
 } from 'vite-hub/source'
 
-// ViteHub serves this list at /api/articles
+// ViteHub serves this list to anyone at /api/articles
 export const articles = defineCollection({
+  authorize: false,
   source: array([
     { slug: 'hello', title: 'Hello', tag: 'news' },
     { slug: 'vite', title: 'Why Vite', tag: 'guide' },

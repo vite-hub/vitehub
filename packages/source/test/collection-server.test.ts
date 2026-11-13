@@ -16,6 +16,7 @@ function createApp() {
         .slice(0, limit)
     },
     {
+      authorize: false,
       cursor: (item: { id: number }) => item.id,
       cursorSchema: v.number(),
       defaultLimit: 1,
@@ -35,6 +36,37 @@ class NonPlainItem {
 }
 
 describe("defineCollectionHandler", () => {
+  describe("route access", () => {
+    const load = async () => [{ id: 1 }]
+
+    it("requires authorize on a routed Collection", () => {
+      // @ts-expect-error A routed Collection must set authorize or route: false.
+      expect(() => defineCollection(load, { cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
+    })
+
+    it("fails closed for a Collection object without authorize", () => {
+      const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
+      const { route: _route, ...routed } = collection
+      expect(() => defineCollectionHandler(routed)).toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
+    })
+
+    it("serves authorize: false without Auth", async () => {
+      const collection = defineCollection(load, { authorize: false, cursor: item => item.id, cursorSchema: v.number() })
+
+      const response = await defineCollectionHandler(collection).fetch(new Request("https://app.test/items"))
+
+      expect(collection.authorize).toBe(false)
+      expect(await response.json()).toEqual({ items: [{ id: 1 }], nextCursor: null })
+    })
+
+    it("allows a server-only Collection without authorize", async () => {
+      const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
+      expect(collection.authorize).toBeUndefined()
+      expect((await collection.page({ query: {} })).items).toEqual([{ id: 1 }])
+    })
+  })
+
   describe("authorize", () => {
     function privateCollection(authorize: AccessAuthorizeOption, load = vi.fn(async () => [{ id: 1 }])) {
       return {
@@ -94,7 +126,7 @@ describe("defineCollectionHandler", () => {
     })
 
     it("keeps public Collections public when an authorizer is present", async () => {
-      const collection = defineCollection(async () => [{ id: 1 }], { cursor: item => item.id, cursorSchema: v.number() })
+      const collection = defineCollection(async () => [{ id: 1 }], { authorize: false, cursor: item => item.id, cursorSchema: v.number() })
       const authorizer = vi.fn()
       const guard: CollectionAuthorizationGuard = (authorize, handler) => {
         authorizer()
@@ -133,6 +165,8 @@ describe("defineCollectionHandler", () => {
 
   it("accepts Collection methods declared on a class prototype", () => {
     class CollectionLike {
+      readonly authorize = false
+
       async page() {
         return { items: [], nextCursor: null }
       }
@@ -172,6 +206,7 @@ describe("defineCollectionHandler", () => {
         return []
       },
       {
+        authorize: false,
         cursor: () => "done",
         cursorSchema: v.string(),
         querySchema: v.object({ tags: v.optional(v.union([v.string(), v.array(v.string())])) }),
@@ -194,6 +229,7 @@ describe("defineCollectionHandler", () => {
         },
       ],
       {
+        authorize: false,
         cursor: item => item.at.toISOString(),
         cursorSchema: v.string(),
       },
@@ -234,6 +270,7 @@ describe("defineCollectionHandler", () => {
         ]
       },
       {
+        authorize: false,
         cursor: () => "done",
         cursorSchema: v.string(),
       },
@@ -248,6 +285,7 @@ describe("defineCollectionHandler", () => {
 
   it("coerces an item whose toJSON returns undefined to null", async () => {
     const collection = defineCollection(async () => [{ toJSON: () => undefined }], {
+      authorize: false,
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -258,12 +296,14 @@ describe("defineCollectionHandler", () => {
 
   it("applies toJSON once to each serialized property", async () => {
     const rejected = defineCollection(async () => [{ toJSON: () => new Date("2026-08-22T00:00:00.000Z") }], {
+      authorize: false,
       cursor: () => "done",
       cursorSchema: v.string(),
     })
     const accepted = defineCollection(
       async () => [{ toJSON: () => ({ nested: new Date("2026-08-22T00:00:00.000Z") }) }],
       {
+        authorize: false,
         cursor: () => "done",
         cursorSchema: v.string(),
       },
@@ -282,6 +322,7 @@ describe("defineCollectionHandler", () => {
 
   it("rejects Collection pages containing bigint", async () => {
     const collection = defineCollection(async () => [{ id: 1n }], {
+      authorize: false,
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -294,6 +335,7 @@ describe("defineCollectionHandler", () => {
   it("serializes only the supported active branches of item unions", async () => {
     let value: bigint | string = "one"
     const collection = defineCollection(async () => [{ array: [value], nested: { value }, value }], {
+      authorize: false,
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -325,6 +367,7 @@ describe("defineCollectionHandler", () => {
     new NonPlainItem(),
   ])("rejects non-plain Collection item objects", async item => {
     const collection = defineCollection(async () => [item], {
+      authorize: false,
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -353,7 +396,7 @@ describe("defineCollectionHandler", () => {
   it("answers a Web Request as a Fetchable, with JSON error Responses", async () => {
     const collection = defineCollection(
       async ({ limit, query }) => [{ id: 3 }, { id: 2 }, { id: 1 }].filter(item => !query.minimum || item.id >= Number(query.minimum)).slice(0, limit),
-      { cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
+      { authorize: false, cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
     )
     const handler = defineCollectionHandler(collection)
 
