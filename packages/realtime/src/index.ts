@@ -27,6 +27,7 @@ export type {
   RealtimeRequestContext,
   RealtimeRequestEvent,
   RealtimeResetReason,
+  RealtimeRoomRequestErrorCode,
   RealtimeSaveOptions,
   RealtimeSaveResult,
   RealtimeSaved,

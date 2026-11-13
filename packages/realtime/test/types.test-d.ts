@@ -4,7 +4,8 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Result, ViteHubContext } from "@vite-hub/runtime"
 import type {} from "@vite-hub/runtime/internal/h3"
 
-import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeRoomRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import { requestRealtimeRoom } from "../src/server.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"
 import { defineRealtime } from "../src/index.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
@@ -35,6 +36,21 @@ describe("realtime client result types", () => {
       return
     }
     expectTypeOf(checkpoint).toEqualTypeOf<RealtimeCheckpoint>()
+  })
+})
+
+describe("room request result types", () => {
+  it("types the codes that requestRealtimeRoom() returns", () => {
+    expectTypeOf<RealtimeRoomRequestErrorCode>().toEqualTypeOf<
+      | "REALTIME_ROOM_ABORTED"
+      | "REALTIME_ROOM_CROWDED"
+      | "REALTIME_ROOM_ELSEWHERE"
+      | "REALTIME_ROOM_EMPTY"
+      | "REALTIME_ROOM_REFUSED"
+      | "REALTIME_ROOM_REQUESTS_OFF"
+      | "REALTIME_ROOM_TIMEOUT"
+    >()
+    expectTypeOf(requestRealtimeRoom).returns.resolves.toEqualTypeOf<Result<unknown, RealtimeRoomRequestErrorCode>>()
   })
 })
 
