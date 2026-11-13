@@ -61,11 +61,17 @@ export function isFailedBaseRun(event: string, payload: unknown, workflows: read
     && run.head_branch === repository.default_branch && workflows.includes(run.name ?? "");
 }
 
+/** Host-owned repair authorization; PR titles and bodies cannot enable this mode. */
+export function mainRepairWorkerContext(input: { enabled: boolean; repository: string; sourceRepository?: string; branch: string; prefix?: string; base: string; defaultBranch?: unknown }): string {
+  if (!input.enabled || !input.prefix || input.sourceRepository?.toLowerCase() !== input.repository.toLowerCase()
+    || !input.branch.startsWith(input.prefix) || input.base !== input.defaultBranch) return "";
+  return "\n\n<verified-main-repair>\nThe host verified this same-repository repair branch targets the watched repository's default branch. Repair inherited base failures, including when the initial tree equals the base tree.\n</verified-main-repair>";
+}
+
 /**
  * Checks the default branch of one repository and opens one repair PR when a watched workflow failed.
  * It first force-cancels watched push runs with a stuck job. One repair PR is open at a time, and a red
- * commit gets one repair branch: when that branch exists, it waits for the branch to move instead of
- * opening the same PR again.
+ * commit gets one repair PR. An orphan branch is reused after a failed PR creation request.
  */
 export async function repairBaseBranch(
   github: MainRepairGitHub,
@@ -129,11 +135,15 @@ export async function repairBaseBranch(
   }
   const red = failed.head_sha;
   const branch = `${branchPrefix}${red.slice(0, 8)}`;
-  if (await github.read(`repos/${repository}/git/ref/heads/${branch}`) !== undefined) {
-    // This red commit already had a repair branch. Wait for the base to move instead of reopening it.
+  // Query all states by exact head before retrying an ambiguous create response. Closed and merged
+  // PRs consume the attempt; a ref alone does not prove a PR was ever created.
+  const previous = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "all", head: `${repository.split("/")[0]}:${branch}`, per_page: 100 }))
+    .find(pull => repairPull(pull) && pull.head.ref === branch);
+  if (previous) {
     event("already_attempted", { head, red, branch });
     return { state: "already-attempted", head, red, branch };
   }
+  const existingBranch = await github.read(`repos/${repository}/git/ref/heads/${branch}`) !== undefined;
 
   const jobs = v.parse(jobsSchema, await github.read(`repos/${repository}/actions/runs/${failed.id}/jobs`, { filter: "latest", per_page: 100 })).jobs.filter(job => job.conclusion === "failure");
   const body = `${base} is red at ${red}: the \`${failed.name}\` run ${failed.html_url} failed.
@@ -144,8 +154,10 @@ ${jobs.map(job => job.html_url ? `- [${job.name}](${job.html_url})` : `- ${job.n
 This PR starts with an empty commit. Read the failures with readBaseCheckEvidence and readBaseCheckLogs, reproduce them with focused tests, fix every failed job on this branch, and push the repair. It merges only once every job that failed on ${base} passes here. Do not report reviewedHead while the branch has no changes.
 
 Opened automatically by the Babysitter.`;
-  const commit = v.parse(createdSchema, await github.write(`repos/${repository}/git/commits`, { message: `chore: start ${base} repair for ${red.slice(0, 8)}`, tree: tip.commit.commit.tree.sha, parents: [head] }));
-  await github.write(`repos/${repository}/git/refs`, { ref: `refs/heads/${branch}`, sha: commit.sha });
+  if (!existingBranch) {
+    const commit = v.parse(createdSchema, await github.write(`repos/${repository}/git/commits`, { message: `chore: start ${base} repair for ${red.slice(0, 8)}`, tree: tip.commit.commit.tree.sha, parents: [head] }));
+    await github.write(`repos/${repository}/git/refs`, { ref: `refs/heads/${branch}`, sha: commit.sha });
+  }
   const pull = v.parse(pullSchema, await github.write(`repos/${repository}/pulls`, { title: `fix: repair ${base} after ${red.slice(0, 8)}`, head: branch, base, body }));
   event("opened", { head, red, branch, pull_request: pull.number, jobs: jobs.map(job => job.name) });
   return { state: "opened", head, red, branch, pullRequest: pull.number, jobs: jobs.map(job => job.name) };

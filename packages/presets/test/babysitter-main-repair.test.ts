@@ -3,8 +3,9 @@ import { codexDriver, defineAgent } from "@vite-hub/agent";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { babysitter } from "../src/babysitter.ts";
-import { isFailedBaseRun, repairBaseBranch, type BabysitterMainRepair, type MainRepairGitHub } from "../src/babysitter/main-repair.ts";
+import { isFailedBaseRun, mainRepairWorkerContext, repairBaseBranch, type BabysitterMainRepair, type MainRepairGitHub } from "../src/babysitter/main-repair.ts";
 import { createBabysitterRuntime } from "../src/babysitter/server.ts";
 import type { GitHubHost } from "../src/github/index.ts";
 import { githubForge } from "./fixtures/github-forge.ts";
@@ -114,9 +115,45 @@ describe("Babysitter main repair", () => {
     // A fork's branch with the prefix is not a repair PR.
     const fork = await check({ runs, openPulls: [pull(11, `${prefix}11111111`, undefined, "someone/app")] });
     expect(fork.outcome).toMatchObject({ state: "opened" });
-    const attempted = await check({ runs, branches: [`${prefix}aaaaaaaa`] });
+    const attempted = await check({ runs, branches: [`${prefix}aaaaaaaa`], closedPulls: [pull(77, `${prefix}aaaaaaaa`)] });
     expect(attempted.outcome).toEqual({ state: "already-attempted", head: tip, red: tip, branch: `${prefix}aaaaaaaa` });
     expect(attempted.writes).toEqual([]);
+  });
+
+  it.each([undefined, "2026-11-13T11:30:00Z"])("does not recreate closed or merged repair PRs even if their branch was deleted (%s)", async (mergedAt) => {
+    const result = await check({ runs: [run(1, "ci", tip, "failure")], closedPulls: [pull(77, `${prefix}aaaaaaaa`, mergedAt)] });
+    expect(result.outcome.state).toBe("already-attempted");
+    expect(result.writes).toEqual([]);
+  });
+
+  it("authorizes inherited failures for verified repair branches even with an unchanged initial tree", () => {
+    const input = { enabled: true, repository, sourceRepository: repository, branch: `${prefix}aaaaaaaa`, prefix, base: "main", defaultBranch: "main" };
+    expect(mainRepairWorkerContext(input)).toContain("initial tree equals the base tree");
+    expect(babysitterInstructions).toContain("the prohibition on pushing fixes for failures shared with the base does not apply");
+    for (const changed of [{ enabled: false }, { sourceRepository: "fork/app" }, { base: "release" }, { branch: "feature" }, { defaultBranch: undefined }]) {
+      expect(mainRepairWorkerContext({ ...input, ...changed })).toBe("");
+    }
+  });
+
+  it.each([false, true])("recovers a failed PR request (ambiguous success: %s)", async (created) => {
+    const state = { runs: [run(1, "ci", tip, "failure")], branches: [] as string[], openPulls: [] as ReturnType<typeof pull>[] };
+    const { github, writes } = fakeGitHub(state);
+    const write = github.write;
+    let fail = true;
+    github.write = async (path, body) => {
+      if (path.endsWith("/git/refs")) state.branches.push(`${prefix}aaaaaaaa`);
+      if (path.endsWith("/pulls") && fail) {
+        fail = false;
+        if (created) state.openPulls.push(pull(77, `${prefix}aaaaaaaa`));
+        throw new Error("502 Bad Gateway");
+      }
+      return write(path, body);
+    };
+    const options = { repository, branchPrefix: prefix, mainRepair, now };
+    await expect(repairBaseBranch(github, options)).rejects.toThrow("502");
+    expect(await repairBaseBranch(github, options)).toMatchObject({ state: created ? "repair-open" : "opened", pullRequest: 77 });
+    expect(writes.filter(write => write.path.endsWith("/git/refs"))).toHaveLength(1);
+    expect(writes.filter(write => write.path.endsWith("/pulls"))).toHaveLength(created ? 0 : 1);
   });
 
   it("force-cancels watched push runs with a stuck job", async () => {
