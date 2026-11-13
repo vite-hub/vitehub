@@ -161,7 +161,7 @@ The mode limits this API, not the host. The R2 binding or provider token keeps f
 
 ## Uploads
 
-`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does.
+`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. `event` is a Nitro, H3, or `nuxt/server` event, or a web `Request`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does.
 
 `blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
 
