@@ -81,7 +81,7 @@ export const realtimeMarkdownEditor: RealtimeEditor = defineRealtimeEditor({
     try {
       const document = editor.getJSON()
       if (document.content?.length === 1 && document.content[0]?.type === "frontmatter") {
-        document.content.push({ type: "paragraph" })
+        document.content.push({ type: "paragraph", attrs: {} })
       }
       return document
     }
