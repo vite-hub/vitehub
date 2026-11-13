@@ -2,8 +2,8 @@
 import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
-import { canManageConsoleProjects, cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
-import { useConsoleProjects } from "../client/project-session";
+import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
+import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 
 /** The Members page of an `account` Console: the people, the pending invitations, and the team name. */

@@ -70,7 +70,7 @@ export default defineEventHandler(async (event) => {
 
 ## Check a rule in Vue
 
-`<Can>` shows its content when the rule allows, the `#denied` slot with `{ code, details }` when it refuses, and nothing while the session is unknown. `useAbility().can()` returns `undefined` for the same unknown state. In Nuxt, both are auto-imported. In other Vue apps, import them from `vite-hub/auth/vue`.
+`<Can>` shows its content when the rule allows, the `#denied` slot with `{ code, details }` when it refuses, and nothing while the session is unknown. `<Cannot>` is the mirror: it shows its content, with `{ code, details }`, only when the rule refuses. `useAbility().can()` and `useAbility().cannot()` return `undefined` for the same unknown state. In Nuxt, all of them are auto-imported. In other Vue apps, import them from `vite-hub/auth/vue`.
 
 ```vue [app/pages/posts/[id].vue]
 <script setup lang="ts">
@@ -88,11 +88,14 @@ const { can } = useAbility()
       </template>
     </Can>
     <button v-if="can('posts.publish', post)">Publish</button>
+    <Cannot do="posts.edit" :with="post" v-slot="{ code }">
+      <p v-if="code === 'not-author'">Only the author can edit this post.</p>
+    </Cannot>
   </article>
 </template>
 ```
 
-For a rule with one argument, required or optional, pass it in `with`. For every other rule, such as two arguments, a default parameter, or a rest parameter, pass the list in `args`: `:args="[from, to]"`. The types pick the prop, so the wrong one fails to compile. `<Can>` and `can()` pass the arguments as they are, the same as the server. Only the session makes the answer unknown, so render `<Can>` after the data loads (`v-if`), or set `:pending="!post"` to show nothing until then.
+For a rule with one argument, required or optional, pass it in `with`. For every other rule, such as two arguments, a default parameter, or a rest parameter, pass the list in `args`: `:args="[from, to]"`. `<Cannot>` takes the same props. The types pick the prop, so the wrong one fails to compile. The components and the functions pass the arguments as they are, the same as the server. Only the session makes the answer unknown, so render `<Can>` after the data loads (`v-if`), or set `:pending="!post"` to show nothing until then.
 
 In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, `<Can>` shows nothing until Better Auth answers.
 
@@ -104,6 +107,28 @@ import { createAuthClient, provideAuthClient } from 'vite-hub/auth/vue'
 const client = createAuthClient({ basePath: '/auth' })
 provideAuthClient(client)
 ```
+
+## Refuse a page
+
+`useAbility().authorize(name, ...args)` checks a rule and throws when it refuses. The error has the status and the `{ code, details }` data that `requireAbility()` sends from the server. In Nuxt, the error is fatal, so the visitor sees the error page with that status. Call it in the page after the data loads:
+
+```vue [app/pages/posts/[id]/edit.vue]
+<script setup lang="ts">
+const route = useRoute()
+const { authorize } = useAbility()
+const { data: post } = await useFetch(`/api/posts/${route.params.id}`)
+if (!post.value) throw createError({ status: 404, fatal: true })
+await authorize('posts.edit', post.value)
+</script>
+
+<template>
+  <h1>Edit {{ post?.id }}</h1>
+</template>
+```
+
+On the server and while Nuxt hydrates the page, `authorize()` uses the session that the server read for the page. At other times in the browser, such as after a navigation, it sends one request to Better Auth's `/get-session` for the current session, so a sign-in or sign-out in the tab counts. On the server, a session that the server could not read counts as signed out, so a rule that is not open to guests refuses with `401`. In a Vue app without Nuxt, `authorize()` throws the same `AbilityError` that `requireAbility()` throws.
+
+`authorize()` only decides what the page shows. Check the same rule with `requireAbility()` in the server route that returns or changes the data.
 
 ## Abilities and route guards
 

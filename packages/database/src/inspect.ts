@@ -6,8 +6,9 @@ import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
 import { resolveConfigValue } from "./config-value.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionDriver, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
+import { localPgliteDir } from "./runtime/local-path.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
@@ -51,6 +52,13 @@ function describeUse(use: ResolvedDatabaseUse): ViteHubDefinitionField {
   return { label: "Used by", value: [describeDatabaseContribution(use), use.reason].filter(Boolean).join(". ") }
 }
 
+/** Where a Postgres Database runs in development and `vitehub database migrate` when it has no server. */
+function describePostgresDevelopment(handler: string, name: string): string {
+  return readDatabaseDefinitionDriver(handler) === "pglite"
+    ? `PGlite in \`${localPgliteDir(name)}\`, because the Definition sets \`driver: "pglite"\`. A production build fails.`
+    : `PGlite in \`${localPgliteDir(name)}\` when there is no \`connection.url\` and no PG* variable.`
+}
+
 // The implicit default Database exists for the contributions that need it, so name them.
 function describeImplicitDefault(needs: readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]): string {
   const by = needs.length ? ` for ${[...new Set(needs.map(need => `plugin ${JSON.stringify(need.plugin)}`))].join(", ")}` : ""
@@ -86,6 +94,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Definition", value: describeImplicitDefault([...contributionsByDatabase[definition.name] ?? [], ...usesByDatabase[definition.name] ?? []]) }]
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
+      ...(dialects[definition.name] === "postgresql" ? [{ label: "Development", value: describePostgresDevelopment(definition.handler, definition.name) }] : []),
       ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
       ...(dialects[definition.name] !== "postgresql" && (readDatabaseDefinitionRemote(definition.handler) ?? options.http))
         ? [{ label: "Development", value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data." }]
