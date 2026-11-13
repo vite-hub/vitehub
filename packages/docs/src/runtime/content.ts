@@ -1,9 +1,9 @@
 import { defineContent } from "@vite-hub/content"
 import manifest from "#docs/manifest"
-import { useKV } from "nitro/kv"
 import { docsDocumentOf, docsMarkdown } from "../markdown.ts"
 import { docsManifestPages } from "../navigation.ts"
 import { docsParserOptions } from "./documents.ts"
+import { readDocsFile } from "./files.ts"
 
 import type { ContentRuntime } from "@vite-hub/content"
 import type { DocsDocument } from "../markdown.ts"
@@ -14,13 +14,13 @@ type ContentSource = Extract<NonNullable<Parameters<typeof defineContent>[0]>["s
 /** The Content Source of a page, named like `createDocsContent()` names it: `docs_<index>` for the server asset `docs-<index>`. */
 const sourceOf = (page: Pick<DocsPage, "source">) => `docs_${page.source ? page.source.slice("docs-".length) : 0}`
 
-/** The pages of one docs folder from the server assets that the build bundles, as a Content Source. */
-function serverAssets(base: string): ContentSource {
-  const storage = useKV(`assets:${base}`)
+/** One docs folder as a Content Source, from the production bundle or development server assets. */
+function bundledPages(base: string): ContentSource {
+  const read = (key: string) => readDocsFile(base, key)
   return {
-    keys: async () => (await storage.getKeys()).map(key => key.replaceAll(":", "/")),
-    getItem: async (key: string) => String(await storage.getItem(key) ?? ""),
-    getItemRaw: (key: string) => storage.getItemRaw(key),
+    keys: async () => docsManifestPages(manifest).filter(page => (page.source ?? "docs") === base).map(page => page.file),
+    getItem: async (key: string) => await read(key) ?? "",
+    getItemRaw: read,
   }
 }
 
@@ -33,7 +33,7 @@ function docsContent(): ContentRuntime {
     route: false,
     live: false,
     markdown: docsMarkdown(docsParserOptions),
-    sources: Object.fromEntries([...assets].map(([name, base]) => [name, serverAssets(base)])),
+    sources: Object.fromEntries([...assets].map(([name, base]) => [name, bundledPages(base)])),
   })
 }
 
