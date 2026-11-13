@@ -185,6 +185,24 @@ const view = await content.sources.at(access.target) // the commit that allow() 
 - Every denial is a 404 with no reason in the response. A route must not tell a private ref from a missing one. Log `access.error` instead.
 - Different from comarkdown/comark-docs, which this rule follows: a branch of the same repository is not public only because it exists, and a SHA must be the head of a pull request, not any commit in it. A ref is a full SHA, not a short one.
 
+## Page history
+
+`content.history(path)` lists the published changes of the page at an app path, newest first. Collection documents and `github()` Source pages return one shape, so "last updated", RSS, and a history panel read one API.
+
+```ts fragment
+const history = await content.history("/docs/guide", { limit: 20 })
+// { entries: [{ id, at, author, message, url }], cursor } or null when no page has that path
+const lastUpdated = history?.entries[0]?.at
+const next = await content.history("/docs/guide", { limit: 20, cursor: history?.cursor })
+```
+
+- The result is public history only, so a public page can show it. A collection document lists its `published` revisions and never its drafts, also with a cursor: a GitHub Workspace refuses a cursor whose commit is not on the published branch. A singleton with a `url` has history too. A locale page without a translation lists the history of the source locale version that it shows. `author` is the `author` of the revision metadata, as a string or `{ name }`. `url` is the commit page when the Workspace stores history on GitHub, else null.
+- A `github()` Source page lists the commits that changed its file, up to the commit that readers get: the head of `content.sources`, or the latest commit of the branch when the Source is not live. A push that the head has not reached stays out. `author` is the GitHub login, else the Git author name. `message` is the first line of the commit message.
+- GitHub commits for a file do not follow renames, so the history of a moved page starts at the move.
+- Content reads GitHub 100 commits at a time and caches each page per head commit and file, in memory and in the `default` KV store under `content:history:<source>:<origin>:<sha>:<key>:<page>`, where `<origin>` is a hash of the Source options, so another `root` gets other keys. History at a commit never changes, so the cache never expires. A second call, also from another server instance, sends no commits request. A Source that is not live resolves its branch on each call, which costs one request. When KV fails, Content reads GitHub.
+- Without a GitHub token, a `github()` Source page returns `{ entries: [] }` and Content logs `CONTENT_R0040` once per Source. Other Sources, such as `glob()`, return no entries.
+- `limit` is 1 to 100, default 20. Pass the `cursor` of the previous call to read older entries.
+
 ## Types
 
 In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type generation. It types the `data` of `content.get()`, `content.list()`, and `content.query()` from the schema of each Source and collection: a collection uses its fields, and Comark infers a Source's schema from its documents. The generated `.vitehub/content/types.mjs` Nitro plugin sends declarations to the host process, which writes the file in the background when the server starts and after Content changes. A production build drops it. `generateContentTypes(content, { moduleName })` returns the same declarations. They extend Comark's `ContentRegistry` and `ContentPathsRegistry` through `@vite-hub/content`, or through `moduleName`, because an app that installs only ViteHub cannot resolve `comark-content` itself.
