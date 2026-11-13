@@ -71,6 +71,11 @@ describe("Cloudflare KV limits", () => {
     expect(keyError?.code).toBe("KV_KEY_TOO_LONG")
     expect(puts).toEqual([])
 
+    // SAFETY: JavaScript callers can pass a value that the types reject.
+    await expect(kv.getMany("a" as unknown as string[])).rejects.toMatchObject({ code: "KV_INVALID_BATCH" })
+    // SAFETY: As above.
+    await expect(kv.setMany({ key: "a", value: 1 } as unknown as [])).rejects.toMatchObject({ code: "KV_INVALID_BATCH" })
+
     const [error] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "2" }])
     expect(error).toBeUndefined()
     expect(puts.map(put => put.key).sort()).toEqual(["a", "b"])

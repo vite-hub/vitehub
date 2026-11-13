@@ -1,6 +1,7 @@
 import { createStorage, normalizeKey } from "unstorage"
 import type { Driver, StorageValue, TransactionOptions } from "unstorage"
 
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { mapWithLimit } from "./batch.ts"
 
 /** The batch methods behind `kv.getMany()` and `kv.setMany()`. */
@@ -27,16 +28,16 @@ export function createKVStorage(driver: Driver) {
   }
   const batch: KVBatchStorage = {
     async getMany(keys, options = {}) {
-      if (!Array.isArray(keys)) throw new TypeError("kv.getMany() needs an array of keys.")
+      if (!Array.isArray(keys)) throw kvErrorDiagnostics.KV_INVALID_BATCH({ operation: "getMany" })
       if (keys.length === 0) return []
       // unstorage reads `bytes`, `blob`, and `stream` values one key at a time, without a limit, so this limits them.
       if (!driver.getItems || isRawType(options.type)) return mapWithLimit(keys, key => storage.getItem(key, options))
       const entries = await storage.getItems(keys, options)
-      if (entries.length !== keys.length) throw new Error("The KV driver returned another number of values than keys.")
+      if (entries.length !== keys.length) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The batch read returned another number of values than keys." })
       return entries.map(entry => entry.value)
     },
     async setMany(entries, options) {
-      if (!Array.isArray(entries)) throw new TypeError("kv.setMany() needs an array of { key, value } entries.")
+      if (!Array.isArray(entries)) throw kvErrorDiagnostics.KV_INVALID_BATCH({ operation: "setMany" })
       // Like set() calls in order, the last entry of a key wins. `undefined` deletes the key, as set() does.
       const latest = new Map<string, StorageValue | undefined>()
       for (const { key, value } of entries) {
