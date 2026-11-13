@@ -133,9 +133,9 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     return [...next.values()]
   }
 
-  function addCommit(input: { message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
+  function addCommit(input: { author?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
     const commit: FakeCommit = {
-      author: { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
+      author: input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
       message: input.message,
       parents: input.parents,
       sha: fakeSha(input.sha ?? `commit-sha-${++commitIndex}`),
@@ -551,10 +551,11 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       const commit = commits.get(branches.get(branch)!)!
       commit.tree = applyChanges(commit.tree, { [path]: { content, mode } })
     },
-    /** Move `branch` to a new commit with `changes`, as another writer would. */
-    commit(branch: string, changes: FakeChanges, input: { message?: string, sha?: string } = {}) {
+    /** Move `branch` to a new commit with `changes`, as another writer would. `author` sets the commit author. */
+    commit(branch: string, changes: FakeChanges, input: { author?: FakeCommit["author"], message?: string, sha?: string } = {}) {
       const parent = branches.get(branch)
       const commit = addCommit({
+        author: input.author,
         message: input.message ?? "remote change",
         parents: parent ? [parent] : [],
         sha: input.sha,

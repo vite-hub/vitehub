@@ -35,6 +35,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `i18n` | i18n |
 | `kv` | KV |
 | `logs` | Logs |
+| `mcp` | MCP server |
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |

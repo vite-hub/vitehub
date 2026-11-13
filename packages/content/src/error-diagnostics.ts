@@ -134,5 +134,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Wait until the GitHub rate limit resets, then run `vitehub content advance`. Check that the token in `VITEHUB_GITHUB_TOKEN` or `github({ auth })` can read the repository: GitHub also answers 403 when it cannot.",
       why: ({ source, head }: { source: string, head: string | null }) => `[vitehub] GitHub refused the branch lookup of Content source ${JSON.stringify(source)} with 403 or 429, as it does when the rate limit is hit, so Content keeps ${head ? `commit ${head}` : "no head"}.`,
     },
+    /** `content.history()` read a page of a `github()` Source without a GitHub token, so it returned no entries. */
+    CONTENT_R0040: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` in the Server Env, or pass `github({ auth })`. Content then reads the commits of each page from GitHub and caches them per head commit.",
+      why: ({ source }: { source: string }) => `[vitehub] content.history() returned no entries for Content source ${JSON.stringify(source)} because it reads GitHub without a token.`,
+    },
   },
 })
