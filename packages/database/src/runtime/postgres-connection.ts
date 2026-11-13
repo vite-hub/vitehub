@@ -6,7 +6,7 @@ export const postgresConnectionUrl: unique symbol = Symbol.for("vitehub.database
 
 /**
  * The connection URL of the Postgres Database `name` in `databases`, as its client resolves it outside a request. See
- * `getPostgresConnectionUrl()` in `@vite-hub/database/drizzle`, and in the runtime module that a build generates.
+ * `getPostgresConnectionUrl()` in `@vite-hub/database`, and in the runtime module that a build generates.
  */
 export function readPostgresConnectionUrl(databases: Record<string, { db: object } | undefined>, name: string): string | undefined {
   const entry = Object.hasOwn(databases, name) ? databases[name] : undefined

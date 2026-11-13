@@ -157,7 +157,8 @@ export function connectGitHubRepository(repository: string, credential: string |
       splitGitHubRepository(repository);
       const current = await token();
       if (provider?.token !== current) {
-        const next = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace" }) };
+        // Workspace owns conditional reads and immutable KV entries; do not add a second validator layer.
+        const next = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace", conditionalRequests: false }) };
         // A failed load lets the next request try again.
         next.provider.catch(() => {
           if (provider === next) provider = undefined;

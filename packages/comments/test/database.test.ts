@@ -50,7 +50,7 @@ describe("selectCommentsDatabase", () => {
 it("installs Comments on the sole named Database in a generated runtime registry", async () => {
   const main = await createDatabase()
   const code = renderDatabaseRuntimeModule({
-    chunkParametersImport: "@vite-hub/database/drizzle",
+    chunkParametersImport: "@vite-hub/database",
     createAgentDatabaseImport: "@vite-hub/database/runtime/agent",
     databaseEntries: ["  main: { db: main },"],
     ensureMigrationsImport: "@vite-hub/database/runtime/migrate-on-start",

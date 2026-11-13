@@ -8,7 +8,7 @@ navigation.group: Concepts
 icon: i-lucide-history
 ---
 
-Durable execution means a job saves each step's result outside the process. When a step fails, the engine retries only that step. When the process stops, the engine replays the job: finished steps return their saved result, and the job continues from the unfinished step. A step can still run more than once, so it must be idempotent (safe to repeat). In ViteHub, a Workflow is durable only when its provider stores the steps: Cloudflare Workflows, OpenWorkflow with Postgres or SQLite, or a Vercel `native` entry. Inline runs of a normal Vercel handler are not, also in `vite dev` with the Vercel preset.
+Durable execution means a job saves each step's result outside the process. When a step fails, the engine retries only that step. When the process stops, the engine replays the job: finished steps return their saved result, and the job continues from the unfinished step. A step can still run more than once, so it must be idempotent (safe to repeat). In ViteHub, a Workflow is durable only when its provider stores the steps: Cloudflare Workflows, OpenWorkflow with Postgres or SQLite, or a Vercel `native` entry. Inline runs of a normal Vercel handler are not, also in `vite dev` with the Vercel host.
 
 ## How durable execution works
 
@@ -52,7 +52,7 @@ For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provid
 | Where the run executes | Provider | Step results saved | Retries of a failed step | Survives a process stop |
 | --- | --- | --- | --- | --- |
 | Cloudflare Workers | Cloudflare Workflows | Yes, by Cloudflare | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes |
-| Node or Docker, also `vite dev` with the `node` preset | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
+| Node or Docker, also `vite dev` with the `node` host | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
 | Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's rules | Yes |
 | Vercel or Deno, normal handler | Inline | No | None | No |
 
@@ -74,7 +74,7 @@ Enable Workflow on Node. ViteHub selects OpenWorkflow:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     workflow: true,
   },
 })
@@ -90,7 +90,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       workflow: true,
     }),
     nitro(),
@@ -105,13 +105,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true })],
+  plugins: [vitehub({ host: 'node', workflow: true })],
 })
 ```
 :::
 ::
 
-On Cloudflare, set `preset: 'cloudflare'` and `workflow: true`, with the same Workflow files.
+On Cloudflare, set `host: 'cloudflare'` and `workflow: true`, with the same Workflow files.
 
 In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts` becomes `steps.chargeCard`, with the provider step name `checkout/01.charge-card.ts`. Do not rename a step file while runs are in progress, because the new name is not in their step log.
 

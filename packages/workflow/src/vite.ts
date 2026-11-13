@@ -94,7 +94,7 @@ interface ScheduledWorkflowBuildConfig {
 }
 
 interface InternalWorkflowModuleOptions {
-  /** The module that exports `getPostgresConnectionUrl()`. Default `@vite-hub/database/drizzle`. */
+  /** The module that exports `getPostgresConnectionUrl()`. Default `@vite-hub/database`. */
   databaseImport?: string
   hosting?: string
   implicitlyEnabled?: boolean
@@ -223,7 +223,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     const database = getProviderRuntimeModule(catalog, "database", provider, generation)
     const blob = getProviderRuntimeModule(catalog, "blob", provider, generation)
     return {
-      ...(database ? { "@vite-hub/database/drizzle": database } : {}),
+      ...(database ? { "@vite-hub/database/runtime/registry": database } : {}),
       ...(blob ? { "@vite-hub/blob": blob } : {}),
     }
   }
@@ -317,7 +317,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   function postgresDatabaseImportFor(postgres: boolean | undefined): string | undefined {
-    return devWorkflow?.provider === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database/drizzle" : undefined
+    return devWorkflow?.provider === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
   }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined

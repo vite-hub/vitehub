@@ -1,4 +1,5 @@
 import { formatDiagnostic } from "nostics"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
@@ -33,7 +34,8 @@ import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview, createRequestScope } from "./preview.ts"
 import { parseContentPreviewPath, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
-import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentMarkdownCopy, contentRoutedPages, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
 import type {
@@ -71,7 +73,7 @@ import type {
   ContentSchedulesOptions,
   ContentUnscheduleOptions,
 } from "./schedules.ts"
-import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+import type { ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
@@ -80,7 +82,7 @@ export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
 /** Comark's registry interfaces. Generated Content types extend them through this module. */
 export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBase } from "comark-content"
 export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
-export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
+export type { BuiltContentCommit, BuiltContentSnapshot, ContentCommitSnapshotIndex, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -141,7 +143,9 @@ export type {
   ContentHeadSite,
 } from "./head.ts"
 export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
-export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentLlmsOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export type { ContentRssOptions, ContentSitemapEntry, ContentSitemapOptions, DefineContentLlmsOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export { renderContentRss } from "./rss.ts"
+export type { ContentRssChannel, ContentRssItem } from "./rss.ts"
 export { renderContentLlms, renderContentSitemapMarkdown } from "./llms.ts"
 export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsSection, ContentSitemapMarkdownPage } from "./llms.ts"
 export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNotFound } from "./markdown-negotiation.ts"
@@ -293,7 +297,7 @@ export type DefineContentOptions<
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
    * Markdown document of those collections at its URL plus `.md`, and at its URL for `Accept: text/markdown`;
-   * `llms: true` serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. ViteHub generates the routes when this call
+   * `rss: true` serves `/rss.xml` with the newest Markdown pages; `llms: true` serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. ViteHub generates the routes when this call
    * sets them.
    */
   seo?: DefineContentSeoOptions
@@ -377,6 +381,12 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
   /** The robots.txt text for `defineContent({ seo: { robots } })`. */
   robots(options?: ContentSitemapOptions): string
+  /**
+   * The RSS 2.0 feed of `defineContent({ seo: { rss } })`: the published Markdown pages that the sitemap lists, newest
+   * first by the date of their latest `content.history()` entry. `site` defaults to `seo.site`, else
+   * `http://localhost`.
+   */
+  rss(options?: ContentSitemapOptions): Promise<string>
   /**
    * The Markdown copy that a path such as `/blog/hello.md` names: the published document at `/blog/hello`, under its
    * title and description, with root-relative links made absolute when `site` is known. Null when no published
@@ -481,7 +491,8 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
-  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
+  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
+  // Source for the commit cache. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
   // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
@@ -490,9 +501,10 @@ export function defineContent<
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
-    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input))
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input, snapshots?.[name]))
     heads.attach(name, instance)
     if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
+    else if (heads.github(name)) snapshotTargets.push({ name, instance, keys: async () => [], commit: () => heads.snapshot(name) })
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
@@ -636,6 +648,32 @@ export function defineContent<
     const url = contentSourceUrl(input)
     return url === undefined ? [] : [{ name, url, list: () => from(name).list() }]
   })
+  /**
+   * The routed pages, and the latest history date of each Source page. Content keeps the dates per head commit of each
+   * `github()` Source. Shared atomic date leases can coordinate refreshes across server instances.
+   */
+  async function routedPages(site: string | undefined, waitUntil: ContentSitemapOptions["waitUntil"]): Promise<{ pages: ContentRoutedPage[], dates: Map<ContentRoutedPage, string> }> {
+    const pages = await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources)
+    const dates = new Map<ContentRoutedPage, string>()
+    await Promise.all([...new Set(routedSources.map(source => source.name))].map(async (name) => {
+      const dated = pages.filter(page => page.collection === name && page.key !== undefined)
+      const found = await historyApi.dates(name, dated.map(page => page.key!), waitUntil ? { waitUntil } : {})
+      for (const page of dated) {
+        const date = found.get(page.key!)
+        if (date) dates.set(page, date)
+      }
+    }))
+    return { pages, dates }
+  }
+  /** Compute the page dates of a `github()` Source at its new head, so no feed or sitemap request waits for them. */
+  async function warmDates(name: string): Promise<void> {
+    if (!seo?.sitemap && !seo?.rss) return
+    const source = routedSources.filter(routed => routed.name === name)
+    if (!source.length) return
+    const pages = await contentRoutedPages([], undefined, source)
+    await historyApi.refresh(name, pages.flatMap(page => page.key === undefined ? [] : [page.key]))
+  }
+  heads.onMove(warmDates)
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
@@ -645,8 +683,16 @@ export function defineContent<
     live,
     route,
     hasPolicy: policy !== undefined,
-    sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
-      await contentSitemapEntries(documentsRuntime ? [...documentsRuntime.collections.values()] : [], siteFor(sitemapOptions), routedSources),
+    sitemap: async (sitemapOptions?: ContentSitemapOptions) => {
+      const { pages, dates } = await routedPages(siteFor(sitemapOptions), sitemapOptions?.waitUntil)
+      return contentSitemapEntries(pages, dates)
+    },
+    rss: async (rssOptions?: ContentSitemapOptions) => {
+      const site = siteFor(rssOptions) ?? "http://localhost"
+      const options = seo?.rss !== null && typeof seo?.rss === "object" ? seo.rss : {}
+      const { pages, dates } = await routedPages(site, rssOptions?.waitUntil)
+      return renderContentRss(contentRssChannel(options, site), contentRssItems(pages, dates, options.limit ?? contentRssLimit))
+    },
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
     llms: async (llmsOptions: ContentLlmsOptions = {}) => {
@@ -729,7 +775,8 @@ export function defineContent<
     const served = await documents.collection(found.collection).get(found.id, { ref: "published", locale: found.locale })
     return served?.locale === undefined ? found : { ...found, locale: served.locale }
   }
-  const history = createContentHistory({
+  const historyApi = createContentHistory({
+    ...(seo?.dateLeases ? { dateLeases: seo.dateLeases } : {}),
     ...(documentsRuntime ? { resolve: (path: string) => publishedPage(documentsRuntime, path) } : {}),
     revisions: (collection, id, revisionOptions) => requireDocuments().revisions(collection, id, revisionOptions),
     page: async (path) => {
@@ -800,7 +847,7 @@ export function defineContent<
     ...documentsApi,
     get instances() { return previewHub().instances },
     sources: Object.assign(heads.api, previewRoutes),
-    history,
+    history: historyApi.history,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key, rewriteContentLinks) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
@@ -885,7 +932,27 @@ export function defineContentHandler(
   }
 }
 
-type SeoRuntime = Pick<ContentDocumentsRuntime, "llms" | "markdown" | "robots" | "seo" | "sitemap">
+type SeoRuntime = Pick<ContentDocumentsRuntime, "llms" | "markdown" | "robots" | "rss" | "seo" | "sitemap">
+
+/**
+ * The `waitUntil` of a request for `content.sitemap()` and `content.rss()`, and the `Cache-Control` of the answer. An
+ * answer that left work for after the response has dates of the previous head, so no cache keeps it.
+ */
+function deferredWork(request: Request): { options: { waitUntil?: (promise: Promise<unknown>) => void }, cacheControl(): string } {
+  const waitUntil = getStandardContext(request).waitUntil
+  let deferred = false
+  return {
+    options: waitUntil
+      ? {
+          waitUntil: (promise) => {
+            deferred = true
+            waitUntil(promise)
+          },
+        }
+      : {},
+    cacheControl: () => deferred ? "no-store" : "public, max-age=0, must-revalidate",
+  }
+}
 
 /**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
@@ -896,9 +963,25 @@ export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler
     async fetch(request) {
       if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
       const site = content.seo.site ?? new URL(request.url).origin
-      return new Response(renderContentSitemap(await content.sitemap({ site })), {
-        headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-      })
+      const later = deferredWork(request)
+      const xml = renderContentSitemap(await content.sitemap({ site, ...later.options }))
+      return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": later.cacheControl() } })
+    },
+  }
+}
+
+/**
+ * Serve `/rss.xml` from `content.rss()`. Links use `defineContent({ seo: { site } })`, or the request origin. ViteHub
+ * generates this route when `defineContent({ seo: { rss: true } })`.
+ */
+export function defineContentRssHandler(content: SeoRuntime): ContentHandler {
+  return {
+    async fetch(request) {
+      const rss = content.seo?.rss
+      if (rss === undefined || rss === false) return new Response("Not Found", { status: 404 })
+      const later = deferredWork(request)
+      const xml = await content.rss({ site: content.seo?.site ?? new URL(request.url).origin, ...later.options })
+      return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": later.cacheControl() } })
     },
   }
 }

@@ -159,7 +159,7 @@ async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOut
   catch {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
   }
-  const built = isRecord(manifest) ? optionalString(manifest.preset) : undefined
+  const built = isRecord(manifest) ? optionalString(manifest.host) : undefined
   if (built !== host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
   const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
   return { outputDir, ...(identityName ? { identityName } : {}) }

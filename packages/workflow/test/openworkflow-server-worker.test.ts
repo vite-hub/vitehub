@@ -173,7 +173,7 @@ describe("installOpenWorkflow", () => {
     }
   })
 
-  it.each([undefined, "@vite-hub/database/drizzle"])("leaves storage untouched when the generated startup plugin has no discovered Workflows: %s", async (databaseImport) => {
+  it.each([undefined, "@vite-hub/database"])("leaves storage untouched when the generated startup plugin has no discovered Workflows: %s", async (databaseImport) => {
     const app = createApp()
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const databaseUrl = vi.fn(() => { throw new Error("No Postgres connection URL") })

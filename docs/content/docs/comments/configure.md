@@ -29,7 +29,7 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -46,7 +46,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -64,7 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -535,7 +535,7 @@ Suggestions keep a person whose name holds the text after `@` when accents and c
 
 ```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 import { findUserEmail } from './utils/users'
 
 export const comments = defineComments({

@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs"
 
-import { deploymentPresetFromNitro, detectPreset } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
 import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
 
@@ -26,7 +26,7 @@ export interface SetupStatus {
   root: string
   framework: SetupProject["framework"]
   config: { file: string, form: ConfigForm } | { file?: string, manual: ManualReason, line?: number }
-  host: { name: DeploymentPreset | "unknown", source: "config" | "env" | "default" }
+  host: { name: ViteHubHost | "unknown", source: "config" | "env" | "default" }
   packageManager: SetupPackageManager
   features: readonly SetupFeatureStatus[]
 }
@@ -65,11 +65,11 @@ function readHost(project: SetupProject, env: NodeJS.ProcessEnv): SetupStatus["h
   const config = project.config
   if (config && !config.ok && config.reason !== "no-vitehub") return { name: "unknown", source: "config" }
   const site = config?.ok ? config.site : undefined
-  const preset = site?.keys.preset
-  const fromConfig = preset?.kind === "literal" && typeof preset.value === "string" ? deploymentPresetFromNitro(preset.value) : undefined
+  const host = site?.keys.host
+  const fromConfig = host?.kind === "literal" && typeof host.value === "string" ? hostFromNitroPreset(host.value) : undefined
   if (fromConfig) return { name: fromConfig, source: "config" }
-  if (preset || site?.spread) return { name: "unknown", source: "config" }
-  const fromEnv = detectPreset(env)
+  if (host || site?.spread) return { name: "unknown", source: "config" }
+  const fromEnv = detectHost(env)
   return fromEnv ? { name: fromEnv, source: "env" } : { name: "node", source: "default" }
 }
 
@@ -103,7 +103,7 @@ export function setsOption(project: SetupProject, option: string): boolean {
 function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }): string | undefined {
   const install = installCommand(project.packageManager, missing.prod, missing.dev)
   if (install) return install
-  if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another preset than ${host}.`
+  if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another host than ${host}.`
   if (support.level === "explicit" && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
 }
 

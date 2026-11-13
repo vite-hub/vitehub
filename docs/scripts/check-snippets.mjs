@@ -290,7 +290,7 @@ const registries = [
       const name = /^server\/databases\/([^/]+)(?:\/index)?\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
-    render: entries => ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(module => [
+    render: entries => ["@vite-hub/database", "vite-hub/database"].flatMap(module => [
       `import ${JSON.stringify(module)}`,
       `declare module ${JSON.stringify(module)} {`,
       "  interface DatabaseRegistry {",
@@ -407,7 +407,7 @@ export function defaultEnvDeclarations() {
 async function envTypes(pageRoot, env, plugins) {
   if (!plugins.length) {
     const { vitehub } = await import(pathToFileURL(join(packagesRoot, "vite-hub/dist/index.js")).href)
-    plugins.push((await vitePlugins(vitehub({ preset: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
+    plugins.push((await vitePlugins(vitehub({ host: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
   }
   const root = mkdtempSync(join(tmpdir(), "vitehub-snippet-env-"))
   let code
@@ -439,6 +439,20 @@ async function envTypes(pageRoot, env, plugins) {
   ].join("\n")
   return [
     { code, file: join(pageRoot, envTypesFile) },
+    {
+      code: [
+        `import type { PublicEnv as GeneratedPublicEnv } from "#vitehub/env/public"`,
+        `import type { ServerEnv as GeneratedServerEnv } from "#vitehub/env/server"`,
+        ...["@vite-hub/env", "vite-hub/env"].flatMap(module => [
+          `declare module ${JSON.stringify(module)} {`,
+          "  interface PublicEnv extends GeneratedPublicEnv {}",
+          "  interface ServerEnv extends GeneratedServerEnv {}",
+          "}",
+        ]),
+        "",
+      ].join("\n"),
+      file: join(pageRoot, ".vitehub/types/env-accessors.d.ts"),
+    },
     { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }

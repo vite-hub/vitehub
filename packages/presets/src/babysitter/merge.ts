@@ -24,12 +24,12 @@ export type BabysitterMergeReady = (input: BabysitterMergeReadinessInput) => tru
 /**
  * - `false`: never merge.
  * - `"auto"`: the worker may request GitHub native auto-merge.
- * - `"direct"`: the host merges a ready PR before any model pass.
- * - `{ strategy: "direct", ready }`: a direct merge with an extra gate. `ready` is a
- *   {@link BabysitterMergeReady} callback or `"approved-if-outside"`: a PR whose author is not an
- *   owner, member or collaborator of the repository merges only after a reviewer with write access
- *   approves its current head, and while no such reviewer's latest review requests changes.
- *   A push after the approval needs a new one.
+ * - `"direct"`: the host merges a ready PR before any model pass, with the `"approved-if-outside"` gate.
+ * - `{ strategy: "direct", ready }`: a direct merge with another gate. `ready` is a
+ *   {@link BabysitterMergeReady} callback or `"approved-if-outside"`, the default: a PR whose author
+ *   is not an owner, member or collaborator of the repository merges only after a reviewer with write
+ *   access approves its current head, and while no such reviewer's latest review requests changes.
+ *   A push after the approval needs a new one. `ready: () => true` merges every ready PR.
  */
 export type BabysitterMerge =
   | false
@@ -206,7 +206,7 @@ export function approvedIfOutside({ head, snapshot }: BabysitterMergeReadinessIn
 export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {
   if (merge === false) return { mode: "off" };
   if (merge === "auto") return { mode: "auto" };
-  if (merge === "direct") return { mode: "direct", method: "squash" };
+  if (merge === "direct") return { mode: "direct", method: "squash", ready: approvedIfOutside };
   if (isRuntimeRecord(merge) && merge.strategy === "direct") {
     const method = merge.method ?? "squash";
     if (method !== "squash" && method !== "merge" && method !== "rebase") {
@@ -220,8 +220,8 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
       throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
     }
     // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
-    const ready = merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
-    return { mode: "direct", method, ...ready ? { ready } : {},
+    const ready = merge.ready === undefined || merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady;
+    return { mode: "direct", method, ready,
       ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {} };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');

@@ -65,14 +65,14 @@ When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no storage 
 
 ## Run Workflows on Node
 
-With the `node` preset, ViteHub selects OpenWorkflow. You do not configure a provider:
+With the `node` host, ViteHub selects OpenWorkflow. You do not configure a provider:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', workflow: true },
+  vitehub: { host: 'node', workflow: true },
 })
 ```
 :::
@@ -84,7 +84,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true }), nitro()],
+  plugins: [vitehub({ host: 'node', workflow: true }), nitro()],
 })
 ```
 :::
@@ -95,7 +95,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: true })],
+  plugins: [vitehub({ host: 'node', workflow: true })],
 })
 ```
 :::
@@ -121,7 +121,7 @@ Set `worker: false` when a separate process runs the Workflows. The web servers 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', workflow: { worker: false } },
+  vitehub: { host: 'node', workflow: { worker: false } },
 })
 ```
 :::
@@ -133,7 +133,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: { worker: false } }), nitro()],
+  plugins: [vitehub({ host: 'node', workflow: { worker: false } }), nitro()],
 })
 ```
 :::
@@ -144,7 +144,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', workflow: { worker: false } })],
+  plugins: [vitehub({ host: 'node', workflow: { worker: false } })],
 })
 ```
 :::

@@ -68,7 +68,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_D1_TOO_MANY_PARAMETERS: {
       why: ({ count, limit }: { count: number, limit: number }) => `The query binds ${count} parameters. Cloudflare D1 accepts at most ${limit} bound parameters per query.`,
-      fix: "Split the values with `chunkParameters()` from `@vite-hub/database/drizzle`, and run one query for each chunk.",
+      fix: "Split the values with `chunkParameters()` from `vite-hub/database`, and run one query for each chunk.",
     },
     DATABASE_D1_VALUE_TOO_LARGE: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `A bound value is ${bytes} bytes. Cloudflare D1 accepts strings and BLOBs of at most ${limit} bytes.`,
@@ -138,7 +138,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node preset and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
+      fix: "Build with the Node host and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.

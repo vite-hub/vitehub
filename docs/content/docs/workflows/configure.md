@@ -61,7 +61,7 @@ export default defineConfig({
 | `remote` | `boolean` | `false` | Lets `vite dev` keep OpenWorkflow runs in the Postgres of `OPENWORKFLOW_POSTGRES_URL` or the Postgres Default Database. Without it, `vite dev` uses the local SQLite file. Builds ignore it. |
 | `worker.concurrency` | `number` | `1` | The number of runs that one worker executes at the same time. |
 
-Without `provider`, ViteHub picks Cloudflare on Cloudflare, OpenWorkflow on Node or Docker (also in `vite dev` with the `node` preset), and Vercel on other supported hosts. Each Node server starts the OpenWorkflow worker. [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) tells how it picks storage. Netlify cannot infer a provider, so set `provider` or turn Workflow off there. An explicit `provider` always wins.
+Without `provider`, ViteHub picks Cloudflare on Cloudflare, OpenWorkflow on Node or Docker (also in `vite dev` with the `node` host), and Vercel on other supported hosts. Each Node server starts the OpenWorkflow worker. [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) tells how it picks storage. Netlify cannot infer a provider, so set `provider` or turn Workflow off there. An explicit `provider` always wins.
 
 ## Define a workflow
 

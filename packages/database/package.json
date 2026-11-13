@@ -72,11 +72,6 @@
       "import": "./dist/connect/node.js",
       "default": "./dist/connect/node.js"
     },
-    "./drizzle": {
-      "types": "./dist/drizzle.d.ts",
-      "import": "./dist/drizzle.js",
-      "default": "./dist/drizzle.js"
-    },
     "./durability": {
       "types": "./dist/durability.d.ts",
       "import": "./dist/durability.js",
@@ -96,6 +91,11 @@
       "types": "./dist/runtime/postgres-connection.d.ts",
       "import": "./dist/runtime/postgres-connection.js",
       "default": "./dist/runtime/postgres-connection.js"
+    },
+    "./runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
     },
     "./runtime/request-stats": {
       "types": "./dist/runtime/request-stats.d.ts",

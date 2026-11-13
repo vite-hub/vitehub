@@ -18,7 +18,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -46,7 +46,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -73,7 +73,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -95,7 +95,7 @@ export default defineConfig({
 
 ## Integration options
 
-Pass these to the `env` option of `vitehub({ preset: 'node' })`, or to `vitehub.env` in Nuxt.
+Pass these to the `env` option of `vitehub({ host: 'node' })`, or to `vitehub.env` in Nuxt.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -114,7 +114,7 @@ To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime f
 | --- | --- | --- | --- |
 | `env.public` | Build | Yes | Browser-safe Public Env through `#vitehub/env/public`. |
 | `env.define` | Build transform | Yes in bundled code | Vite compile-time replacements. |
-| `env.server` | Server runtime | No | Server Env through `#vitehub/env/server`. |
+| `env.server` | Server runtime | No | Server Env through `useServerEnv()` from `vite-hub/env`. |
 
 ## Env Declaration options
 
@@ -143,7 +143,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -168,7 +168,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -192,7 +192,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         labeller: {
@@ -210,7 +210,7 @@ export default defineConfig({
 ::
 
 ```ts [server/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 const { labeller } = useServerEnv()
 if (!labeller.dryRun && labeller.mode === 'send') {
@@ -252,7 +252,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -275,7 +275,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -297,7 +297,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -333,7 +333,7 @@ import { envSchema } from '@vite-hub/env/vite'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   },
 })
@@ -349,7 +349,7 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   }), nitro()],
 })
@@ -364,7 +364,7 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   })],
 })
@@ -448,7 +448,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -471,7 +471,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -493,7 +493,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -540,7 +540,7 @@ On Cloudflare, the Wrangler config lists a required secret only when it has one 
 
 ## Provider output
 
-Env writes generated modules to `.vitehub/env/` and types to `.vitehub/types/`. In app code, import `#vitehub/env/public` and `#vitehub/env/server`, not generated file paths or virtual modules.
+`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `useServerEnv()` and `usePublicEnv()` from `vite-hub/env` in server code and `#vitehub/env/public` in browser code, not generated file paths or integration virtual modules.
 
 Add the type directory to `tsconfig.json` to type each field.
 

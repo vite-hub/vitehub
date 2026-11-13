@@ -101,7 +101,7 @@ async function resolveSandboxTaskViteContext(
     typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
   )
   const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
-  const hosting = normalizeHosting(resolveHostPreset({ hosting: userConfig.preset, nitro })) || undefined
+  const hosting = normalizeHosting(resolveHostPreset({ nitro })) || undefined
   const config = options === false
     ? false
     : hasDefinitions

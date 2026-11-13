@@ -106,7 +106,7 @@ describe("Console Schedule runs", () => {
     await writeFile(join(root, "package.json"), "{}\n")
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, "server/schedules/daily-report.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 8 * * *', manual: true, handler() {} })\n")
-    const plugin = vitehub({ preset: "node", schedule: true }).flat()
+    const plugin = vitehub({ host: "node", schedule: true }).flat()
       .find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/console")
     const hook = plugin?.config
     const config = typeof hook === "function" ? hook : hook?.handler

@@ -34,13 +34,13 @@ describe("discoverForms", () => {
 describe("renderFormsHandler", () => {
   it("imports only the services the app has", () => {
     const forms = [{ name: "contact", file: "/app/server/forms/contact.ts" }]
-    const imports = { runtime: "vite-hub/forms/runtime", operations: "vite-hub/forms/operations", database: "vite-hub/forms/database", databases: "vite-hub/database/drizzle", email: "vite-hub/email/server", auth: "vite-hub/auth/server", standard: "vite-hub/runtime" }
+    const imports = { runtime: "vite-hub/forms/runtime", operations: "vite-hub/forms/operations", database: "vite-hub/forms/database", databases: "@vite-hub/database/runtime/registry", email: "vite-hub/email", auth: "vite-hub/auth/server", standard: "vite-hub/runtime" }
     const bare = renderFormsHandler(forms, { imports })
     expect(bare).not.toContain("databases")
     expect(bare).not.toContain("email")
     expect(bare).toContain("import form0 from \"/app/server/forms/contact.ts\"")
     const full = renderFormsHandler(forms, { imports, database: true, email: true, auth: true })
-    expect(full).toContain("import { databases } from \"vite-hub/database/drizzle\"")
+    expect(full).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
     expect(full).toContain("sendEmail: message => email.send(message),")
     expect(full).toContain("import { useAuth } from \"vite-hub/auth/server\"")
     expect(full).toContain("useAuth(request).api.getSession({ headers: request.headers })")

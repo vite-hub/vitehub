@@ -152,15 +152,15 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const discovered = discoverRealtimeDefinitions(root, serverDirs)
       // SAFETY: Vite's config contract exposes Nitro options through this optional property.
       const nitro = { ...(config as { nitro?: NitroConfig }).nitro }
-      const deploymentPreset = resolveHost({ nitro })
-      const provider = getHostingProvider(deploymentPreset)
+      const host = resolveHost({ nitro })
+      const provider = getHostingProvider(host)
       const authority = options.authority || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
       // The authority a contribution may rely on. Configurations that fail below have none.
       const available: RealtimeContributionContext["authority"] | undefined
-        = authority === "cloudflare" ? (!deploymentPreset || deploymentPreset === "cloudflare" ? "cloudflare" : undefined)
+        = authority === "cloudflare" ? (!host || host === "cloudflare" ? "cloudflare" : undefined)
           : authority === "auto" && provider === "cloudflare" ? "cloudflare"
-            : authority === "memory" ? (!deploymentPreset || deploymentPreset === "node" ? "memory" : undefined)
+            : authority === "memory" ? (!host || host === "node" ? "memory" : undefined)
               : environment?.command !== "build" ? "memory" : undefined
       hasRoomAuthority = Boolean(available)
       const contribution = available && options.contribute
@@ -211,8 +211,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
         ].join("\n")),
       ])
 
-      if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", preset: deploymentPreset })
+      if (authority === "cloudflare" && host && host !== "cloudflare") {
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", host })
       }
       let durablePlugin: string | undefined
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
@@ -233,8 +233,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       else if (isProductionBuild(config, environment) && authority === "auto") {
         throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
-      else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "memory", preset: deploymentPreset })
+      else if (authority === "memory" && host && host !== "node") {
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "memory", host })
       }
       if (authority === "memory" || (authority === "auto" && environment?.command !== "build" && inspectionAuthority !== "cloudflare")) {
         inspectionAuthority = "memory"

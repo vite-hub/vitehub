@@ -271,7 +271,7 @@ describe("Workflow dev registry", () => {
 
   async function buildWithDatabase(getConfig: () => { databases: Record<string, { dialect?: string }> } | undefined) {
     const projectRoot = await createApp()
-    const plugin = hubWorkflow({}, { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
+    const plugin = hubWorkflow({}, { databaseImport: "vite-hub/database", hosting: "node-server" })
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
@@ -289,7 +289,7 @@ describe("Workflow dev registry", () => {
     expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { defaultDatabase: uses } }])
 
     if (uses) {
-      expect(await generated()).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database/drizzle"`)
+      expect(await generated()).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database"`)
       expect(await generated()).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
     }
     else {

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
-import { databases, db } from "../src/runtime/drizzle-runtime.ts"
+import { databases, db } from "../src/runtime/registry.ts"
 import { ensureDatabaseMigrations } from "../src/runtime/migrate-on-start.ts"
 import { readPostgresConnectionUrl } from "../src/runtime/postgres-connection.ts"
 
@@ -89,7 +89,7 @@ it("keeps disabled and unconfigured databases unavailable in test mode", async (
   await mode.reset()
   fixture.enabled = false
   vi.resetModules()
-  const { databases, db: disabled } = await import("../src/runtime/drizzle-runtime.ts")
+  const { databases, db: disabled } = await import("../src/runtime/registry.ts")
 
   expect(() => disabled.run).toThrow(expect.objectContaining({ code: "DATABASE_DISABLED" }))
   expect(() => databases.missing!.db.run).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND" }))
