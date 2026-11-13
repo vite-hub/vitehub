@@ -9,13 +9,13 @@ import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability
  * libSQL server, so no credential reaches the server bundle.
  */
 export interface AgentStateDurabilityInput {
-  provider: string
+  provider: "cloudflare" | "libsql" | "memory"
   url?: string
 }
 
 /** The durability of Agent state. `VITEHUB_AGENT_STATE_URL` replaces the configured libSQL URL at boot. */
 export function agentStateDurability(input: AgentStateDurabilityInput, { env }: DurabilityContext): Durability[] {
-  if (input.provider === "cloudflare" || input.provider === "cloudflare-agents") {
+  if (input.provider === "cloudflare") {
     return [{ primitive: "agent-state", store: "cloudflare", scope: "shared", reason: "Durable Objects keep each Agent's state." }]
   }
   if (input.provider === "memory") {

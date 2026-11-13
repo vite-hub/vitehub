@@ -43,7 +43,7 @@ import {
   defaultCloudflareAgentStateBinding,
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
-import { normalizeAgentOptions } from "./config.ts"
+import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
@@ -86,7 +86,7 @@ import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vit
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
-import type { AgentOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
+import type { AgentOptions, AgentSqlStateProviderOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface AgentCliContributingPlugin {
@@ -628,8 +628,8 @@ type BuildWithRolldownOptions = {
     }
   }
 }
-type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "journalMode" | "tablePrefix" | "url"> & {
-  authTokenEnvName?: string
+type GeneratedLibsqlAgentStateOptions = Pick<AgentSqlStateProviderOptions, "journalMode" | "tablePrefix" | "url"> & {
+  authTokenEnvNames?: string[]
   durableUrlRequired?: boolean
   ephemeralHosting?: "cloudflare" | "netlify" | "vercel"
 }
@@ -681,20 +681,14 @@ function shouldInstallCloudflareAgentState(
   command?: "build" | "serve",
 ): options is ResolvedAgentModuleOptions {
   if (!options) return false
-  const { driver, url } = options.providers.state
-  if (driver === "cloudflare" || driver === "cloudflare-agents") return true
-  if (driver !== "auto") return false
-  if (url) return false
+  const state = options.providers.state
+  if (state.driver === "cloudflare") return true
+  if (state.driver !== "auto") return false
+  if (state.url) return false
   if (options.runtime === "cloudflare-agents") return true
   if (command === "serve" || (isRecord(config) && config.command === "serve")) return false
   if (options.runtime === "vercel" || options.runtime === "deno") return false
   return resolveAgentHosting(config) === "cloudflare"
-}
-
-function resolveEnvNameForValue(value: string | undefined): string | undefined {
-  if (!value) return
-  return Object.entries(process.env)
-    .find(([name, envValue]) => name && envValue === value)?.[0]
 }
 
 function resolveLibsqlAgentState(
@@ -702,11 +696,12 @@ function resolveLibsqlAgentState(
   config: unknown,
 ): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
-  const { authToken, driver, journalMode, tablePrefix, url } = options.providers.state
+  const state = options.providers.state
+  if (state.driver === "cloudflare" || state.driver === "memory") return
+  const { authToken, driver, journalMode, tablePrefix, url } = state
   const auto = driver === "auto"
-  if (!auto && driver !== "sqlite" && driver !== "libsql") return
   if (auto && shouldInstallCloudflareAgentState(options, config)) return
-  const authTokenEnvName = resolveEnvNameForValue(authToken)
+  const authTokenEnvNames = authToken ? agentStateAuthTokenEnvNames(authToken) : undefined
   const target = isRecord(config) ? config : {}
   const localDevelopment = target.command === "serve" && options.runtime !== "cloudflare-agents" && options.runtime !== "deno"
   const localDefaultUrl = typeof target.root === "string"
@@ -719,7 +714,7 @@ function resolveLibsqlAgentState(
     throw agentDiagnostics.AGENT_B0005({ message: `[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.` })
   }
   return {
-    ...(authTokenEnvName ? { authTokenEnvName } : {}),
+    ...(authTokenEnvNames ? { authTokenEnvNames } : {}),
     ...(!resolvedUrl ? { durableUrlRequired: true } : {}),
     ...(ephemeralHosting ? { ephemeralHosting } : {}),
     ...(journalMode ? { journalMode } : {}),
@@ -1425,9 +1420,10 @@ function generatedCloudflareChatStateHelper(): string[] {
 }
 
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions, typescript = false): string[] {
-  const { authTokenEnvName, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
-  const configuredAuthTokenOption = authTokenEnvName
-    ? [`  ...(typeof process === 'object' && process.env[${JSON.stringify(authTokenEnvName)}] ? { authToken: process.env[${JSON.stringify(authTokenEnvName)}] } : {}),`]
+  const { authTokenEnvNames, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
+  const configuredAuthToken = authTokenEnvNames?.map(name => `process.env[${JSON.stringify(name)}]`).join(" || ")
+  const configuredAuthTokenOption = configuredAuthToken
+    ? [`  ...(typeof process === 'object' && (${configuredAuthToken}) ? { authToken: ${configuredAuthToken} } : {}),`]
     : []
   return [
     "",
