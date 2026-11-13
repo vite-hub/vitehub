@@ -379,7 +379,7 @@ Both commands use the same target as `export`. Without `--remote`, they use only
 | Database | Drops |
 | --- | --- |
 | SQLite, libSQL, and D1 | Every table and view, with `__drizzle_migrations` or Wrangler's `d1_migrations`. SQLite and Cloudflare internal tables stay. Foreign key checks wait until the commit. |
-| Postgres and PGlite | The tables, views, sequences, and enum types that the connecting user owns, in every schema but the system ones, and Drizzle's `drizzle` schema. Then each schema that is left empty, except `public`. Objects of other roles, such as the `auth` tables of Supabase, stay. |
+| Postgres and PGlite | The tables, views, sequences, and enum types that the connecting user owns, in every schema but the system ones, and Drizzle's `drizzle` schema. Then each schema that is left empty, except `public`. Objects of other roles, such as the `auth` tables of Supabase, stay. If their dependencies prevent dropping an owned object, the whole reset fails without changes. |
 
 Failures print `DATABASE_SQL_FAILED` or `DATABASE_DROP_FAILED` and exit with code 1. A local file that does not exist fails `sql`, and `drop` has nothing to drop. Neither creates the file.
 

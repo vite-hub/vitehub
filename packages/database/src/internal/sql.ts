@@ -213,8 +213,22 @@ async function planSqliteDrop(connection: SqlConnection) {
   const drop = objects!.rows
     .map(row => ({ name: String(row.name), type: String(row.type) }))
     .filter(object => !/^(?:sqlite_|_cf_)/i.test(object.name) && !shadow.has(object.name))
-  // Views first: a view can read a table, never the reverse.
-  const ordered = [...drop.filter(object => object.type === "view"), ...drop.filter(object => object.type === "table")]
+  // DROP TABLE performs an implicit DELETE, including immediate SET NULL/DEFAULT actions.
+  // Remove children first so those actions cannot violate constraints on selected tables.
+  const tables = drop.filter(object => object.type === "table")
+  const references = await Promise.all(tables.map(async table => {
+    const [result] = await connection.run(`PRAGMA foreign_key_list(${quoteIdentifier(table.name)})`)
+    return { table, parents: new Set(result!.rows.map(row => String(row.table))) }
+  }))
+  const ordered = drop.filter(object => object.type === "view")
+  const remaining = new Set(tables.map(table => table.name))
+  while (remaining.size) {
+    const next = references.find(entry => remaining.has(entry.table.name)
+      && !references.some(child => remaining.has(child.table.name) && child.table.name !== entry.table.name && child.parents.has(entry.table.name)))
+      ?? references.find(entry => remaining.has(entry.table.name))!
+    ordered.push(next.table)
+    remaining.delete(next.table.name)
+  }
   return {
     objects: ordered.map(object => `${object.type} ${object.name}`),
     statements: ordered.map(object => `DROP ${object.type === "view" ? "VIEW" : "TABLE"} IF EXISTS ${quoteIdentifier(object.name)}`),
@@ -242,15 +256,53 @@ async function planPostgresDrop(connection: SqlConnection) {
   const keyword = { f: "FOREIGN TABLE", m: "MATERIALIZED VIEW", p: "TABLE", r: "TABLE", S: "SEQUENCE", v: "VIEW" } as const
   const drops = relations!.rows.map(row => ({ keyword: keyword[String(row.kind) as keyof typeof keyword], name: `${quoteIdentifier(String(row.schema))}.${quoteIdentifier(String(row.name))}`, schema: String(row.schema) }))
   const enums = types!.rows.map(row => ({ name: `${quoteIdentifier(String(row.schema))}.${quoteIdentifier(String(row.name))}`, schema: String(row.schema) }))
-  // Views, then tables, then sequences that no column owns. CASCADE drops the views and keys of other roles that depend on them too.
+  // Keep the confirmation in a stable order; execution below retries owned dependencies without CASCADE.
   const rank = (drop: { keyword: string }) => drop.keyword.includes("VIEW") ? 0 : drop.keyword === "SEQUENCE" ? 2 : 1
   const ordered = drops.toSorted((left, right) => rank(left) - rank(right))
   const schemas = [...new Set([...drops, ...enums].map(object => object.schema))].filter(schema => schema !== "public")
+  // Drop tables together so mutual foreign keys among selected tables do not block a reset.
+  // Other dependencies (including chains of views) are retried, but never cascaded.
+  const commands = [...new Set(ordered.map(drop => drop.keyword))].map(keyword =>
+    `DROP ${keyword} IF EXISTS ${ordered.filter(drop => drop.keyword === keyword).map(drop => drop.name).join(", ")}`)
+  commands.push(...enums.map(type => `DROP TYPE IF EXISTS ${type.name}`))
+  if (!commands.length) return { objects: [], statements: [] }
+  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
+  let delimiter = "$vitehub_drop$"
+  while (commands.some(command => command.includes(delimiter))) delimiter = `$${delimiter.slice(1, -1)}_$`
+  const tableNames = ordered.filter(drop => drop.keyword === "TABLE").map(drop => literal(drop.name))
   return {
     objects: [...ordered.map(drop => `${drop.keyword.toLowerCase()} ${drop.name}`), ...enums.map(type => `type ${type.name}`)],
     statements: [
-      ...ordered.map(drop => `DROP ${drop.keyword} IF EXISTS ${drop.name} CASCADE`),
-      ...enums.map(type => `DROP TYPE IF EXISTS ${type.name} CASCADE`),
+      `DO ${delimiter}
+      DECLARE pending text[] := ARRAY[${commands.map(literal).join(", ")}]::text[]; remaining text[]; command text;
+      BEGIN
+        -- Partitions are removed automatically even without CASCADE.
+        IF EXISTS (
+          WITH RECURSIVE descendants(oid) AS (
+            SELECT unnest(ARRAY[${tableNames.join(", ")}]::regclass[])
+            UNION
+            SELECT i.inhrelid FROM pg_inherits i JOIN descendants d ON i.inhparent = d.oid
+          )
+          SELECT 1 FROM descendants d JOIN pg_class c ON c.oid = d.oid
+          WHERE c.relispartition AND pg_get_userbyid(c.relowner) <> current_user
+        ) THEN
+          RAISE EXCEPTION 'Database reset blocked by a partition owned by another role' USING ERRCODE = '2BP01';
+        END IF;
+        WHILE cardinality(pending) > 0 LOOP
+          remaining := ARRAY[]::text[];
+          FOREACH command IN ARRAY pending LOOP
+            BEGIN
+              EXECUTE command;
+            EXCEPTION WHEN dependent_objects_still_exist THEN
+              remaining := array_append(remaining, command);
+            END;
+          END LOOP;
+          IF cardinality(remaining) = cardinality(pending) THEN
+            RAISE EXCEPTION 'Database reset blocked by dependencies outside the selected owned objects' USING ERRCODE = '2BP01';
+          END IF;
+          pending := remaining;
+        END LOOP;
+      END ${delimiter}`,
       // Drizzle Kit writes `CREATE SCHEMA` without `IF NOT EXISTS`, so the next migrate needs the schema gone. The DO
       // block keeps a schema that still has objects of another role, instead of failing the transaction.
       ...schemas.map(schema => `DO $$ BEGIN DROP SCHEMA ${quoteIdentifier(schema)}; EXCEPTION WHEN dependent_objects_still_exist OR insufficient_privilege THEN NULL; END $$`),

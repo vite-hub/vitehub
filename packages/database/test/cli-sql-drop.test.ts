@@ -183,10 +183,24 @@ describe("vitehub database drop", () => {
     const dropped = await project.run("drop", [])
     expect(dropped).toMatchObject({ exitCode: 0, stderr: "" })
     expect(confirm).toHaveBeenLastCalledWith("Drop 5 tables and views of the database \"default\" (local SQLite app.db)? All their data is lost. [y/N] ")
-    expect(dropped.stdout).toBe("[vitehub] Database \"default\" (local SQLite app.db): dropped view titles, table __drizzle_migrations, table users, table posts, table search.\n")
+    expect(dropped.stdout).toBe("[vitehub] Database \"default\" (local SQLite app.db): dropped view titles, table __drizzle_migrations, table posts, table users, table search.\n")
     expect(await sqliteObjects(file)).toEqual([])
 
     expect(await project.run("drop", [])).toMatchObject({ exitCode: 0, stdout: "[vitehub] Database \"default\" (local SQLite app.db): it has no tables to drop.\n" })
+  })
+
+  it("drops populated children before parents with immediate foreign-key actions", async () => {
+    const project = await createProject({ default: { connection: { url: "file:app.db" } } })
+    const file = join(project.rootDir, "app.db")
+    await seedSqlite(file, `
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE users(id INTEGER PRIMARY KEY);
+      CREATE TABLE posts(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE SET NULL);
+      INSERT INTO users VALUES (1);
+      INSERT INTO posts VALUES (1, 1);
+    `)
+    expect(await project.run("drop", ["--force"])).toMatchObject({ exitCode: 0 })
+    expect(await sqliteObjects(file)).toEqual([])
   })
 
   it("needs --force without a terminal, and refuses a remote database without --remote", async () => {
@@ -278,11 +292,42 @@ describe("vitehub database sql and drop on PGlite", () => {
     expect(dropped.exitCode).toBe(0)
     expect(dropped.stdout).toBe("[vitehub] Database \"default\" (PGlite .vitehub/data/database/pglite): dropped view \"public\".\"titles\", table \"billing\".\"invoices\", table \"drizzle\".\"__drizzle_migrations\", table \"public\".\"posts\", table \"public\".\"users\", sequence \"public\".\"tickets\", type \"public\".\"mood\".\n")
 
+    expect(await project.run("drop", ["--force"])).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("it has no tables to drop") })
+
     const check = new PGlite(dir)
     try {
       expect((await check.query<{ name: string }>(postgresObjects)).rows.map(row => row.name)).toEqual(["schema public"])
       // The next migrate can create the same schema, type, and tables again.
       await check.exec(postgresSeed)
+    }
+    finally {
+      await check.close()
+    }
+  })
+
+  it.each(["view", "enum"])("rolls back when an owned object has another role's dependent %s", async (dependency) => {
+    const project = await createProject({ default: { dialect: "postgresql", driver: "pglite" } })
+    const dir = join(project.rootDir, ".vitehub/data/database/pglite")
+    await mkdir(join(dir, ".."), { recursive: true })
+    const seed = new PGlite(dir)
+    await seed.exec(`
+      CREATE ROLE other_owner;
+      CREATE TABLE parent(id int PRIMARY KEY);
+      INSERT INTO parent VALUES (1);
+      CREATE TYPE mood AS ENUM ('ok');
+      CREATE TABLE kept_table(id int, mood mood);
+      INSERT INTO kept_table VALUES (1, 'ok');
+      CREATE VIEW kept_view AS SELECT * FROM parent;
+      ALTER ${dependency === "view" ? "VIEW kept_view" : "TABLE kept_table"} OWNER TO other_owner;
+    `)
+    await seed.close()
+    const result = await project.run("drop", ["--force"])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("DATABASE_DROP_FAILED")
+    const check = new PGlite(dir)
+    try {
+      expect((await check.query("SELECT * FROM kept_view")).rows).toEqual([{ id: 1 }])
+      expect((await check.query("SELECT * FROM kept_table")).rows).toEqual([{ id: 1, mood: "ok" }])
     }
     finally {
       await check.close()
