@@ -1,6 +1,8 @@
-import { defineNuxtModule, installModule } from "@nuxt/kit";
+import { addComponent, defineNuxtModule, installModule } from "@nuxt/kit";
 import type { ModuleSetupReturn } from "@nuxt/schema";
 import uiSdk from "@ui-sdk/vue/nuxt";
+
+import { ownEntries } from "./parts/own-entries.ts";
 
 export interface KitNuxtOptions {
   /** Prefix for auto-imported component names, for example `Ui` registers `UiDialogTrigger`. Empty by default. */
@@ -39,8 +41,8 @@ function toKitEntry(path: string): string {
 }
 
 /**
- * Auto-imports every part and helper of ui-sdk in a Nuxt app. The ui-sdk Nuxt module does the registration. This
- * module only moves the import paths from `@ui-sdk/vue/<entry>` to `@vite-hub/kit/<entry>`. The app installs
+ * Auto-imports ui-sdk parts and helpers and the kit’s own parts in a Nuxt app.
+ * This module registers the kit parts and moves the import paths from `@ui-sdk/vue/<entry>` to `@vite-hub/kit/<entry>`. The app installs
  * `@vite-hub/kit`, and with pnpm it cannot resolve `@ui-sdk/vue`. The build still works, but the generated types of
  * `.nuxt/components.d.ts` and `.nuxt/imports.d.ts` do not resolve, so every part and helper has the type `any`.
  */
@@ -49,6 +51,9 @@ const kitNuxtModule: KitNuxtModule = defineNuxtModule<KitNuxtOptions>({
   defaults: { prefix: "" },
   async setup({ prefix = "" }, nuxt) {
     await installModule(uiSdk, { prefix }, nuxt);
+    for (const [entry, names] of Object.entries(ownEntries)) {
+      for (const name of names) addComponent({ name: prefix + name, export: name, filePath: kitEntry + entry });
+    }
     // These hooks run after the ones that ui-sdk added, so they see its registrations.
     nuxt.hook("components:extend", (components) => {
       for (const component of components) component.filePath = toKitEntry(component.filePath);
