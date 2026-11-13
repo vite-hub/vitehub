@@ -137,13 +137,20 @@ export function withContentSnapshot(origin: ComarkContentSource, load: ContentSn
     const shard = (number: number) => {
       let items = shards.get(number)
       if (!items) {
-        items = snapshot.shards[number]!().then(text => readSnapshotJson<ContentFile[]>(text))
+        items = snapshot.shards[number]!().then(text => readSnapshotJson<ContentFile[]>(text)).catch((error: unknown) => {
+          shards.delete(number)
+          throw error
+        })
         shards.set(number, items)
       }
       return items
     }
     return { index, shard }
-  })()
+  })().catch((error: unknown) => {
+    // A failed load lets the next read try again.
+    opened = undefined
+    throw error
+  })
   return {
     parsed: true,
     origin,

@@ -10,7 +10,7 @@ import type { LiteralValue, NuxtConfigFile } from "./nuxt-config.ts"
 
 export const vitehubModule = "vite-hub/nuxt"
 
-export const nitroPresets: Record<string, string> = {
+export const nitroPresetHosts: Record<string, string> = {
   "cloudflare-module": "cloudflare",
   "cloudflare": "cloudflare",
   "deno-deploy": "deno",
@@ -110,7 +110,7 @@ export class ConfigEditor {
     const kept = object.properties.filter(property => !removedProperties.has(property))
     const last = kept.at(-1)
     const closing = end(object) - 1
-    // A one-line object such as `{ preset: 'node' }` goes on several lines, so the new entries can span lines.
+    // A one-line object such as `{ host: 'node' }` goes on several lines, so the new entries can span lines.
     if (last && kept.length === object.properties.length && !this.code.slice(start(object), end(object)).includes("\n")) {
       const indent = this.propertyIndent(object)
       this.output.overwrite(start(object) + 1, start(kept[0]!), `\n${indent}`)
@@ -322,6 +322,15 @@ export function useViteHubModule(editor: ConfigEditor, config: NuxtConfigFile, r
   return [`modules: [${moduleText}]`]
 }
 
+export const nodeHostNote = `ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
+
+/** The host to add when nuxt.config sets none, instead of "node". */
+export interface DefaultHost {
+  host: string
+  /** A follow-up about the choice, if any. */
+  note?: string
+}
+
 /** One property that a codemod adds under `vitehub`. */
 export interface ViteHubOption {
   key: string
@@ -332,50 +341,52 @@ export interface ViteHubOption {
 }
 
 export interface ViteHubOptionsResult {
-  /** ViteHub deployment preset that the codemod set, if any. */
-  preset?: string
-  presetNote?: string
+  /** ViteHub host that the codemod set, if any. */
+  host?: string
+  hostNote?: string
 }
 
-/** The ViteHub deployment preset an app builds for, and the preset that `addViteHubOptions()` adds when the app sets none. */
-export interface PresetPlan {
-  /** The preset the app will build for, when the codemod can tell. */
-  preset?: string
-  /** The preset to add under `vitehub`. */
+/** The ViteHub host an app builds for, and the host that `addViteHubOptions()` adds when the app sets none. */
+export interface HostPlan {
+  /** The host the app will build for, when the codemod can tell. */
+  host?: string
+  /** The host to add under `vitehub`. */
   add?: string
   note?: string
 }
 
-export function planPreset(config: NuxtConfigFile): PresetPlan {
-  const existingPreset = findViteHubOption(config, "preset")
-  if (existingPreset) {
-    const value = literalValue(existingPreset.value)
-    return { preset: typeof value === "string" ? value : undefined }
+export function planHost(config: NuxtConfigFile, defaultHost?: DefaultHost): HostPlan {
+  const existingHost = findViteHubOption(config, "host")
+  if (existingHost) {
+    const value = literalValue(existingHost.value)
+    return { host: typeof value === "string" ? value : undefined }
   }
   const preset = nitroPreset(config)
   if (preset.property && preset.value === undefined) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.host, then run the codemod again.`)
   }
   if (preset.value) {
-    const mapped = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
+    const mapped = nitroPresetHosts[preset.value.trim().toLowerCase().replaceAll("_", "-")]
     return mapped
-      ? { preset: mapped, add: mapped }
-      : { note: `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
+      ? { host: mapped, add: mapped }
+      : { note: `nitro.preset "${preset.value}" has no ViteHub host. Set vitehub.host to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
   }
-  return { preset: "node", add: "node", note: `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.` }
+  return defaultHost
+    ? { host: defaultHost.host, add: defaultHost.host, note: defaultHost.note }
+    : { host: "node", add: "node", note: nodeHostNote }
 }
 
 /**
- * Adds `options` under `vitehub`, and a deployment preset when the app has none. Then inserts `rootEntries`
+ * Adds `options` under `vitehub`, and a host when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
  */
-export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node> }): ViteHubOptionsResult {
+export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node>, defaultHost?: DefaultHost }): ViteHubOptionsResult {
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const planned = planPreset(config)
-  let vitehubPreset = planned.add
-  let presetNote = planned.note
+  const planned = planHost(config, input.defaultHost)
+  let vitehubHost = planned.add
+  let hostNote = planned.note
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {
@@ -386,23 +397,23 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
     }
     const innerIndent = existing.properties.length ? editor.propertyIndent(existing) : `${baseIndent}${unit}`
     const entries = input.options.map(option => `${option.key}: ${option.value(innerIndent)}`)
-    if (vitehubPreset && !findProperty(existing, "preset")) entries.unshift(`preset: ${quoteString(vitehubPreset, style)}`)
-    else if (findProperty(existing, "preset")) {
-      vitehubPreset = undefined
-      presetNote = undefined
+    if (vitehubHost && !findProperty(existing, "host")) entries.unshift(`host: ${quoteString(vitehubHost, style)}`)
+    else if (findProperty(existing, "host")) {
+      vitehubHost = undefined
+      hostNote = undefined
     }
     editor.insertProperties(existing, entries, new Set())
   }
   else {
     const innerIndent = `${baseIndent}${unit}`
     const entries = [
-      ...(vitehubPreset ? [`${innerIndent}preset: ${quoteString(vitehubPreset, style)},`] : []),
+      ...(vitehubHost ? [`${innerIndent}host: ${quoteString(vitehubHost, style)},`] : []),
       ...input.options.map(option => `${innerIndent}${option.key}: ${option.value(innerIndent)},`),
     ]
     rootEntries.push(`vitehub: {\n${entries.join("\n")}\n${baseIndent}}`)
   }
   if (rootEntries.length) editor.insertProperties(config.root, rootEntries, input.removedRootProperties)
-  return { preset: vitehubPreset, presetNote }
+  return { host: vitehubHost, hostNote }
 }
 
 /** Removes the `modules` entry of `moduleName`. Returns false when `modules` does not list it. */

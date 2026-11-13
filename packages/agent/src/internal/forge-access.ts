@@ -22,10 +22,15 @@ export interface ForgeAccessScope {
   /** `owner/name` of the repository that the token must reach. */
   repository: string
   signal?: AbortSignal
+  /** Milliseconds the token must stay valid. A cached token that expires sooner is replaced. */
+  minLifetime?: number
 }
 
+/** Git commit author of the GitHub user or App that owns the forge access. */
+export interface ForgeAccessIdentity { login: string, email?: string }
+
 /** Resolves a repository-scoped GitHub token. A github() Channel with an `app` supplies one to its Agent. */
-export interface ForgeAccessResult { token: string, baseUrl?: string }
+export interface ForgeAccessResult { token: string, baseUrl?: string, identity?: ForgeAccessIdentity }
 
 export type ForgeAccess = (context: AgentCallbackContext, scope: ForgeAccessScope) => Promise<ForgeAccessResult | undefined>
 
@@ -174,6 +179,12 @@ export function forgeGitScope(
   return repositories.length ? { repositories } : undefined
 }
 
+/**
+ * GitHub App installation tokens last one hour. `git` and `gh` keep the token for the whole run,
+ * so a run gets a token that stays valid for most of that hour, not a cached one about to expire.
+ */
+const forgeGitTokenLifetime = 55 * 60_000
+
 /** `GIT_CONFIG_*` entries that send the token only to this repository, with and without the `.git` suffix. */
 function gitAuthEntries(repository: string, token: string, baseUrl?: string): { key: string, value: string }[] {
   const header = forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository, token, baseUrl }))
@@ -187,7 +198,8 @@ function gitAuthEntries(repository: string, token: string, baseUrl?: string): { 
  * github() Channel. Git credentials go in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`,
  * scoped to the pull request's base and head repositories, or else to `scope.repositories`,
  * so the token is not in process arguments. A Source repository the forge access cannot
- * reach is left out, and `git` reports it as unauthenticated.
+ * reach is left out, and `git` reports it as unauthenticated. When the forge access has an
+ * identity, it is the commit author and committer (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`).
  * Empty without forge access or without a repository.
  */
 export async function forgeGitEnvironment(
@@ -198,7 +210,7 @@ export async function forgeGitEnvironment(
 ): Promise<Record<string, string>> {
   const access = readForgeAccess(runtimeContext)
   if (!access || !scope) return {}
-  const request = (repository: string) => access(context, signal ? { repository, signal } : { repository })
+  const request = (repository: string) => access(context, { repository, minLifetime: forgeGitTokenLifetime, ...(signal ? { signal } : {}) })
   const entries: { key: string, value: string }[] = []
   let primary: ForgeAccessResult | undefined
   if (scope.repository) {
@@ -246,6 +258,17 @@ export async function forgeGitEnvironment(
   for (const [index, entry] of entries.entries()) {
     env[`GIT_CONFIG_KEY_${index}`] = entry.key
     env[`GIT_CONFIG_VALUE_${index}`] = entry.value
+  }
+  // `GIT_CONFIG_GLOBAL` above hides `user.name` and `user.email`, so commits use the forge identity.
+  const login = primary.identity?.login.trim()
+  const email = primary.identity?.email?.trim()
+  if (login) {
+    env.GIT_AUTHOR_NAME = login
+    env.GIT_COMMITTER_NAME = login
+  }
+  if (email) {
+    env.GIT_AUTHOR_EMAIL = email
+    env.GIT_COMMITTER_EMAIL = email
   }
   return env
 }

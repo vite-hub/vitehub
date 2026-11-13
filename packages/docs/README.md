@@ -75,7 +75,7 @@ The module reads the folder at build time. In development it watches the folder:
 
 ### Multiple sources and Markdown components
 
-Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and serves its original Markdown through Nitro server assets.
+Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and reads its original Markdown through Nitro server assets. A build packs the Markdown of every source and the raw copies into one gzip module, so a site with thousands of pages stays far below Cloudflare's limit of 5,000 Worker modules.
 
 `sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
 
@@ -228,6 +228,12 @@ A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebar
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 
+A Vue entry holds the parts that docs pages share with other ViteHub surfaces. Their styles are in `@vite-hub/ui/styles.css`, which the module loads.
+
+| Entry | Parts |
+| --- | --- |
+| `@vite-hub/docs/primitive-rail` | `PrimitiveRail`, `PrimitiveRailGroup`, `PrimitiveRailItem`, and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. The docs rail and the Console use them. They are internal and can change in any release. |
+
 ### Examples
 
 `::example` shows a preview and its source, with a Preview and Code switch. Around an `md`, `markdown`, `mdc`, or `comark` code block, the preview is that Markdown, rendered with the same plugins as the page:
@@ -351,7 +357,7 @@ pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite
 // nuxt.config.ts
 export default defineNuxtConfig({
   modules: [
-    ["vite-hub/nuxt", { preset: "node", agent: true, connections: true, database: true }],
+    ["vite-hub/nuxt", { host: "node", agent: true, connections: true, database: true }],
     "@vite-hub/docs/nuxt",
   ],
   docs: { assistant: true },

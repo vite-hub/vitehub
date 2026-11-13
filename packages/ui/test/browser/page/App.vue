@@ -2,15 +2,20 @@
 // A docs tutorial layout: the lesson on the left and the live workspace on the right.
 // Query parameters pick a state for screenshots: ?fail=install, ?notice=safari, ?tab=connect.
 import { defineConnect } from "@vite-hub/web-container/connect";
-import { BrowserSupportNotice } from "@vite-hub/ui/browser-support-notice";
-import { ConnectPanel, type ConnectProviderState, useConnectStore } from "@vite-hub/ui/connect-panel";
-import { useWorkspace } from "@vite-hub/ui/workspace";
-import { WorkspaceBootStatus } from "@vite-hub/ui/workspace-boot-status";
-import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
-import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
-import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
-import { WorkspaceShell, type WorkspaceTab } from "@vite-hub/ui/workspace-shell";
-import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
+import {
+  BrowserSupportNotice,
+  ConnectPanel,
+  type ConnectProviderState,
+  useConnectStore,
+  WorkspaceBootStatus,
+  WorkspaceEditor,
+  WorkspaceFileTree,
+  WorkspacePreview,
+  WorkspaceShell,
+  type WorkspaceTab,
+  WorkspaceTerminal,
+} from "@vite-hub/ui/workspace";
+import { useWebContainer } from "@vite-hub/web-container/vue";
 import { computed, ref } from "vue";
 
 const query = new URLSearchParams(location.search);
@@ -39,7 +44,7 @@ const files = {
 
 const connect = defineConnect({ anthropic: true, cloudflare: { relay: "reader" }, github: true, openai: true, vercel: true });
 const store = useConnectStore();
-const workspace = useWorkspace({ env: store.env(connect), files, immediate });
+const workspace = useWebContainer({ env: store.env(connect), files, immediate });
 
 const tab = ref<WorkspaceTab>((query.get("tab") as WorkspaceTab | null) ?? "preview");
 const selected = ref("server.js");

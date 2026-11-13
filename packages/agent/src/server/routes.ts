@@ -1,3 +1,4 @@
+import { releaseReconcileRun } from "../internal/github-reconcile-branch.ts"
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
 import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
@@ -36,7 +37,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
+import { agentInvocationClaimState, agentInvocationId, bindAgentInvocations, isAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -1793,6 +1794,7 @@ async function executeQueuedWebhookDelivery(
   })
   let webhookFence: Lock | undefined
   let stopWebhookFenceHeartbeat: (() => void) | undefined
+  let reconcileSignal: AbortSignal | undefined
   let retainWebhookFence = false
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
@@ -1917,7 +1919,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           replayMatch.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
+          { verifyWebhook: false, queuedInvocation: invocation && { ...invocation, acceptedAt: delivery.enqueuedAt }, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
@@ -1943,6 +1945,7 @@ async function executeQueuedWebhookDelivery(
         if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
           throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
         }
+        reconcileSignal = resolved.input.abortSignal
         invocation = { ...invocation, input: resolved.input, run: resolved.run }
         accepted = resolved
       }
@@ -2242,6 +2245,7 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
+    releaseReconcileRun(reconcileSignal)
     if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
@@ -6224,7 +6228,7 @@ async function resumeInterruptedChatInvocations(
     if (isRecord(current)) {
       for (const record of Object.values(current)) {
         if (!isRecord(record) || record.agentName !== agentName || record.channelId !== registration.channelId) continue
-        if (typeof record.startedAt !== "string" || !(Date.parse(record.startedAt) < recoveryBefore)) continue
+        if (!await isInterruptedChatRecord(agent.invocations, agentName, record, recoveryBefore)) continue
         records.push(record)
       }
     }
@@ -6266,6 +6270,29 @@ async function resumeInterruptedChatInvocations(
         else current[record.runId] = record
       })
     }))
+  }
+}
+
+/**
+ * A chat record is interrupted when it started before this process and no live run holds the journal claim of its
+ * Invocation. Processes can share one journal and one State, so a record from before this process can belong to a
+ * live run in another process. Without a journal record, only the start time is known.
+ */
+async function isInterruptedChatRecord(
+  invocations: unknown,
+  agentName: string,
+  record: InterruptedChatRecord,
+  recoveryBefore: number,
+): Promise<boolean> {
+  if (typeof record.startedAt !== "string" || !(Date.parse(record.startedAt) < recoveryBefore)) return false
+  if (!isAgentInvocations(invocations) || typeof record.runId !== "string") return true
+  try {
+    return await agentInvocationClaimState(invocations, await agentInvocationId(record.runId, agentName)) !== "held"
+  }
+  catch (error) {
+    // Keep the start time test, so a journal failure does not stop the recovery of the other records.
+    console.error("[vitehub] Interrupted chat invocation claim check failed. The start time decides.", error)
+    return true
   }
 }
 

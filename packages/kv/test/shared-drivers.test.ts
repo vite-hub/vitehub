@@ -44,7 +44,7 @@ function track(storage: RuntimeStorage): RuntimeStorage {
   return storage
 }
 
-/** A Database as `@vite-hub/database/drizzle` exports it: the KV driver reads only `$client`. */
+/** A Database as `@vite-hub/database/runtime/registry` exports it: the KV driver reads only `$client`. */
 const databaseStores = (count: number, client: () => object) => {
   const namespace = `test-${randomUUID()}`
   const store: ResolvedKVStoreConfig = { driver: "database", database: "default", namespace }

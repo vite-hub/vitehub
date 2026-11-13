@@ -100,7 +100,7 @@ export default defineContent({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time.
+Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time. To keep the store off your personal rate limit, use a GitHub App instead: set `VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and `VITEHUB_GITHUB_INSTALLATION_ID` ([GitHub Store](/docs/workspace/configure#github-store)).
 
 - `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with the GitHub store. `blob` does not.
 - Set `store: 'github'` without `repo` only when the repository comes from `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`.
@@ -118,6 +118,12 @@ Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. Vi
 | Schedules | Not supported. |
 
 The preset adds `contentSessionsSchema` to the Database, but not `workspaceHistorySchema`. It needs Workspace and Database, and no Blob. ViteHub generates the Content Workspace with the `github` store, `refs: { published: branch, draft: draftBranch }`, and your Database.
+
+### Reads on serverless hosts
+
+A Content read asks GitHub only for what changed. Branch heads are revalidated with their ETag, and GitHub does not count a `304 Not Modified` against the rate limit. Answers for a commit sha never change, so with [KV](/docs/kv) enabled they stay in KV for 7 days, and a new server instance, such as a new Cloudflare Worker isolate, reads them there ([GitHub Store](/docs/workspace/configure#github-store)). When Content needs many documents of one commit, for example to count issues, it reads one archive of the commit. `updatedAt` walks the branch history only for the documents that a read returns.
+
+On a Worker that just started, with KV, the Console overview of a repository with 413 documents and 450 commits sends 3 GitHub requests. Without KV, it sends 19. Enable KV on Cloudflare Workers and other hosts that start new server instances often.
 
 ### Commit mode
 

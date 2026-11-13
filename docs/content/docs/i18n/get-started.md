@@ -31,7 +31,7 @@ Add `i18n` to the ViteHub options. In a Vite app, also add the Vue plugin. Keep 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node", i18n: { locales: ["en", "es"] } },
+  vitehub: { host: "node", i18n: { locales: ["en", "es"] } },
 })
 ```
 ::::
@@ -47,7 +47,7 @@ export default defineConfig({
   server: { port: 3000, strictPort: true },
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
     nitro(),
   ],
 })
@@ -64,7 +64,7 @@ export default defineConfig({
   server: { port: 3000, strictPort: true },
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
   ],
 })
 ```

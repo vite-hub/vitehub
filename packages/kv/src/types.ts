@@ -94,8 +94,8 @@ export interface FsLiteKVStoreConfig {
 export interface InferredKVStoreConfig {
   driver?: undefined
   /**
-   * In `vite dev`, the inferred store is local unless this is `true`: Upstash env and the Vercel preset do not select
-   * Upstash, and the Cloudflare preset uses the local `fs-lite` store when the dev runtime has no KV binding. With
+   * In `vite dev`, the inferred store is local unless this is `true`: Upstash env and the Vercel host do not select
+   * Upstash, and the Cloudflare host uses the local `fs-lite` store when the dev runtime has no KV binding. With
    * `true`, `vite dev` uses the real store, so writes change real data. Builds ignore it.
    */
   remote?: boolean
@@ -168,7 +168,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "del" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
@@ -220,7 +220,7 @@ export interface KVListPage {
  */
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
-  del(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
+  delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Deletes the key only when its value equals `expected`, in one atomic step. Returns `true` when this call deleted it.
    * KV compares the stored text with `expected` serialized as `set()` stores it, so `{ a: 1, b: 2 }` and

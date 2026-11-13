@@ -17,10 +17,10 @@ afterEach(async () => {
 async function wranglerFor(
   publicUrl: ViteHubOptions["publicUrl"],
   wrangler: Record<string, unknown> = {},
-  { command = "build", preset = "cloudflare", appRoot = root }: { appRoot?: string, command?: "build" | "serve", preset?: "cloudflare" | "node" } = {},
+  { command = "build", host = "cloudflare", appRoot = root }: { appRoot?: string, command?: "build" | "serve", host?: "cloudflare" | "node" } = {},
 ) {
-  const plugin = vitehub({ preset, publicUrl }).find(
-    candidate => candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/deployment-preset",
+  const plugin = vitehub({ host, publicUrl }).find(
+    candidate => candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/deployment-host",
   )
   if (!plugin || typeof plugin !== "object" || !("config" in plugin) || !plugin.config) throw new Error("Missing deployment config hook")
   const handler = typeof plugin.config === "function" ? plugin.config : plugin.config.handler
@@ -50,7 +50,7 @@ describe("vitehub({ publicUrl }) on Cloudflare", () => {
       await wranglerFor(() => "https://calories.example.com"),
       await wranglerFor(undefined),
       await wranglerFor("https://calories.example.com", {}, { command: "serve" }),
-      await wranglerFor("https://calories.example.com", {}, { preset: "node" }),
+      await wranglerFor("https://calories.example.com", {}, { host: "node" }),
     ]) {
       expect(wrangler).not.toHaveProperty("routes")
       expect(wrangler).not.toHaveProperty("workers_dev")

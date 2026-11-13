@@ -170,7 +170,7 @@ describe("useForge() with a GitHub App", () => {
     expect(error).toMatchObject({
       code: "FORGE_APP_NOT_INSTALLED",
       why: "The GitHub App is not installed on acme/private.",
-      docs: "https://vitehub.dev/docs/agents/diagnostics/forge_app_not_installed",
+      docs: "https://vitehub.dev/docs/forge/diagnostics/forge_app_not_installed",
     })
   })
 
@@ -265,7 +265,7 @@ describe("useForge() with a token", () => {
 })
 
 it("documents each Forge error code with a heading", async () => {
-  const page = await readFile(new URL("../../../docs/content/docs/guides/forge.md", import.meta.url), "utf8")
+  const page = await readFile(new URL("../../../docs/content/docs/forge/limits-and-errors.md", import.meta.url), "utf8")
   const { forgeErrors } = await import("../src/errors.ts")
   for (const code of Object.keys(forgeErrors)) expect(page, code).toContain(`\n### ${code}\n`)
 })

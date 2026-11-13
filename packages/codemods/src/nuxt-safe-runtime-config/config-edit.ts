@@ -23,9 +23,9 @@ export interface ConfigEditInput {
 
 export interface ConfigEditResult {
   code: string
-  /** ViteHub deployment preset that the codemod set, if any. */
-  preset?: string
-  presetNote?: string
+  /** ViteHub host that the codemod set, if any. */
+  host?: string
+  hostNote?: string
   imports: string[]
   /** Sources of the imports that only the removed code used, such as `valibot`. */
   removedImports: string[]
@@ -133,7 +133,7 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   }
 
   const env = input.env
-  const { preset, presetNote } = addViteHubOptions(editor, config, {
+  const { host, hostNote } = addViteHubOptions(editor, config, {
     options: [{ key: "env", value: indent => envExpression(env, envName, indent, style), label: "the Env declarations" }],
     rootEntries,
     removedRootProperties,
@@ -144,8 +144,8 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   const code = editor.output.toString()
   return {
     code,
-    preset,
-    presetNote,
+    host,
+    hostNote,
     imports: input.env.kind === "fields" ? ["vite-hub/env"] : ["@vite-hub/env/vite"],
     removedImports: editor.removedImports,
     lineOf: createLineResolver(code),

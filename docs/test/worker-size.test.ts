@@ -43,7 +43,7 @@ describe("docs Worker upload budget", () => {
 
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain("Docs Worker:");
-    expect(checkWorkerSize(join(directory, "docs/.wrangler/bundle"))).toBeGreaterThan(0);
+    expect(checkWorkerSize(join(directory, "docs/.wrangler/bundle")).bytes).toBeGreaterThan(0);
   }, 30_000);
 
   it("counts bytes of the entry point and nested text, JSON and Wasm modules", () => {
@@ -56,7 +56,7 @@ describe("docs Worker upload budget", () => {
     writeFileSync(join(directory, "README.md"), "Not uploaded");
     writeFileSync(join(directory, "index.js.map"), "Not a Worker module");
 
-    expect(checkWorkerSize(directory)).toBe(29);
+    expect(checkWorkerSize(directory)).toEqual({ bytes: 29, modules: 4 });
   });
 
   it("rejects an aggregate upload above 60 MiB even when each module is smaller", () => {
@@ -64,10 +64,21 @@ describe("docs Worker upload budget", () => {
     const entry = join(directory, "index.js");
     writeFileSync(entry, "");
     truncateSync(entry, 60 * 1024 * 1024);
-    expect(checkWorkerSize(directory)).toBe(60 * 1024 * 1024);
+    expect(checkWorkerSize(directory).bytes).toBe(60 * 1024 * 1024);
     writeFileSync(join(directory, "engine.wasm"), new Uint8Array([0]));
 
     expect(() => checkWorkerSize(directory)).toThrow("exceeding the 60 MiB budget");
+  });
+
+  it("rejects more modules than the budget, far below Cloudflare's 5,000", () => {
+    const directory = bundle();
+    mkdirSync(join(directory, "_virtual"));
+    writeFileSync(join(directory, "index.js"), "export default {};");
+    for (let index = 1; index < 2500; index++) writeFileSync(join(directory, "_virtual", `page${index}.md.mjs`), "export default ``");
+    expect(checkWorkerSize(directory).modules).toBe(2500);
+    writeFileSync(join(directory, "_virtual", "one-more.md.mjs"), "export default ``");
+
+    expect(() => checkWorkerSize(directory)).toThrow("2501 modules, exceeding the budget of 2500");
   });
 
   it("rejects missing build output rather than reporting a zero-byte upload", () => {

@@ -110,9 +110,10 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceMarkdown, ContentSourceMarkdownPage, ContentSourceOptions, ContentSourceReader, ContentSourceSeo } from "./content-source.ts"
-export { registerContentKV } from "./source-heads.ts"
+export { registerContentKV } from "./kv.ts"
+export type { ContentKV } from "./kv.ts"
 export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
-export type { ContentKV, ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
+export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
 export type { ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"

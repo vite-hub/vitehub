@@ -46,17 +46,9 @@
       "import": "./dist/client.js",
       "default": "./dist/client.js"
     },
-    "./drivers/akamai": {
-      "types": "./dist/drivers/akamai.d.ts",
-      "default": "./dist/drivers/akamai.js"
-    },
     "./drivers/azure": {
       "types": "./dist/drivers/azure.d.ts",
       "default": "./dist/drivers/azure.js"
-    },
-    "./drivers/box": {
-      "types": "./dist/drivers/box.d.ts",
-      "default": "./dist/drivers/box.js"
     },
     "./drivers/cloudflare": {
       "types": "./dist/drivers/cloudflare.d.ts",
@@ -68,14 +60,6 @@
       "import": "./dist/drivers/cloudflare-native.js",
       "default": "./dist/drivers/cloudflare-native.js"
     },
-    "./drivers/digitalocean-spaces": {
-      "types": "./dist/drivers/digitalocean-spaces.d.ts",
-      "default": "./dist/drivers/digitalocean-spaces.js"
-    },
-    "./drivers/dropbox": {
-      "types": "./dist/drivers/dropbox.d.ts",
-      "default": "./dist/drivers/dropbox.js"
-    },
     "./drivers/fs": {
       "types": "./dist/drivers/fs.d.ts",
       "default": "./dist/drivers/fs.js"
@@ -83,14 +67,6 @@
     "./drivers/gcs": {
       "types": "./dist/drivers/gcs.d.ts",
       "default": "./dist/drivers/gcs.js"
-    },
-    "./drivers/google-drive": {
-      "types": "./dist/drivers/google-drive.d.ts",
-      "default": "./dist/drivers/google-drive.js"
-    },
-    "./drivers/hetzner": {
-      "types": "./dist/drivers/hetzner.d.ts",
-      "default": "./dist/drivers/hetzner.js"
     },
     "./drivers/minio": {
       "types": "./dist/drivers/minio.d.ts",
@@ -101,30 +77,19 @@
       "import": "./dist/drivers/netlify-blobs.js",
       "default": "./dist/drivers/netlify-blobs.js"
     },
-    "./drivers/onedrive": {
-      "types": "./dist/drivers/onedrive.d.ts",
-      "default": "./dist/drivers/onedrive.js"
-    },
     "./drivers/s3": {
       "types": "./dist/drivers/s3.d.ts",
       "default": "./dist/drivers/s3.js"
-    },
-    "./drivers/storj": {
-      "types": "./dist/drivers/storj.d.ts",
-      "default": "./dist/drivers/storj.js"
-    },
-    "./drivers/supabase": {
-      "types": "./dist/drivers/supabase.d.ts",
-      "default": "./dist/drivers/supabase.js"
-    },
-    "./drivers/uploadthing": {
-      "types": "./dist/drivers/uploadthing.d.ts",
-      "default": "./dist/drivers/uploadthing.js"
     },
     "./drivers/vercel": {
       "types": "./dist/drivers/vercel.d.ts",
       "import": "./dist/drivers/vercel.js",
       "default": "./dist/drivers/vercel.js"
+    },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./internal/vercel-blob": {
       "types": "./dist/internal/vercel-blob.d.ts",
@@ -209,14 +174,7 @@
     "@azure/storage-blob": "catalog:storage",
     "@cf-wasm/photon": "^0.4.0",
     "@google-cloud/storage": "catalog:storage",
-    "@googleapis/drive": "catalog:storage",
-    "@microsoft/microsoft-graph-client": "catalog:storage",
-    "@supabase/storage-js": "catalog:storage",
-    "box-typescript-sdk-gen": "catalog:storage",
-    "dropbox": "catalog:storage",
-    "google-auth-library": "catalog:storage",
     "sharp": "^0.34.0 || ^0.35.0",
-    "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },
@@ -245,28 +203,7 @@
     "@google-cloud/storage": {
       "optional": true
     },
-    "@googleapis/drive": {
-      "optional": true
-    },
-    "@microsoft/microsoft-graph-client": {
-      "optional": true
-    },
-    "@supabase/storage-js": {
-      "optional": true
-    },
-    "box-typescript-sdk-gen": {
-      "optional": true
-    },
-    "dropbox": {
-      "optional": true
-    },
-    "google-auth-library": {
-      "optional": true
-    },
     "sharp": {
-      "optional": true
-    },
-    "uploadthing": {
       "optional": true
     },
     "vite": {

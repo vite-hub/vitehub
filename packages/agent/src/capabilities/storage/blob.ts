@@ -326,7 +326,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
           }
           if (operation === "delete") {
             const path = assertString(pathname, "blob_edit pathname")
-            await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(path))
+            await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "delete")(path))
             return { pathname: path, deleted: true }
           }
           throw agentDiagnostics.AGENT_R0212({ message: `[vitehub] Unsupported blob_edit operation: ${String(operation)}` })

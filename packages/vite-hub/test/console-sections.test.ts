@@ -49,8 +49,8 @@ describe("Console section preferences", () => {
       "schedules",
     ])
     expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, host: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, host: "netlify", workflow: { provider: "vercel" } })).toEqual([
       "agents",
       "skills",
       "usage",
@@ -188,6 +188,7 @@ describe("Console Go to shortcuts", () => {
       env: "g e",
       email: "g m",
       "rate-limits": "g r",
+      site: "g c",
       setup: "g y",
     })
   })

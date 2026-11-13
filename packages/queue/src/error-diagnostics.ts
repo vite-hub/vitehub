@@ -39,7 +39,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_DISABLED: {
       why: "Queue is disabled in this runtime.",
-      fix: "Add `hubQueue()` to the Vite config and do not set `queue: false`.",
+      fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host.",
     },
     QUEUE_INVALID_BINDING: {
       why: "The Cloudflare queue binding does not have `send()` and `sendBatch()`.",
@@ -65,9 +65,23 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ expected, provider }: { expected: QueueProvider, provider: QueueProvider }) => `The ${expected} Queue runtime received the ${provider} provider.`,
       fix: "Set `queue.provider` to the provider of the deployment preset, and build again.",
     },
+    QUEUE_POSTGRES_CLOSING: {
+      why: "The Postgres Queue runtime is shutting down and cannot accept more jobs or connections.",
+      fix: "Send jobs before server shutdown starts, or send them from another running instance.",
+    },
+    QUEUE_POSTGRES_INVALID_URL: {
+      why: ({ variable }: { variable: string }) => `${variable} is set, and its value is not a \`postgres://\` or \`postgresql://\` URL.`,
+      fix: "Set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs, or remove it to use the connection of the Default Database.",
+    },
+    QUEUE_POSTGRES_MISSING_CONNECTION: {
+      why: ({ database }: { database?: string }) => database
+        ? `The postgres queue provider uses the connection of the Database "${database}", and that Database has no Postgres client in this runtime.`
+        : "The postgres queue provider has no connection: the build found no Postgres Default Database, and `QUEUE_POSTGRES_URL` is not set.",
+      fix: "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
+    },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
-      fix: "Add `hubQueue()` to the Vite config, build the app, and run the built server.",
+      fix: "Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build the app and run the built server.",
     },
     QUEUE_VERCEL_SDK_INVALID: {
       why: "`@vercel/queue` does not have the client API that ViteHub uses.",
@@ -105,7 +119,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_INVALID_PROVIDER: {
       why: ({ provider }: { provider: string }) => `\`queue.provider\` "${provider}" is not a Queue provider.`,
-      fix: "Set `queue.provider` to \"cloudflare\", \"vercel\", or \"local\".",
+      fix: "Set `queue.provider` to \"cloudflare\", \"vercel\", \"local\", or \"postgres\".",
     },
     QUEUE_MISSING_PROVIDER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue provider for ${hosting} hosting.`,

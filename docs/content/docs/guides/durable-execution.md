@@ -75,7 +75,7 @@ Enable Workflow with OpenWorkflow and SQLite on Node:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     workflow: {
       provider: 'openworkflow',
       sqlite: { path: '.data/workflows.sqlite' },
@@ -94,7 +94,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       workflow: {
         provider: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
@@ -114,7 +114,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       workflow: {
         provider: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
@@ -126,7 +126,7 @@ export default defineConfig({
 :::
 ::
 
-On Cloudflare, set `preset: 'cloudflare'` and `workflow: true`, with the same Workflow files.
+On Cloudflare, set `host: 'cloudflare'` and `workflow: true`, with the same Workflow files.
 
 In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts` becomes `steps.chargeCard`, with the provider step name `checkout/01.charge-card.ts`. Do not rename a step file while runs are in progress, because the new name is not in their step log.
 

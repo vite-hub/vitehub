@@ -129,9 +129,9 @@ The loop also checks records with a numeric suffix. If any command fails, keep t
 
 ## Development stays local
 
-In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel preset do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.
+In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel host do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.
 
-On the Cloudflare preset, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It does not expire keys.
+On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It does not expire keys.
 
 Set `remote: true` to use the real store in development:
 
@@ -175,7 +175,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. The development server prints `KV store "default" is remote` on the first operation, and `vitehub inspect definitions --kind kv` shows `Development: Remote`.
 ::
 
-With `remote: true`, development infers the driver as a build does: Upstash env, or the Vercel or Cloudflare preset. On Cloudflare, ViteHub writes `remote: true` on the generated Wrangler KV binding, so the dev runtime connects the binding to the real namespace. This needs a runner that provides bindings. Use `remote: true` on the store instead of `experimental_remote` in your own `kv_namespaces`.
+With `remote: true`, development infers the driver as a build does: Upstash env, or the Vercel or Cloudflare host. On Cloudflare, ViteHub writes `remote: true` on the generated Wrangler KV binding, so the dev runtime connects the binding to the real namespace. This needs a runner that provides bindings. Use `remote: true` on the store instead of `experimental_remote` in your own `kv_namespaces`.
 
 Upstash credentials in development can come from Vite's `.env` files for the current mode and `envDir`. Existing process environment values take precedence. These credentials stay in the development server runtime.
 
@@ -190,7 +190,7 @@ Nitro keeps entries from `defineCachedFunction()`, `defineCachedEventHandler()`,
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', kv: true, cache: { driver: 'kv' } },
+  vitehub: { host: 'cloudflare', kv: true, cache: { driver: 'kv' } },
 })
 ```
 :::
@@ -202,7 +202,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', kv: true, cache: { driver: 'kv' } }), nitro()],
 })
 ```
 :::
@@ -213,7 +213,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } })],
+  plugins: [vitehub({ host: 'cloudflare', kv: true, cache: { driver: 'kv' } })],
 })
 ```
 :::

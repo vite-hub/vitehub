@@ -29,7 +29,7 @@ const forgedLocal = { "host": "localhost:3000", "x-forwarded-for": "127.0.0.1", 
 /** Run the front process's dev handler on a Node request, and return the headers that its proxy forwards. */
 async function throughFront(remoteAddress: string | undefined, headers: Record<string, string> = {}, path = rpcPath): Promise<Record<string, string>> {
   const req = { headers: { host: "localhost:3000", ...headers }, method: "POST", socket: { remoteAddress }, url: path }
-  await viteHubDevPeerDevHandler({ node: { req } })
+  await viteHubDevPeerDevHandler({ runtime: { node: { req } } })
   return Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 

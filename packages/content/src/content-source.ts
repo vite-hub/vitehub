@@ -284,6 +284,25 @@ function createContentSourceFactory(
         return itemsPromise
       }
 
+      let knownReader: { get(key: string): Promise<ContentSourceItem> } | undefined
+      // A path that the last full load saw is read alone. Other paths, such as a new file, load every item.
+      async function readKnownItem(path: string) {
+        const known = state.latestItems?.get(path)
+        if (!known || itemsPromise || options.commits) return
+        // One reader per load keeps every read of a load on one revision.
+        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? createSource(sourceInput) : undefined
+        if (!knownReader) return
+        // A failed read, such as a deleted file, falls back to the full load, which reports real errors.
+        try {
+          const item = await knownReader.get(known.key)
+          if (contentPath(item) !== path) return
+          state.latestItems?.set(path, item)
+          return item
+        } catch {
+          return undefined
+        }
+      }
+
       const source: ComarkContentSource = {
         async keys() {
           itemsPromise = undefined
@@ -291,7 +310,7 @@ function createContentSourceFactory(
         },
         async getItem(key) {
           const path = normalizeContentSourcePath(key)
-          const item = (await loadItems()).get(path)
+          const item = await readKnownItem(path) ?? (await loadItems()).get(path)
           if (!item) throw contentErrorDiagnostics.CONTENT_R0004({ message: `[vitehub] contentSource() could not find ${JSON.stringify(key)}.` })
           return textContent(item)
         },

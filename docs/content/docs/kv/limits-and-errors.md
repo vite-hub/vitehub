@@ -43,7 +43,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
-| `KV_KEY_TOO_LONG` | `del()`, `get()`, `has()`, `set()` | |
+| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
 | `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `setIfAbsent()` | |
@@ -52,7 +52,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 
 ## Limits
 
-A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare preset checks the same limits.
+A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare host, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare host checks the same limits.
 
 | Limit | Cloudflare KV | Code |
 | --- | --- | --- |
@@ -120,7 +120,7 @@ The `deno-kv` driver needs `Deno.openKv()`. Run on Deno with KV enabled, or pick
 
 ### KV_DISABLED
 
-The runtime has no KV config. Add `hubKv()` to the Vite config and do not set `kv: false`.
+The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV config. With `@vite-hub/kv` alone, add `hubKV()` to the Vite plugins and do not pass `false` to it.
 
 ### KV_INVALID_CONFIG
 

@@ -20,12 +20,12 @@ through [Capabilities](/docs/agents/capabilities).
 | --- | --- | --- |
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
-| `db` and `schema` from `@nuxthub/db` | `db` and `schema` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
+| `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
-| `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the preset's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
+| `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. |
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
-| `hosting` auto-detection | `preset` | You must select the host. |
+| `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
 | Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
 
@@ -60,7 +60,7 @@ Replace those imports in the same way as the newer `@nuxthub/*` imports below.
 as [Move the database](#move-the-database) shows.
 
 Replace the NuxtHub module with `vite-hub/nuxt` and rename the `hub` key to
-`vitehub`. Add a [deployment preset](/docs/frameworks-hosts#choose-a-preset).
+`vitehub`. Add a [deployment host](/docs/frameworks-hosts#choose-a-host).
 Each feature is off until you turn it on.
 
 ```diff [nuxt.config.ts]
@@ -73,7 +73,7 @@ Each feature is off until you turn it on.
 -  },
 +  modules: ["vite-hub/nuxt"],
 +  vitehub: {
-+    preset: "cloudflare",
++    host: "cloudflare",
 +    database: true,
 +    kv: true,
 +    blob: true,
@@ -99,7 +99,7 @@ instead of throwing, so check the error.
  })
 ```
 
-`get`, `set`, `has`, `del`, `keys`, and `clear` keep their names. NuxtHub also
+`get`, `set`, `has`, `keys`, and `clear` keep their names; `del` becomes `delete`. NuxtHub also
 has other unstorage methods. Check those calls against ViteHub's
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
@@ -107,12 +107,11 @@ driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
 ## Move Blob calls
 
-Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
+Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `delete`, and
 `serve` keep their names, and `put` takes the same `contentType`, `prefix`,
 `addRandomSuffix`, and `customMetadata` options. Each method except `serve`
 returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
-`Response`, with `404` for a missing file. NuxtHub's `blob.delete()` is
-`blob.del()` in ViteHub. The methods take a `string` pathname, so check a
+`Response`, with `404` for a missing file. Use `blob.delete()` for both NuxtHub's `blob.delete()` and `blob.del()`. The methods take a `string` pathname, so check a
 `getRouterParam()` result for `undefined` before you pass it.
 
 For a custom serving route on Nitro 3, see
@@ -168,12 +167,12 @@ export default defineDatabase({
 })
 ```
 
-`vite-hub/database/drizzle` exports `db` and `schema` for the `default`
+`vite-hub/database` exports `db` and `schema` for the `default`
 Database, so only the import path changes. Queries do not change.
 
 ```diff [server/api/users.get.ts]
 -import { db, schema } from "@nuxthub/db"
-+import { db, schema } from "vite-hub/database/drizzle"
++import { db, schema } from "vite-hub/database"
 
  export default defineEventHandler(async () => {
    return await db.select().from(schema.users)
@@ -335,7 +334,7 @@ import `defineCachedHandler()` (formerly `cachedEventHandler()`) and
 `defineCachedFunction()` from `nitro/cache`. NuxtHub `hub.cache` selected the
 storage driver for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 
-| Preset | Production store |
+| Host | Production store |
 | --- | --- |
 | `cloudflare` | Workers KV binding `CACHE` with an existing namespace ID |
 | `vercel` | Vercel Runtime Cache |
@@ -344,10 +343,10 @@ storage driver for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 
 - Development uses `.vitehub/data/cache`, or `<dataDir>/cache` when `dataDir` is set.
 - Cloudflare needs `cache.namespaceId`, or an existing `CACHE` namespace with an id in `nitro.cloudflare.wrangler.kv_namespaces`, so the deployment always names a real namespace.
-- The `netlify` preset has no default cache store, so `cache: true` fails the build there.
+- The `netlify` host has no default cache store, so `cache: true` fails the build there.
 - A `cache` mount you set in `nitro.kv` (`nitro.storage` in Nuxt) wins.
 
-To share the app's KV store instead, on any preset, set `cache: { driver: "kv" }`
+To share the app's KV store instead, on any host, set `cache: { driver: "kv" }`
 with `kv` on. Cache keys get the `nitro-cache:` prefix.
 
 To keep the cache namespace NuxtHub created on Cloudflare, pass its id:
@@ -355,7 +354,7 @@ To keep the cache namespace NuxtHub created on Cloudflare, pass its id:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     cache: {
       driver: "cloudflare-kv-binding",
       binding: "CACHE",
@@ -380,7 +379,7 @@ Set these options in `nuxt.config.ts`. Nuxt does not load a separate
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     database: true,
     kv: {
       driver: "cloudflare-kv-binding",
@@ -398,11 +397,11 @@ export default defineNuxtConfig({
 
 | Host | What changes |
 | --- | --- |
-| Cloudflare | Set `preset: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
-| Vercel | Set `preset: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
-| Node | Set `preset: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
+| Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
+| Vercel | Set `host: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
+| Node | Set `host: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
 
-Netlify and Deno have their own presets. See
+Netlify and Deno have their own hosts. See
 [Frameworks and hosts](/docs/frameworks-hosts) for each feature's default
 provider.
 
@@ -447,7 +446,7 @@ folder.
    Move local data first, as [Move local data](#move-local-data) shows.
    Re-uploading blobs changes upload timestamps and may change URLs or ETags.
    Keep application records of those values if your application needs them.
-3. Run `pnpm nuxt build`. A feature that the preset cannot provide fails the build.
+3. Run `pnpm nuxt build`. A feature that the host cannot provide fails the build.
 4. Run `pnpm vitehub inspect output --json` and confirm resource IDs and
    names, as well as bindings and environment variables.
 5. Apply one schema change after the baseline. Confirm that it preserves the

@@ -12,7 +12,7 @@ it("accepts Vite options in the Nuxt module", () => {
   viteHubNuxtModule({
     agent: false,
     console: false,
-    preset: "node",
+    host: "node",
     publicUrl(agent) {
       expectTypeOf(agent).toBeString()
       return `https://${agent}.example.com`
