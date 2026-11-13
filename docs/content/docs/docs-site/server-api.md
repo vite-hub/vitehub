@@ -146,6 +146,6 @@ A running site serves the parsed page at `/api/_docs/page/<page>.json` and the a
 | Export | Use |
 | --- | --- |
 | `docsAssistant` | The Agent preset. Extend it with `defineAgent({ extends: docsAssistant })`. See [What the preset sets](/docs/docs-site/assistant#what-the-preset-sets). |
-| `docsRateLimit(options?)` | The question limit, id `docs-rate-limit`. Options: `limit` (default `30`), `window` (default `'1h'`), `identity` (default: the whole site), and `trustedIpHeaders`. Counters live in process memory. |
+| `docsRateLimit(options?)` | The question limit, id `docs-rate-limit`. Options: `limit` (default `30`), `window` (default `'1h'`), `identity` (default: the whole site), and `trustedIpHeaders` (only with `identity: 'ip'` or `'auto'`). Counters live in process memory. |
 | `docsPageFromBody(body)` | The open page path from a chat request body, or `''` if missing or not a plain path. |
 | `docsPageContextKey` | The Agent run context key for the open page path: `'docsPage'`. |
