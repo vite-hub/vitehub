@@ -425,7 +425,7 @@ export default defineNuxtConfig({
   vitehub: {
     console: true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   },
   $development: {
     vitehub: { console: { auth: false } },
@@ -444,7 +444,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   }), nitro()],
 }))
 ```
@@ -459,7 +459,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   })],
 }))
 ```
@@ -503,7 +503,7 @@ Earlier releases let the app sign people in to the Console with `console: { auth
 
 1. Remove `auth`, `origins`, `mcp`, and `signInPage` from the `console` options, or set `console: true`.
 2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/rpc?ticket=`: a signed call has no app session, a one-time link has its ticket as proof, and the route checks its own access. A build fails when an app route file, such as `server/routes/_vitehub/rpc.post.ts`, uses the same path.
-3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/development/app-mcp).
+3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/mcp).
 4. Link the app in [console.vitehub.dev](#in-production), and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows. Invite the people who used the app's Console to your team.
 5. For the CLI, make a key with `vitehub secret console-key`, and replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 6. Connect agents to the [ViteHub MCP](/docs/development/mcp) of the Console instead of `/_vitehub/mcp`.
@@ -805,7 +805,7 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 | A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. |
 | KV or Blob inspection returns a provider error | Check that the deployed app has permission and credentials to read the configured store. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal. |
-| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
+| Agent Console startup fails on a deployment host | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
 | The Console cannot reach a deployed app | Link the app with the URL that serves it, and check that the server is public. The Console cannot reach a `vite dev` server on your machine. |
 | The build fails with `VITE_HUB_B0020` and names a `console` option | The option is removed. Follow the fix in the message, or see [Move from auth: "app" or Console Auth](#move-from-auth-app-or-console-auth). |
 | `console.impersonation` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition with Better Auth's `admin` plugin, such as `server/auth.ts`. |

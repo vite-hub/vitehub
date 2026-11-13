@@ -53,13 +53,13 @@ icon: i-lucide-terminal-square
 
   ::::framework{name="Nuxt"}
   ```ts [nuxt.config.ts]
-  // The Vercel preset uses Vercel Sandbox.
-  // Use preset 'cloudflare' for Cloudflare Sandbox.
+  // The Vercel host uses Vercel Sandbox.
+  // Use host 'cloudflare' for Cloudflare Sandbox.
 
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'vercel',
+      host: 'vercel',
       // Each run starts a Vercel Sandbox
       sandboxTask: true,
     },
@@ -72,12 +72,12 @@ icon: i-lucide-terminal-square
   import { nitro } from 'nitro/vite'
   import { vitehub } from 'vite-hub'
 
-  // The Vercel preset uses Vercel Sandbox.
-  // Use preset 'cloudflare' for Cloudflare Sandbox.
+  // The Vercel host uses Vercel Sandbox.
+  // Use host 'cloudflare' for Cloudflare Sandbox.
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'vercel',
+        host: 'vercel',
         // Each run starts a Vercel Sandbox
         sandboxTask: true,
       }),
@@ -94,7 +94,7 @@ icon: i-lucide-terminal-square
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'vercel',
+        host: 'vercel',
         // Each run starts a Vercel Sandbox
         sandboxTask: true,
       }),

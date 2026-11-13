@@ -62,6 +62,7 @@ const runtimeEntries = [
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
   "src/task/operations.ts",
+  "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
   "src/connections/agent.ts",
@@ -162,6 +163,10 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
+        {
+          from: "src/console/runtime/components/console-lazy-views.ts",
+          to: "dist/console/runtime/components",
+        },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -588,6 +593,7 @@ export default defineConfig({
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
           delete exports["./task/operations"];
+          delete exports["./durability/operations"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];

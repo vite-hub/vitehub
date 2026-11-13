@@ -13,9 +13,9 @@ import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
-const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
-const ConsoleFileDiff = defineAsyncComponent(() => import("@vite-hub/ui/file-diff").then(module => module.FileDiff));
+const ConsoleFileTree = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileTree));
+const ConsolePatchDiff = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.PatchDiff));
+const ConsoleFileDiff = defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileDiff));
 // JSON Render and Zod load with the Capabilities tab, not with every session.
 const AgentCapabilityInspector = defineAsyncComponent(() => import("./invocation/agent-capability-inspector").then(module => module.AgentCapabilityInspector));
 

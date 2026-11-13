@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Status } from "@vite-hub/ui/status";
+import { Status } from "@vite-hub/ui";
 import type { PrimitiveFramework, PrimitiveProjectVariant } from "~/data/primitive-landings/types";
 
 const props = defineProps<{ variants: PrimitiveProjectVariant[] }>();

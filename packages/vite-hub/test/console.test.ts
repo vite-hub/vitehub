@@ -104,21 +104,19 @@ function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[
 
 /** A test event whose URL and Node response a test can change between calls. */
 interface MutableTestEvent extends ConsoleRequestEvent {
-  node: { req: { url: string }, res?: { setHeader: (name: string, value: string) => unknown } }
   req: { url: string }
 }
 
-/** A Console request event at `http://localhost/_vitehub`. Each read of its Standard Context uses the current `node.req.url`. */
+/** A Console request event at `http://localhost/_vitehub`. Each read of its Standard Context uses the current `req.url`. */
 function event(address: string | undefined, method = "GET"): MutableTestEvent {
   const url = "http://localhost/_vitehub"
   const headers = new Headers()
-  const target: Omit<MutableTestEvent, "~standard"> = { node: { req: { url } }, req: { url } }
+  const target: Omit<MutableTestEvent, "~standard"> = { req: { url } }
   return Object.defineProperty(target, "~standard", {
     get: () => ({
       vendor: "test",
-      req: new Request(target.node.req.url, { method }),
-      // A test that sets `node.res` reads the Console response headers through it.
-      res: { headers: { get: (name: string) => headers.get(name), set: (name: string, value: string) => { headers.set(name, value); target.node.res?.setHeader(name, value) } } as Headers },
+      req: new Request(target.req.url, { method }),
+      res: { headers },
       runtime: address ? { clientAddress: address } : {},
     }),
   }) as MutableTestEvent
@@ -566,20 +564,20 @@ describe("Agent invocation console", () => {
     ["cloudflare", "before", true],
     ["cloudflare", "after", true],
     ["cloudflare", "after", false],
-  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (preset, order, enabled) => {
+  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (host, order, enabled) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugins = vitehub({
         console: { ...productionConsole, mcpClient: true },
         env: false,
-        preset,
+        host,
       })
       // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv(enabled ? { driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
+      const kvPlugin = hubKv(enabled ? { driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
@@ -931,7 +929,7 @@ describe("Agent invocation console", () => {
       const plugins = vitehub({
         console: productionConsole,
         database: { projectRoot: "packages/database" },
-        preset: "cloudflare",
+        host: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
@@ -2065,7 +2063,6 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const detailURL = "http://localhost/_vitehub/api/invocations/inv-delta"
-    requestEvent.node!.req!.url = detailURL
     requestEvent.req!.url = detailURL
     const initial = await getConsoleInvocationDetail(requestEvent)
     await store.update("inv-delta", {
@@ -2078,7 +2075,6 @@ describe("Agent invocation console", () => {
       timestamp: "2026-08-23T12:00:03.000Z",
     })
     const url = `${detailURL}?observationCount=2&observationCursor=${encodeURIComponent(initial.observationCursor)}`
-    requestEvent.node!.req!.url = url
     requestEvent.req!.url = url
 
     await expect(getConsoleInvocationDetail(requestEvent)).resolves.toMatchObject({
@@ -2105,7 +2101,6 @@ describe("Agent invocation console", () => {
       timestamp: "2026-08-23T12:00:05.000Z",
     })
     const truncatedURL = `${detailURL}?observationCount=4&observationCursor=${encodeURIComponent(replaced.observationCursor)}`
-    requestEvent.node!.req!.url = truncatedURL
     requestEvent.req!.url = truncatedURL
     await expect(getConsoleInvocationDetail(requestEvent)).resolves.not.toHaveProperty("appendObservations")
   })
@@ -2114,7 +2109,6 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const malformedURL = "http://localhost/_vitehub/api/invocations/%E0%A4%A"
-    requestEvent.node!.req!.url = malformedURL
     requestEvent.req!.url = malformedURL
 
     await expect(invocationHandler(requestEvent)).rejects.toMatchObject({
@@ -2127,7 +2121,6 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const malformedURL = "http://localhost/_vitehub/api/invocations/%E0%A4%A"
-    requestEvent.node!.req!.url = malformedURL
     requestEvent.req!.url = malformedURL
     if (withParams) requestEvent.context = { params: { id: "%E0%A4%A" } }
 
@@ -2145,7 +2138,6 @@ describe("Agent invocation console", () => {
     for (const paramId of [encodeURIComponent(id), id]) {
       const requestEvent = event("127.0.0.1")
       const url = `http://localhost/_vitehub/api/invocations/${encodeURIComponent(id)}`
-      requestEvent.node!.req!.url = url
       requestEvent.req!.url = url
       requestEvent.context = { params: { id: paramId } }
       await expect(invocationHandler(requestEvent)).resolves.toMatchObject({ invocation: { id } })
@@ -3133,8 +3125,7 @@ describe("Agent invocation console", () => {
   it("rejects overlong Agent filters at the usage endpoint", async () => {
     const requestEvent = event("127.0.0.1")
     const url = `http://localhost/_vitehub/api/usage?agent=${"a".repeat(513)}`
-    if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
-    requestEvent.node.req.url = url
+    if (!requestEvent.req) throw new TypeError("Expected a request event.")
     requestEvent.req.url = url
 
     await expect(usageHandler(requestEvent)).rejects.toMatchObject({ statusCode: 400 })
@@ -3144,8 +3135,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const url = "http://localhost/_vitehub/api/usage?cursor=invalid"
-    if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
-    requestEvent.node.req.url = url
+    if (!requestEvent.req) throw new TypeError("Expected a request event.")
     requestEvent.req.url = url
 
     await expect(usageHandler(requestEvent)).rejects.toMatchObject({
@@ -3180,9 +3170,7 @@ describe("Agent invocation console", () => {
     const starEvent = event("127.0.0.1")
     const allUrl = "http://localhost/_vitehub/api/usage"
     const starUrl = "http://localhost/_vitehub/api/usage?agent=*"
-    allEvent.node!.req!.url = allUrl
     allEvent.req!.url = allUrl
-    starEvent.node!.req!.url = starUrl
     starEvent.req!.url = starUrl
 
     await expect(usageHandler(allEvent)).resolves.toMatchObject({ totals: { totalTokens: 3 } })
@@ -3898,14 +3886,11 @@ describe("Agent invocation console", () => {
   })
 
   it("marks every console API response as non-cacheable and non-indexable", () => {
-    const responseHeaders = new Map<string, string>()
     const requestEvent = event("127.0.0.1")
-    requestEvent.node!.res = {
-      setHeader: (name, value) => responseHeaders.set(name, value),
-    }
 
     assertConsoleRequest(requestEvent)
 
+    const responseHeaders = new Map(requestEvent["~standard"].res.headers)
     expect(responseHeaders).toEqual(new Map([
       ["cache-control", "no-store"],
       ["x-content-type-options", "nosniff"],

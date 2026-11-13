@@ -20,7 +20,7 @@ Turn on `agent` and `workspace`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true, workspace: true },
+  vitehub: { host: 'node', agent: true, workspace: true },
 })
 ```
 :::
@@ -33,7 +33,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, workspace: true }),
+    vitehub({ host: 'node', agent: true, workspace: true }),
     nitro(),
   ],
 })
@@ -47,7 +47,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, workspace: true }),
+    vitehub({ host: 'node', agent: true, workspace: true }),
   ],
 })
 ```

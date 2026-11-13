@@ -226,7 +226,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VITEHUB_HOSTING: cloudflare
+          VITEHUB_HOST: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider cloudflare
 
@@ -237,7 +237,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_HOSTING: vercel
+          VITEHUB_HOST: vercel
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider vercel
 
@@ -250,7 +250,7 @@ jobs:
         env:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_HOSTING: cloudflare
+          VITEHUB_HOST: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:build
 
@@ -279,7 +279,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_HOSTING: vercel
+          VITEHUB_HOST: vercel
           VITEHUB_VITE_MODE: e2e
           VITEHUB_WORKSPACE_BLOB_PREFIX: e2e/vite
         run: vp run playground:vite:build
