@@ -19,6 +19,7 @@ import type {
   RealtimeDefinition,
   RealtimeDocumentAdapter,
   RealtimeDocumentContext,
+  RealtimeDocumentDefinition,
   RealtimeEditor,
   RealtimeFieldValue,
   RealtimeIssue,
@@ -136,7 +137,7 @@ const serverOrigin = Symbol("vitehub.realtime.server")
 const busOrigin = Symbol("vitehub.realtime.bus")
 /** A Yjs update with no structs and no deletions. */
 const emptyUpdateBytes = 2
-/** The epoch of Workspace event rooms, which hold no document. */
+/** The epoch of rooms that hold no document: Workspace event rooms and the rooms of presence definitions. */
 const eventsEpoch = "events"
 
 /** The fields that the adapter loaded, without the ones it left undefined. */
@@ -327,15 +328,15 @@ function storedUpdate(value: unknown): Uint8Array | undefined {
 
 interface ResolvedRealtimeDefinition {
   adapter: RealtimeDocumentAdapter
-  definition: RealtimeDefinition
+  definition: RealtimeDocumentDefinition
   /** The codec of one document: the definition's editor, or the one its editor function picks. */
   editor: (context: RealtimeDocumentContext) => RealtimeEditor
   persistence: { debounce: number, maxWait: number } | false
 }
 
-const resolvedDefinitions = new WeakMap<RealtimeDefinition, ResolvedRealtimeDefinition>()
+const resolvedDefinitions = new WeakMap<RealtimeDocumentDefinition, ResolvedRealtimeDefinition>()
 
-function isDocumentAdapter(document: RealtimeDefinition["document"]): document is RealtimeDocumentAdapter {
+function isDocumentAdapter(document: RealtimeDocumentDefinition["document"]): document is RealtimeDocumentAdapter {
   return "load" in document && "save" in document
 }
 
@@ -348,7 +349,7 @@ function duration(value: unknown, fallback: number, name: "debounce" | "maxWait"
 }
 
 /** Resolves the document adapter, editor codec, and persistence timing of a definition. */
-export function resolveRealtimeDefinition(definition: RealtimeDefinition): ResolvedRealtimeDefinition {
+export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition): ResolvedRealtimeDefinition {
   const cached = resolvedDefinitions.get(definition)
   if (cached) return cached
   const document = definition.document
@@ -380,8 +381,11 @@ interface RoomBase {
   peers: Set<WebSocketPeer>
 }
 
+/** A room without a document: the Workspace events room of a definition, or a room of a presence definition. */
 interface EventsRoom extends RoomBase {
   kind: "events"
+  /** The Workspace events room, which relays change hints. */
+  workspace: boolean
 }
 
 interface DocumentRoom extends RoomBase {
@@ -1067,9 +1071,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     return value
   }
 
-  function getEventsRoom(definitionName: string): Promise<EventsRoom> {
-    const key = JSON.stringify([definitionName, { workspaceEvents: true }])
-    return openRoom(key, undefined, async () => {
+  function getEventsRoom(key: string, workspace: boolean, sql: RealtimeRoomSql | undefined): Promise<EventsRoom> {
+    return openRoom(key, sql, async () => {
       const bus = await sharedBus()
       const document = new Y.Doc()
       const awareness = new awarenessProtocol.Awareness(document)
@@ -1083,6 +1086,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         key,
         kind: "events",
         peers: new Set(),
+        workspace,
       }
       watchAwareness(room)
       openRooms.set(key, room)
@@ -1459,7 +1463,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   /** Releases an idle room: durable rooms leave memory; clean memory rooms become reclaimable. */
   function releaseRoom(room: Room): void {
     if (room.peers.size > 0) return
-    if (room.kind === "events" && room.bus) {
+    // A presence room has nothing to keep, and a Durable Object never reclaims rooms that it does not destroy.
+    if (room.kind === "events" && (room.bus || !room.workspace)) {
       destroyRoom(room)
       return
     }
@@ -1911,7 +1916,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   async function requestContext(event: H3Event) {
     const { definitionName, documentId, searchParams, workspaceEvents } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
-    const resolved = resolveRealtimeDefinition(definition)
+    const resolved = definition.document === false ? undefined : resolveRealtimeDefinition(definition)
     const user = await identify(event.req, event, definitionName, definition)
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
@@ -1928,7 +1933,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     }
     const request = await requestContext(event)
     if (request.workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events have no document to save." })
-    if (action === "checkpoint" && (!request.resolved.definition.history?.checkpoint || !request.resolved.adapter.checkpoint)) {
+    const resolved = request.resolved
+    if (!resolved) throw new HTTPError({ status: 404, message: "This Realtime Definition has no document." })
+    if (action === "checkpoint" && (!resolved.definition.history?.checkpoint || !resolved.adapter.checkpoint)) {
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
@@ -1936,7 +1943,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     }
     const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
     if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
-    const room = await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+    const room = await getDocumentRoom(request.definitionName, request.documentId, resolved, resolveRealtimeRoomSql(event))
     if (action === "refresh") return await enqueue(room, async () => room.dirty ? { digest: room.digest, reseeded: false } : refreshRoom(room))
     return await enqueue(room, async () => {
       if (!containsRealtimeState(room.document, state!)) {
@@ -1955,11 +1962,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   const websocketHandler = defineWebSocketHandler(async (event) => {
     const request = await requestContext(event)
     if (!(await request.access("read"))) throw new HTTPError({ status: 403 })
-    const writable = !request.workspaceEvents && await request.access("write")
+    const writable = !request.workspaceEvents && !!request.resolved && await request.access("write")
     const identity: RealtimeIdentity | undefined = request.user ? createRealtimeIdentity({ ...request.user }) : undefined
     const room: Room = request.workspaceEvents
-      ? await getEventsRoom(request.definitionName)
-      : await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+      ? await getEventsRoom(JSON.stringify([request.definitionName, { workspaceEvents: true }]), true, undefined)
+      : request.resolved
+        ? await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId), false, resolveRealtimeRoomSql(event))
     const clientEpoch = request.searchParams.get("epoch")
     // A browser on another editor version reads the room with another schema. TipTap deletes the nodes that schema does
     // not know from the shared document as soon as it renders, so the connection may read but never write.
@@ -2131,7 +2140,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           return
         }
         if (messageType === messageWorkspaceChange) {
-          if (room.kind !== "events") {
+          if (room.kind !== "events" || !room.workspace) {
             peer.close(4400, "Workspace changes require the workspace room.")
             return
           }
@@ -2212,7 +2221,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
               if (response) peer.send(response)
             }
             else if (syncType !== syncProtocol.messageYjsSyncStep2) {
-              peer.close(4400, "Document updates cannot use the workspace room.")
+              peer.close(4400, room.workspace ? "Document updates cannot use the workspace room." : "This Realtime Definition has no document.")
             }
             return
           }
