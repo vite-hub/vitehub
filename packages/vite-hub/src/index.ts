@@ -1,8 +1,12 @@
+import { startPackageChecks } from "./internal/optional-owners.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { viteHubPlugins } from "./plugins.ts"
 
 import type { PluginOption } from "vite"
 import type { ViteHubOptions } from "./plugins.ts"
+
+export { detectHost } from "./deployment.ts"
+export type { ViteHubHost } from "./deployment.ts"
 
 export type {
   AgentInvocationsDefault,
@@ -17,7 +21,6 @@ export type {
   ConnectionsOptions,
   ConsoleOptions,
   DatabaseOptions,
-  DeploymentPreset,
   EmailOptions,
   EnvOptions,
   I18nOptions,
@@ -31,6 +34,7 @@ export type {
   SandboxTaskOptions,
   ScheduleOptions,
   SystemdOptions,
+  ViteHubNodeOptions,
   ViteHubOptions,
   WorkflowOptions,
   WorkspaceOptions,
@@ -38,5 +42,6 @@ export type {
 
 /** The ViteHub Vite plugins and Nitro, the server of the app. Nitro steps aside when the app adds `nitro()` itself. */
 export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
+  startPackageChecks()
   return [...viteHubPlugins(options), includedNitro()]
 }

@@ -21,11 +21,13 @@ import { hubSchedule } from "@vite-hub/schedule/vite";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
+import { createMigrateCliNamespace } from "../src/migrate-cli.ts";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
 import { consoleOperations } from "../src/console/runtime/server/operations.ts";
 import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
+import { viteHubDurabilityPlugin } from "../src/durability/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
@@ -94,6 +96,7 @@ describe("CLI documentation contract", () => {
       workflowPlugin,
       workspacePlugin,
       viteHubTaskPlugin(),
+      viteHubDurabilityPlugin(),
       // The task plugin contributes these only for an app that has tasks.
       { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
       // The Console plugin contributes every Console operation; the reference documents the Database ones and `agent usage`.
@@ -102,7 +105,7 @@ describe("CLI documentation contract", () => {
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
-    const runtimeNamespaces = [createDecisionsCliNamespace(), createSandboxCliNamespace()];
+    const runtimeNamespaces = [createDecisionsCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
 
     await expect(
       runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),

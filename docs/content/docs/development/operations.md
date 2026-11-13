@@ -94,7 +94,7 @@ const reports = {
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
   vite: {
     plugins: [reports],
   },
@@ -115,7 +115,7 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub({ preset: 'node' }), nitro(), reports] })
+export default defineConfig({ plugins: [vitehub({ host: 'node' }), nitro(), reports] })
 ```
 :::
 
@@ -131,7 +131,7 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub({ preset: 'node' }), reports] })
+export default defineConfig({ plugins: [vitehub({ host: 'node' }), reports] })
 ```
 :::
 ::

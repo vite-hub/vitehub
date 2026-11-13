@@ -28,7 +28,7 @@ describe("Forms in a built Nitro 3 app", () => {
       "server/routes/inbox.get.ts": "import { installedForms } from 'vite-hub/forms/runtime'\nexport default { fetch: async () => Response.json((await installedForms()!.inbox.list())[1]) }\n",
     })
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-    const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub({ database: false, preset: "node" }), nitro() as never], root } as never)
+    const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub({ database: false, host: "node" }), nitro() as never], root } as never)
     await builder.buildApp()
     const generated = await readFile(join(root, ".vitehub/nitro/forms/handler.mjs"), "utf8")
     expect(generated).not.toContain("databases")
@@ -76,7 +76,7 @@ describe("Forms in a built Nitro 3 app", () => {
     // No `database` option: `server/forms/` turns it on.
     const port = await freePort()
     const publicUrl = `http://127.0.0.1:${port}`
-    const app = () => vitehub({ console: true, preset: "node", publicUrl })
+    const app = () => vitehub({ console: true, host: "node", publicUrl })
     const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])

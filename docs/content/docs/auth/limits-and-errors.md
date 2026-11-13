@@ -44,6 +44,7 @@ console.log(error.toJSON())
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
 | `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
 | `AUTH_C0060` | Both `shared/abilities.ts` and another `shared/abilities.*` file exist. Keep one. |
+| [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
 | `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
@@ -87,6 +88,24 @@ The request has no Auth Session, or the session ended. Sign in, then send the re
 ## FORBIDDEN
 
 The caller is signed in, but the `authorize` callback of the guard or the access route returned `false` or another value that is not `true`. An access route that has `authorize: true` in its route metadata also refuses when its callback is not there at runtime. Check the callback, or the roles of the user.
+
+## AUTH_B0002
+
+A route rule caches or prerenders a route that `access.routes` guards. The build stops before Nitro bundles the server, and the development server does not start. A cached or prerendered response is made for one visitor and then served to other visitors. A visitor can get the response for an anonymous visitor, or the page of another user.
+
+The check reads the route rules of Nitro after every module, the Nuxt config, and every `nitro:build:before` hook add them. `swr`, `cache`, `isr`, `prerender`, and `static` cache a response. The message names the route rule, the rule that caches, the request method, and the access route that guards it. The check compares route patterns, so a rule counts when it caches at least one guarded path for `GET` or `HEAD`. A wider rule also counts: `'/**': { prerender: true }` covers a guarded `/dashboard/**`. A narrower rule also counts: `'/dashboard/:id(\\d+)': { swr: 60 }` caches a part of a guarded `/dashboard/**`. The check reads an access route as the access middleware does: only a trailing `/**` is a wildcard, and all other characters, such as `:`, `*`, and `(`, are literal.
+
+A rule that turns the cache off must match every guarded path. `'/dashboard': { cache: false }` does not turn off `'/dashboard/**': { swr: 60 }` for `/dashboard/report`. Set the rule on the guarded pattern, for example `'/dashboard/**'`.
+
+In development, a route rule update that caches a guarded route logs `AUTH_B0002` as a warning. The development server keeps the new route rules and continues to serve them. The next build fails.
+
+To fix the build, do one of these:
+
+- Remove the rule that caches from the route rule that the message names.
+- Add a route rule for the guarded path that turns the cache off, for example `'/dashboard/**': { cache: false, prerender: false }`.
+- If the page is public, remove the route from `access.routes`.
+
+An access route with a `method` other than `GET` or `HEAD` does not stop the build, because Nitro caches only `GET` and `HEAD` requests. The check does not read pages that `definePageMeta({ auth })` guards.
 
 ## AUTH_CONSOLE_INVALID_REQUEST
 

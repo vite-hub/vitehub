@@ -39,7 +39,7 @@ it("builds a Cloudflare Worker that imports pkce-challenge, as the MCP SDK clien
       import { pkceChallenge } from "../../mcp-client/index.js"
       export default defineEventHandler(() => pkceChallenge())
     `)
-    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "cloudflare" })], root })
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare" })], root })
     await builder.buildApp()
 
     const server = join(root, ".output/server")

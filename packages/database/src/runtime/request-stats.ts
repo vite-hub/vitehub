@@ -168,3 +168,27 @@ export function trackPostgresClient<TClient extends object>(client: TClient): TC
     },
   })
 }
+
+const PGLITE_CALLS = new Set(["exec", "query", "sql"])
+
+/**
+ * A PGlite client, or one of its transactions, that counts every query for the active request. PGlite has private
+ * fields, so each method runs on the client itself.
+ */
+export function trackPgliteClient<TClient extends object>(client: TClient): TClient {
+  return new Proxy(client, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (typeof property === "string" && PGLITE_CALLS.has(property))
+        return (...args: unknown[]) => trackDatabaseCall(() => Reflect.apply(value, target, args))
+      // A transaction hands its callback a client of its own.
+      if (property === "transaction") {
+        return (...args: unknown[]) => Reflect.apply(value, target, args.map(arg => typeof arg === "function"
+          ? (transaction: object, ...rest: unknown[]) => Reflect.apply(arg, undefined, [trackPgliteClient(transaction), ...rest])
+          : arg))
+      }
+      return value.bind(target)
+    },
+  })
+}

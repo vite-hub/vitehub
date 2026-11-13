@@ -23,7 +23,7 @@ import { vitehub } from "vite-hub";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "cloudflare", schedule: true })],
+  plugins: [vitehub({ host: "cloudflare", schedule: true })],
 });
 ```
 
@@ -104,9 +104,9 @@ export default defineSchedule({
 
 Static Schedule Definitions use five-field cron expressions. The cron uses UTC unless the definition sets `timeZone` to an IANA name, such as `Europe/Madrid`. `timeZone` works with the Process Runtime and with every host's cron output.
 
-The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
-Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
+Applications that use the framework distribution register Schedule through `vitehub({ host, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno host currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
 
 Nuxt projects enable Schedule with `vite-hub/nuxt` and `vitehub: { schedule: true }`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
@@ -165,9 +165,9 @@ The Process Runtime also stores one run per occurrence, so it does not run a rep
 
 Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. They estimate `scheduledAt` as the latest host UTC cron match within the previous day, or the current minute when none matches. A late delivery or retry after another host cron match can get a different key. Time-zone filtering uses that estimate too: a summer Madrid 06:00 wake delivered after the extra 07:00 wake can be skipped. These hosts cannot guarantee occurrence identity or dedupe across that boundary. Use an application business key for side effects that must dedupe across delays and retries.
 
-## Run schedules in one process
+## Run schedules in the server process
 
-The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()`. Configure it only for one long-lived replica:
+The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()`. Use it on long-lived servers, one or more:
 
 ```ts
 import { hubKv } from "@vite-hub/kv/vite";
@@ -187,11 +187,23 @@ export default defineConfig({
 });
 ```
 
-Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, concurrency `1`, and catch-up `catchUpMs` of one hour. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. After a restart, the runtime runs the due minutes that no process checked, within `catchUpMs`, for each Schedule that already has a run. Run ids are deterministic, so a minute that already ran does not run again. The KV run store does not provide distributed leader election or locking, so multiple replicas can execute the same work. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, concurrency `1`, catch-up `catchUpMs` of one hour, and `leaseTtlMs` of one minute. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. A queued occurrence can start while its scheduled minute is within `catchUpMs` of the current minute; older queued work is dropped. With `catchUpMs: 0`, it can start only in its scheduled minute. After a restart, the runtime runs the due minutes that no process checked, within `catchUpMs`, for each Schedule that already has a run. Run ids are deterministic, so a minute that already ran does not run again. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+
+### Run on more than one server
+
+Every server checks every Schedule. Before a server runs an occurrence, it takes a lease on the key `<prefix>/schedule/<run id>`, such as `vitehub:schedule/schedule/srun_static_daily_2026-11-09T08:00:00.000Z`. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. One server gets the lease and runs the occurrence while it holds that lease. The others skip it and try again at their next scan. Started Schedules use the same lease for each occurrence. Manual runs have their own run id, so the server that gets the request runs them once.
+
+- The server that holds the lease renews it every third of `leaseTtlMs` while the run works. When the run ends, it writes a done marker (`<prefix>/schedule/<run id>/done`) and frees the lease. The marker lasts for `catchUpMs` plus `leaseTtlMs` plus two minutes, so a server that starts later does not run the occurrence again. If the marker write fails, the server reports the error and tries to extend its claim for the same time, without releasing it. If that also fails, another server can run the occurrence after the claim expires.
+- If the server loses the Database, or its event loop pauses, for longer than `leaseTtlMs`, its lease can expire while its handler still runs. Another server can run the same occurrence at the same time. The runtime reports renewal failures, but cannot stop the handler or undo its effects. Choose a TTL longer than expected pauses and make external effects idempotent.
+- If the lease store fails before a run starts, the server reports the error and retries at its next scan while the occurrence is inside `catchUpMs`.
+- A failed run is final, as on one server. It is not retried.
+- When a server stops during a run, for example after a crash, its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless it has a done marker. With shared run history, the run gets a new attempt, and the stopped attempt is marked as failed. This also works when every server restarts: at start, a server reads the runs inside `catchUpMs` that are still pending or running, and tries them again.
+
+The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `createSqlLeaseStore()` from `@vite-hub/runtime`. That works on Postgres and remote libSQL. A local libSQL file is safe for one server process only, because `@libsql/client` can lose writes when several processes write to one file. The server prints a warning at start in that case. Without a Database, the leases stay in memory and the build prints a warning: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
 
 With the Process Runtime, the default `providerOutput: "auto"` emits no host Provider Output, so the process owns Static Schedule wakes. Set `providerOutput: "standalone"` or `"nitro"` to move Static Schedule wakes to that Provider Output. `providerOutput: false` records the same wake ownership as `"auto"` in this configuration.
 
-A custom long-running host can call `installProcessScheduleRuntime({ registry, scheduleRunStore })` from `@vite-hub/schedule/runtime/process`. Call and await `controller.close()` during shutdown. It waits for active runs and their `waitUntil()` work, then stops the timer. It does not delete Schedule Definitions or run history. The generated Nitro Process Runtime registers the same close operation with ViteHub shutdown. See [graceful shutdown](../runtime/README.md).
+A custom long-running host can call `installProcessScheduleRuntime({ registry, scheduleRunStore, leases, prefix })` from `@vite-hub/schedule/runtime/process`. Pass the same shared `LeaseStore` and prefix to every process of one app. `prefix` defaults to `vitehub:schedule`; use the same prefix for the app's Schedule stores. Without `leases`, it uses `createMemoryLeaseStore()`, which is for one process only. Call and await `controller.close()` during shutdown. It waits for active runs and their `waitUntil()` work, then stops the timer. It does not delete Schedule Definitions or run history. The generated Nitro Process Runtime registers the same close operation with ViteHub shutdown. See [graceful shutdown](../runtime/README.md).
 
 ## Choose storage
 
@@ -214,7 +226,7 @@ Custom stores must apply the `listRuns({ scheduleId, idPrefix, limit })` filters
 
 `hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, and `schedule.cancel` operations. They are the `vitehub schedule runs <id> [--limit <n>]`, `attempts <runId>`, `run <name>`, `list [name]`, `start <name>`, and `cancel <id>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app.
 
-Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` to run it on a deployment that enables `console.invoke`. The command signs the call with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, so a CI job needs only that secret. `vitehub secret console-key ci` prints a new key pair. Server code can call `runSchedule(name, { registry })` from `@vite-hub/schedule/runtime`. Each manual run gets a new `srun_manual_` id.
+Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` to run it on a deployment that enables `console.invoke`. The command signs the call with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, so a CI job needs only that secret. `vitehub secret console-key ci` prints a new key pair. Server code can call `runSchedule(name)` from `@vite-hub/schedule`. It reads the generated registry. Each manual run gets a new `srun_manual_` id.
 
 Add `--at <ISO date-time>` to run it as if the cron fired at that time, for example `vitehub schedule run close-month --at 2026-01-31T23:59:00Z`. The handler gets the time as `scheduledAt`, and the run records it, so `vitehub schedule runs` lists it under that time. `runSchedule()` takes the same value as `scheduledAt`. The value needs `Z` or an offset. A value without a time zone, a date only, or a day that does not exist fails with `SCHEDULE_INVALID_SCHEDULED_AT` before the handler runs. The time is not checked against the cron. Manual runs do not advance the Process Runtime's catch-up cursor, even when their scheduled time is in the future.
 
@@ -224,7 +236,7 @@ The Console Schedules section lists Schedule Definitions with their cron, time z
 
 ## Import runtime helpers
 
-The main `@vite-hub/schedule` entry exports `defineSchedule`, `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
+The main `@vite-hub/schedule` entry exports `defineSchedule`, `runSchedule`, `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
 
 Static Schedule execution logs each failed handler as `[vitehub:schedule] Schedule "<name>" failed` with the message, stack, status, and cause chain. The other schedules on the same cron still finish. The run rejects with the error, or with an `AggregateError` when several failed.
 

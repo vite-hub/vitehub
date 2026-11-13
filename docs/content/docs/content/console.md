@@ -188,7 +188,7 @@ Two policies decide what an editor can do:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     auth: true,
     database: true,
     workspace: true,
@@ -207,7 +207,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       auth: true,
       database: true,
       workspace: true,
@@ -227,7 +227,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       auth: true,
       database: true,
       workspace: true,
