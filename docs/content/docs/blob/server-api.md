@@ -75,7 +75,7 @@ ViteHub writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Then a s
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `delete()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
 import { createError, defineEventHandler, getRouterParam } from 'h3'
@@ -110,7 +110,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or returns `null`. |
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
-| `blob.del(pathnames)` | Deletes one or more files. |
+| `blob.delete(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
 | `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
@@ -181,7 +181,7 @@ The optional `transform` gets the original `Blob` and returns the response `Blob
 
 ViteHub checks the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes apart from content metadata. If source metadata changes during the read, ViteHub reads again before it transforms. Stable ETags decide cache writes, not provider timestamps.
 
-Change the key when the transform changes, and put any size or format in it. Each source and key has one cache entry, replaced after the source changes. Different keys are separate variants. `blob.del(originalPath)` removes the original and its variants. Serving a missing source also clears its variants. A failed cleanup is logged and does not undo the delete. Nothing evicts old entries in the background: list them with `blob.list({ prefix: '_vitehub/derived/' })` and remove them with `blob.del`.
+Change the key when the transform changes, and put any size or format in it. Each source and key has one cache entry, replaced after the source changes. Different keys are separate variants. `blob.delete(originalPath)` removes the original and its variants. Serving a missing source also clears its variants. A failed cleanup is logged and does not undo the delete. Nothing evicts old entries in the background: list them with `blob.list({ prefix: '_vitehub/derived/' })` and remove them with `blob.delete`.
 
 Filesystem cache keys merge repeated slashes. On case-insensitive filesystems, keep filename casing consistent, or other casings leave unused variants.
 

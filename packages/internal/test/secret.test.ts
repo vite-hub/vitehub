@@ -52,9 +52,9 @@ describe("root secret derivation", () => {
     await expect(deriveViteHubSecret(root, "")).rejects.toThrow(/purpose/)
   })
 
-  it("reads VITEHUB_SECRET before NUXT_APP_SECRET", () => {
+  it("reads only VITEHUB_SECRET", () => {
     expect(readViteHubSecret({ NUXT_APP_SECRET: "nuxt", VITEHUB_SECRET: "vitehub" })).toBe("vitehub")
-    expect(readViteHubSecret({ NUXT_APP_SECRET: "nuxt", VITEHUB_SECRET: "" })).toBe("nuxt")
+    expect(readViteHubSecret({ NUXT_APP_SECRET: "nuxt", VITEHUB_SECRET: "" })).toBeUndefined()
     expect(readViteHubSecret({ VITEHUB_SECRET: 1 })).toBeUndefined()
   })
 })

@@ -25,7 +25,7 @@ pnpm vitehub --help
 Help lists the namespaces (command groups) you have:
 
 - `agent`, `channels`, and `conversations` when `hubAgent()` is active.
-- `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDb()`, `hubEnv()`, `hubKv()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
+- `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDatabase()`, `hubEnv()`, `hubKV()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
 - `content` when the app defines `server/content.ts`.
 - `console` when `console` is on.
 - `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
@@ -117,9 +117,10 @@ Available namespaces:
 | `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
 | `vitehub content head` | Available | Content Package | Show the commit that each `github()` Source serves, the rejected commit, the last webhook delivery, and what holds the head back. |
-| `vitehub content advance` | Available | Content Package | Move the head of a `github()` Source to the latest commit of its branch when every document parses. Exits 1 when the head is held back. |
+| `vitehub content advance` | Available | Content Package | Move the head of a `github()` Source to the latest commit of its branch when every document parses and `content check` finds no error. Exits 1 when the head is held back. |
 | `vitehub content pin` | Available | Content Package | Serve one commit of a `github()` Source until `unpin`, for example to roll back. |
 | `vitehub content unpin` | Available | Content Package | Remove the pin of a `github()` Source and move to the latest valid commit. |
+| `vitehub content check` | Available | Content Package | Check frontmatter, links, titles, and descriptions of Content documents. With `--dir`, check a folder without an app. Exits 1 on errors. |
 | `vitehub cms roles` | Available | CMS Package | List each CMS role with the Content and Comments actions it allows. See [Roles and access](/docs/cms/access). |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -610,14 +611,14 @@ Every command takes `--store <name>`, `--json`, `--url <url>` for a deployed app
 - `put` uploads a file relative to the current directory. Without `--content-type`, Blob storage guesses the type from the pathname. The output says if the blob was created or replaced. This label is a best guess from a metadata read just before the write, so eventual consistency and concurrent writers can make it wrong.
 - `media` prints the blob's [media record](/docs/blob/media). A missing record is built from the object and stored, as `blob.media.get()` does. A missing blob exits with status 1.
 - `variants` lists a blob's cached image variants and crop replacements, with transform key, type, and size.
-- `put` and `del` refuse paths under `_vitehub/` (`BLOB_RESERVED_PATH`), which ViteHub keeps for itself. `get` and `head` can read them. The CLI replaces an existing blob without asking. The Console asks first (`overwrite: false` makes `blob.put` fail with `BLOB_EXISTS`).
-- `del` says if the blob existed, which is a best guess for the same reason. Deleting a missing blob changes nothing and exits with status 0.
+- `put` and `delete` refuse paths under `_vitehub/` (`BLOB_RESERVED_PATH`), which ViteHub keeps for itself. `get` and `head` can read them. The CLI replaces an existing blob without asking. The Console asks first (`overwrite: false` makes `blob.put` fail with `BLOB_EXISTS`).
+- `delete` says if the blob existed, which is a best guess for the same reason. Deleting a missing blob changes nothing and exits with status 0.
 
 Files travel as base64 in a JSON call, so `put` and `get` handle up to 8 MiB. The CLI checks an upload's size before it reads the file. Larger blobs fail with `BLOB_UPLOAD_TOO_LARGE` or `BLOB_DOWNLOAD_TOO_LARGE`, so use the app or your provider's tools. There is no `sign` command. `list` shows every object, including those under `_vitehub/` that the Console hides by default.
 
 Errors go to stderr, or to `{ "error": { "code", "message" } }` on stdout with `--json`. The commands print no object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted.
 
-The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `blob` section. `blob.put` writes and `blob.del` is destructive. `vitehub blob delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console Blob page uses the same operations.
+The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `blob` section. `blob.put` writes and `blob.delete` is destructive. `vitehub blob delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console Blob page uses the same operations.
 
 ## Inspect the Email development outbox
 
@@ -668,7 +669,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive myapp:webhooks
 pnpm vitehub secret console-key ci
 ```
 
-`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints `deriveSecret(purpose)` for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell. `secret console-key [name]` prints a new Ed25519 key pair for [signed Console requests](/docs/development/console#sign-console-requests): the `VITEHUB_CONSOLE_KEY_<NAME>` line for the app and the `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` line for the CLI. The name defaults to `CLI`. None of them loads the project.
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints `deriveSecret(purpose)` for the `VITEHUB_SECRET` in the shell. `secret console-key [name]` prints a new Ed25519 key pair for [signed Console requests](/docs/development/console#sign-console-requests): the `VITEHUB_CONSOLE_KEY_<NAME>` line for the app and the `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` line for the CLI. The name defaults to `CLI`. None of them loads the project.
 
 ## Inspect Definitions and Provider Output
 
@@ -884,13 +885,13 @@ Every command takes `--store <name>`, `--json`, `--url <url>` when Vite does not
 - `has` exits with status 0 when the key exists and 1 when it does not.
 - `set` writes a string. `--json-value` parses the value as JSON. JSON input rejects values that underflow to zero or whose decimal size changes when parsed, so use strings for those and for integers outside JavaScript's safe range. A value that starts with `@` reads a UTF-8 file relative to the current directory. The output says if the key was created or updated.
 - `--ttl <seconds>` on `set` sets an expiry, and takes positive fractional seconds. The `fs-lite` driver ignores TTL. Cloudflare KV rounds up to whole seconds, at least 60. Upstash needs at least one second and rounds up to whole seconds. The output shows the real TTL and a notice when the driver ignores or changes it.
-- `del` says if the key was found. Deleting a missing key changes nothing and exits with status 0.
+- `delete` says if the key was found. Deleting a missing key changes nothing and exits with status 0.
 
 KV storage parses stored strings that look like JSON, so `"2026"` can read back as the number `2026`. There is no `clear` command, so each delete is explicit.
 
 Errors go to stderr, or to `{ "error": { "code", "message" } }` on stdout with `--json`. Like the Console KV page, the commands print values as stored, without redaction. Do not store credentials in keys you inspect in shared logs.
 
-The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `kv` section. `kv.del` is destructive: `vitehub kv delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console KV page uses the same operations.
+The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.delete`, in the `kv` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `kv` section. `kv.delete` is destructive: `vitehub kv delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console KV page uses the same operations.
 
 
 ## Run a Decision
@@ -1051,7 +1052,7 @@ pnpm vitehub invocations delete ainv_123 --yes
 pnpm vitehub invocations list --url https://app.example.com
 ```
 
-The generated commands need the Console RPC. `vitehub()` installs it. Standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC.
+The generated commands need the Console RPC. `vitehub()` installs it. Standalone `hubKV()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC.
 
 Operations that run app code (`workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`) exist only when `console.invoke` is on. It is on in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 

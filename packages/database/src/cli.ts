@@ -155,7 +155,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
   }
   const config = await getConfig?.({ strict: false })
   if (!config?.databaseNames.length) {
-    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`.\n")
+    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
     return 1
   }
   const names = parsed.database ? [parsed.database] : config.databaseNames
@@ -370,7 +370,7 @@ async function runDrizzleKit(
     if (schemaSnapshot) {
       // `usesD1Http()` is false for every generate, but its type guard narrows `database` to undefined after it.
       if (!migrationsDir) {
-        context.stderr.write("[vitehub] --schema-snapshot needs a resolved Database config. Run the command in a project that uses `hubDb()`.\n")
+        context.stderr.write("[vitehub] --schema-snapshot needs a resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
         return 1
       }
       // The folder that this generate wrote. Kit can name two SQLite folders with the same second, so the newest name is not reliable.
@@ -413,7 +413,7 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
   }
   const config = await getConfig?.({ strict: false })
   if (!config?.databaseNames.length) {
-    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`.\n")
+    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
     return 1
   }
   const projectRoot = config.rootDir
@@ -519,7 +519,7 @@ async function checkPendingMigrations(
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
   const [error, plan] = database
     ? await readMigrationPlan({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }, { env: context.env ?? process.env, projectRoot })
-    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
+    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined]
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")

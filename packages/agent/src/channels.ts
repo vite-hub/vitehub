@@ -2938,7 +2938,7 @@ function connectorHash(value: string): string {
 }
 
 /** The part of the @vite-hub/kv storage that Chat connectors use for thread roots and receipts. */
-type ConnectorKV = Pick<import("@vite-hub/kv").KVStorage, "del" | "get" | "set">
+type ConnectorKV = Pick<import("@vite-hub/kv").KVStorage, "delete" | "get" | "set">
 
 function connectorKV(name: string): Promise<ConnectorKV> {
   // @vite-hub/kv is optional and loaded only when a Chat connector runs.
@@ -2988,7 +2988,7 @@ async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: 
     // The Chat SDK reports a missing resource as a ResourceNotFoundError with code NOT_FOUND.
     if (!(isRecord(error) && error.code === "NOT_FOUND") && !platform.isNotFound(error)) throw error
   }
-  const [error] = await kv.del(receiptKey)
+  const [error] = await kv.delete(receiptKey)
   if (error) throw error
 }
 

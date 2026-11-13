@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { resolveDBViteConfig } from "@vite-hub/database/config"
 
-import { hubKv } from "../src/vite.ts"
+import { hubKV } from "../src/vite.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -37,8 +37,8 @@ function databasePlugin(root: string, serverDirs?: string[]): Plugin {
 }
 
 /** Runs the plugin as a Vite build does and returns the generated `#vitehub/kv/config` module. */
-async function generatedConfig(root: string, plugins: Plugin[], options?: Parameters<typeof hubKv>[1]): Promise<string> {
-  const plugin = hubKv(undefined, options)
+async function generatedConfig(root: string, plugins: Plugin[], options?: Parameters<typeof hubKV>[1]): Promise<string> {
+  const plugin = hubKV(undefined, options)
   // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.
   const config = { command: "build", envDir: false, mode: "production", plugins, root } as unknown as ResolvedConfig
   await (plugin.configResolved as Hook<[ResolvedConfig], Promise<void>>).handler(config)
@@ -83,9 +83,9 @@ describe("KV driver inference in a build", () => {
 })
 
 describe("KV Nitro plugin", () => {
-  async function nitroPlugins(hosting: string, options?: Parameters<typeof hubKv>[0]): Promise<string[] | undefined> {
+  async function nitroPlugins(hosting: string, options?: Parameters<typeof hubKV>[0]): Promise<string[] | undefined> {
     const root = await createApp("sqlite")
-    const plugin = hubKv(options, { hosting })
+    const plugin = hubKV(options, { hosting })
     const nitro = { options: {} as { plugins?: string[] } }
     plugin.nitro.setup(nitro)
     // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.

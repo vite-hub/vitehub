@@ -89,7 +89,7 @@ await content.sources.unpin("docs")
 ```
 
 - The first read resolves the branch, validates the commit, and stores the head when KV has none. A live Source without an accepted commit fails reads; `head()` still shows its rejection. After fixing a document or a temporary retrieval failure, call `advance()` to retry, including for the same SHA.
-- `advance()` loads and parses every document of the latest commit. The head moves only when all of them parse. Otherwise the head stays on the last valid commit, `rejected` names the commit and the failing document, and Content logs `CONTENT_R0019`. A push with a broken document never reaches readers. The GitHub push webhook below calls `advance()` for you.
+- `advance()` loads and parses every document of the latest commit, then runs the error rules of [`content.check()`](#check-documents): frontmatter against the Source `schema`, and links to missing pages. The head moves only when the commit has no error. Warnings, such as a short title, do not hold it back. Otherwise the head stays on the last valid commit, `rejected` names the commit and the first errors, and Content logs `CONTENT_R0019`. A push with a broken document or link never reaches readers. The GitHub push webhook below calls `advance()` for you.
 - Send first initialization and all `advance()`, `pin()`, and `unpin()` calls for each Source through one serialized writer. Initialize the head before starting read replicas. KV has no atomic conditional write: concurrent writers are unsupported and can overwrite a pin or a newer head.
 - A pinned head does not move until `unpin()` within that writer contract. `pin()` takes a full 40-character commit SHA and validates it too.
 - Each server instance holds the head in memory for 5 seconds. Read replicas check KV again after 5 seconds; provider consistency can delay visibility further. All Source reads, including SQL queries, sitemap, explicit initialization, and type generation, follow the selected head. GitHub Sources keep their parsed cache in memory per instance; they do not restore the shared `cache.driver`, which has no commit identity.
@@ -100,6 +100,42 @@ await content.sources.unpin("docs")
 - When GitHub answers 403 or 429 to the branch lookup, as it does when the rate limit is hit, the head stays where it is. Content logs `CONTENT_R0035` once, and `head()` on that server instance returns it in `diagnostic` until a lookup succeeds.
 - `diagnostic` is `{ code, message, fix }` when the head does not follow the branch: `CONTENT_R0020`, `CONTENT_R0021`, `CONTENT_R0035`, or `CONTENT_R0019`. `vitehub content head` prints it.
 - Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. Completed checks store `checkedAt` under `content:checked:<source>`. An unchanged branch needs no head write unless a stored rejection becomes history; a changed branch needs one. A failed check is tried again after the lease.
+
+### Check documents
+
+`content.check()` checks the documents of the Sources with no built HTML and no network. A `github()` Source is checked at `sha`, or at the latest commit of its branch, and its head does not move.
+
+```ts fragment
+const result = await content.check({ source: "docs", sha })
+// { ok: false, errors: 1, warnings: 2, sources: [{ source: "docs", sha, pages: 357 }], findings: [{ source, path: "guide.md", url: "/guide", line: 12, rule: "link", code: "CONTENT_R0062", severity: "error", message }] }
+```
+
+| Rule | Code | Severity | Finds |
+| --- | --- | --- | --- |
+| `parse` | `CONTENT_R0060` | error | A document that does not load or parse. |
+| `frontmatter` | `CONTENT_R0061` | error | Frontmatter that does not match `contentSource(input, { schema })`. |
+| `link` | `CONTENT_R0062` | error | A link to a missing page below a first path segment that holds pages, such as `/docs/kvv` next to `/docs/kv`. |
+| `route` | `CONTENT_R0063` | warning | A link to a path that no page serves, such as `/learn`. Another route of the app may serve it. |
+| `anchor` | `CONTENT_R0064` | warning | A link to a heading id that the target page does not have. |
+| `title` | `CONTENT_R0065` | warning | No title, or a title outside 10 to 60 characters. |
+| `description` | `CONTENT_R0066` | warning | No description, or one outside 70 to 160 characters. |
+| `duplicate` | `CONTENT_R0067` | warning | Pages with the same title or description. |
+| `heading-order` | `CONTENT_R0068` | warning | A heading that skips a level. The page title counts as the `h1`. |
+
+The search rules and limits are those of the `@vite-hub/docs` `seoAudit`, and they skip pages with `seo.noindex`, `seo.index: false`, or a canonical URL to another page. A page is a Markdown document; its URL comes from the `url` of the Source, else its path. Links resolve in memory against the checked commits and pages from other configured Sources. A head change or a check of one Source uses the published heads of the other Sources, or their branch commits when no head exists. The checked Source never uses pages from its previous head. Links to other origins are not checked. `defineContent({ check })` sets the options:
+
+```ts fragment
+defineContent({
+  sources: { docs: contentSource(github({ repo: "acme/docs", dir: "content" }), { url: "/:id" }) },
+  check: {
+    ignoreLinks: ["/learn", "/docs/*/diagnostics/**"], // paths, globs, or RegExps that other routes serve
+    titleTemplate: "%s · Acme", // the title rule measures the title as the <title> shows it
+  },
+  seo: { site: "https://acme.dev" }, // absolute links to this origin are checked too; `check.site` overrides it
+})
+```
+
+`CONTENT_R0069` means the check could not run, such as for an unknown Source, a `sha` that is not a full commit SHA, or a commit that GitHub does not give. `vitehub content check` prints the same result.
 
 ### GitHub push webhook
 
@@ -413,7 +449,11 @@ vitehub content head [source]
 vitehub content advance [source]
 vitehub content pin <sha> [source]
 vitehub content unpin [source]
+vitehub content check [source] [--sha <sha>]
+vitehub content check [source] --dir <folder> [--page-url <pattern>] [--schema <file>] [--site <url>] [--ignore <path>...] [--title-template <pattern>]
 ```
+
+`check` prints each finding as `path:line  severity  code  message`, and exits with status 1 when one is an error. Against the app it calls `content.check()`. With `--dir` it checks a folder of the working tree as one Source and needs no app, for CI on content pull requests. `--json` prints the `ContentCheckResult`.
 
 `head`, `advance`, `pin`, and `unpin` call `content.sources` of the app. Without a name, `head` shows every `github()` Source, and the others move the only one. With more than one, they ask for the name. Each head shows the commit, the pin, the last check, the rejected commit, the last webhook delivery, and `diagnostic` with its fix: `CONTENT_R0020` (no token), `CONTENT_R0021` (no KV store), `CONTENT_R0019` (the newest commit does not parse, and the head did not move after it), or `CONTENT_R0035` (GitHub answered 403 or 429 to the branch lookup). `advance` and `unpin` exit with status 1 when the head is held back. They need the `content` section of the Console access; `head` needs only `content:read`.
 

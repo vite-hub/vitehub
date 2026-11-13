@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeKVOptions } from "../src/config.ts"
 import { disposeKVStores, kv } from "../src/index.ts"
-import { hubKv } from "../src/vite.ts"
+import { hubKV } from "../src/vite.ts"
 
 import type { KVOptions, ResolvedKVModuleOptions } from "../src/types.ts"
 
@@ -28,7 +28,7 @@ function hook<T>(value: unknown): T {
 
 /** Runs the hooks that `vite dev` or `vite build` runs, and returns the resolved KV config and Nitro options. */
 async function resolvePlugin(command: "build" | "serve", options?: KVOptions, hosting?: string, nitro: { cloudflare?: { wrangler?: { kv_namespaces?: unknown[] } } } = {}) {
-  const plugin = hubKv(options, { hosting })
+  const plugin = hubKV(options, { hosting })
   await hook<(config: object, env: { command: string }) => unknown>(plugin.config)({ nitro, root: directory }, { command })
   await hook<(config: object) => unknown>(plugin.configResolved)({ build: { outDir: "dist" }, command, nitro, root: directory })
   const resolveId = hook<(id: string, importer?: string, options?: { ssr: boolean }) => unknown>(plugin.resolveId)
@@ -235,7 +235,7 @@ describe("KV in a Vite dev server", () => {
     const options: KVOptions = kind === "inferred" ? { remote: true }
       : kind === "explicit" ? { driver: "upstash" }
         : { stores: { default: { driver: "fs-lite" }, remote: { driver: "upstash" } } }
-    const plugin = hubKv(options)
+    const plugin = hubKV(options)
     const server = await createServer({ appType: "custom", configFile: false, envDir: "env", logLevel: "silent", mode: "remote", plugins: [plugin], root: directory, server: { middlewareMode: true, ws: false } })
     try {
       // SAFETY: The fixture module above exports these functions.
@@ -282,7 +282,7 @@ describe("KV in a Vite dev server", () => {
     const cwd = process.cwd()
     // `fs-lite` resolves its directory from the working directory, which is the project root in `vite dev`.
     process.chdir(directory)
-    const server = await createServer({ appType: "custom", configFile: false, logLevel: "silent", plugins: [hubKv(options, { hosting })], root: directory, server: { middlewareMode: true, ws: false } })
+    const server = await createServer({ appType: "custom", configFile: false, logLevel: "silent", plugins: [hubKV(options, { hosting })], root: directory, server: { middlewareMode: true, ws: false } })
     try {
       // SAFETY: The fixture module above exports `handle()`.
       const worker = await server.ssrLoadModule("/src/worker.ts") as { handle: () => Promise<unknown> }

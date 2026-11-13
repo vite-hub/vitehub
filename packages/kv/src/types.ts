@@ -168,7 +168,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "del" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
@@ -220,7 +220,7 @@ export interface KVListPage {
  */
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
-  del(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
+  delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Deletes the key only when its value equals `expected`, in one atomic step. Returns `true` when this call deleted it.
    * KV compares the stored text with `expected` serialized as `set()` stores it, so `{ a: 1, b: 2 }` and

@@ -53,7 +53,7 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
-export type BlobOperation = "del" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
+export type BlobOperation = "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
  * `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
@@ -288,7 +288,7 @@ export interface BlobStorage {
   readonly media: BlobMedia
   /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
-  del(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
   get(pathname: string): Promise<Result<Blob | null, BlobErrorCode>>
   /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
   handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>>

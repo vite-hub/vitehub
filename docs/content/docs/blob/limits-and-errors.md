@@ -35,7 +35,7 @@ ViteHub checks these host limits before the provider sees the request:
 | [Cloudflare R2](https://developers.cloudflare.com/r2/platform/limits/) | Object key of at most 1,024 bytes in UTF-8 | `BLOB_PATHNAME_TOO_LONG` |
 | [Vercel Functions](https://vercel.com/docs/functions/limitations#request-body-size) | Request body of at most 4.5 MB | HTTP `413` |
 
-A `cloudflare-r2` store checks the key in `put()`, `get()`, `head()`, `del()`, `serve()`, `sign()`, and multipart uploads, in production and `vite dev`. `serve()` answers such a key with a `400` response. Other drivers keep their own limits.
+A `cloudflare-r2` store checks the key in `put()`, `get()`, `head()`, `delete()`, `serve()`, `sign()`, and multipart uploads, in production and `vite dev`. `serve()` answers such a key with a `400` response. Other drivers keep their own limits.
 
 On Vercel, a request body above 4.5 MB gets `413 FUNCTION_PAYLOAD_TOO_LARGE` before your function runs. `vite dev` has no such limit, so when the build targets Vercel (`vitehub({ host: 'vercel' })` or the Vercel Nitro preset), the dev server copies it. `blob.handleUpload()` and the `upload` action of `blob.handleMultipartUpload()` throw an H3 `413` above 4,500,000 bytes, and the route answers `413`. For larger uploads, read the [Vercel Blob guide](/docs/guides/vercel-blob#vercel-blob-limits).
 

@@ -6,7 +6,7 @@ import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { usesRemoteLibsql } from "../src/internal/vite-build.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const tempDirs: string[] = []
@@ -33,8 +33,8 @@ async function createProject(definition: string) {
 
 /** Runs the Vite plugin as a Vite build or dev server for `preset`, and returns how it resolves `#vitehub/database/libsql`. */
 async function resolveLibsql(root: string, preset: string, command: "build" | "serve" = "build") {
-  const plugin = hubDb()
-  // SAFETY: hubDb exposes configResolved and resolveId.handler as callable Vite hooks.
+  const plugin = hubDatabase()
+  // SAFETY: hubDatabase exposes configResolved and resolveId.handler as callable Vite hooks.
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command, nitro: { preset }, plugins: [{ name: "nitro:main" }], root })
   const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
   return { config: plugin.api.getConfig(), id: resolveId("#vitehub/database/libsql") }
