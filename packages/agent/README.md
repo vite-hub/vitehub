@@ -30,7 +30,7 @@ The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 pro
 
 ```sh
 pnpm add @openai/codex@0.149.1
-pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
 ViteHub resolves those project dependencies directly. Production self-hosted Node builds on macOS and Linux copy only the build host's native payload, including the Linux libc variant, so build on the same host type used for deployment. Without `@openai/codex`, the Codex Driver keeps using `codex` from the host `PATH`. The Claude Code Driver requires the Agent SDK; when its native package is unavailable at runtime, ViteHub leaves T3's host `claude` command fallback unchanged. Claude Code credentials and Codex credentials without an explicit `driver.credentials` resolver must be available to the host process.
@@ -904,6 +904,10 @@ An Agent module that imports a listed subpath gets the generated process host
 plugin. `registerAgentProcessHostIntake()`
 lets a running host receive verified webhook deliveries for its Agent.
 [`@vite-hub/presets`](../presets/README.md) uses these primitives for the Babysitter.
+
+### Provider transport preparation
+
+A `launch` resolver can return `prepare({ abortSignal })` with its command. ViteHub awaits this host callback before provider inspection or launch, outside the provider's status-probe deadline. Use it to wait for a transport such as a starting SSH sidecar. Honor `abortSignal` to stop I/O when the caller cancels. Existing command-only launchers need no callback.
 
 ### Provider exit evidence
 

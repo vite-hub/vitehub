@@ -338,6 +338,7 @@ have it. See [Source configuration](/docs/source/configure) for the loader optio
 | `cache` | `false or WorkspaceCacheOptions` | `false` turns caching off. `{ maxAge }` sets a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation for API-backed Sources: `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Turns on explicit Source Sync: `true`, `false`, or a sync policy. |
+| `skills` | `false` | Keeps the Skills in this Source out of a Provider Agent's skill roots. See [Give the provider its Skills](/docs/agents/agent-drivers#give-the-provider-its-skills). |
 | `probeKeys` | `string[]` | Known item keys. ViteHub uses them to check that a bundled Source is complete and to match path-scoped access without listing the whole Source. File helpers infer them when possible. |
 
 ### Prepare startup Sources

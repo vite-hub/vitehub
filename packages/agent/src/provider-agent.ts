@@ -38,6 +38,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { addProviderSandboxSkills, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
+import { sourceSkillMounts } from "./internal/source-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
@@ -414,7 +415,14 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (value.onExit !== undefined && typeof value.onExit !== "function") {
     throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch onExit must be a function." })
   }
+  if (value.prepare !== undefined && typeof value.prepare !== "function") {
+    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch prepare must be a function." })
+  }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (typeof value.prepare === "function") {
+    // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
+    launch.prepare = value.prepare as AgentProviderLaunchCommand["prepare"]
+  }
   if (typeof value.onExit === "function") {
     // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
     launch.onExit = value.onExit as AgentProviderLaunchCommand["onExit"]
@@ -1394,6 +1402,8 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
         ...context, command: requirements.length ? "sh" : command, providerCommand: command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [...(home ? ["CODEX_HOME"] : []), ...Object.keys(gateway?.environment || {})],
       }), signal))
+      signal?.throwIfAborted()
+      if (launch.prepare) await waitForProviderOperation(Promise.resolve(launch.prepare({ abortSignal: signal })), signal)
       signal?.throwIfAborted()
       launchDiagnosticSecrets = [...providerLaunchSecretValues(launch), ...shellArgTokens(launchArgs)]
       if (requirements.length) requirementCapture = {
@@ -3292,6 +3302,8 @@ async function* runProvider<
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
+      if (launch.prepare) await waitForProviderOperation(Promise.resolve(launch.prepare({ abortSignal: effectiveSignal })), effectiveSignal)
+      effectiveSignal?.throwIfAborted()
       providerLaunchDiagnosticSecrets = providerLaunchSecretValues(launch)
       onProviderExit = launch.onExit
       if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
@@ -3447,6 +3459,7 @@ async function* runProvider<
       colocated: context.context.get(colocatedAgentSkillsContextKey),
       cwd: providerCwd,
       provider: options.provider,
+      sources: sourceSkillMounts(context.workspaceDefinition?.sources),
       workspaceRoot: root,
     })
     if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)

@@ -4,24 +4,24 @@ import { siteAccessOperations } from "../site-access"
 import { requestConsoleOperation } from "./request"
 import { openConsoleTicket } from "./ticket"
 
-import type { SiteGrant, SiteInvite, SitePass } from "../site-access"
+import type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
 import type { ConsoleTicketLink } from "./ticket"
 
-export type { SiteGrant, SiteInvite, SitePass } from "../site-access"
+export type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
 
 /** Everything the Site access section shows, read in one go. */
-export async function readSiteAccess(signal?: AbortSignal): Promise<{ passes: SitePass[], invites: SiteInvite[], grants: SiteGrant[] }> {
+export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
   const options = signal ? { signal } : {}
-  const [passes, invites, grants] = await Promise.all([
-    requestConsoleOperation(siteAccessOperations.passes, {}, options),
+  const [sessions, invites, grants] = await Promise.all([
+    requestConsoleOperation(siteAccessOperations.sessions, {}, options),
     requestConsoleOperation(siteAccessOperations.invites, {}, options),
     requestConsoleOperation(siteAccessOperations.grants, {}, options),
   ])
   // SAFETY: These operations answer with the shapes of `server/site-access.ts`.
-  return { passes: (passes as { passes: SitePass[] }).passes, invites: (invites as { invites: SiteInvite[] }).invites, grants: (grants as { grants: SiteGrant[] }).grants }
+  return { sessions: (sessions as { sessions: SiteSession[] }).sessions, invites: (invites as { invites: SiteInvite[] }).invites, grants: (grants as { grants: SiteGrant[] }).grants }
 }
 
-/** Opens the app in a new tab, and gives that browser a member pass on the way. */
+/** Opens the app in a new tab, and signs that browser in as you on the way. */
 export async function openSite(path?: string): Promise<void> {
   await openConsoleTicket(() => requestConsoleOperation(siteAccessOperations.link, path ? { path } : {}))
 }
@@ -38,8 +38,8 @@ export async function inviteGuest(input: { name: string, grants: string[], expir
   return await requestConsoleOperation(siteAccessOperations.invite, input) as ConsoleTicketLink & { invite: SiteInvite }
 }
 
-export async function revokePass(id: string): Promise<void> {
-  await requestConsoleOperation(siteAccessOperations.revokePass, { id })
+export async function revokeSession(id: string): Promise<void> {
+  await requestConsoleOperation(siteAccessOperations.revokeSession, { id })
 }
 
 export async function revokeInvite(id: string): Promise<void> {
@@ -52,7 +52,7 @@ export function qrCode(url: string): string {
 }
 
 /**
- * What a pass may do, in words: `Console and every page tool` for a member, else the labels of its grants, such as
+ * What a browser may do, in words: `Console and every page tool` for a member, else the labels of its grants, such as
  * `Read comments, Write comments`. Grants the catalogue does not know keep their id.
  */
 export function grantSummary(kind: "member" | "guest", grants: readonly string[], catalogue: readonly SiteGrant[]): string {

@@ -249,7 +249,18 @@ describe("Agent definition layers", () => {
       normalizeWorkspaceSourcesMetadata(agent.sources as never).map(source => [source.key, source.materialize]),
     )
     expect(modes(base)).toEqual({ docs: "startup", pinned: "lazy" })
-    expect(modes(child)).toEqual({ docs: "none", extra: "none", pinned: "lazy" })
+    // A provider Agent still fetches the Skill folders of a Source with materialize none.
+    expect(modes(child)).toEqual({
+      "__vitehubSourceSkills:docs:.agents/skills": "startup",
+      "__vitehubSourceSkills:docs:.codex/skills": "startup",
+      "__vitehubSourceSkills:docs:.claude/skills": "startup",
+      "__vitehubSourceSkills:extra:.agents/skills": "startup",
+      "__vitehubSourceSkills:extra:.codex/skills": "startup",
+      "__vitehubSourceSkills:extra:.claude/skills": "startup",
+      docs: "none",
+      extra: "none",
+      pinned: "lazy",
+    })
     expect(() => defineAgent({ driver: codexDriver(), workspace: { materialize: "eager" as never } })).toThrow("materialize must be one of")
   })
 

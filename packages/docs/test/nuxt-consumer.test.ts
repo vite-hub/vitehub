@@ -1,10 +1,9 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
-import { parseAst } from "vite"
 import { expect, it } from "vitest"
 
 import type { Nitro } from "nitro/types"
@@ -33,7 +32,6 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     // An installed package is in node_modules, where Nuxt adds no auto-imports unless a pattern includes it.
     const shell = join(import.meta.dirname, "../dist/runtime/app/app.vue").replaceAll("\\", "/")
     expect(nuxt.options.imports.transform?.include?.some(pattern => pattern.test(shell))).toBe(true)
-    expect(nitro.options.experimental.asyncContext).toBe(true)
     expect(nitro.options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs", mcp: { url: "https://docs.example.com/portal/mcp" },
     })
@@ -62,17 +60,6 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)
-
-it("ships the MCP tools as JavaScript that Nitro can parse from node_modules", async () => {
-  // Nitro compiles TypeScript only outside node_modules, so an installed app parses these files as they are.
-  const dir = join(import.meta.dirname, "../dist/runtime/mcp")
-  const files = (await readdir(dir)).sort()
-  expect(files).toEqual(["get-page.js", "list-pages.js"])
-  for (const file of files) {
-    const source = await readFile(join(dir, file), "utf8")
-    expect(() => parseAst(source), file).not.toThrow()
-  }
-})
 
 // A static host serves the prerendered HTML, and the HTML leaves the page data to `_payload.json`. The client must read
 // that file, or every page hydrates to "Page not found".

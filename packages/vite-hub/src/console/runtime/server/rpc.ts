@@ -1,6 +1,6 @@
 import { consoleBodySha256 } from "@vite-hub/internal/console-signature"
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
-import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
@@ -174,6 +174,9 @@ async function readConsoleCall(request: Request, access: ConsoleAccess): Promise
 
 async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, request: Request, context: ConsoleOperationContext): Promise<unknown> {
   if (Array.isArray(rawInput)) throw consoleRequestError(400, "Invalid Console input.")
+  // The ViteHub MCP of the Console signs its calls as `mcp`. They get the rules of an MCP client, such as the in-app MCP.
+  const mcp = context.access.surface === "mcp"
+  if (mcp && operation.mcp === false) throw consoleRequestError(403, `${operation.name} is not open to MCP clients. Use it from the Console.`, "CONSOLE_ACCESS_DENIED")
   // A failed check throws INTERNAL_R0022 with status 400, which names the fields to fix.
   const input = await parseOperationInput(operation, rawInput)
   const section = operationSection(operation, input)
@@ -187,6 +190,8 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
   }
   assertOperationConfirmation(request, classification)
+  // An MCP call is unconfirmed unless the signed caller says that the person agreed.
+  if (mcp) assertOperationConfirmed(classification, context.access.confirmed === true)
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
@@ -196,7 +201,7 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     response: context.response,
     // A signed request names its signer. Without a signature, the CLI names itself with a header; only the
     // unauthenticated `local` access of `vite dev` trusts it more than the Console.
-    surface: context.access.via === "cli" || context.access.via === "console" ? context.access.via : request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
+    surface: mcp ? "mcp" : context.access.via === "cli" || context.access.via === "console" ? context.access.via : request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
     // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
     user: user ? user as OperationContext["user"] : null,
     ...(context.env ? { env: context.env } : {}),
