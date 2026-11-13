@@ -6,7 +6,7 @@
 
 `@vite-hub/codemods` moves an application to ViteHub. Each codemod edits the source files that it can change safely and ends with a report: the files it changed and a numbered list of manual follow-ups, with `file:line` where it applies.
 
-The package requires Node.js 22.18 or newer.
+The package requires Node.js 22.18 or newer. Read the [Codemods docs](https://vitehub.dev/docs/codemods) for a tutorial and what each codemod changes.
 
 ## Migrate an app
 

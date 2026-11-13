@@ -2771,7 +2771,7 @@ describe("agent Vite plugin", () => {
     expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
-  it("writes generated Nitro handlers that compile with checked indexed access for H3 v1 and v2", async () => {
+  it("writes generated Nitro handlers that compile with checked indexed access", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-routes-types-"))
     try {
@@ -2801,11 +2801,10 @@ export default defineAgent({
 `,
         "utf8",
       )
-      for (const [stateProvider, command, h3] of [
-        ["cloudflare", "build", "v2"],
-        ["libsql", "build", "v2"],
-        ["libsql", "serve", "v1"],
-        ["libsql", "serve", "v2"],
+      for (const [stateProvider, command] of [
+        ["cloudflare", "build"],
+        ["libsql", "build"],
+        ["libsql", "serve"],
       ] as const) {
         await writeFile(
           join(root, "tsconfig.json"),
@@ -2815,7 +2814,7 @@ export default defineAgent({
               // Consumers check generated code against the published declarations, not package sources.
               compilerOptions: {
                 noUncheckedIndexedAccess: true,
-                paths: { h3: [resolve(import.meta.dirname, h3 === "v1" ? "../../vite-hub/node_modules/h3-v1" : "../node_modules/h3")] },
+                paths: { h3: [resolve(import.meta.dirname, "../node_modules/h3")] },
               },
               include: [".vitehub/agent/chat-webhook-route.ts", "server/agents/**/*.ts"],
             },
@@ -4275,7 +4274,6 @@ describe("server helpers", () => {
       { agentName: "support" },
     )
 
-    // H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
     await expect(response.text()).resolves.toBe('data: {"type":"text-delta","text":"partial"}\n\ndata: {"errorText":"upstream failed","type":"error"}\n\ndata: [DONE]\n\n')
   })
 
