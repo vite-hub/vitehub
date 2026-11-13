@@ -154,12 +154,12 @@ export function toChatModal(source: FormSource, options: ChatModalOptions): Form
 /**
  * Checks the `values` of a Chat SDK modal submission, which are text by input id, with the form schema. Returns
  * `[undefined, data]`, or `[error]` with the issue of each field, the same issues as the form route. Answer an error
- * with `chatModalErrors(error)`.
+ * with `chatModalErrors(error, form)`.
  *
  * ```ts
  * bot.onModalSubmit("contact", async (event) => {
  *   const [error, data] = await readChatModal(contact, event.values)
- *   if (error) return chatModalErrors(error)
+ *   if (error) return chatModalErrors(error, contact)
  *   await save(data)
  * })
  * ```
@@ -167,9 +167,8 @@ export function toChatModal(source: FormSource, options: ChatModalOptions): Form
 export async function readChatModal<TSchema extends StandardSchemaV1>(source: FormSource<TSchema>, values: Record<string, string | undefined>): Promise<[FormSubmitError, undefined] | [undefined, StandardSchemaV1.InferOutput<TSchema>]> {
   const data: Record<string, unknown> = {}
   for (const field of formFields(source)) {
-    const raw = values[field.name]
-    // An input that the person left empty is a field that they did not fill.
-    const value = decodeFieldValue(field, raw === "" && field.type !== "boolean" ? undefined : raw)
+    // Text keeps an empty answer, as a web form sends it. An empty number or choice is a field that the person left out.
+    const value = decodeFieldValue(field, values[field.name])
     if (value !== undefined) data[field.name] = value
   }
   return checkForm(source, data)
@@ -177,8 +176,14 @@ export async function readChatModal<TSchema extends StandardSchemaV1>(source: Fo
 
 /**
  * The Chat SDK answer that shows the error of each field under its input: `{ action: "errors", errors }`. The Slack
- * adapter sends it as `response_action: "errors"`, keyed by `block_id`, which is the field name.
+ * adapter sends it as `response_action: "errors"`, keyed by `block_id`, which is the field name. A modal shows errors
+ * only under inputs, so pass the form too: an error of the whole form, such as a check across two fields, then shows
+ * under the first input.
  */
-export function chatModalErrors(error: FormSubmitError): { action: "errors", errors: Record<string, string> } {
-  return { action: "errors", errors: fieldErrors(error) }
+export function chatModalErrors(error: FormSubmitError, source?: FormSource): { action: "errors", errors: Record<string, string> } {
+  const errors = fieldErrors(error)
+  const whole = error.issues.filter(issue => issue.path.length === 0).map(issue => issue.message)
+  const first = source && whole.length ? collectFields(source).fields[0]?.name : undefined
+  if (first) errors[first] = [errors[first], ...whole].filter(Boolean).join(" ")
+  return { action: "errors", errors }
 }

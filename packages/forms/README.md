@@ -62,7 +62,7 @@ One schema draws a web form, an MCP elicitation, and a Slack modal or Teams dial
 | --- | --- | --- |
 | Web form | `AutoForm`, or `useFormAction()` | `handleFormRequest()` |
 | MCP elicitation | `toElicitation(form, { message })`: the params of `elicitation/create` in form mode | `readElicitation(form, result)` |
-| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })`: a Chat SDK modal, one input for each field, with the field name as its id | `readChatModal(form, event.values)`, then `chatModalErrors(error)` |
+| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })`: a Chat SDK modal, one input for each field, with the field name as its id | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
 
 Each check is `checkForm(form, values)`, the check of `handleFormRequest()`. It returns `[error, data]`, and `fieldErrors(error)` gives the error of each field by name. Form data, chat text, and checkbox values decode to the field types first. A nested object, a list, a union, or a root that is not an object throws `FORMS_C0002` when a surface draws it. An MCP elicitation also refuses a choice of numbers, because MCP choices are text. The `@vite-hub/mcp` server answers with stateless JSON, so its tools cannot send `elicitation/create` yet.
 

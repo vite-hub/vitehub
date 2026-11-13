@@ -170,7 +170,17 @@ function fromValibot(root: SchemaNode): { fields: FormField[], problems: FieldPr
 export function collectFields(source: FormSource): { fields: FormField[], problems: FieldProblem[] } {
   const schema = schemaOf(source)
   const standard: StandardSchemaV1.Props & Partial<StandardJSONSchemaV1.Props> = schema["~standard"]
-  if (standard.jsonSchema) return fromJsonSchema(standard.jsonSchema.input({ target: "draft-2020-12" }))
+  if (standard.jsonSchema) {
+    let json: unknown
+    try {
+      json = standard.jsonSchema.input({ target: "draft-2020-12" })
+    }
+    catch (error) {
+      // A custom check, such as `z.custom()`, has no JSON Schema. The schema still validates, so only drawing fails.
+      return { fields: [], problems: [{ field: "", found: `a schema with no JSON Schema (${error instanceof Error ? error.message : String(error)})` }] }
+    }
+    return fromJsonSchema(json)
+  }
   // SAFETY: the vendor identifies Valibot, whose schemas are plain objects of this shape.
   if (standard.vendor === "valibot") return fromValibot(schema as unknown as SchemaNode)
   return { fields: [], problems: [{ field: "", found: `a ${standard.vendor} schema with no JSON Schema` }] }

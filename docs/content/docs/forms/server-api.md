@@ -77,7 +77,7 @@ The schema of a form also draws an MCP elicitation and a chat modal, and checks 
 | --- | --- | --- |
 | Web form | `AutoForm`, or a native `<form>` with [`useFormAction()`](/docs/forms/vue) | The route of the form |
 | MCP elicitation | `toElicitation(form, { message })` | `readElicitation(form, result)` |
-| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })` | `readChatModal(form, event.values)`, then `chatModalErrors(error)` |
+| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })` | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
 
 `toElicitation()` returns the params of an MCP `elicitation/create` request in form mode. Send them through an MCP client session, such as `server.elicitInput()` of the MCP TypeScript SDK. The ViteHub MCP server answers with stateless JSON, so its tools cannot send `elicitation/create` yet.
 
@@ -100,7 +100,7 @@ export async function askFeedback(elicit: (params: FormElicitation) => Promise<E
 }
 ```
 
-`toChatModal()` returns a Chat SDK modal. The id of each input is the field name, so Slack gets one input block for each field with the field name as its `block_id`. A true or false field is a Yes or No choice. Open it with `event.openModal()`, and check the submission in `bot.onModalSubmit()`. `chatModalErrors(error)` answers `{ action: "errors", errors }`, which the Slack adapter sends as `response_action: "errors"`, so each error shows under its input:
+`toChatModal()` returns a Chat SDK modal. The id of each input is the field name, so Slack gets one input block for each field with the field name as its `block_id`. A true or false field is a Yes or No choice. Open it with `event.openModal()`, and check the submission in `bot.onModalSubmit()`. `chatModalErrors(error, form)` answers `{ action: "errors", errors }`, which the Slack adapter sends as `response_action: "errors"`, so each error shows under its input. A modal shows errors only under inputs, so an error of the whole form, such as a check across two fields, shows under the first input:
 
 ```ts [server/utils/feedback-modal.ts]
 import * as v from 'valibot'
@@ -117,7 +117,7 @@ export const feedbackModal = toChatModal(FeedbackSchema, { callbackId: 'feedback
 /** The handler of `bot.onModalSubmit('feedback', ...)`. */
 export async function onFeedbackSubmit(event: { values: Record<string, string> }) {
   const [error, data] = await readChatModal(FeedbackSchema, event.values)
-  if (error) return chatModalErrors(error)
+  if (error) return chatModalErrors(error, FeedbackSchema)
   console.info('feedback', data)
   return undefined
 }
