@@ -599,6 +599,7 @@ export default defineDatabase({
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `connection.url` | `DatabaseConfigValue` | No | Postgres URL for Node, Vercel, local development, and `vitehub database migrate`. |
+| `connection.replicas` | `DatabaseConfigValue[]` | No | Read replica URLs. `db.$replica` reads from them. See [Read from replicas](#read-from-replicas). |
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
 | `driver` | `'pglite'` | No | Runs the Database on PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
@@ -608,6 +609,38 @@ A Postgres Definition has its own connection. It ignores the top-level `connecti
 The client drops the notices of the server, such as `relation already exists, skipping` for each `CREATE ... IF NOT EXISTS`, and prints each Postgres warning with `console.warn`. Errors still reject the query.
 
 Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.
+
+### Read from replicas
+
+Set `connection.replicas` to the URLs of read replicas. ViteHub opens one postgres.js client for each one, and gives you Drizzle's [`withReplicas()`](https://orm.drizzle.team/docs/read-replicas) database:
+
+```ts [server/databases/default.ts] fragment
+export default defineDatabase({
+  dialect: 'postgresql',
+  connection: {
+    url: process.env.DATABASE_URL,
+    replicas: [process.env.DATABASE_REPLICA_1_URL, process.env.DATABASE_REPLICA_2_URL],
+  },
+  schema,
+})
+```
+
+```ts [server/api/notes.get.ts]
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineEventHandler(() => {
+  const { db, schema } = useDatabase()
+  return db.$replica.select().from(schema.notes)
+})
+```
+
+- `db.$replica` sends a query to one replica, picked at random for each read. Drizzle 1.0 sends every other query, and every write and transaction, to `connection.url`. A replica can lag behind the primary, so read your own writes from `db`.
+- Empty entries are skipped, so an unset variable turns its replica off.
+- Without replicas, `db.$replica` is `db`. Code that reads from replicas runs on every host.
+- A Cloudflare Hyperdrive binding has one origin. When it serves the Database, ViteHub ignores `connection.replicas` and prints one warning. PGlite ignores them too. In both cases `db.$replica` is `db`.
+- Migrations and `vitehub database` commands use `connection.url` only.
+- `vitehub inspect definitions --kind database` shows the number of replicas in the `Read replicas` field, without the URLs.
 
 ### Run Postgres locally with PGlite
 
