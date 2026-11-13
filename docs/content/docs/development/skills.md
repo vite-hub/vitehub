@@ -224,8 +224,20 @@ A file path is not a relative path inside the skill. Use paths such as `SKILL.md
 
 ### SKILL_NOT_FOUND
 
-`skillsMcp().get()` or `read()` got a URI for a skill or file not in the list, for example one the list function left out. Read `skills/list` or `resources/list` for current URIs. `skillSettings().set()` returns it with the URI `skill://<name>` for a name that is not in the list.
+`skillsMcp().get()` or `read()` got a URI for a skill or file not in the list, for example one the list function left out. Read `skills/list` or `resources/list` for current URIs. `skillSettings().set()` returns it with the URI `skill://<name>` for a name that is not in the list; `vitehub served-skills set` then answers with HTTP 404. Run `vitehub served-skills list` for the names.
 
 ### SKILL_SETTINGS_UNAVAILABLE
 
 The store of `skillSettings()` failed to read or write the names of the skills that are off. The error `cause` has the store error, such as a KV error. Check the store binding, then try again. `settings.enabled()` rejects with it, so a request fails instead of serving a skill that is off.
+
+### SERVED_SKILLS_UNAVAILABLE
+
+`vitehub served-skills` or the Console section ran in a server that has no `server/skills.ts`. Add the file and build again. The call answers with HTTP 503.
+
+### SERVED_SKILLS_INVALID_EXPORT
+
+`server/skills.ts` has no default export and no `skills` export that is a skill list or `skillSettings()`. Default-export `skillSettings(skills, { store })`, or a list to only show the skills. The call answers with HTTP 500.
+
+### SERVED_SKILLS_NO_SETTINGS
+
+`served-skills.set` ran, but `server/skills.ts` exports a plain list, which has no switches. Wrap the list in `skillSettings(skills, { store })`. The call answers with HTTP 409.

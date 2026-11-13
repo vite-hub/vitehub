@@ -1,3 +1,5 @@
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "./inspect.ts"
 
 type MaybePromise<T> = T | Promise<T>
@@ -960,13 +962,13 @@ export function describeViteHubConsoleRuntimeReader<TOptions>(section: ViteHubCo
 const operationNamePattern = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 
 /** A checked copy of an operation view that only holds JSON. */
-export function describeOperationView(view: ViteHubConsoleOperationView): ViteHubConsoleOperationView {
+export function describeOperationView(view: ViteHubConsoleOperationView, section = ""): ViteHubConsoleOperationView {
   if (String(view.operation) !== view.operation || !operationNamePattern.test(view.operation)) {
     throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(view.operation)}.`)
   }
   for (const column of view.columns) {
     if ((column.format === "switch") !== (column.switch !== undefined) || (column.switch && !operationNamePattern.test(column.switch.operation))) {
-      throw new TypeError(`[vitehub] The Console column ${JSON.stringify(column.key)} needs both \`format: "switch"\` and a \`switch\` operation name such as "skills.set".`)
+      throw internalErrorDiagnostics.INTERNAL_B0052({ column: column.key, section })
     }
   }
   // SAFETY: The view holds strings, numbers, booleans, and plain objects, so a JSON round trip copies it.
@@ -981,7 +983,7 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
     ? { columns: section.view.columns.map(column => column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }), kind: "record-table", notice: section.view.notice }
     : section.view.kind === "operation-view"
-      ? describeOperationView(section.view)
+      ? describeOperationView(section.view, section.id)
       : { kind: section.view.kind, notice: section.view.notice }
   const descriptor: ViteHubConsoleSectionDescriptor = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   if (section.pages?.length) descriptor.pages = describePages(section)

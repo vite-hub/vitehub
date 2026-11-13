@@ -38,7 +38,7 @@ const skillErrors = /*#__PURE__*/ defineErrors({
     // Runtime errors. `skillsMcp()` returns them as `[error, undefined]`.
     SKILL_NOT_FOUND: {
       why: ({ uri }: { uri: string }) => `No skill or skill file at ${uri}.`,
-      fix: "Read `skills/list` or `resources/list` for the current URIs. A skill that the list function leaves out is not readable.",
+      fix: "Read `skills/list` or `resources/list` for the current URIs, or run `vitehub served-skills list` for the names. A skill that the list function leaves out is not readable.",
     },
     SKILL_SETTINGS_UNAVAILABLE: {
       why: ({ action }: { action: "read" | "write" }) => `The skill settings store failed to ${action} which skills are off.`,
