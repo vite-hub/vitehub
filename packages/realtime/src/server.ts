@@ -1,4 +1,4 @@
-import { assertAuthOrigin } from "@vite-hub/auth/server"
+import { assertAuthOrigin } from "@vite-hub/auth/internal/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
@@ -10,7 +10,7 @@ import * as Y from "yjs"
 import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeBus, RealtimeBusMessage, RealtimeBusMessageType, RealtimeRoomRecord } from "./bus-protocol.ts"
 // Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
-import type {} from "@vite-hub/runtime/h3"
+import type {} from "@vite-hub/runtime/internal/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
@@ -70,7 +70,7 @@ import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
 export { isRealtimeAvailable } from "./availability.ts"

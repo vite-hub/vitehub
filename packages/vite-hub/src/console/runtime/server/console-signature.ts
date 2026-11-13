@@ -1,7 +1,7 @@
 import { consoleSignatureHeader, readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { resolvePublicUrl } from "@vite-hub/runtime"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 

@@ -40,8 +40,8 @@ import {
   useAuth,
   withAuth,
   withAuthorization,
-} from "../src/server.ts"
-import * as authServer from "../src/server.ts"
+} from "../src/internal/server.ts"
+import * as authServer from "../src/internal/server.ts"
 import { stateless } from "../src/presets.ts"
 import { hubAuth } from "../src/vite.ts"
 

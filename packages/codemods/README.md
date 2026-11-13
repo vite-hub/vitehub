@@ -38,12 +38,30 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive. `vitehub migrate` runs it. |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
 | `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
 | `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `runtime-contracts`
+
+ViteHub moved the request context helpers to `vite-hub/runtime`, made private runtime and Auth entries private, and changed `checkRateLimit()` to return a Result. `runtime-contracts` rewrites an app:
+
+| Old code | New code |
+| --- | --- |
+| `getRuntimeContext`, `getStandardContext`, and the Standard Context types from `vite-hub/runtime/h3` | `vite-hub/runtime`. `H3RuntimeContext` and `H3RuntimeContextOptions` become `RequestRuntimeContext` and `RuntimeContextOptions`. |
+| `nodeRuntimeResources` from `vite-hub/runtime/node` | `vite-hub/agent/capabilities` |
+| `initLogger`, `useLogger`, and the other Evlog names from `vite-hub/logs` | `evlog`. The LogSource names stay in `vite-hub/logs`. |
+| `const decision = await checkRateLimit(...)` | `const [checkRateLimitError, decision] = await checkRateLimit(...)`, then `if (checkRateLimitError) throw checkRateLimitError`, which keeps the old behavior |
+
+The `@vite-hub/runtime/*` forms move to the same places. The report lists what needs a person: `installStandardContext()`, the other names of `vite-hub/runtime/node`, `@vite-hub/runtime/shutdown`, the Auth setters, factories, and access helpers that left `vite-hub/auth/server`, the `vite-hub/auth/runtime/server`, `vite-hub/auth/console`, and `vite-hub/auth/console-runtime` entries, and a `checkRateLimit()` call that is not a `const` declaration.
+
+```sh
+npx @vite-hub/codemods runtime-contracts [dir] [--dry-run]
+```
 
 ## `renamed-apis`
 

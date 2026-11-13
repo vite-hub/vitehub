@@ -1,5 +1,5 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { createError } from "h3"
 
 import { ensureBlob } from "../ensure.ts"

@@ -2,11 +2,10 @@ import { runInNewContext } from "node:vm"
 import { Window } from "happy-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
-import { H3 } from "h3"
 import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/server.ts"
+import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 
 import type { AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"

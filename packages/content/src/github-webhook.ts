@@ -1,6 +1,6 @@
 import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
 import { githubHmacSignatureFormat, verifyViteHubHmacSignature } from "@vite-hub/internal/secret"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { formatDiagnostic } from "nostics"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"

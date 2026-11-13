@@ -5,7 +5,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { encodeRouteSegment, resetPublicUrlAgentNames } from "@vite-hub/runtime"
+import { encodeRouteSegment } from "@vite-hub/runtime"
+import { resetPublicUrlAgentNames } from "@vite-hub/runtime/internal/public-url"
 
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { defineAgent } from "../src/index.ts"

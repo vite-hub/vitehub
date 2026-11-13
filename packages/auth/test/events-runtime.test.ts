@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
-import { createBetterAuthOptions, getAuthConsoleForRequest, getAuthEvents, handleAuthRequest } from "../src/server.ts"
+import { createBetterAuthOptions, getAuthConsoleForRequest, getAuthEvents, handleAuthRequest } from "../src/internal/server.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthEventsConfiguration, AuthEventStore } from "../src/events.ts"
 

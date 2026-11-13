@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { resolveConfig as resolveViteConfig } from "vite"
@@ -1385,11 +1385,11 @@ describe("hubBlob", () => {
               loader: "js",
             }))
             build.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({
-              path: join(workspaceRoot, "packages/auth/src/server.ts"),
+              path: join(workspaceRoot, "packages/auth/src/internal/server.ts"),
             }))
             build.onResolve({ filter: /^(?:better-auth|#vitehub\/auth\/definition)$/ }, (args) => {
               if (args.path === "better-auth" && ![
-                join(workspaceRoot, "packages/auth/src/server.ts"),
+                join(workspaceRoot, "packages/auth/src/internal/server.ts"),
                 join(workspaceRoot, "packages/auth/src/auth-instance.ts"),
               ].includes(args.importer)) return
               return { namespace: "auth-provider-test", path: args.path }

@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { onShutdown, runShutdownDrains, shutdownState } from "../src/shutdown.ts"
-import type { ShutdownApp, ShutdownRuntime, ShutdownSignal } from "../src/shutdown.ts"
+import { onShutdown, runShutdownDrains, shutdownState } from "../src/internal/shutdown.ts"
+import type { ShutdownApp, ShutdownRuntime, ShutdownSignal } from "../src/internal/shutdown.ts"
 
 afterEach(() => {
   vi.restoreAllMocks()
