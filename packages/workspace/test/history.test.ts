@@ -653,13 +653,13 @@ describe("history policy and capabilities", () => {
       "keep.txt": { write: "create" as const },
     }, hooks: { "write:after": after } } })
     const first = await workspace.history.commit({ ref: "draft", ifHead: null, changes: { put: { "a.txt": "a", "keep.txt": "keep", "b.txt": "b" } } })
-    // The more specific keep.txt rule has no validator.
-    expect(validate).toHaveBeenCalledTimes(2)
+    // The broader "**" validator also runs for keep.txt.
+    expect(validate).toHaveBeenCalledTimes(3)
     expect(after).toHaveBeenCalledTimes(3)
     expect(await (await workspace.history.open(first.id)).stat("a.txt")).toMatchObject({ metadata: { checked: true } })
     // Only changed paths reach validators; unchanged puts and untouched files are skipped.
     const second = await workspace.history.commit({ ref: "draft", ifHead: first.id, changes: { put: { "a.txt": "a", "b.txt": "b2" } } })
-    expect(validate).toHaveBeenCalledTimes(3)
+    expect(validate).toHaveBeenCalledTimes(4)
     expect(validate).toHaveBeenLastCalledWith(expect.objectContaining({ path: "b.txt", operation: "writeFile", previous: expect.objectContaining({ path: "b.txt" }) }))
     expect(await (await workspace.history.open(second.id)).readFile("keep.txt")).toBe("keep")
     const count = uploads.mock.calls.length

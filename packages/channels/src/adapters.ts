@@ -2,7 +2,8 @@ import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter
 
 /**
  * Receives webhooks from any HTTP sender. ViteHub checks the signature, stores the delivery, deduplicates it by
- * delivery ID, and retries the `on` target until it succeeds.
+ * delivery ID, and retries the `on` target until it succeeds. Set `signature` and `secret`. Only `secret: false`
+ * accepts requests without verification.
  *
  * @example
  * export default defineChannel({
@@ -10,7 +11,7 @@ import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter
  *   on: { webhook: event => sendQueue('triage', event.data) },
  * })
  */
-export function webhook<TData = unknown>(options: WebhookAdapterOptions<TData> = {}): WebhookChannelAdapter<TData> {
+export function webhook<TData = unknown>(options: WebhookAdapterOptions<TData>): WebhookChannelAdapter<TData> {
   const { kind = "webhook", ...webhookOptions } = options
   return { kind, webhook: webhookOptions }
 }
