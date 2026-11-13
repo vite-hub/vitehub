@@ -13,7 +13,7 @@ export const commentsConsoleSection: ViteHubConsoleOperationSection = {
     columns: [
       { key: "n", label: "#" },
       { key: "subject.id", label: "Subject" },
-      { key: "status", label: "Status" },
+      { key: "status", label: "Status", format: "status", tones: { open: "info", resolved: "success" } },
       { key: "author.name|author.id", label: "Author" },
       { key: "messages.0.body", label: "Comment", format: "excerpt" },
       { key: "updatedAt", label: "Updated", format: "datetime" },

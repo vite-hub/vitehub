@@ -9,7 +9,7 @@ A Vercel Queue client throws `QUEUE_MISSING_REGION` when it starts. The installe
 
 When the installed `@vercel/queue` exports a `QueueClient` class, ViteHub must pass it a region. ViteHub looks for the region in this order:
 
-1. `queue.region` in the Vite config, or `region` in `createQueueClient()`.
+1. `queue.region` in `vitehub()`, `region` in `hubQueue()`, or `region` in `createQueueClient()`.
 2. The `QUEUE_REGION` environment variable.
 3. The `VERCEL_REGION` environment variable.
 4. The current Vercel request: the `ce-vqsregion` header, or the region prefix of the `x-vercel-id` header.
@@ -22,8 +22,8 @@ If all four are empty, the client throws. This occurs when the Vercel provider r
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [vitehub({ host: 'vercel', queue: true })],
-+  queue: { region: 'iad1' },
+-  plugins: [vitehub({ host: 'vercel', queue: true })],
++  plugins: [vitehub({ host: 'vercel', queue: { provider: 'vercel', region: 'iad1' } })],
  })
 ```
 
@@ -37,7 +37,7 @@ If all four are empty, the client throws. This occurs when the Vercel provider r
  })
 ```
 
-A direct client from `createQueueClient()` does not read `queue.region` from the Vite config. Pass `region`, or set `QUEUE_REGION`.
+A direct client from `createQueueClient()` does not read `queue.region` from `vitehub()`. Pass `region`, or set `QUEUE_REGION`.
 
 ## Check the fix
 

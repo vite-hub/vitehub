@@ -250,6 +250,36 @@ same object when its `name` and `toJSON` properties can be replaced. Otherwise i
 creates a new diagnostic with the same code, text, cause, data, sources, and stack,
 and leaves the original unchanged. The caller owns code allowlisting and public text.
 
+### Durability
+
+Each primitive reports where it keeps its state for the driver that it uses:
+
+```ts fragment
+interface Durability {
+  primitive: string
+  name?: string
+  store: string
+  scope: 'shared' | 'host' | 'process'
+  reason: string
+  fix?: string
+}
+```
+
+A primitive's Vite plugin contributes a reporter through `vitehub.durability`:
+the primitive id, a module, an export, and the resolved configuration as JSON.
+A Node server built with ViteHub calls each reporter at boot as
+`reporter(input, context)`. `context.env` is `process.env`, so a driver that an
+environment variable selects at boot, such as `REDIS_URL`, reports correctly.
+`context.find(primitive, name)` returns the report of another primitive, such
+as the Database that a KV store or the Queue keeps its rows in.
+`classifySqliteUrl()` tells a local SQLite file from a remote libSQL server.
+
+The server then calls `checkDurability()`. It prints one line per primitive,
+records the report for `getDurabilityReport()` and `vitehub durability list`,
+and throws `RUNTIME_R0017` when `VITEHUB_INSTANCES` (or `node.instances`) is
+greater than 1 and a primitive is `host` or `process` scoped. A new driver
+reports itself in its owner package's `durability.ts`.
+
 ### Developer diagnostics
 
 Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Packages that do not follow the error contract yet keep the `ViteHubError` public contract for expected portable failures. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
@@ -347,6 +377,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vitehub_leases TO lease_app
 | Import                   | Provides                                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, execution-authority, public URL, and host binding APIs |
+| `@vite-hub/runtime/durability` | The `Durability` contract that each primitive reports, the boot table, and the instance check |
 | `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
 | `@vite-hub/runtime/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
 

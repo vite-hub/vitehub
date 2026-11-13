@@ -896,7 +896,7 @@ The rule reads only number literals, not variables or spreads.
 
 **Import Forge error classes from `@vite-hub/forge`.** Rule `vitehub/forge-error-imports`.
 
-An app that depends on `@vite-hub/forge` imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
+An app that depends on [`@vite-hub/forge`](/docs/forge) imports `NotFoundError`, `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `RateLimitedError`, or `BranchMovedError` from `forges`. `forgeProvider()` throws the copy that `@vite-hub/forge` bundles, so `instanceof` against the `forges` class is always false.
 
 ```ts [server/utils/pull-request.ts] fragment
 // Invalid
@@ -991,6 +991,8 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `logs` moved into `observability`, as `observability: { logs }`.
 - `contentImportBase` was removed.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
+
+The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.
 
 ```ts [vite.config.ts] fails=TS2769
 import { defineConfig } from 'vite'

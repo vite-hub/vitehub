@@ -5,7 +5,7 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
-`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link).
+`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
 
 The GitHub Channel can use the same App credentials. The Workspace GitHub store and GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`); they do not mint App installation tokens.
 
@@ -34,7 +34,7 @@ await github.request("POST", "/repos/acme/web/issues", { body: { title: "Nightly
 | `forge.provider({ repository, refresh, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
 | `forge.app({ signal })` | `[error, { id, slug, login }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
 
-GitHub uses the App when `VITEHUB_GITHUB_APP_ID` is set, and `VITEHUB_GITHUB_TOKEN` otherwise. Runtime errors are `FORGE_APP_NOT_INSTALLED` and `FORGE_REQUEST_FAILED`. A cancelled call rejects with the abort reason. The codes are documented at [vitehub.dev/docs/guides/forge](https://vitehub.dev/docs/guides/forge).
+GitHub uses the App when `VITEHUB_GITHUB_APP_ID` is set, and `VITEHUB_GITHUB_TOKEN` otherwise. Runtime errors are `FORGE_APP_NOT_INSTALLED` and `FORGE_REQUEST_FAILED`. A cancelled call rejects with the abort reason. The codes are documented at [Forge limits and errors](https://vitehub.dev/docs/forge/limits-and-errors).
 
 ## Server Env
 
@@ -67,6 +67,7 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
+| `forgeMerge(provider, pull, options)` | `threads.merge()` with `bypassRules`. GitHub only with `bypassRules: true`: merge past failing branch rules, as an admin or a ruleset bypass actor. It needs `method` and `sha`. |
 | `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `NotFoundError`, `RateLimitedError`, `repoRef` | The bundled `forges` classes and helper. Import them from here, so that `instanceof` matches errors from `forgeProvider()`. |
 | `githubAppCredentials(input)` | GitHub App installation tokens, installation lookup and App metadata. Tokens are cached until one minute before they expire. |
 | `readGitHubAppPrivateKey(inline, path)` | Read a PEM key from a value or a file. |
@@ -104,3 +105,4 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |
 | `githubBranchRuleDetails()` | `BranchRules` has no required workflows, ruleset merge methods or classic protection source. |
 | `retargetPullRequest()` | No pull request base change. |
+| `forgeMerge()` | `threads.merge()` cannot bypass branch rules. |

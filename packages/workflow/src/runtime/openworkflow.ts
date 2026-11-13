@@ -2,6 +2,7 @@ import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
+import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
@@ -23,7 +24,6 @@ type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
 // importer from a string: workerd blocks code generation when the module loads during a request.
 const defaultImporter: OpenWorkflowImporter = specifier => import(/* @vite-ignore */ specifier)
 let openWorkflowImporter = defaultImporter
-const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
 
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
@@ -106,32 +106,22 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   if (postgres.url !== undefined && !explicitPostgresUrl) {
     throw workflowErrorDiagnostics.WORKFLOW_R0029({ message: "`workflow.postgres.url` must resolve to a non-empty Postgres URL. Check its runtime environment declaration." })
   }
-  const sqlitePath = explicitSqlitePath || (!explicitPostgresUrl ? readEnv("OPENWORKFLOW_SQLITE_PATH") : undefined)
-  if (sqlitePath) {
+  const storage = resolveOpenWorkflowStorage({ postgresUrl: explicitPostgresUrl, sqlitePath: explicitSqlitePath }, readEnv)
+  if (storage.backend === "sqlite") {
     return {
       backend: "sqlite",
       namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
-      path: normalizeSqlitePath(sqlitePath),
+      path: normalizeSqlitePath(storage.path),
       runMigrations: sqlite.runMigrations,
     }
   }
 
-  const url = explicitPostgresUrl || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
-  if (url) {
-    return {
-      backend: "postgres",
-      namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
-      runMigrations: postgres.runMigrations,
-      schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
-      url,
-    }
-  }
-
   return {
-    backend: "sqlite",
-    namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
-    path: defaultOpenWorkflowSqlitePath,
-    runMigrations: sqlite.runMigrations,
+    backend: "postgres",
+    namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
+    runMigrations: postgres.runMigrations,
+    schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
+    url: storage.url,
   }
 }
 

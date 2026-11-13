@@ -17,7 +17,7 @@ In this tutorial, you declare an app name, `Acme`, and return it from a server r
 ::tutorial-step{title="Declare the value"}
 ## Declare the value
 
-Add an `env` block to your config. In Vite, `env` is a top-level key next to `plugins`. In Nuxt, it goes in `vitehub.env`. Keep the other options of your app.
+Add an `env` block to your config. In Vite, it goes in `vitehub({ env })`. In Nuxt, it goes in `vitehub.env`. Keep the other options of your app.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

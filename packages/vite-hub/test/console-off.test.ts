@@ -41,7 +41,8 @@ describe("console option in development", () => {
 
   it("serves the operation RPC when the Console is on", async () => {
     const routes = await devConsoleRoutes({ auth: false })
-    expect(routes).toEqual(["/_vitehub/rpc"])
+    // The page tools session is for the Console link of the page tools pill.
+    expect(routes).toEqual(["/_vitehub/rpc", "/_vitehub/page/session"])
   })
 
   it.each([[undefined, 1], [false, 0], [true, 1]] as const)("installs the Console plugin with console: %o (%i)", (value, count) => {

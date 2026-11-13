@@ -192,8 +192,6 @@ interface NitroVercelConfig {
 }
 
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
-/** Nitro used by the Nuxt host, independently of ViteHub's own Nitro dependency. */
-export const VITEHUB_NITRO_MAJOR_VERSION = "__vitehubNitroMajorVersion" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
 /** The application's mount path, which can differ from Nuxt's Vite asset base. */

@@ -63,8 +63,6 @@ export default defineConfig({
 ::::
 :::
 
-If you use Nuxt, add `database: true` to the `vite-hub/nuxt` module options instead. The other steps are the same.
-
 ::
 
 ::tutorial-step{title="Create and migrate the table"}

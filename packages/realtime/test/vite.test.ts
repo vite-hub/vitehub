@@ -4,8 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
-import { realtimeDurableObjectKey } from "../src/durable-key.ts"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 const tempDirs: string[] = []
 
@@ -104,11 +103,7 @@ describe("hubRealtime", () => {
     expect(sources.some(source => /from ["']@tiptap\/(?:y-tiptap|extension-collaboration)/.test(source))).toBe(false)
   })
 
-  it.each([
-    [false, 3, "cloudflare-module"],
-    [true, 2, "cloudflare-durable"],
-    [true, 3, "cloudflare-module"],
-  ] as const)("uses Nitro's Durable Object transport for Cloudflare realtime (Nuxt replay: %s, Nitro %s)", async (nuxt, nitroMajorVersion, preset) => {
+  it.each([false, true])("uses Nitro's Durable Object transport for Cloudflare realtime (Nuxt replay: %s)", async (nuxt) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
     await mkdir(join(root, "server/realtime"), { recursive: true })
@@ -116,12 +111,12 @@ describe("hubRealtime", () => {
 
     const { hubRealtime } = await import("../src/vite.ts")
     const plugin = hubRealtime()
-    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: nuxt, [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion, base: "/wiki/", root, nitro: { preset: "cloudflare" } }
+    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: nuxt, base: "/wiki/", root, nitro: { preset: "cloudflare" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
     await hook(config)
 
     expect(config.nitro).toMatchObject({
-      preset,
+      preset: "cloudflare-module",
       // Loaded on the first Realtime request, so the server (Tiptap, ProseMirror, Yjs) stays out of the Worker's start.
       handlers: [expect.objectContaining({ lazy: true, route: "/wiki/api/_vitehub/realtime/**" })],
       cloudflare: {
@@ -136,11 +131,11 @@ describe("hubRealtime", () => {
     expect(config).toMatchObject({
       define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/wiki/") },
     })
-    // Nitro 2 upgrades sockets in the Durable Object: a plugin gives Realtime its storage at `cloudflare:durable:init`.
+    // A plugin sets the keepalive auto-response of the Durable Object at `cloudflare:durable:init`.
     const plugins = (config.nitro as { plugins?: string[] }).plugins ?? []
     const durable = plugins.find(file => file.endsWith("durable-object.mjs"))
     expect(durable).toBeDefined()
-    // The plugin loads with the Worker: it must not import the Realtime server, only fill the slot the server reads.
+    // The plugin loads with the Worker: it must not import the Realtime server.
     const { readFile } = await import("node:fs/promises")
     await expect(readFile(durable!, "utf8")).resolves.not.toContain("import ")
     const hooks: Array<(durable: unknown, context: { state: unknown, env: unknown }) => void> = []
@@ -155,9 +150,7 @@ describe("hubRealtime", () => {
     const env = { DB: {} }
     for (const fn of hooks) fn({}, { state, env })
     vi.unstubAllGlobals()
-    expect(Reflect.get(globalThis, Symbol.for(realtimeDurableObjectKey))).toEqual({ env, state })
     expect(autoResponses).toEqual([{ request: "ping", response: "pong" }])
-    Reflect.deleteProperty(globalThis, Symbol.for(realtimeDurableObjectKey))
   })
 
   it("answers keepalive pings in workerd without running the Durable Object", async () => {

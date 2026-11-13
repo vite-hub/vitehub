@@ -62,8 +62,6 @@ export default defineConfig({
 ::::
 :::
 
-Did you choose Nuxt in Installation? Then add `blob: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
-
 ::
 
 ::tutorial-step{title="Accept a text upload"}

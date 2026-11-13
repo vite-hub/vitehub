@@ -110,6 +110,47 @@ async function withEnv<T>(env: Record<string, string>, callback: () => Promise<T
   }
 }
 
+// Sends one Vercel Queue v2beta delivery (binary mode, payload in the body) to a built consumer
+// function in a child process, and returns the markers that the consumer reported back.
+async function deliverVercelQueueMessage(consumerFile: string, topic: string, consumer: string, marker: string): Promise<string[]> {
+  const script = `
+import { createServer } from "node:http"
+import { pathToFileURL } from "node:url"
+const markers = []
+const callback = createServer((req, res) => {
+  let body = ""
+  req.on("data", chunk => body += chunk)
+  req.on("end", () => { markers.push(JSON.parse(body).marker); res.setHeader("content-type", "application/json"); res.end("{}") })
+})
+await new Promise(done => callback.listen(0, "127.0.0.1", done))
+const { default: handler } = await import(pathToFileURL(process.env.CONSUMER_FILE).href)
+const server = createServer(handler)
+await new Promise(done => server.listen(0, "127.0.0.1", done))
+await fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "ce-type": "com.vercel.queue.v2beta",
+    "ce-vqsqueuename": process.env.QUEUE_TOPIC,
+    "ce-vqsconsumergroup": process.env.QUEUE_CONSUMER,
+    "ce-vqsmessageid": "0-1",
+    "ce-vqsreceipthandle": "receipt-1",
+    "ce-vqsdeliverycount": "1",
+    "ce-vqsregion": "iad1",
+  },
+  body: JSON.stringify({ callbackUrl: \`http://127.0.0.1:\${callback.address().port}/api/tests/queue\`, email: "ava@example.com", marker: process.env.QUEUE_MARKER }),
+})
+console.log(JSON.stringify(markers))
+process.exit(0)
+`
+  // Acknowledging the message needs a Vercel OIDC token, so the delivery ends with an error after the handler ran.
+  const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, CONSUMER_FILE: consumerFile, QUEUE_CONSUMER: consumer, QUEUE_MARKER: marker, QUEUE_TOPIC: topic, VERCEL_REGION: "iad1" },
+    maxBuffer: execMaxBuffer,
+  })
+  return JSON.parse(stdout.trim().split("\n").at(-1)!)
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -365,6 +406,8 @@ describe("unified vite e2e hosted outputs", () => {
       topic: "topic--77656c636f6d652d656d61696c",
       type: "queue/v2beta",
     })
+    const { consumer, topic } = vercelConsumerConfig.experimentalTriggers[0]
+    expect(await deliverVercelQueueMessage(vercelConsumer, topic, consumer, "vercel-delivery")).toEqual(["vercel-delivery"])
   }, 180_000)
 
   it("builds the env and chat playground modes", async () => {

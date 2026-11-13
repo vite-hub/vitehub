@@ -99,7 +99,7 @@ The Agent name `coder` comes from the file path. `runtime: false` runs the Agent
 
 | Option | What it does |
 | --- | --- |
-| `gateway` | Sends model requests through an [AI gateway](/docs/agents/ai-gateways). `anthropic()` calls the Anthropic API with your key. |
+| `gateway` | Sends model requests through an [AI gateway](/docs/gateways). `anthropic()` calls the Anthropic API with your key. |
 | `instructions` | Instructions for this Agent, written to a prompt file for Claude Code. |
 | `permissions` | `'ask'` (default), `'allow-edits'`, `'allow-edits-unattended'`, or `'allow-all'`. `'allow-edits-unattended'` allows file edits and denies other requests without a prompt. |
 | `requirements` | Commands Claude Code needs. `agent.status()` reports the ones missing on the host. |
@@ -117,7 +117,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ViteHub forwards no other process variables, so a server `ANTHROPIC_API_KEY` reaches Claude Code only through the gateway or `driver.env`. With no gateway, Claude Code uses the host user's sign-in. Use an API key for an app that other people use: Anthropic does not allow third-party products to offer claude.ai sign-in (see the [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)).
 
-To use another service, change the preset: `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, and `ollama()` also serve Claude Code. [AI gateway presets](/docs/agents/ai-gateways#presets) lists their variables.
+To use another service, change the preset: `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, and `ollama()` also serve Claude Code. [AI gateway presets](/docs/gateways/configure#presets) lists their variables.
 
 ### Call the Agent from a route
 
@@ -240,7 +240,7 @@ On Cloudflare Workers, use a model-backed Driver with an Anthropic model instead
 ## Related pages
 
 - [Agent Drivers](/docs/agents/agent-drivers): all provider Driver options.
-- [AI gateways](/docs/agents/ai-gateways): presets, variables, and custom gateways.
+- [AI gateways](/docs/gateways): presets, variables, and custom gateways.
 - [Run the Codex SDK with ViteHub](/docs/guides/codex-sdk): the same setup for OpenAI Codex.
 - [Sandboxes](/docs/agents/sandboxes) and [Compare AI sandbox providers](/docs/guides/sandbox-providers).
 - [Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel): a model-backed Agent on serverless hosts.

@@ -24,7 +24,7 @@ import { hostFromNitroPreset, normalizeNitroPreset, resolveDeploymentPlan } from
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
@@ -35,15 +35,18 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions, detectHost, type ViteHubHost } from "./deployment.ts"
+import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -81,6 +84,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
+export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
 export type { BlobOptions } from "@vite-hub/blob"
@@ -336,19 +340,9 @@ function frameworkDependencyResolver(
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
       // install reaches the optional owner imports plugin, which names the package to install.
-      // Many facades share a package, and each resolution of a package that is not installed walks every node_modules folder.
-      const installed = new Map<string, boolean>()
-      const isInstalled = (packageName: string) => {
-        let result = installed.get(packageName)
-        if (result === undefined) {
-          result = isPackageInstalled(packageName)
-          installed.set(packageName, result)
-        }
-        return result
-      }
       for (const specifier of Object.keys(aliases)) {
         const feature = ownerFacadeFeature(specifier)
-        if (feature && !optionalFeaturePackages[feature].every(isInstalled)) delete aliases[specifier]
+        if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
       }
       // Each alias matches its specifier alone. A Vite alias given as a string also matches the subpaths under it, so
       // a subpath the package doesn't export, such as `vite-hub/realtime/nope`, would load `dist/realtime.js/nope`
@@ -358,6 +352,11 @@ function frameworkDependencyResolver(
           alias: Object.entries(aliases).map(([specifier, replacement]) => ({ find: exactSpecifier(specifier), replacement })),
         },
       }
+    },
+    // Vite closes the plugins when the dev server stops and when a build ends. Nuxt closes its Vite server before it
+    // reloads the app. The next start must see the packages that the app installed or removed in the meantime.
+    closeBundle() {
+      forgetPackageChecks()
     },
     configResolved(config) {
       if (envPlugin && config.root) {
@@ -428,6 +427,15 @@ export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" |
   database?: string
 }
 
+export interface ViteHubNodeOptions {
+  /**
+   * The number of server instances that run this build. The server fails at boot when it is greater than 1 and a
+   * primitive keeps its state in one process or on one host, such as the `fs-lite` KV store or the memory Rate Limit.
+   * `VITEHUB_INSTANCES` overrides it when the server starts. Default: 1.
+   */
+  instances?: number
+}
+
 export interface ViteHubOptions {
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
@@ -461,6 +469,8 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsOptions
   /** Options for the `cloudflare` host. Other hosts ignore them. */
   cloudflare?: CloudflareOptions
+  /** Options for the `node` host. Other hosts ignore them. */
+  node?: ViteHubNodeOptions
   /**
    * App-owned OAuth and API key Connections in `server/connections/`. They store grants in the `default` Database, or
    * in the Database that `database` names, and enable `database` when it is unset.
@@ -515,6 +525,13 @@ export interface ViteHubOptions {
   comments?: boolean | Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitOptions
   realtime?: boolean | RealtimeOptions
+  /**
+   * A systemd unit for the server, written to `.output/<name>.service` by production builds on the `node` host. On by
+   * default. It starts `node .output/server/index.mjs` in the project root, reads `.env` when it exists, and waits for the
+   * Agent drain budget plus 30 seconds on stop. An object sets the name, user, directory, and environment. `false` writes
+   * no unit. Other hosts ignore it.
+   */
+  systemd?: boolean | SystemdOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
   sandboxTask?: boolean
   schedule?: boolean | ScheduleOptions
@@ -682,6 +699,7 @@ function deploymentNitroModule(
   secretsFilePath: string | undefined,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
+  systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -720,6 +738,16 @@ function deploymentNitroModule(
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
+      if (systemd) {
+        const unit = resolveSystemdUnit({
+          drainMs: systemd.drainMs,
+          name: systemd.name,
+          outputEntry: join(nitro.options.output.serverDir, "index.mjs"),
+          rootDir,
+          systemd: systemd.options,
+        })
+        await writeSystemdUnit(outputDir, systemd.name, unit)
+      }
     })
   }
 }
@@ -732,6 +760,12 @@ function afterApplicationConfig<T extends Plugin>(plugin: T): T {
     ? { handler: hook, order: "post" }
     : { ...hook, order: "post" }
   return plugin
+}
+
+/** The `agent.shutdown.drainMs` default of the shutdown budget, which the generated server applies. */
+function agentDrainMs(agent: ViteHubOptions["agent"]): number {
+  const drainMs = agent && agent !== true && agent.shutdown ? agent.shutdown.drainMs : undefined
+  return typeof drainMs === "number" && Number.isFinite(drainMs) && drainMs >= 0 ? drainMs : 0
 }
 
 /** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
@@ -938,7 +972,11 @@ function deploymentPlugins(
                 preserveSymlinks: false,
               },
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current)
+            const systemdOptions = options.systemd === true || options.systemd === undefined ? {} : options.systemd || undefined
+            const systemd = plan.host === "node" && systemdOptions
+              ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
+              : undefined
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1296,7 +1334,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin())
+  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
@@ -1528,6 +1566,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
+      databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1601,11 +1640,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
+  // A Node server prints where each primitive keeps its state, and fails at boot when several instances would split it.
+  if (plan.host === "node") plugins.push(viteHubDurabilityPlugin(options.node))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
-    disabledTypeFiles: workflowEnabled ? [] : ["workflow.d.ts"],
+    disabledTypeFiles: [...workflowEnabled ? [] : ["workflow.d.ts"], ...blobEnabled ? [] : ["types/blob.d.ts"]],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. These plugins run its config hooks after ViteHub's, whether `vitehub()` includes Nitro

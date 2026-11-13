@@ -322,6 +322,15 @@ export function useViteHubModule(editor: ConfigEditor, config: NuxtConfigFile, r
   return [`modules: [${moduleText}]`]
 }
 
+export const nodeHostNote = `ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
+
+/** The host to add when nuxt.config sets none, instead of "node". */
+export interface DefaultHost {
+  host: string
+  /** A follow-up about the choice, if any. */
+  note?: string
+}
+
 /** One property that a codemod adds under `vitehub`. */
 export interface ViteHubOption {
   key: string
@@ -346,7 +355,7 @@ export interface HostPlan {
   note?: string
 }
 
-export function planHost(config: NuxtConfigFile): HostPlan {
+export function planHost(config: NuxtConfigFile, defaultHost?: DefaultHost): HostPlan {
   const existingHost = findViteHubOption(config, "host")
   if (existingHost) {
     const value = literalValue(existingHost.value)
@@ -362,18 +371,20 @@ export function planHost(config: NuxtConfigFile): HostPlan {
       ? { host: mapped, add: mapped }
       : { note: `nitro.preset "${preset.value}" has no ViteHub host. Set vitehub.host to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
   }
-  return { host: "node", add: "node", note: `ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.` }
+  return defaultHost
+    ? { host: defaultHost.host, add: defaultHost.host, note: defaultHost.note }
+    : { host: "node", add: "node", note: nodeHostNote }
 }
 
 /**
  * Adds `options` under `vitehub`, and a host when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
  */
-export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node> }): ViteHubOptionsResult {
+export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node>, defaultHost?: DefaultHost }): ViteHubOptionsResult {
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const planned = planHost(config)
+  const planned = planHost(config, input.defaultHost)
   let vitehubHost = planned.add
   let hostNote = planned.note
   const unit = style.indent
