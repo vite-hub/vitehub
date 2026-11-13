@@ -79,8 +79,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
-  // `connectPage()` joins the page's room with the Realtime client.
-  ["vite-hub/agent/page", { "@vite-hub/realtime": "runtime" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console keeps the Agent journal in libSQL.
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],

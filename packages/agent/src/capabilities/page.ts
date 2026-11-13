@@ -41,7 +41,7 @@ function resolvePageId(context: AgentCapabilityContext): string | undefined {
   return readPageId(context.runtimeContext?.request?.headers.get(pageHeader) ?? undefined)
 }
 
-/** `agentRealtime` from `@vite-hub/realtime/server`, which ViteHub passes as `capabilities.realtime`. */
+/** `agentRealtime` from `@vite-hub/realtime/agent`, which ViteHub passes as `capabilities.realtime`. */
 interface PageRealtime {
   available: () => boolean
   request: (definition: string, room: string, body: unknown, options: { signal?: AbortSignal, timeout?: number }) => Promise<

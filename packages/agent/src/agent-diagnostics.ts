@@ -1555,8 +1555,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { authority: \"memory\" }` for one process, or Redis or Postgres for more.",
     },
     AGENT_R1046: {
-      why: "[vitehub] connectPage() from @vite-hub/agent/page has no `join`, so the page cannot join its Realtime room.",
-      fix: "Import `connectPage` from `vite-hub/agent/page`, which joins with Realtime, or pass `join: connectRealtimeRoom` from `@vite-hub/realtime/client`.",
+      why: "[vitehub] connectPage() has no `join`, so the page cannot join its Realtime room.",
+      fix: "Pass `join: connectRealtimeRoom` from `vite-hub/realtime/client`: `connectPage(createAgent(), { join: connectRealtimeRoom })`.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

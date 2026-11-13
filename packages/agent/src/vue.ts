@@ -22,7 +22,7 @@ export interface AgentClient {
 export type AgentChatInit<UI_MESSAGE extends UIMessage = UIMessage> = ChatInit<UI_MESSAGE> & {
   api?: string
   /**
-   * The page, from `connectPage(createAgent())` in `vite-hub/agent/page`. The chat names it on each request and waits
+   * The page, from `connectPage(createAgent(), { join: connectRealtimeRoom })` in `vite-hub/agent/page`. The chat names it on each request and waits
    * until it joined its room, so an Agent with the `page()` Capability works this page. Read once, when the chat is
    * created. The page stays connected after the chat ends; call `page.close()` to leave. A custom `transport` must send
    * `page.headers` itself.

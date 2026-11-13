@@ -44,24 +44,26 @@ export default defineAgent({
 })
 ```
 
-On the page, create the ui-sdk bridge, connect it, and hand it to the chat:
+On the page, create the ui-sdk bridge, connect it to Realtime, and hand it to the chat:
 
 ```vue [app/components/Assistant.vue]
 <script setup lang="ts">
 import { createAgent } from '@ui-sdk/vue/agent'
 import { connectPage } from 'vite-hub/agent/page'
 import { useAgent, useChat } from 'vite-hub/agent/vue'
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
 
-const chat = useChat(useAgent('settings'), { page: connectPage(createAgent()) })
+const page = connectPage(createAgent(), { join: connectRealtimeRoom })
+const chat = useChat(useAgent('settings'), { page })
 </script>
 ```
 
-`connectPage()` joins a Realtime room named by a random id for this page load. `useChat()` sends the id in the `x-vitehub-page` header of each chat request and waits until the page joined its room. `page()` reads the header, so the Agent works the tab that sent the message.
+`connectPage()` joins a Realtime room named by a random id for this page load. It takes `connectRealtimeRoom` as `join` because the Agent package does not load Realtime itself. `useChat()` sends the id in the `x-vitehub-page` header of each chat request and waits until the page joined its room. `page()` reads the header, so the Agent works the tab that sent the message.
 
 Without Vue, or when a route starts the Agent, send `page.headers` yourself. `page()` reads the header from the request of the run:
 
 ```ts fragment
-const page = connectPage(createAgent())
+const page = connectPage(createAgent(), { join: connectRealtimeRoom })
 await page.ready
 await fetch('/api/fix-settings', { method: 'POST', headers: page.headers })
 ```

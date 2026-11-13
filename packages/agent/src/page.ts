@@ -39,10 +39,10 @@ export interface ConnectPageOptions {
   /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
   baseURL?: string
   /**
-   * Joins the page's Realtime room. `connectPage()` from `vite-hub/agent/page` passes `connectRealtimeRoom` from
-   * `@vite-hub/realtime/client`. Pass it yourself only with `@vite-hub/agent/page`.
+   * Joins the page's Realtime room: `connectRealtimeRoom` from `vite-hub/realtime/client`. The Agent package does not
+   * load Realtime itself, so the page passes it.
    */
-  join?: JoinPageRoom
+  join: JoinPageRoom
 }
 
 const methods = new Set(["act", "query", "snapshot"])
@@ -52,15 +52,19 @@ function appBaseURL(): string | undefined {
 }
 
 /**
- * Lets a ViteHub Agent work this page through a ui-sdk bridge. The page joins its own Realtime room, named by a random
- * page id, and answers the Agent's `page_snapshot`, `page_query`, and `page_act` with the bridge. Pass the result to
- * `useChat(agent, { page })`, or send `headers` with the request that starts the Agent, so its `page()` Capability
- * finds this page. Every change the Agent makes reaches the components with `source: "agent"`, and the bridge's own
- * `allow` decides each step. During server rendering it does nothing.
+ * Lets a ViteHub Agent work this page through a ui-sdk bridge. The page joins its own Realtime room with `join`, named
+ * by a random page id, and answers the Agent's `page_snapshot`, `page_query`, and `page_act` with the bridge. Pass the
+ * result to `useChat(agent, { page })`, or send `headers` with the request that starts the Agent, so its `page()`
+ * Capability finds this page. Every change the Agent makes reaches the components with `source: "agent"`, and the
+ * bridge's own `allow` decides each step. During server rendering it does nothing.
+ *
+ * @example
+ * const page = connectPage(createAgent(), { join: connectRealtimeRoom })
+ * const chat = useChat(useAgent("settings"), { page })
  */
-export function connectPage(bridge: PageBridge, options: ConnectPageOptions = {}): ConnectedPage {
+export function connectPage(bridge: PageBridge, options: ConnectPageOptions): ConnectedPage {
   if (!("window" in globalThis)) return { id: "", headers: {}, ready: Promise.resolve(), close: () => {} }
-  if (!options.join) throw agentDiagnostics.AGENT_R1046()
+  if (typeof options?.join !== "function") throw agentDiagnostics.AGENT_R1046()
   // A new id for each page load: a duplicated tab copies sessionStorage, and two tabs must never share one room.
   const id = crypto.randomUUID()
   const baseURL = options.baseURL ?? appBaseURL()

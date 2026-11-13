@@ -234,11 +234,12 @@ const appComponent = `<script setup lang="ts">
 import { createAgent } from "@ui-sdk/vue/agent"
 import { connectPage } from "vite-hub/agent/page"
 import { useAgent, useChat } from "vite-hub/agent/vue"
+import { connectRealtimeRoom } from "vite-hub/realtime/client"
 import { onMounted } from "vue"
 import ProjectSettings from "./ProjectSettings.vue"
 
 const bridge = createAgent()
-const chat = useChat(useAgent("settings"), { page: connectPage(bridge) })
+const chat = useChat(useAgent("settings"), { page: connectPage(bridge, { join: connectRealtimeRoom }) })
 
 onMounted(() => {
   const changes = []

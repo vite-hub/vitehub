@@ -136,6 +136,7 @@ describe("connectPage()", () => {
 
   it("names the fix when nothing can join Realtime", () => {
     vi.stubGlobal("window", {})
-    expect(() => connectPage({ act: vi.fn(), query: vi.fn(), snapshot: vi.fn() })).toThrow(expect.objectContaining({ code: "AGENT_R1046" }))
+    // SAFETY: A JavaScript caller can leave out `join`, which the types require.
+    expect(() => connectPage({ act: vi.fn(), query: vi.fn(), snapshot: vi.fn() }, {} as never)).toThrow(expect.objectContaining({ code: "AGENT_R1046" }))
   })
 })
