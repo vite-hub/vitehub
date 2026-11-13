@@ -16,6 +16,7 @@ icon: i-lucide-code-2
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read a room document's `body`, `fields`, and `status` root types. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
 | `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
+| `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module, for a script on [another site](#from-another-site) that has no bundler. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
@@ -424,6 +425,15 @@ export default defineRealtime({
 ```
 
 The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
+
+A script without a bundler loads the prebuilt client, `@vite-hub/realtime/client/browser.js`. It is one ES module with Yjs inside and no imports. Serve its text from your app with `Content-Type: text/javascript` and `Access-Control-Allow-Origin: *`, because a module from another origin needs CORS. Then import it when the script needs presence:
+
+```js
+const { connectRealtimeRoom } = await import('https://app.example.com/realtime-client.js')
+const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.example.com', params: { ticket } })
+```
+
+The other site's Content Security Policy must allow the script in `script-src` and `wss://` to your app in `connect-src`. The client does not use `eval`.
 
 ## Saves, refresh, and resets
 

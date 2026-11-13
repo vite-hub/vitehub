@@ -157,6 +157,7 @@ A client that sends a document update is disconnected. `save()`, `refresh()`, an
 | `@vite-hub/realtime/vite` | `hubRealtime()` definition discovery and generated server wiring. |
 | `@vite-hub/realtime/vue` | `useRealtimeTiptap()` for Vue, TipTap, presence, status, and checkpoints. |
 | `@vite-hub/realtime/client` | `connectRealtimeRoom()` to share presence without an editor, in any framework. |
+| `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module with no imports, for a script that another site loads from your app without a bundler. |
 | `@vite-hub/realtime/server` | `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
 | `@vite-hub/realtime/bus` | `useRealtimeBus()` and `closeRealtimeBuses()`, the Postgres and Redis buses that the generated Node handler passes to `createRealtimeHandler({ bus })`. |
 
