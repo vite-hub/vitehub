@@ -1,3 +1,4 @@
+import { startPackageChecks } from "./internal/optional-owners.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { viteHubPlugins } from "./plugins.ts"
 
@@ -30,6 +31,8 @@ export type {
   RealtimeOptions,
   SandboxTaskOptions,
   ScheduleOptions,
+  SystemdOptions,
+  ViteHubNodeOptions,
   ViteHubOptions,
   WorkflowOptions,
   WorkspaceOptions,
@@ -37,5 +40,6 @@ export type {
 
 /** The ViteHub Vite plugins and Nitro, the server of the app. Nitro steps aside when the app adds `nitro()` itself. */
 export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
+  startPackageChecks()
   return [...viteHubPlugins(options), includedNitro()]
 }

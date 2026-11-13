@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -177,6 +177,8 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
       const installationId = configured ?? await installation(context.repository, context.signal)
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
+    /** Every repository that the App's installations can access. */
+    repositories: (signal?: AbortSignal): Promise<GitHubAppRepository[]> => client.repositories(signal),
     /** The App bot's login and noreply email, used as the commit author. */
     async identity(): Promise<{ appId: number, login: string, email: string }> {
       identity ??= (async () => {
@@ -590,7 +592,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ...channelOptions,
         app: {
           token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login, appId: host.appId?.() } } : {}),
+          ...(login ? { identity: { login, appId: host.appId?.(), ...(identity.email ? { email: identity.email } : {}) } } : {}),
         },
       })
     },

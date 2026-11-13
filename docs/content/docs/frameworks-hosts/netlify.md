@@ -126,7 +126,7 @@ In Nuxt, inspect the wrapper with `find .nuxt/vitehub/agent -maxdepth 2 -type f 
 
 ## Production proof
 
-Pull-request CI tests the Netlify output through Netlify CLI. ViteHub does not publish a deployed Netlify Live Smoke test. Check the generated functions on your Netlify site before you call your setup production-ready.
+Netlify is [Experimental](/docs/frameworks-hosts/support-matrix#test-status). CI on `main` builds one Agent app and sends one chat request to it through Netlify CLI. No CI run calls a primitive on Netlify, and there is no live Netlify test. Check the generated functions on your Netlify site before you call your setup production-ready.
 
 ## Next steps
 

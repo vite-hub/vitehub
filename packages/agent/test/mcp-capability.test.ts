@@ -587,6 +587,47 @@ describe("mcp capability", () => {
     }
   })
 
+  it("connects a server with channels only for Invocations that those Channels start", async () => {
+    const createMCPClient = vi.fn(async (_config: Record<string, unknown> & { transport: { url: string } }) => createClient({ search: { execute: vi.fn() } }))
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { getMcpWarnings, mcp } = await import("../src/capabilities.ts")
+      const capability = () => mcp({
+        servers: {
+          everywhere: { transport: { type: "http", url: "https://example.com/everywhere" } },
+          productlane: { channels: ["productlane"], transport: { type: "http", url: "https://example.com/productlane" } },
+          portal: () => ({ channels: ["productlane", "teams"], transport: { type: "http", url: "https://example.com/portal" } }),
+        },
+        unavailableNotice: true,
+      })
+      const toolsFor = async (run: { channelId?: string } | undefined, context?: Record<string, unknown>) => {
+        const resolved = await resolveAgentCapabilities({ capabilities: [capability()] }, { ...runtime(), ...(run ? { run: { runId: "run", ...run } } : {}) }, context ? { context } : {})
+        expect(getMcpWarnings(resolved.input)).toEqual([])
+        expect(resolved.input.context?.["vitehub.chat.final-reply.notices"]).toBeUndefined()
+        await resolved.close()
+        return Object.keys(resolved.tools || {})
+      }
+
+      expect(await toolsFor({ channelId: "productlane" })).toEqual(["mcp_everywhere_search", "mcp_productlane_search", "mcp_portal_search"])
+      expect(await toolsFor(undefined, { "agent.trigger": { channelId: "teams" } })).toEqual(["mcp_everywhere_search", "mcp_portal_search"])
+      expect(await toolsFor({ channelId: "github" })).toEqual(["mcp_everywhere_search"])
+      expect(await toolsFor(undefined)).toEqual(["mcp_everywhere_search"])
+      expect(createMCPClient.mock.calls.map(([config]) => config.transport.url).filter(url => !url.endsWith("everywhere")))
+        .toEqual(["https://example.com/productlane", "https://example.com/portal", "https://example.com/portal"])
+      expect(createMCPClient.mock.calls.every(([config]) => !("channels" in config))).toBe(true)
+
+      await expect(resolveAgentCapabilities({
+        // @ts-expect-error channels must be an array of Channel names.
+        capabilities: [mcp({ servers: { invalid: { channels: "productlane", transport: { type: "http", url: "https://example.com/mcp" } } } })],
+      }, runtime(), {})).rejects.toThrow("requires channels to be an array of Channel names")
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
   it("does not load the MCP runtime for direct clients with transport fields", async () => {
     vi.doMock("@ai-sdk/mcp", () => {
       throw new Error("MCP runtime should not load")

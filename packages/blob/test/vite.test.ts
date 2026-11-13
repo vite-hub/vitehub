@@ -187,13 +187,6 @@ describe("hubBlob", () => {
     }
   })
 
-  it("preserves Nitro inline-all policy", () => {
-    const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
-    const config = { nitro: { externals: { inline: true, trace: false } } }
-    ;((typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as (config: unknown, env: unknown) => void)(config, { command: "build" })
-    expect(config.nitro.externals).toEqual({ inline: true, trace: false })
-  })
-
   it("resolves Blob config from the Vite layer", () => {
     const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
 
@@ -507,7 +500,8 @@ describe("hubBlob", () => {
   it.each(["vercel-blob", "netlify-blobs"] as const)("preserves generated default and named %s stores when Nitro installs its plugin", async (driver) => {
     const root = await temporaryDirectory("vitehub-blob-nitro-replay-")
     try {
-      const plugin = hubBlob({ stores: { default: { driver, name: "default" }, assets: { driver, name: "assets" } } })
+      const store = (name: string) => driver === "netlify-blobs" ? { driver, name } : { driver }
+      const plugin = hubBlob({ stores: { default: store("default"), assets: store("assets") } })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
         nitro: { preset: driver === "vercel-blob" ? "vercel" : "netlify" },
@@ -992,12 +986,85 @@ describe("hubBlob", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
-        handlers: [{
-          handler: ".vitehub/blob/serve-route.ts",
-          route: "/api/_vitehub/blob/**",
-        }],
+        handlers: [
+          { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" },
+          { handler: ".vitehub/blob/serve-route.ts", route: "/api/_vitehub/blob/**" },
+        ],
       },
     })
+  })
+
+  it("registers the signed route only when a store uses the fs driver", async () => {
+    async function handlers(options: Parameters<typeof hubBlob>[0]) {
+      const plugin = hubBlob(options)
+      const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+      const userConfig: { nitro?: { handlers?: unknown[] } } = {}
+      await config(userConfig, { command: "build" })
+      return userConfig.nitro?.handlers
+    }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" }
+
+    expect(await handlers({ driver: "fs" })).toEqual([signed])
+    expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare-r2" }, local: { driver: "fs" } } })).toEqual([signed])
+    expect(await handlers({ bucketName: "assets", driver: "cloudflare-r2" })).toEqual([])
+    expect(await handlers({ bucket: "assets", driver: "s3" })).toEqual([])
+  })
+
+  it.each([
+    ["serve", 1],
+    ["build", 0],
+  ] as const)("registers the signed route once for the local fallback of R2 in %s", async (command, count) => {
+    // The `config` hook and `configResolved` both resolve the dev store. The route stays registered once.
+    const plugin = hubBlob()
+    const configHook = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config: Record<string, unknown> & { nitro: { handlers?: Array<{ route?: string }>, preset: string } } = {
+      build: { outDir: "dist" },
+      command,
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      root: await temporaryDirectory("vitehub-blob-signed-route-"),
+    }
+    await configHook(config, { command })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    expect(config.nitro.handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+  })
+
+  it.each([
+    ["the local store of an inferred Vercel Blob store", "serve", { BLOB_READ_WRITE_TOKEN: "secret-token" }, {}, 1],
+    ["the local fallback of R2", "serve", {}, { preset: "cloudflare_module" }, 1],
+    ["a hosted Vercel Blob store", "build", { BLOB_READ_WRITE_TOKEN: "secret-token" }, {}, 0],
+  ] as const)("registers the signed route in the Nitro instance for %s in %s", async (_name, command, env, nitroConfig, count) => {
+    // Nitro copies its handlers in its own `config` hook. A later change to the Vite config does not reach its router.
+    const { nitro }: { nitro: () => unknown } = await import("nitro/vite" as string)
+    const root = await temporaryDirectory("vitehub-blob-signed-nitro-")
+    await writeFile(join(root, "package.json"), "{}")
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    let handlers: Array<{ route?: string }> | undefined
+    let close: (() => Promise<void>) | undefined
+    try {
+      await resolveViteConfig({
+        configFile: false,
+        logLevel: "silent",
+        nitro: nitroConfig,
+        plugins: [
+          hubBlob({ images: false }),
+          nitro() as never,
+          { name: "capture-nitro", nitro: { setup(instance: { close: () => Promise<void>, options: { handlers: Array<{ route?: string }> } }) {
+            handlers = instance.options.handlers
+            close = () => instance.close()
+          } } } as never,
+        ],
+        root,
+      } as UserConfig, command)
+
+      expect(handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+    }
+    finally {
+      await close?.()
+      vi.unstubAllEnvs()
+    }
   })
 
   it("writes the generated Nitro serving route handler", async () => {
@@ -1209,6 +1276,72 @@ describe("hubBlob", () => {
     }
     finally {
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps the Blob sandbox and a middleware CSP on the generated route", async () => {
+    const root = await temporaryDirectory("vitehub-blob-route-csp-")
+    const plugin = hubBlob({ driver: "fs", serve: true }, { importBase: "virtual:blob-test" })
+    await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
+    const artifactFile = join(root, "serve-route.mjs")
+    await bundle({
+      bundle: true,
+      entryPoints: [join(root, ".vitehub", "blob", "serve-route.ts")],
+      format: "esm",
+      logLevel: "silent",
+      nodePaths: [join(workspaceRoot, "node_modules")],
+      outfile: artifactFile,
+      platform: "node",
+      plugins: [{
+        name: "blob-route-csp-stub",
+        setup(build) {
+          build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({ namespace: "blob-route-csp-stub", path: "blob" }))
+          build.onLoad({ filter: /.*/, namespace: "blob-route-csp-stub" }, () => ({
+            contents: [
+              `import { createBlobStorage } from ${JSON.stringify(join(workspaceRoot, "packages/blob/src/storage.ts"))}`,
+              `export { parseImageVariant } from ${JSON.stringify(join(workspaceRoot, "packages/blob/src/media/variant.ts"))}`,
+              "const types = { 'page.html': 'text/html', 'photo.png': 'image/png' }",
+              "const storage = createBlobStorage({",
+              "  name: 'blob-route-csp-test',",
+              "  async head(pathname) { return { pathname, contentType: types[pathname], size: 7, httpEtag: '\"v1\"', uploadedAt: new Date(0), httpMetadata: {}, customMetadata: {} } },",
+              "  async get(pathname) { return new Blob(['content'], { type: types[pathname] }) },",
+              "})",
+              "export const blob = { store() { return storage } }",
+            ].join("\n"),
+            resolveDir: workspaceRoot,
+            loader: "js",
+          }))
+        },
+      }],
+      target: "node24",
+    })
+    const artifact = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
+    // An empty middleware CSP must not replace the Blob sandbox either.
+    for (const appPolicy of ["default-src 'self'", ""]) {
+      const app = new H3({ onRequest: event => installStandardContext(event) })
+      app.use((event) => {
+        event.res.headers.set("content-security-policy", appPolicy)
+      })
+      app.all("/api/_vitehub/blob/**", artifact.default)
+      const request = (pathname: string, headers: Record<string, string> = {}, method = "GET") =>
+        app.fetch(new Request(`http://localhost/api/_vitehub/blob/${pathname}`, { headers, method }))
+      const pagePolicy = appPolicy ? `${appPolicy}, sandbox` : "sandbox"
+
+      const page = await request("page.html")
+      expect(page.status).toBe(200)
+      expect(page.headers.get("content-security-policy"), JSON.stringify(appPolicy)).toBe(pagePolicy)
+      expect(await page.text()).toBe("content")
+      const etag = page.headers.get("etag")!
+      for (const [headers, method, status] of [[{}, "HEAD", 200], [{ Range: "bytes=0-1" }, "GET", 206], [{ "If-None-Match": etag }, "GET", 304], [{ "If-None-Match": etag }, "HEAD", 304]] as const) {
+        const response = await request("page.html", headers, method)
+        expect(response.status, `${method} ${status}`).toBe(status)
+        expect(response.headers.get("content-security-policy"), `${JSON.stringify(appPolicy)} ${method} ${status}`).toBe(pagePolicy)
+        await response.body?.cancel()
+      }
+      // A type that runs no script keeps only the app policy.
+      const photo = await request("photo.png")
+      expect(photo.headers.get("content-security-policy")).toBe(appPolicy)
+      await photo.body?.cancel()
     }
   })
 

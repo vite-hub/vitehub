@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, progressCooldownMs, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget, nextMinorReviewRound, type AutomatedReviewClass } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -7,10 +7,11 @@ import { isRuntimeNumber, isRuntimeString } from '../../internal/runtime-type.ts
 import { isRuntimeRecord } from '../../internal/runtime-type.ts'
 import { createNodeSqliteInboxStorage, type PullRequestInboxExecutor, type PullRequestInboxRow, type PullRequestInboxStorage } from './storage.ts'
 import type { AgentRunActivity } from '@vite-hub/agent'
+import { isBabysitterCheckRun } from '../check-run.ts'
 import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSchema, statusDeliverySchema, statusOutboxPrefix, statusSentPrefix, statusWriterPrefix, statusTargetKey, workerBlockerPrefix, type StatusDelivery } from './status-delivery.ts'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
-import { matchesGitHubPullRequestFilter } from '@vite-hub/agent/channels'
+import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 
 export type Snapshot = {
@@ -53,7 +54,11 @@ export interface GitHubInboxSummary {
   dailyPassBudget?: DailyPassBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
-export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
+export type Claim = {
+  token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity
+  /** The pass's class of the automated review of the claimed head. `finish()` records it with `budgets.minorReviewRounds`. */
+  automatedReview?: AutomatedReviewClass
+}
 export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
@@ -113,12 +118,15 @@ export interface PullRequestInboxOptions {
   storage?: PullRequestInboxStorage
   /** Separates inboxes that share one storage, for example one per Agent. */
   scope?: string
-  repositories: readonly string[]
+  /** The served repositories, or a function that returns the current lowercase list on each read. */
+  repositories: readonly string[] | (() => readonly string[])
   filter?: GitHubPullRequestFilter
   clock?: () => number
   activityAuthors?: readonly string[]
   activityAppId?: number
   budgets?: InboxBudgets
+  /** Claim a PR whose base is another open PR's branch. By default it waits until its parent merges. */
+  claimStackChildren?: boolean
   /**
    * Called once per process for each stored PR row that fails validation. The inbox skips such a row
    * in claims, summaries and wait evaluation, so one bad row cannot stop the queue or its health.
@@ -195,7 +203,7 @@ export function looksMergeReady(s: Snapshot): boolean {
     if (!previous || numeric >= previous.id) latest.set(key, { id: numeric, status: String(status), conclusion: String(conclusion).toLowerCase() })
   }
   for (const check of Object.values(s.checks)) {
-    if (check.deleted || check.head_sha !== head) continue
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check)) continue
     keep(`check\0${String(check.name)}\0${String(check.app?.id ?? '')}`, check.id, check.status, check.conclusion)
   }
   for (const status of Object.values(s.statuses)) {
@@ -236,20 +244,26 @@ export class PullRequestInbox {
   private scope: string
   private ready?: Promise<void>
   private tables: { pullRequests: string; deliveries: string; meta: string; schemaVersion: string }
-  private repositories: string[]
+  private repositoryList: () => readonly string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
+  private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
     this.budgets = { ...budgets }
+    this.claimStackChildren = claimStackChildren
     this.invalidRow = invalidRow
-    this.repositories = repositories.map(repository => repository.toLowerCase())
+    if (typeof repositories === 'function') this.repositoryList = repositories
+    else {
+      const fixed = repositories.map(repository => repository.toLowerCase())
+      this.repositoryList = () => fixed
+    }
     this.clock = clock
     this.filter = filter
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
@@ -330,8 +344,12 @@ export class PullRequestInbox {
     this.reportedRows.add(key)
     try { this.invalidRow?.({ repository, number, error }) } catch {}
   }
+  private get repositories(): readonly string[] {
+    return this.repositoryList()
+  }
   private repositoryFilter(column = 'repository'): { sql: string; args: string[] } {
-    return { sql: `${column} IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
+    const repositories = [...this.repositories]
+    return { sql: `${column} IN (${repositories.map(() => '?').join(',')})`, args: repositories }
   }
   private ownsComment(comment: GitHubEvidence | undefined): boolean {
     return this.activityAppId !== undefined
@@ -907,7 +925,7 @@ export class PullRequestInbox {
     return true
   }
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
-    return Boolean(pr && pr.state === 'open' && matchesGitHubPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
+    return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
   }
   async seed(repository: string, value: unknown): Promise<Snapshot> {
     repository = repository.toLowerCase()
@@ -956,6 +974,10 @@ export class PullRequestInbox {
       if (!supported.includes(event)) return await finish('irrelevant event')
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return await finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return await finish('irrelevant review thread action')
+      // The host's own check run and its suite report this inbox's state. As evidence they
+      // would wake the PR on every status update and gate its merge on itself.
+      if (event === 'check_run' && isBabysitterCheckRun(payload.check_run)) return await finish('own check run')
+      if (event === 'check_suite' && this.activityAppId !== undefined && payload.check_suite?.app?.id === this.activityAppId) return await finish('own check suite')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
       // Match commit-scoped evidence to the current head. Pull request
       // synchronize payloads also have `after`, but must advance that head.
@@ -987,7 +1009,7 @@ export class PullRequestInbox {
         const s = existing ?? this.empty(repository, number)
         // Event filters govern admission only. Lifecycle evidence must still
         // invalidate active work when the author, labels, head, or state changes.
-        if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
+        if (!existing && !matchesBabysitterPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
         const pushRefMatch = event === 'push' && (payload.ref === `refs/heads/${s.pr?.base?.ref}` || payload.ref === `refs/heads/${s.pr?.head?.ref}`)
         const pendingHead = sha && (check || event === 'status') && (s.wait?.headSha === sha || s.lease && s.leaseUntil > this.clock() && (s.sourcePushHeads?.includes(sha) || s.prospectivePush?.token === s.lease && s.prospectivePush.heads.includes(sha)))
         if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch && !pendingHead) continue // unrelated old-head CI cannot wake current head
@@ -1141,8 +1163,8 @@ export class PullRequestInbox {
       for (const candidate of candidates) {
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
-        // Stack children remain local; a parent merge's base push wakes them.
-        if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
+        // Stack children remain local unless they repair alongside their parent; a parent merge's base push wakes them.
+        if (!this.claimStackChildren && candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
             AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
@@ -1361,6 +1383,8 @@ export class PullRequestInbox {
       else { s.status = 'waiting'; s.handled = s.generation; s.reasons = [] }
       if (s.status !== 'terminal' && s.progressBudget?.exhausted && s.progressBudget.head === head) {
         s.status = 'waiting'; s.nextAt = 0; s.reasons = ['no-progress-budget-exhausted']
+        const due = (s.progressBudget.exhaustedAt ?? this.clock()) + progressCooldownMs
+        if (s.wait) s.wait.retryAt = Math.min(s.wait.retryAt ?? due, due)
       }
       await this.put(tx, s)
       if (s.generation === claim.generation) await this.enqueueStatusResult(tx, s, claim)
@@ -1385,9 +1409,12 @@ export class PullRequestInbox {
   }
   private recordReviewPush(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const limit = this.budgets.reviewPushes
-    if (limit === undefined || !progress) return
-    if (progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
-    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, claim.snapshot.pr?.head?.sha)
+    if (limit === undefined) return
+    const head = claim.snapshot.pr?.head?.sha
+    const rounds = this.budgets.minorReviewRounds
+    if (rounds !== undefined && claim.automatedReview && head) s.reviewPushBudget = nextMinorReviewRound(s.reviewPushBudget, limit, rounds, claim.automatedReview, head)
+    if (!progress || progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
+    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, head)
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha
@@ -1399,6 +1426,7 @@ export class PullRequestInbox {
       const verified = progress.kind === 'verified' && !creditedEvidence.includes(progress.evidence)
       const count = verified ? 0 : (previous?.count ?? 0) + 1
       s.progressBudget = { head, limit, count, exhausted: count >= limit,
+        ...count >= limit ? { exhaustedAt: previous?.exhausted ? previous.exhaustedAt : this.clock() } : {},
         evidence: verified ? progress.evidence : previous?.evidence,
         creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
         resetReason: previous?.resetReason, ...(previous?.grants ? { grants: previous.grants } : {}) }
@@ -1432,6 +1460,10 @@ export class PullRequestInbox {
         || (s.revision ?? 0) !== (observed.revision ?? 0) || s.pr?.head?.sha !== observed.pr?.head?.sha) return false
       parseWait({ ...s.wait, evidenceKey })
       if (s.wait.evidenceKey === evidenceKey) return false
+      const budget = s.progressBudget
+      if (budget?.exhausted && budget.head === s.pr?.head?.sha && this.clock() - (budget.exhaustedAt ?? 0) >= progressCooldownMs) {
+        s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, exhaustedAt: undefined, resetReason: 'cooldown' }
+      }
       if (options.recovery) { s.recoveryHead = s.pr?.head?.sha; s.refresh = true }
       else delete s.recoveryHead
       delete s.wait
@@ -1486,7 +1518,7 @@ export class PullRequestInbox {
       const parsed = this.parseRow(row, parseSummary, 'summary')
       if (!parsed) return []
       const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
-      if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
+      if (this.claimStackChildren || summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })
   }

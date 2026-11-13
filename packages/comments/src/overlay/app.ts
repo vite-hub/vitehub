@@ -782,15 +782,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function toolbar(): VNode {
     void tick.value
     if (marking.value || finishing.value) return markerToolbar()
-    const people = room?.people() ?? []
-    const seen = new Set<string>()
-    const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
+    const signOutUrl = session?.signOut
+    const github = signOutUrl ? session?.github : undefined
+    // Each person shows once, however many tabs they have open. The sign-out button shows the person themselves, so
+    // presence then lists only the others.
+    const seen = new Set(github && session?.user ? [session.user.id] : [])
+    const people = (room?.people() ?? []).filter(person => !seen.has(person.id) && seen.add(person.id))
+    const avatars = people.slice(0, 5).map(person =>
       h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
+    const peopleLabel = `${people.length} ${github ? "other " : ""}${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
-    const signOutUrl = session?.signOut
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value
         ? h("button", {
@@ -819,10 +823,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         : null,
       canComment.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
-      avatars.length > 0 ? h("span", { "aria-label": `${people.length} on this page`, class: "people" }, avatars) : null,
-      signOutUrl && session?.github
-        ? h("button", { "aria-label": `Sign out @${session.github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${session.github.login}. Sign out`, type: "button" },
-            session.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session.user?.name ?? session.github.login))
+      avatars.length > 0 ? h("span", { "aria-label": peopleLabel, class: "people" }, avatars) : null,
+      signOutUrl && github
+        ? h("button", { "aria-label": `Sign out @${github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${github.login}. Sign out`, type: "button" },
+            session?.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session?.user?.name ?? github.login))
         : null,
     ])
   }
