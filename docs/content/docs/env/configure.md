@@ -118,14 +118,13 @@ To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime f
 
 ## Env Declaration options
 
-`env()` and `env.variable()` accept the same options.
+`env()` declares one variable. A value is required by default. Set `optional: true` when the app can run without it, or set a `default`. You cannot set both, because a default makes the value always present.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `source` | `EnvSource` or `EnvSourceResolver` | Section key lookup | Where the value comes from. |
-| `default` | `unknown` | None | Value to use when the source has none. |
-| `required` | `boolean` | `true` unless `optional` is set | Throws when the runtime value is missing. Server Env checks all values at once, so one missing value fails every read. |
-| `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
+| `default` | `unknown` | None | Value to use when the source has none. Cannot be combined with `optional: true`. |
+| `optional` | `boolean` | `false` | Lets the value be missing. Without it, a missing value throws `ENV_REQUIRED_MISSING`. Server Env checks all values at once, so one missing value fails every read. |
 | `mode` | `EnvMode` | `runtime` | Build Env or Runtime Env: `build` or `runtime`. |
 | `schema` | Standard Schema-compatible parser, or `env.schemaFrom()` | string parser | Parses `env.public` and `env.define` values. `env.server` accepts the built-in parsers below, or a schema from a module through [`env.schemaFrom()`](#validate-server-env-with-your-own-schema). |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
@@ -529,11 +528,9 @@ On Cloudflare, the Wrangler config lists a required secret only when it has one 
 | `env.source(['PRIMARY', 'FALLBACK'])` | The first variable that exists. |
 | `env.source(['PRIMARY', 'FALLBACK'], { skipEmpty: true })` | The first variable that is not empty. |
 | `env.custom(label, resolver)` | Your own callback. |
-| `env.gitBranch()` | Current Git branch. |
-| `env.gitCommit({ short })` | Current Git commit. |
-| `env.gitRef()` | Current Git ref. |
-| `env.gitSha({ short })` | Current Git SHA. |
-| `env.gitTag()` | Current Git tag. |
+| `env.gitBranch()` | Current branch. Reads `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. |
+| `env.gitCommit({ short })` | Current commit SHA. Reads `GIT_SHA`, then `GITHUB_SHA`, then local Git. `short` keeps 7 characters of a CI value. |
+| `env.gitTag()` | Current tag, or `undefined`. Reads `GIT_TAG`, then `GITHUB_REF_NAME` on a GitHub tag ref, then local Git. |
 | `env.buildTimestamp()` | Build timestamp. |
 | `env.packageJson(path)` | A value from `package.json`. |
 | `env.provider(name, key)` | One key from a runtime provider snapshot. Server Env only. |
