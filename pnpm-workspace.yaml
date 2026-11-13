@@ -3,6 +3,7 @@ packages:
   - "fixtures/tutorials/chat-app"
   - "packages/*"
   - "packages/*/examples/*"
+  - "packages/docs/playground"
   - "playground/console"
   - "playground/content"
   - "playground/docs"
