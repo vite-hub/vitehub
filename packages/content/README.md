@@ -61,6 +61,15 @@ it. When `server/content.ts` imports it, the generated
 `.vitehub/content/sqlite.mjs` Nitro plugin loads it while the server starts,
 because a Worker compiles WebAssembly only then.
 
+`content.searchSections(names?, { headings, ignore })` returns every document
+split by heading, for a search that ranks in the browser or in another index.
+It needs no database, so it works on every host. Each part has `id` (the
+document path, plus `#<heading id>`), `title`, `titles` (the headings above it),
+`level`, `content`, and its document's `source` and `key`. `headings` defaults
+to `[2, 3]`, and headings inside components count. `ignore` lists tags whose
+text search skips. `contentSearchSections(document, options)` splits one parsed
+document the same way.
+
 Use `contentSource(input, { prefix, schema, url })` to configure a Source. `url`, such as `"/:id"`, lists the Source's documents in the sitemap; the id is the document path without its leading slash. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` serves the Comark Web handler as a Fetchable route, `{ fetch(request) }`. `defineContentSitemapHandler()`, `defineContentRobotsHandler()`, and `defineContentLlmsHandler()` return Fetchable routes too. `defineContentMarkdownHandler()` is H3 middleware, because it returns nothing to pass other requests on. It takes the Content runtime or a function that loads it; with a function, it loads Content only for requests that ask for Markdown. `@vite-hub/content/markdown` exports it without the Content runtime, for the generated middleware that loads when the server starts.
 
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
@@ -251,6 +260,9 @@ export default defineContent({
 - With more than one `github()` Source, name the one to preview: `previews: { source: "docs" }`. Without a `github()` Source, or with a name that is not one, a preview URL fails with `CONTENT_R0045`.
 - An encoded `/`, a dot part such as `%2e%2e`, and a ref that `at()` does not accept never reach the app as a preview, so the page path cannot leave the prefix. A SHA opens only as `/blob/<sha>`, and a pull request only as `/pr/<number>`, so each commit view has one URL shape.
 - The server renders the page at its production path, and the browser keeps the preview URL. In Nuxt, the client router does not know the prefix yet, so a page that reads its route on the client, such as a `useAsyncData()` key from `useRoute().path`, sees the preview URL after hydration.
+- `content.sources.previewLinks(number, { site?, maxAge? })` returns the preview links of a pull request: `{ source, repo, sha, pull, access, expiresAt, pages }`, where each page is `{ key, path, url }` for a file of the pull request that is a page of the Source. It reads the GitHub file list of the pull request, and leaves out removed files and files that are not pages. `access` is what `allow()` decides for a reader without a cookie: `pull`, `label`, or `published` give plain links; for a private pull request, such as a CMS publish, it is `token` and each link has a token from `sign()`, valid for `maxAge` seconds (one hour by default, 24 hours at most). `fork`, `closed`, and `unpublished` links are never signed and answer 404 until the rule changes. `url` is absolute with `site` or `seo.site`, else a path. It throws `CONTENT_R0079` without `previews` and `CONTENT_R0075` when GitHub has no such pull request. This is trusted server API, like `sign()`.
+- With `previews` on, a CMS `publish()` that opens a pull request returns `previews`: `[{ collection, id, locale?, url, expiresAt }]`, a signed `/pr/<number>/<url>` link for each published document with a `url`, valid for one hour. The link shows the pull request when the page reads the `github()` Source of `previews`, as when the CMS edits the files of the docs repository. Collections still read `published` in a preview request. When Content cannot sign, the pull request still opens, `previews` is missing, and Content logs `CONTENT_R0076`. The Console offers "Open preview" after such a publish when it can open the link.
+- Revisions of the Blob + Database store do not open at `/blob/<id>`. Their ids are not Git commits, and `/blob` reads a commit of the `github()` Source after `allow()` checks it on GitHub. Draft preview and preview frames show those revisions.
 - The prefixes sit at the root of the host. `parseContentPreviewPath(pathname)` reads a URL the same way. In another server, add `defineContentPreviewRoutesPlugin(content)` from `vite-hub/content/preview` first in the Nitro 3 plugin list, before async plugins, or call `content.sources.route(request, next)` yourself.
 
 ## Page history
@@ -277,7 +289,7 @@ In development, ViteHub writes `.vitehub/types/content.d.ts` with Comark's type 
 
 ## Markdown rendering
 
-Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.
+Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. `markdown: { preset: false, plugins }` parses with your plugins alone, as `@vite-hub/docs` does with `docsMarkdown()`. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.
 
 Render a page with ViteHub UI. Its `Markdown` primitive accepts both a parsed Content page and a Markdown string, with Comark UI components and document styles already configured:
 
@@ -445,6 +457,7 @@ vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry
 vitehub content scheduled [collection] [id] [--status pending|overdue|failed]
 vitehub content unschedule <schedule>
 vitehub content sitemap [--site <url>] [--xml]
+vitehub content previews comment --pr <number> [--post] [--site <url>] [--max-age <seconds>]
 vitehub content head [source]
 vitehub content advance [source]
 vitehub content pin <sha> [source]
@@ -456,6 +469,8 @@ vitehub content check [source] --dir <folder> [--page-url <pattern>] [--schema <
 `check` prints each finding as `path:line  severity  code  message`, and exits with status 1 when one is an error. Against the app it calls `content.check()`. With `--dir` it checks a folder of the working tree as one Source and needs no app, for CI on content pull requests. `--json` prints the `ContentCheckResult`.
 
 `head`, `advance`, `pin`, and `unpin` call `content.sources` of the app. Without a name, `head` shows every `github()` Source, and the others move the only one. With more than one, they ask for the name. Each head shows the commit, the pin, the last check, the rejected commit, the last webhook delivery, and `diagnostic` with its fix: `CONTENT_R0020` (no token), `CONTENT_R0021` (no KV store), `CONTENT_R0019` (the newest commit does not parse, and the head did not move after it), or `CONTENT_R0035` (GitHub answered 403 or 429 to the branch lookup). `advance` and `unpin` exit with status 1 when the head is held back. They need the `content` section of the Console access; `head` needs only `content:read`.
+
+`previews comment` prints a Markdown comment with the `/pr/<number>` link of each page that a pull request adds or changes, from `content.sources.previewLinks()`. The links of a private pull request are signed. With `--post`, it creates the comment on GitHub, or updates the one that starts with `<!-- vitehub-content-previews -->`, with `VITEHUB_GITHUB_TOKEN` from the environment of the command. Without the token it fails with `CONTENT_R0077`, and when GitHub refuses it fails with `CONTENT_R0078`. The operation signs links, so it needs the whole `content` section of the Console access. Nothing runs it on its own: deploys and comments stay local, and a GitHub Action that runs it is opt-in.
 
 Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation through the app's `POST /_vitehub/rpc` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, and signs each call with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. The operations call `content.can()` with the user of the call: the person that the Console signed, or no user for the CLI.
 

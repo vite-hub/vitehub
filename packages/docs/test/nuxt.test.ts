@@ -463,7 +463,8 @@ describe("docs Nuxt setup", () => {
     const changed = watchContent.mock.calls.at(-1)![2]!
     changed("rename", "nested")
     await vi.advanceTimersByTimeAsync(100)
-    expect(templates.get("docs/manifest.mjs")?.()).toContain("First page")
+    // The manifest reads the files through Content, so the run ends after real I/O, not after a timer.
+    await vi.waitFor(() => expect(templates.get("docs/manifest.mjs")?.()).toContain("First page"))
     expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("First page")
   })
 
@@ -508,20 +509,19 @@ describe("docs Nuxt setup", () => {
       writeFileSync(page, "---\ntitle: Page\n---\n# Older");
       changed("change", multiple ? "index.md" : "docs/index.md");
       await vi.advanceTimersByTimeAsync(100);
-      expect(transform).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(transform).toHaveBeenCalledTimes(1));
       writeFileSync(multiple ? join(second, "index.md") : page, "---\ntitle: Page\n---\n# Newer");
       changedSecond("change", multiple ? "index.md" : "docs/index.md");
       await vi.advanceTimersByTimeAsync(100);
       const concurrent = transform.mock.calls.length;
       release();
-      await vi.advanceTimersByTimeAsync(0);
       expect(concurrent).toBe(1);
-      expect(
+      await vi.waitFor(() => expect(
         readFileSync(
           join(options.buildDir, multiple ? "docs/raw/other.md" : "docs/raw/docs.md"),
           "utf8",
         ),
-      ).toContain("Newer");
+      ).toContain("Newer"));
     },
   );
 

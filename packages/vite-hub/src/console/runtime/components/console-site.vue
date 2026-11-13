@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { consoleDateTime, consoleInitials, consoleRelativeTime } from "../client/format";
-import { grantSummary, inviteGuest, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokePass } from "../client/site-access";
+import { grantSummary, inviteGuest, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
 import { rememberConsoleSection } from "../sections";
 import ConsoleConfirm from "./console-confirm.vue";
@@ -10,12 +10,12 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
-import type { SiteGrant, SiteInvite, SitePass } from "../client/site-access";
+import type { SiteGrant, SiteInvite, SiteSession } from "../client/site-access";
 
 /**
- * Site access: who uses the page tools of the app without signing in to it. Members open the site from here, or scan a
- * QR code with a phone. Guests get a one-time link with a name and the grants a member picked; they never see the
- * Console. Each browser is one row, and revoking it ends its pass on its next request.
+ * Site access: who the Console signs in to the app for the page tools. Members open the site from here, or scan a QR
+ * code with a phone. Guests get a one-time link with a name and the roles a member picked; they never see the Console.
+ * Each browser is one row, an app session. Revoking a member's browser signs it out; revoking a guest's deletes the guest.
  */
 defineProps<{
   agentsBase: string;
@@ -26,7 +26,7 @@ defineProps<{
 }>();
 
 const toast = useConsoleToast();
-const passes = ref<SitePass[]>([]);
+const sessions = ref<SiteSession[]>([]);
 const invites = ref<SiteInvite[]>([]);
 const grants = ref<SiteGrant[]>([]);
 const loading = ref(true);
@@ -43,7 +43,7 @@ async function load(): Promise<void> {
   try {
     const next = await readSiteAccess(controller.signal);
     if (controller.signal.aborted) return;
-    passes.value = next.passes;
+    sessions.value = next.sessions;
     invites.value = next.invites;
     grants.value = next.grants;
   }
@@ -56,11 +56,11 @@ async function load(): Promise<void> {
 }
 
 const guestGrants = computed(() => grants.value.filter(grant => !grant.membersOnly));
-const members = computed(() => passes.value.filter(pass => pass.kind === "member"));
-const guests = computed(() => passes.value.filter(pass => pass.kind === "guest"));
+const members = computed(() => sessions.value.filter(pass => pass.kind === "member"));
+const guests = computed(() => sessions.value.filter(pass => pass.kind === "guest"));
 
-/** `now`, `5 minutes ago`, `3 hours ago`, then `3 days ago`: a pass lasts 90 days after its last use, so days matter. */
-function lastUsed(pass: SitePass): string {
+/** `now`, `5 minutes ago`, `3 hours ago`, then `3 days ago`: an app session lasts days after its last use, so days matter. */
+function lastUsed(pass: SiteSession): string {
   const days = Math.floor((now.value - Date.parse(pass.lastSeenAt)) / 86_400_000);
   if (days >= 1) return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(-days, "day");
   return consoleRelativeTime(pass.lastSeenAt, now.value)?.label ?? consoleDateTime(pass.lastSeenAt);
@@ -73,7 +73,7 @@ function expiresIn(value: string): string {
   return hours >= 24 ? "Expires tomorrow" : `Expires in ${hours} ${hours === 1 ? "hour" : "hours"}`;
 }
 
-// Open site: the new tab gets a member pass, then the app's home page.
+// Open site: the new tab is signed in as you, then opens the app's home page.
 const opening = ref(false);
 async function open(): Promise<void> {
   opening.value = true;
@@ -133,7 +133,7 @@ const canInvite = computed(() => inviteName.value.trim().length > 0 && inviteGra
 function startInvite(): void {
   inviteName.value = "";
   // Most guests come to comment: they read and write.
-  inviteGrants.value = guestGrants.value.filter(grant => grant.id === "comments.read" || grant.id === "comments.write").map(grant => grant.id);
+  inviteGrants.value = guestGrants.value.filter(grant => grant.id === "comments-read" || grant.id === "comments-write").map(grant => grant.id);
   inviteDays.value = "7";
   invited.value = undefined;
   copied.value = false;
@@ -167,12 +167,12 @@ async function copyInvite(): Promise<void> {
 }
 
 // Revoke a browser or an open invite.
-const revoking = ref<{ kind: "pass", pass: SitePass } | { kind: "invite", invite: SiteInvite }>();
+const revoking = ref<{ kind: "session", session: SiteSession } | { kind: "invite", invite: SiteInvite }>();
 const revokeOpen = ref(false);
 const revokeBusy = ref(false);
-const revokeTitle = computed(() => revoking.value?.kind === "pass" ? `Revoke ${revoking.value.pass.person.name} on ${revoking.value.pass.device}?` : `Revoke the invite for ${revoking.value?.invite.name}?`);
-const revokeDescription = computed(() => revoking.value?.kind === "pass"
-  ? "This browser loses the page tools on its next page. Their comments stay."
+const revokeTitle = computed(() => revoking.value?.kind === "session" ? `Revoke ${revoking.value.session.person.name} on ${revoking.value.session.device}?` : `Revoke the invite for ${revoking.value?.invite.name}?`);
+const revokeDescription = computed(() => revoking.value?.kind === "session"
+  ? (revoking.value.session.kind === "guest" ? "This signs the browser out and deletes the guest. Their comments stay." : "This signs the browser out of the app.")
   : "The link stops working. Nobody has opened it yet.");
 
 function askRevoke(target: NonNullable<typeof revoking.value>): void {
@@ -185,9 +185,9 @@ async function revoke(): Promise<void> {
   if (!target) return;
   revokeBusy.value = true;
   try {
-    if (target.kind === "pass") {
-      await revokePass(target.pass.id);
-      passes.value = passes.value.filter(pass => pass.id !== target.pass.id);
+    if (target.kind === "session") {
+      await revokeSession(target.session.id);
+      sessions.value = sessions.value.filter(session => session.id !== target.session.id);
       toast.show({ title: "Browser revoked" });
     }
     else {
@@ -241,7 +241,7 @@ onBeforeUnmount(() => {
       </div>
       <div v-else class="mx-auto grid w-full max-w-3xl gap-8 p-6">
         <p class="text-pretty text-[13px] text-muted">
-          Browsers here get the page tools on the site without signing in to the app. Members also get the Console link; guests get only what you picked.
+          The Console signs these browsers in to the app, so they get the page tools. Members also get the Console link; guests get only the roles you picked.
         </p>
 
         <section v-for="group in [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">
@@ -256,10 +256,10 @@ onBeforeUnmount(() => {
                 <span class="truncate text-[13px] font-medium text-highlighted">{{ pass.person.name }}</span>
                 <span class="truncate text-xs text-dimmed">{{ pass.device }} · {{ grantSummary(pass.kind, pass.grants, grants) }}</span>
               </span>
-              <UTooltip :text="`Linked ${consoleDateTime(pass.createdAt)} by ${pass.createdBy.name}`">
+              <UTooltip :text="`Signed in ${consoleDateTime(pass.createdAt)}`">
                 <span class="shrink-0 text-xs tabular-nums text-dimmed max-sm:hidden">Used {{ lastUsed(pass) }}</span>
               </UTooltip>
-              <UButton size="xs" variant="ghost" color="neutral" label="Revoke" :aria-label="`Revoke ${pass.person.name} on ${pass.device}`" @click="askRevoke({ kind: 'pass', pass })" />
+              <UButton size="xs" variant="ghost" color="neutral" label="Revoke" :aria-label="`Revoke ${pass.person.name} on ${pass.device}`" @click="askRevoke({ kind: 'session', session: pass })" />
             </li>
           </ul>
           <p v-else class="rounded-lg border border-dashed border-default px-3 py-4 text-center text-xs text-dimmed">

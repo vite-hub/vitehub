@@ -863,6 +863,32 @@ export default defineAgent({
 - Queued reconciliation reloads the PR head, comments, and files before the Driver starts.
 - Eligibility is decided on acceptance and kept while the delivery waits.
 
+### When the branch moves or the pull request closes
+
+`concurrencyLimit: 1` stops two Agent runs from writing one branch, but a person can still push to it. ViteHub watches `pull_request` events for this even when `reconcile.events` leaves them out, such as `events: []`. `pullRequest.reconcile.headMoves` sets what happens after a push by an account that is not a bot:
+
+| Run state | `headMoves: 'notify'` (default) | `headMoves: 'cancel'` |
+| --- | --- | --- |
+| Queued | Starts on the new head. Its prompt names the commit and the person who pushed it, and tells the Agent to check that the request still applies before it edits or pushes. | Is dropped and does not start. |
+| Running | Continues. | Is cancelled. |
+
+```ts fragment
+reconcile: {
+  concurrencyLimit: 1,
+  events: [],
+  headMoves: 'cancel',
+  mentions: ['@agent'],
+}
+```
+
+A `closed` event, including a merge, always drops the queued runs of the pull request and cancels its running runs. `reopened` lets new runs start again.
+
+- Pushes from bot accounts, such as the Agent's own GitHub App, are ignored, the same as for `synchronize` runs.
+- A cancelled run is final. The queue does not retry it, and the Invocation shows as cancelled.
+- Cancellation reaches runs in the server process that receives the webhook. With one server process, that is every run. With more than one, a run on another process continues until it ends.
+- Queued runs need the Channel State of a durable webhook State, such as SQLite or libSQL, to see a push that came while they waited.
+- A run that is already running gets no notice with `notify`. Use `cancel` when a person and the Agent often push to the same branch.
+
 ### Hosted CI
 
 `pullRequest.ci` tells the run what to do with hosted CI after it pushes:

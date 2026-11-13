@@ -199,5 +199,30 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass a page path such as `/blog/hello` to `content.page()`, and a whole `offset` of 0 or more and a `limit` from 1 to 1000 to `content.pages()`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    /** `content.sources.previewLinks()` found no pull request with that number, or the Source cannot list its files. */
+    CONTENT_R0075: {
+      fix: "Check the pull request number on GitHub. A private repository needs `VITEHUB_GITHUB_TOKEN` with read access to pull requests.",
+      why: ({ source, pull, reason }: { source: string, pull: number, reason: string }) => `[vitehub] Content source ${JSON.stringify(source)} has no preview links for pull request #${pull}: ${reason}.`,
+    },
+    /** A publish with `publish: "pr"` opened its pull request, but Content could not sign the preview links of its pages. */
+    CONTENT_R0076: {
+      fix: "Set `VITEHUB_CONTENT_KEY` to 32 random bytes as base64 or hex, such as from `openssl rand -base64 32`. The pull request is open; `vitehub content previews comment --pr <number>` prints its links later.",
+      why: ({ pull, reason }: { pull: number, reason: string }) => `[vitehub] Content opened pull request #${pull} but returned no preview links: ${reason}`,
+    },
+    /** `vitehub content previews comment --post` has no GitHub token to write the comment with. */
+    CONTENT_R0077: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` to a token that can write pull request comments, such as `${{ secrets.GITHUB_TOKEN }}` in a GitHub Action with `pull-requests: write`. Without --post, the command only prints the comment.",
+      why: () => "[vitehub] `vitehub content previews comment --post` needs VITEHUB_GITHUB_TOKEN.",
+    },
+    /** GitHub refused to list, create, or update the preview comment of a pull request. */
+    CONTENT_R0078: {
+      fix: "Check that the token in `VITEHUB_GITHUB_TOKEN` can write issues and pull requests of the repository, and that the pull request exists.",
+      why: ({ repo, pull, status, action }: { repo: string, pull: number, status: number, action: string }) => `[vitehub] GitHub answered ${status} when Content tried to ${action} the preview comment of ${repo}#${pull}.`,
+    },
+    /** `content.sources.previewLinks()` ran on a runtime without `defineContent({ previews })`, so the links would 404. */
+    CONTENT_R0079: {
+      fix: "Set `previews: true` in `defineContent()`, with one `github()` Source, so the app serves `/pr/<number>/<path>`.",
+      why: () => "[vitehub] content.sources.previewLinks() needs defineContent({ previews: true }): without it, the app serves no /pr/<number> URLs.",
+    },
   },
 })

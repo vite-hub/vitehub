@@ -389,6 +389,18 @@ export interface ContentPullRequest {
   url: string
 }
 
+/** The preview link of one page that a pull request publishes. */
+export interface ContentPublishPreview {
+  collection: string
+  id: string
+  /** The locale of the document, in a collection with `locales`. */
+  locale?: string
+  /** The `/pr/<number>/<path>` URL of the document `url`, with a signed `?vitehub-content-token`. Absolute with `seo.site`. */
+  url: string
+  /** When the signed link stops working: one hour after the publish, as for `content.preview`. */
+  expiresAt: Date
+}
+
 export interface ContentPublishResult {
   /** The new `published` revision, or null when nothing differed from the draft. With a pull request: the commit on its branch. */
   revision: ContentRevision | null
@@ -397,6 +409,11 @@ export interface ContentPublishResult {
   pullRequest?: ContentPullRequest
   /** `true` while `pullRequest` is open. `onPublish()` listeners run when `published` changes, not now. */
   pending?: true
+  /**
+   * With `pullRequest` and `defineContent({ previews: true })`: a signed `/pr/<number>/<path>` link for each published
+   * document with a `url`. The pull request is private, as every CMS publish branch is, so the link carries a token.
+   */
+  previews?: ContentPublishPreview[]
 }
 
 /** The document that an app path shows. */

@@ -277,7 +277,7 @@ export default {
 } satisfies DocsParserOptions
 ```
 
-Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts parse with these options.
+Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts parse with these options. The page route reads each page with `content.get()` from a Content runtime over the bundled pages, so Content caches the parsed page. To parse docs pages in your own `server/content.ts`, pass `defineContent({ markdown: docsMarkdown(options) })` from `@vite-hub/docs/server`. It turns off Content's own comark-ui preset, so the output is the same as the page route's.
 
 | Option | Default | Use |
 | --- | --- | --- |
@@ -435,7 +435,7 @@ export default defineContent({
 
 ## Inspect
 
-- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. A script reads the whole manifest with `createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
+- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. The build lists the pages and `.navigation.yml` files through ViteHub Content: `createDocsContent()` gives one `glob()` Source per content folder, named `docs_<index>`. A script reads the whole manifest with `await createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
 - The agent copy of each page is in `.nuxt/docs/raw/`.
 - The Markdown blocks that pages can use are in `.nuxt/docs/components.mjs`.
 - A running site serves the parsed page at `/api/_docs/page/<page>.json` and the search index at `/api/_docs/search.json`.

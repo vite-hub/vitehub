@@ -114,13 +114,14 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | --- | --- |
 | Signed in [with GitHub](#sign-in-with-github) | Everything when they can push to the build's repository. Otherwise nothing, also on the dev server. |
 | A caller of comment operations through the [Console](#comments-through-the-console), the CLI, or MCP, with the Comments section, in an app without `identify` | Everything the Console grant allows. The overlay on pages does not use this check. |
+| Signed in with a `comments-` role, which [Site access](#roles-from-site-access) gives | What the roles allow. |
 | Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API returns [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the log shows `COMMENTS_R0006` once. |
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
 
-On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, [Sign in with GitHub](#sign-in-with-github), or a [page pass](#page-passes). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
+On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -280,14 +281,19 @@ The server does not verify a guest name or ID. They are display data, never proo
 
 A guest id starts with `guest:`, so it never matches a signed-in person's id. Guests cannot delete messages or threads, even when the policy allows `delete`, and nobody can mention a guest. To delete your messages, sign in, or ask a signed-in moderator with `delete`.
 
-### Page passes
+### Roles from Site access
 
-With the Console on, members can give a browser [site access](/docs/development/console#give-browsers-site-access): their own browsers and phones, or a guest they invite with a name and the grants they pick. When nobody signed in to the app, Comments takes the person of the pass:
+[Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
-- A member comments under their Console name and picture, with every action.
-- A guest comments under the name the member gave them, with the actions the member picked. They don't type a name, and they own their messages like a signed-in person.
+Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 
-The grants of the pass decide, and `authorize` does not run for it: `comments.read`, `comments.write`, `comments.resolve`, and `comments.delete`. Any of the last three also lets the person read. A person who signed in to the app, or whom `identify` names, keeps your policy, also when the browser holds a pass.
+```ts [server/comments.ts]
+import { commentsRoleAllows, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  authorize: ({ user, action }) => commentsRoleAllows(user, action) || user?.role === "admin",
+})
+```
 
 ## Comments in your own UI
 

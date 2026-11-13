@@ -1,5 +1,6 @@
 import { Editor } from "@tiptap/core"
 import Blockquote from "@tiptap/extension-blockquote"
+import Code from "@tiptap/extension-code"
 import Image from "@tiptap/extension-image"
 import Document from "@tiptap/extension-document"
 import { TableKit } from "@tiptap/extension-table"
@@ -11,7 +12,20 @@ import type { JSONContent } from "@tiptap/core"
 import type { RealtimeEditor } from "./types.ts"
 import { Frontmatter } from "./frontmatter.ts"
 
-const RealtimeDocument = Document.extend({ content: "frontmatter? block+" })
+const RealtimeDocument = Document.extend({
+  content: "frontmatter? block+",
+  renderMarkdown(node, helpers, context) {
+    const [frontmatter, paragraph] = node.content ?? []
+    // The schema keeps an editable paragraph after frontmatter, even when the file has no body.
+    const content = node.content?.length === 2 && frontmatter?.type === "frontmatter"
+      && paragraph?.type === "paragraph" && !paragraph.content?.length
+      ? [frontmatter]
+      : node.content
+    return this.parent?.({ ...node, content }, helpers, context) ?? ""
+  },
+})
+// Markdown permits links and emphasis around inline code, and its parser preserves those marks.
+const RealtimeCode = Code.extend({ excludes: "" })
 
 // @tiptap/markdown escapes every bracket in text, so it writes `> [!NOTE]` as `> \[!NOTE\]`, which is a plain quote.
 const escapedAlertMarker = /^> \\\[!(note|tip|important|warning|caution)\\\](?=\n|$)/i
@@ -35,8 +49,9 @@ function createMarked(): typeof import("marked").marked {
 export function createRealtimeEditorExtensions(options: { collaborative?: boolean } = {}) {
   return [
     // Each collaborator's trailing node appends its own empty paragraph to the shared document, and the room keeps them all.
-    StarterKit.configure({ blockquote: false, document: false, trailingNode: options.collaborative === true ? false : undefined, undoRedo: false }),
+    StarterKit.configure({ blockquote: false, code: false, document: false, trailingNode: options.collaborative === true ? false : undefined, undoRedo: false }),
     RealtimeBlockquote,
+    RealtimeCode,
     RealtimeDocument,
     Image,
     TableKit,
@@ -64,7 +79,11 @@ export const realtimeMarkdownEditor: RealtimeEditor = defineRealtimeEditor({
       injectCSS: false,
     })
     try {
-      return editor.getJSON()
+      const document = editor.getJSON()
+      if (document.content?.length === 1 && document.content[0]?.type === "frontmatter") {
+        document.content.push({ type: "paragraph", attrs: {} })
+      }
+      return document
     }
     finally {
       editor.destroy()
