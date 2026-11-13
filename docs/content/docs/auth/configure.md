@@ -44,7 +44,7 @@ export default defineAuth({
 
 When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no Better Auth secret. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth signs with `deriveSecret('vitehub:auth')`.
 
-- Auth reads `VITEHUB_SECRET`, then `NUXT_APP_SECRET`, from the process environment and the request's Cloudflare bindings.
+- Auth reads `VITEHUB_SECRET` from the process environment and the request's Cloudflare bindings.
 - A configured Better Auth secret always wins.
 - With no secret at all, Better Auth uses a development default and throws in production.
 - A root secret shorter than 32 characters throws `AUTH_R0016`.
@@ -356,7 +356,7 @@ With a claim code set, Auth sets `verification.storeInDatabase: true`, including
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
 
-With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/development/app-mcp) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 

@@ -1,4 +1,5 @@
 import type { GitHubPullRequest } from "@vite-hub/source"
+import type { Diagnostic } from "nostics"
 
 import type { ContentSourceRef } from "./source-refs.ts"
 
@@ -45,8 +46,8 @@ export type ContentSourceAccess =
   | {
     allowed: false
     reason: ContentSourceDenyReason
-    /** `CONTENT_R0031`, for your logs. Do not send its message: answer a plain 404. */
-    error: Error
+    /** `CONTENT_R0031`, for your logs, such as with `formatDiagnostic()` from `nostics`. Do not send its message: answer a plain 404. */
+    error: Diagnostic<unknown>
   }
 
 /** The GitHub facts that the public rule reads. */

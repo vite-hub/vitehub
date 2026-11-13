@@ -236,6 +236,31 @@ describe("Babysitter review push budget", () => {
     expect(wakeReasons(deferred, "pending", budget)).toEqual(["gates-settled"]);
   });
 
+  it("stops holding a pass or a deferral for a running review once the budget is spent", async () => {
+    const now = Date.now();
+    const review = { id: 3, name: "review-bot", head_sha: head, status: "queued", started_at: new Date(now - 5 * 60_000).toISOString(), app: { id: 6 } };
+    const running = (count: number) => spent(s => { s.checks = { "check_run:3": review }; s.wait = { ...s.wait!, defer: "checks", knownFailures: [] } }, count);
+    expect(reviewCheckRunning(await running(1), budget)).toBe(true);
+    expect(reviewCheckRunning(await running(2), budget)).toBe(false);
+    expect(checksStillRunning(await running(1), now, budget)).toBe(true);
+    expect(checksStillRunning(await running(2), now, budget)).toBe(false);
+    expect(checksStillRunning(await running(2), now)).toBe(true);
+    expect(wakeReasons(await running(1), "passed", budget)).toEqual([]);
+    expect(wakeReasons(await running(2), "passed", budget)).toEqual(["gates-settled"]);
+    // CI that still runs keeps holding the deferral.
+    const ci = await spent(s => { s.checks = { "check_run:3": review, "check_run:4": { ...review, id: 4, name: "ci" } }; s.wait = { ...s.wait!, defer: "checks", knownFailures: [] } });
+    expect(checksStillRunning(ci, now, budget)).toBe(true);
+  });
+
+  it("stops waking for an assessed bot-only thread with ignoreAssessedBotThreads", async () => {
+    const thread = { id: "T2", isResolved: false, comments: [{ id: 22, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] };
+    const open = await parked(s => { s.checks = {}; s.threads = [thread]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
+    expect(wakeReasons(open, "pending", policy)).toEqual(["unresolved-thread"]);
+    expect(wakeReasons(open, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual([]);
+    const person = await parked(s => { s.checks = {}; s.threads = [{ ...thread, comments: [...thread.comments, { id: 23, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
+    expect(wakeReasons(person, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual(["unresolved-thread"]);
+  });
+
   it("counts a push as review-driven only without a conflict or a failure outside the review checks", async () => {
     const reviewed = await parked(s => { s.checks = { "check_run:3": { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } } } });
     expect(pushCause(reviewed, policy)).toBe("review");
@@ -259,17 +284,32 @@ describe("Babysitter review push budget", () => {
 describe("Babysitter daily pass budget", () => {
   it("exempts a person's feedback, the first required failure on a head, and a conflict on an otherwise ready PR", async () => {
     const clean = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => { s.checks = {}; update(s) });
-    expect(dailyPassExemption(await clean(), "passed", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(), "pending", undefined)).toBeUndefined();
     expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 2, exemptions: [] })).toBe("human-feedback");
-    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "pending", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
     expect(dailyPassExemption(await clean(), "failed", undefined)).toBe(`required-failure:${head}`);
     expect(dailyPassExemption(await clean(), "failed", { passes: [], exemptions: [`required-failure:${head}`] })).toBeUndefined();
     const conflict = await clean(s => { s.pr!.mergeable_state = "dirty"; s.pr!.base!.sha = "c".repeat(40) });
     expect(dailyPassExemption(conflict, "passed", undefined)).toBe(`conflict:${head}:${"c".repeat(40)}`);
     expect(dailyPassExemption(conflict, "passed", { passes: [], exemptions: [`conflict:${head}:${"c".repeat(40)}`] })).toBeUndefined();
-    // A conflict beside a failing check or an open thread is not an otherwise ready PR.
-    expect(dailyPassExemption(await parked(s => { s.pr!.mergeable_state = "dirty" }), "pending", undefined)).toBeUndefined();
-    expect(dailyPassExemption(await clean(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] }), "passed", undefined)).toBeUndefined();
+  });
+
+  it("exempts any conflict and one assessment of a green head once per head", async () => {
+    // A conflict beside a failing optional check or an open thread cannot clear without a pass either.
+    const conflicted = await parked(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] });
+    expect(dailyPassExemption(conflicted, "pending", undefined)).toBe(`conflict:${head}`);
+    expect(dailyPassExemption(conflicted, "pending", { passes: [], exemptions: [`conflict:${head}`] })).toBeUndefined();
+    // A green head with only an optional check failing needs one pass to assess it before it merges.
+    const green = await parked();
+    expect(dailyPassExemption(green, "passed", undefined)).toBe(`assessment:${head}`);
+    expect(dailyPassExemption(green, "passed", { passes: [], exemptions: [`assessment:${head}`] })).toBeUndefined();
+  });
+
+  it("exempts one pass per open push window on a failing head", async () => {
+    const failedOnce = { passes: [], exemptions: [`required-failure:${head}`] };
+    expect(dailyPassExemption(await parked(), "failed", failedOnce)).toBeUndefined();
+    expect(dailyPassExemption(await parked(), "failed", failedOnce, 123)).toBe(`ci-repair:${head}:123`);
+    expect(dailyPassExemption(await parked(), "failed", { ...failedOnce, exemptions: [...failedOnce.exemptions, `ci-repair:${head}:123`] }, 123)).toBeUndefined();
   });
 });
 

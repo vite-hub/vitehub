@@ -12,17 +12,16 @@ Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email`
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
-| `vite-hub` | `vitehub` | Vite plugin options. |
-| `vite-hub/email` | `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
-| `vite-hub/runtime` | `Result`, `ResultError` | The shared `[error, data]` return type. |
-| `vite-hub/email/server` | `email` | None |
+| `vite-hub` | `vitehub` | Framework Vite Integration options. |
+| `vite-hub/email` | `email`, `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |
 
-The `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` paths stay stable for libraries and apps that install only `@vite-hub/email`, without `vite-hub`.
+The direct `@vite-hub/email` and `@vite-hub/email/markdown` paths remain stable for focused libraries and applications that install the owner package without the framework distribution.
 
 ## Message contract
 
@@ -55,7 +54,7 @@ The driver decides field support, validation, address rules, message limits, and
 
 ```ts [server/welcome.ts]
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export async function sendWelcome(name: string, to: string) {
   const body = await renderEmailMarkdown([
@@ -97,7 +96,7 @@ Your workspace is ready.
 ```ts [server/welcome.ts] fragment
 import renderWelcome from '#vitehub/emails/welcome'
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export async function sendWelcome(name: string, to: string) {
   const markdown = await renderWelcome({ user: { name } })

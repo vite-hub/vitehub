@@ -56,7 +56,7 @@ describe("One-time links in an app whose Auth protects every route", () => {
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
     const builder = await createBuilder({
       logLevel: "silent",
-      plugins: [vitehub({ preset: "node", publicUrl: origin, auth: true, console: true }), nitro() as never],
+      plugins: [vitehub({ host: "node", publicUrl: origin, auth: true, console: true }), nitro() as never],
       root,
     })
     await builder.buildApp()

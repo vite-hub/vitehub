@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import { deriveViteHubSecret, isViteHubBearerSecretEqual, isViteHubSecretEqual, readViteHubSecret } from "../src/secret.ts"
+import { createHmac } from "node:crypto"
+
+import { decodeViteHubBase64Key, deriveViteHubSecret, githubHmacSignatureFormat, isViteHubBearerSecretEqual, isViteHubSecretEqual, readViteHubSecret, verifyViteHubHmacSignature } from "../src/secret.ts"
 
 describe("request secret comparison", () => {
   it("compares secrets in full and rejects missing values", () => {
@@ -50,9 +52,33 @@ describe("root secret derivation", () => {
     await expect(deriveViteHubSecret(root, "")).rejects.toThrow(/purpose/)
   })
 
-  it("reads VITEHUB_SECRET before NUXT_APP_SECRET", () => {
+  it("reads only VITEHUB_SECRET", () => {
     expect(readViteHubSecret({ NUXT_APP_SECRET: "nuxt", VITEHUB_SECRET: "vitehub" })).toBe("vitehub")
-    expect(readViteHubSecret({ NUXT_APP_SECRET: "nuxt", VITEHUB_SECRET: "" })).toBe("nuxt")
+    expect(readViteHubSecret({ NUXT_APP_SECRET: "nuxt", VITEHUB_SECRET: "" })).toBeUndefined()
     expect(readViteHubSecret({ VITEHUB_SECRET: 1 })).toBeUndefined()
+  })
+})
+
+describe("webhook HMAC signatures", () => {
+  const body = '{"ref":"refs/heads/main"}'
+  const github = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`
+
+  it("verifies GitHub's X-Hub-Signature-256 header", async () => {
+    await expect(verifyViteHubHmacSignature("secret", github, body, githubHmacSignatureFormat)).resolves.toBe(true)
+    await expect(verifyViteHubHmacSignature("secret", github.toUpperCase().replace("SHA256=", "sha256="), new TextEncoder().encode(body), githubHmacSignatureFormat)).resolves.toBe(true)
+    await expect(verifyViteHubHmacSignature("other", github, body, githubHmacSignatureFormat)).resolves.toBe(false)
+    await expect(verifyViteHubHmacSignature("secret", github, `${body} `, githubHmacSignatureFormat)).resolves.toBe(false)
+    await expect(verifyViteHubHmacSignature("secret", github.slice(7), body, githubHmacSignatureFormat)).resolves.toBe(false)
+    await expect(verifyViteHubHmacSignature("secret", null, body, githubHmacSignatureFormat)).resolves.toBe(false)
+    await expect(verifyViteHubHmacSignature("", "sha256=", body, githubHmacSignatureFormat)).resolves.toBe(false)
+  })
+
+  it("verifies base64 digests and base64 keys", async () => {
+    const key = Buffer.from("binary-key").toString("base64")
+    const header = `v1=${createHmac("sha256", Buffer.from("binary-key")).update(body).digest("base64")}`
+    await expect(verifyViteHubHmacSignature(key, header, body, { encoding: "base64", prefix: "v1=", secretEncoding: "base64" })).resolves.toBe(true)
+    await expect(verifyViteHubHmacSignature("not base64!", header, body, { encoding: "base64", prefix: "v1=", secretEncoding: "base64" })).resolves.toBe(false)
+    expect(decodeViteHubBase64Key(key)).toEqual(new Uint8Array(Buffer.from("binary-key")))
+    expect(decodeViteHubBase64Key("")).toBeUndefined()
   })
 })

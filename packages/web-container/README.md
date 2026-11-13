@@ -21,6 +21,7 @@ pnpm add @vite-hub/web-container
 | `@vite-hub/web-container/vite` | Vite config | Make the playground pages cross-origin isolated |
 | `@vite-hub/web-container/env` | Any | Detect code that runs inside a WebContainer |
 | `@vite-hub/web-container/connect` | Any | Describe which accounts a reader can connect, and map them to `env` |
+| `@vite-hub/web-container/vue` | Browser, Vue | Run an app with `useWebContainer()` and keep its state in refs |
 
 ## Make the page cross-origin isolated
 
@@ -134,6 +135,21 @@ To reuse a container's own install, `container.export()` returns a binary snapsh
 
 Use one container for each app. One container failed with `RangeError: Offset is outside the bounds of the DataView` after two full ViteHub installs.
 
+## Run it from Vue
+
+`useWebContainer()` from `@vite-hub/web-container/vue` boots an app and keeps its state in Vue refs. The workspace parts of [`@vite-hub/ui/workspace`](../ui/README.md#run-an-app-in-the-browser) render that state. Only one WebContainer runs per page.
+
+```ts
+import { useWebContainer } from "@vite-hub/web-container/vue"
+
+const app = useWebContainer({ files: { "package.json": "...", "server.js": "..." } })
+```
+
+- `useWebContainer({ files, snapshot?, install?, start?, port?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. Pass `port` when the dev server starts other servers first, as `vite dev` with Nitro does. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
+- `setFiles(files, { mode: "merge" | "replace" })` writes to the container. Edits made before the mount ends are written when it ends. `reset()` puts back the original files. `install()` runs the install again, and `restart()` restarts the dev server.
+- `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)` from `@vite-hub/ui/workspace`.
+- `logs` retains the latest output, up to 65,536 characters and 1,000 chunks. Older output is dropped. Its array carries an `offset` counting dropped characters; pass it directly to `WorkspaceTerminal` to keep writes incremental across rollover. Ordinary arrays still append by prefix and clear the terminal when replaced.
+
 ## Pass secrets per process
 
 `run()` takes `env` for that process only. Nothing is stored in the container or sent to a ViteHub server:
@@ -186,7 +202,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 - Node is 22.22.3 and cannot be changed. `engines` and `.nvmrc` are ignored.
 - `node:sqlite` loads but has no `exec()` or `prepare()`. Use `@libsql/client` with a `file:` URL.
-- workerd and Miniflare cannot run, so the Cloudflare preset cannot run locally in a container.
+- workerd and Miniflare cannot run, so the Cloudflare host cannot run locally in a container.
 - Outbound `fetch()` from the app is subject to CORS from a StackBlitz origin. A blocked request fails with `SocketError: other side closed`.
 - Spawned arguments lose backslashes. Mount a script file and run it instead of `node -e`.
 

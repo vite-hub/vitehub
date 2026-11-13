@@ -410,6 +410,9 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
+    /** Retained Workspace head resolved before the Driver starts. */
+    revision?: string
+    ref?: string
     sources?: Array<string | { id: string, repository?: string }>
   }
 }
@@ -889,8 +892,11 @@ export interface AgentChannelPullResult<TCursor extends string | number = string
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  /** The accepted Invocation when a durable webhook delivery is replayed for rehydration. */
-  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { agentName?: string }
+  /**
+   * The accepted Invocation when a durable webhook delivery is replayed for rehydration.
+   * `acceptedAt` is when the queue accepted the delivery, in milliseconds since the epoch.
+   */
+  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { acceptedAt?: number, agentName?: string }
   invoker?: AgentInvoker
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string

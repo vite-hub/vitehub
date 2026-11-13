@@ -5,7 +5,7 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
-`@vite-hub/queue` discovers background job handlers during a Vite build and connects `sendQueue()` to Cloudflare Queues, Vercel Queues, or the local provider of a Node server. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
+`@vite-hub/queue` discovers background job handlers during a Vite build and connects `sendQueue()` to Cloudflare Queues, Vercel Queues, or a Node server that runs the jobs from Postgres or from local files. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
 Applications that already use the `vite-hub` framework distribution should enable Queue in `vitehub()` and import from `vite-hub/queue`. Install this owner package directly when you are building a custom composition, another framework integration, or package-level tooling. The [Queue guide](https://vitehub.dev/docs/queue) covers the framework-distribution setup.
 
@@ -88,8 +88,9 @@ That build proves discovery and generated output only. In the built Worker, `sen
 | Cloudflare | The deployed runtime supplies request-scoped Cloudflare Queue bindings                                | Worker bundle and `wrangler.json` producer and consumer entries     | `contentType`, `delaySeconds`                                  |
 | Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | One Nitro route per Queue Definition, with a Vercel queue trigger | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
 | Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, or a WebContainer               | A Nitro plugin that runs stored jobs in the server process         | `delaySeconds`, `idempotencyKey`                               |
+| Postgres   | One or more Node servers share a Postgres database                                                    | A Nitro plugin that starts workers in each server process           | `delaySeconds`, `idempotencyKey`                               |
 
-The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"`, Vercel for `preset: "vercel"`, and the local provider for `preset: "node"`. The owner package selects the local provider for a Nitro `node-server` preset. Set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+The ViteHub framework host selects Cloudflare for `host: "cloudflare"` and Vercel for `host: "vercel"`. For `host: "node"` and a Nitro `node-server` preset, it selects the postgres provider when the app has a Postgres Default Database, else the local provider. `vitehub({ queue: { provider: "postgres" } })` or `{ provider: "local" }` picks one on Node. Set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
 Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retentionSeconds`.
 
@@ -126,6 +127,30 @@ When a production server reopens a dev store, it redacts stored errors without a
 
 The server logs the directory and this durability once when it starts. `vitehub queue list` shows the provider, the directory, `durability: "single-host"`, the dead-job limit, and the pending, running, and dead jobs of each Queue Definition. In `vite dev`, it also shows `rules`, the provider of the build. `vitehub queue jobs list` shows each job.
 
+## Run jobs on several Node servers
+
+The postgres provider keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `provider: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
+
+```ts
+// vite.config.ts
+import { hubQueue } from "@vite-hub/queue/vite"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
+  plugins: [hubQueue({ provider: "postgres" }), nitro()],
+})
+```
+
+- The first server creates the table and its indexes under `pg_advisory_xact_lock`, so servers that start at the same time do not race.
+- Workers claim jobs with `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`. A send wakes the workers with `NOTIFY`. Without it, each worker checks every second.
+- A claim holds a job for 30 seconds, and a running handler renews it. When a process stops during a handler, another instance runs the job again with the next attempt number after the claim ends.
+- Retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow the local rules above. `concurrency` applies per process.
+- When Nitro closes, the workers stop taking jobs and wait up to 10 seconds for the running jobs.
+- `vitehub queue list` shows the table and its database without the password, and `durability: "shared"`. `vitehub queue jobs` and the Console read the table, so any instance shows the jobs of all instances.
+- `vite dev` runs the jobs of a postgres app with the local provider and the same rules, so development needs no Postgres.
+
 ## Run jobs in vite dev
 
 In `vite dev` and `nuxt dev`, `sendQueue()` stores the job in `.vitehub/data/queue` of the project and the dev server runs the Queue Definition, whatever the provider of the build. A Cloudflare or Vercel app needs no binding, credentials, or `wrangler dev`. The build output does not change: `vite build` still writes the Cloudflare or Vercel runtime.
@@ -161,7 +186,7 @@ pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```
 
-`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. In `vite dev`, a plain `Error` from a handler shows its message and stack. A production server shows `Queue Delivery failed.` instead, because a message can hold private data; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
+`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. In `vite dev`, a plain `Error` from a handler shows its message and stack. A production server shows `Queue Delivery failed.` instead, because a message can hold private data; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local or postgres provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
 
 ## Treat acceptance and delivery separately
 
@@ -189,7 +214,7 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 | Import                           | Purpose                                                                             |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `@vite-hub/queue`                | Queue Definitions, enqueue helpers, direct clients, host adapters, and public types |
-| `@vite-hub/queue/vite`           | Vite discovery and Cloudflare, Vercel, or local Nitro configuration                 |
+| `@vite-hub/queue/vite`           | Vite discovery and Cloudflare, Vercel, local, or postgres Nitro configuration       |
 | `@vite-hub/queue/runtime/hosted` | Advanced hosted Vercel callback adapter                                             |
 
 `@vite-hub/queue/internal/*` exists for generated framework integration. Application code should not import it.

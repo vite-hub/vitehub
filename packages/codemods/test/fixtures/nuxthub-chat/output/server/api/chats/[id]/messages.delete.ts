@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, getRouterParam, readValidatedBody } from 'nuxt/server'
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 

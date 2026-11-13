@@ -466,9 +466,9 @@ describe("Console requests", () => {
 describe("Console storage actions", () => {
   it.each([
     { action: "set", operation: "kv.set", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache", value: "hi" } },
-    { action: "del", operation: "kv.del", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache" } },
+    { action: "delete", operation: "kv.delete", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache" } },
     { action: "put", operation: "blob.put", path: "/_vitehub/api/blob", input: { data: "aGk=", pathname: "docs/hi.txt" } },
-    { action: "del", operation: "blob.del", path: "/_vitehub/api/blob", input: { pathname: "docs/hi.txt" } },
+    { action: "delete", operation: "blob.delete", path: "/_vitehub/api/blob", input: { pathname: "docs/hi.txt" } },
     { action: "peek", operation: "rate-limit.peek", path: "/_vitehub/api/rate-limit", input: { key: "192.0.2.1", name: "login" } },
     { action: "reset", operation: "rate-limit.reset", path: "/_vitehub/api/rate-limit", input: { key: "192.0.2.1", name: "login" } },
   ])("sends the $action action of $path as $operation", async ({ action, input, operation, path }) => {
@@ -484,7 +484,7 @@ describe("Console storage actions", () => {
 
   it("shows a failed write as the operation reports it", async () => {
     mocks.call.mockResolvedValue({ code: "KV_UNSUPPORTED_OPERATION", message: "This store is read-only.", ok: false, status: 400 })
-    await expect(requestConsole("/_vitehub/api/kv", { body: { action: "del", key: "a", store: "default" }, method: "POST" }))
+    await expect(requestConsole("/_vitehub/api/kv", { body: { action: "delete", key: "a", store: "default" }, method: "POST" }))
       .rejects.toMatchObject({ status: 400, message: expect.stringContaining("read-only") })
   })
 })

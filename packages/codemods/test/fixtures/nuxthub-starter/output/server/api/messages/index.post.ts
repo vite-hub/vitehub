@@ -1,4 +1,4 @@
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 
 export default eventHandler(async (event) => {
   const { text } = await readBody(event)

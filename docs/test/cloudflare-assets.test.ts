@@ -6,7 +6,7 @@ import staticAssets, { shouldServePrerenderedAsset } from "../server/middleware/
 // Nitro builds `#docs/manifest` from the content folder. The test reads the same folder.
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("@vite-hub/docs/server");
-  return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "../content"), base: "/docs" }) };
+  return { default: await createDocsManifest({ dir: resolve(import.meta.dirname, "../content"), base: "/docs" }) };
 });
 
 const fetchAsset = vi.fn<(request: Request) => Promise<Response>>(() => Promise.resolve(new Response("prerendered: hidden", {
