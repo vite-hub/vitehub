@@ -84,6 +84,7 @@ it("checks dispatch against the selected Queue Definition", async () => {
   await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 1 })
   deferQueue("audit", { payload: "event", region: "business", id: "row-1" })
   const client = await useQueue("welcome")
+  // @ts-expect-error ViteHub generates the message ID. Use `idempotencyKey` to deduplicate.
   await client.send({ email: "ada@example.test" }, { id: "job-1" })
   // @ts-expect-error Payload belongs to welcome, not audit.
   await sendQueue("welcome", { payload: "event", region: "business", id: "row-1" })
@@ -93,7 +94,7 @@ it("checks dispatch against the selected Queue Definition", async () => {
   await client.send({ count: 1 })
   if (client.provider === "cloudflare") {
     await client.sendBatch([{ body: { email: "ada@example.test" } }])
-    // @ts-expect-error A batch does not accept one message ID.
+    // @ts-expect-error A batch does not accept a message ID.
     await client.sendBatch([{ body: { email: "ada@example.test" } }], { id: "job-1" })
     // @ts-expect-error Batch payloads also belong to the named definition.
     await client.sendBatch([{ body: { count: 1 } }])
