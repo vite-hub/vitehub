@@ -1559,7 +1559,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   if (options.realtime) {
     plugins.push(requireOptionalOwner(ownerModules.realtimeVite, "realtime").hubRealtime({
+      // Rooms of this app stay apart from other apps on the same Redis or Postgres.
+      ...(options.name ? { namespace: options.name } : {}),
       ...(options.realtime === true ? {} : options.realtime),
+      // The Postgres bus borrows the client of a Postgres Default Database.
+      databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/realtime",
       // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
       // Other hosts keep one Content editor at a time and show comments without presence.

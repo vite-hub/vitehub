@@ -433,7 +433,7 @@ export default defineRealtime({
       deno: unsupported("Realtime has no distributed Deno authority, and process memory is rejected for the Deno host."),
       dev: native("memory", "memory", "Process-memory authority for local development.", "process-local"),
       netlify: unsupported("Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify host."),
-      node: explicit("realtime.authority", "memory", "Set `realtime: { authority: \"memory\" }` for a single-process server. A build without it has no room authority."),
+      node: native("node", "Postgres or Redis", "Each instance keeps its rooms in memory and shares them through Redis with REDIS_URL, else Postgres on a Postgres Default Database. Without either, rooms stay in one process."),
       vercel: unsupported("Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel host."),
     },
     id: "realtime",

@@ -236,7 +236,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   function connect(id: string) {
     const nextDocument = markRaw(new Y.Doc())
     const room = id.split("/").map(encodeURIComponent).join("/")
-    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, { disableBc: true, params: {} })
+    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, { disableBc: true, params: { clientId: String(nextDocument.clientID) } })
     keepRealtimeSocketAlive(nextProvider)
     nextProvider.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       if (provider.value !== nextProvider) return
