@@ -22,7 +22,7 @@ import {
   resolveConsoleAgentRows,
 } from "./console-agent-list";
 
-import type { CommandPaletteItem, SplitterItem } from "@nuxt/ui";
+import type { CommandPaletteItem } from "@nuxt/ui";
 import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
@@ -49,6 +49,7 @@ import ConsoleSessionCancel from "./console-session-cancel.vue";
 import ConsoleSessionActions from "./console-session-actions.vue";
 import type { ConsoleSessionRerun } from "./console-session-actions.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
+import ConsoleAgentSession from "./console-agent-session.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
 import { formatConsoleUsageCost } from "./console-usage-model";
@@ -442,25 +443,12 @@ const selectedProject = computed(() =>
 const selectedExternalUrl = computed(() =>
   selectedDisplay.value ? agentInvocationExternalUrl(selectedDisplay.value) : undefined,
 );
-const splitterItems: SplitterItem[] = [
-  {
-    id: "thread",
-    slot: "thread",
-    minSize: 360,
-    defaultSize: 720,
-    sizeUnit: "px",
-    class: "h-full min-h-0 min-w-0 overflow-hidden",
-  },
-  {
-    id: "details",
-    slot: "details",
-    minSize: 360,
-    maxSize: 1080,
-    defaultSize: 440,
-    sizeUnit: "px",
-    class: "h-full min-h-0 min-w-0 overflow-hidden",
-  },
-];
+
+/** Opens or closes the details panel. It opens on the tab of the URL, Invocation by default. */
+function toggleDetails(): void {
+  detailsOpen.value = !detailsOpen.value;
+  if (detailsOpen.value && !inspectorActiveSurface.value) showInspectorSurface();
+}
 
 function selectActivity(id: string): void {
   selectedActivityId.value = undefined;
@@ -475,9 +463,9 @@ function closeDetails(): void {
   detailsMaximized.value = false;
 }
 
-// On desktop, the session navbar and the inspector move to another layout when the details panel opens, closes, or
-// changes size. Vue mounts new elements there, so keyboard focus would fall to the page body. Put it back on the
-// same control, on the active inspector tab, or on the details toggle.
+// On desktop, the session navbar and the inspector move to another layout when the details panel is maximized or
+// restored. Vue mounts new elements there, so keyboard focus would fall to the page body. Put it back on the same
+// control, on the active inspector tab, or on the details toggle.
 watch([detailsOpen, detailsMaximized], () => {
   const focused = document.activeElement;
   const panel = focused instanceof HTMLElement ? focused.closest(".vitehub-console__session-panel") : null;
@@ -1350,151 +1338,9 @@ onBeforeUnmount(() => {
             @retry="refresh"
             @open-sessions="sessionsOpen = true"
           />
-          <div v-if="!connectionUnavailable || invocationView" class="min-h-0 w-full flex-1 overflow-hidden">
-          <div
-            v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
-            class="h-full min-h-0 overflow-hidden"
-          >
-            <ConsoleSessionInspector
-                :workspace-base="apiBase"
-              v-if="invocationView"
-              :invocation="invocationView"
-              :maximized="true"
-              v-model:tab="inspectorTab"
-              v-model:active-surface="inspectorActiveSurface"
-              v-model:open-views="inspectorOpenViews"
-              v-model:open-paths="inspectorOpenPaths"
-              v-model:selected-path="inspectorSelectedPath"
-              class="h-full"
-              @close="closeDetails"
-              @focus-activity="selectActivity"
-              @toggle-maximized="detailsMaximized = false"
-            />
-            <ConsoleSessionLoading
-              v-else-if="detail.isLoading.value"
-              class="h-full min-h-0"
-              :maximized="true"
-              surface="inspector"
-              @close="closeDetails"
-              @toggle-maximized="detailsMaximized = false"
-            />
-            <ConsoleSessionLoading
-              v-else
-              class="h-full min-h-0"
-              :error="detail.error.value"
-              :maximized="true"
-              surface="inspector"
-              @close="closeDetails"
-              @retry="refresh"
-              @toggle-maximized="detailsMaximized = false"
-            />
-          </div>
-          <USplitter
-            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
-            id="agent-session-layout"
-            auto-save-id="vitehub-agent-session-layout-v2"
-            :items="splitterItems"
-            class="h-full min-h-0 overflow-hidden"
-          >
-            <template #thread>
-              <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
-                <ConsoleSessionNavbar
-                  :cost="selectedCost"
-                  :details-open="detailsOpen"
-                  :external-url="selectedExternalUrl"
-                  :has-display="Boolean(selectedDisplay)"
-                  :has-selection="Boolean(selectedInvocationId)"
-                  :loading="refreshing"
-                  :refreshable="selectedRefreshable"
-                  :project="hasMultipleAgents ? selectedProject : ''"
-                  :title="selectedTitle"
-                  :tokens="selectedTokens"
-                  @open-sessions="sessionsOpen = true"
-                  @refresh="refresh"
-                  @toggle-details="detailsOpen = !detailsOpen"
-                >
-                  <template v-if="selectedActions || selectedCancel" #actions>
-                    <ConsoleSessionActions
-                      v-if="selectedActions"
-                      v-bind="selectedActions"
-                      :agents-base="agentsBase"
-                      :api-base="apiBase"
-                      @deleted="removeDeletedInvocation"
-                      @started="selectStartedInvocation"
-                    />
-                    <ConsoleSessionCancel
-                      v-if="selectedCancel"
-                      v-bind="selectedCancel"
-                      :api-base="apiBase"
-                      @cancelled="refresh"
-                    />
-                  </template>
-                </ConsoleSessionNavbar>
-                <div v-if="!connectionUnavailable && invocationView && detail.error.value" class="m-3 shrink-0">
-                  <ConsoleState compact :error="detail.error.value" title="Could not refresh this session" :retry="refresh" />
-                </div>
-                <ConsoleSessionLoading
-                  v-if="(detail.isLoading.value || initialSessionLoading) && !invocationView"
-                  class="min-h-0 flex-1"
-                />
-                <ConsoleState
-                  v-else-if="detail.error.value && !invocationView"
-                  :error="detail.error.value"
-                  title="Could not load this session"
-                  :retry="refresh"
-                />
-                <AgentInvocation
-                  v-else-if="invocationView"
-                  :header="false"
-                  :invocation="invocationView"
-                  :selected-activity-id="selectedActivityId"
-                  :workspace-inspectable="true"
-                  class="min-h-0 flex-1"
-                  @inspect="inspectSession"
-                />
-              </div>
-            </template>
-            <template #details>
-              <ConsoleSessionInspector
-                :workspace-base="apiBase"
-                v-if="invocationView"
-                :invocation="invocationView"
-                v-model:tab="inspectorTab"
-                v-model:active-surface="inspectorActiveSurface"
-                v-model:open-views="inspectorOpenViews"
-                v-model:open-paths="inspectorOpenPaths"
-                v-model:selected-path="inspectorSelectedPath"
-                class="h-full"
-                @close="closeDetails"
-                @focus-activity="selectActivity"
-                @toggle-maximized="detailsMaximized = true"
-              />
-              <ConsoleSessionLoading
-                v-else-if="detail.isLoading.value || initialSessionLoading"
-                class="h-full min-h-0"
-                :maximizable="Boolean(selectedInvocationId)"
-                surface="inspector"
-                @close="closeDetails"
-                @toggle-maximized="detailsMaximized = true"
-              />
-              <ConsoleSessionLoading
-                v-else
-                class="h-full min-h-0"
-                :error="detail.error.value"
-                surface="inspector"
-                @close="closeDetails"
-                @retry="refresh"
-                @toggle-maximized="detailsMaximized = true"
-              />
-            </template>
-            <template #resize-handle>
-              <span
-                class="pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-(--ui-border) transition-colors group-hover:bg-primary"
-              />
-            </template>
-          </USplitter>
-          <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
+          <div v-if="!connectionUnavailable || invocationView" class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
             <ConsoleSessionNavbar
+              v-if="!(isDesktop && selectedInvocationId)"
               :cost="selectedCost"
               :details-open="detailsOpen"
               :external-url="selectedExternalUrl"
@@ -1507,7 +1353,7 @@ onBeforeUnmount(() => {
               :tokens="selectedTokens"
               @open-sessions="sessionsOpen = true"
               @refresh="refresh"
-              @toggle-details="detailsOpen = !detailsOpen"
+              @toggle-details="toggleDetails"
             >
               <template v-if="selectedActions || selectedCancel" #actions>
                 <ConsoleSessionActions
@@ -1526,6 +1372,48 @@ onBeforeUnmount(() => {
                 />
               </template>
             </ConsoleSessionNavbar>
+          <!-- A selected session on a wide screen is one AgentSession: the header, the timeline, a details card, and a
+               right panel of Workspace, Changes, Trace and Details. Its toggles keep their place when the panel opens. -->
+          <ConsoleAgentSession
+            v-if="isDesktop && selectedInvocationId"
+            v-model:tab="inspectorTab"
+            v-model:details="detailsView"
+            v-model:selected-path="inspectorSelectedPath"
+            class="min-h-0 flex-1"
+            :invocation="invocationView"
+            :loading="detail.isLoading.value || initialSessionLoading"
+            :error="connectionUnavailable ? undefined : detail.error.value"
+            :title="selectedTitle"
+            :project="hasMultipleAgents ? selectedProject : ''"
+            :workspace-base="apiBase"
+            :selected-activity-id="selectedActivityId"
+            @focus-activity="selectActivity"
+            @refresh="refresh"
+          >
+            <template #actions>
+              <UTooltip v-if="selectedExternalUrl" text="Open related page">
+                <UButton :to="selectedExternalUrl" target="_blank" icon="i-lucide-external-link" color="neutral" variant="ghost" size="xs" aria-label="Open related page" />
+              </UTooltip>
+              <ConsoleSessionActions
+                v-if="selectedActions"
+                v-bind="selectedActions"
+                :agents-base="agentsBase"
+                :api-base="apiBase"
+                @deleted="removeDeletedInvocation"
+                @started="selectStartedInvocation"
+              />
+              <ConsoleSessionCancel
+                v-if="selectedCancel"
+                v-bind="selectedCancel"
+                :api-base="apiBase"
+                @cancelled="refresh"
+              />
+              <UTooltip v-if="selectedRefreshable" text="Refresh session">
+                <UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs" :loading="refreshing" aria-label="Refresh session" @click="refresh" />
+              </UTooltip>
+            </template>
+          </ConsoleAgentSession>
+          <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ConsoleSessionLoading v-if="initialSessionLoading" class="min-h-0 flex-1" />
             <ConsoleState
               v-else-if="!selectedInvocationId && sessionsPanelError"

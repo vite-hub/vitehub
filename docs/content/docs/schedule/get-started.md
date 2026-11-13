@@ -167,7 +167,7 @@ To see the same runs in a page, with a button to run the schedule, open the app 
 
 You keep the schedule file. You change the `schedule` option for the host:
 
-- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
+- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
 - **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
 
 For example, on Vercel:

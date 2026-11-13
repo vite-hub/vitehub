@@ -41,6 +41,10 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_R0031: dynamicError,
     SOURCE_R0032: dynamicError,
     SOURCE_R0033: dynamicError,
+    SOURCE_R0034: {
+      why: ({ endpoint, status }: { endpoint: string; status: number }) => `[vitehub] Collection request to ${endpoint} failed with status ${status}.`,
+      fix: "Check the Collection route and server logs for this HTTP status, correct the request or server error, then refresh the Collection.",
+    },
     SOURCE_B0001: dynamicError,
     SOURCE_B0002: dynamicError,
     SOURCE_B0003: dynamicError,

@@ -21,3 +21,9 @@ declare module "#docs/example-sources" {
   const examples: Record<string, string>
   export default examples
 }
+
+/** The docs Markdown files packed into one module in a production build, or null in development. */
+declare module "#docs/files" {
+  const files: import("../../files.ts").DocsPackedFiles | null
+  export default files
+}

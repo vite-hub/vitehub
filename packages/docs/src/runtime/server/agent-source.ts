@@ -1,7 +1,7 @@
-import { useKV } from "nitro/kv"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
 import manifest from "#docs/manifest"
+import { readDocsFile } from "../files.ts"
 import { docsAppPath, docsIndexedPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
@@ -43,11 +43,10 @@ const source: AgentContentSource = {
     const path = prefix && (route === prefix || route.startsWith(`${prefix}/`)) ? route.slice(prefix.length) || "/" : route
     const found = findDocsPage(manifest, path)
     if (!found) return null
-    const markdown = await useKV("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
+    const markdown = await readDocsFile("docs-raw", docsRawFile(found.page.path))
     if (markdown === null) return null
-    const text = String(markdown)
-    const footerIndex = text.lastIndexOf(docsRawSectionLinksMarker)
-    return { markdown: footerIndex < 0 ? text : text.slice(0, footerIndex), title: found.page.sourceTitle, description: found.page.description ?? undefined }
+    const footerIndex = markdown.lastIndexOf(docsRawSectionLinksMarker)
+    return { markdown: footerIndex < 0 ? markdown : markdown.slice(0, footerIndex), title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }
 

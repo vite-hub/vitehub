@@ -38,6 +38,11 @@
       "import": "./dist/contributions.js",
       "default": "./dist/contributions.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./env": {
       "types": "./dist/env.d.ts",
       "import": "./dist/env.js",
@@ -418,6 +423,7 @@
     "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
     "sharp": "0.35.5",
+    "srvx": "catalog:unjs",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
