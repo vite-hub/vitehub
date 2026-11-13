@@ -4376,6 +4376,15 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
+  it("lets an inline `true` replace a nested option that is an object", async () => {
+    const { nuxt } = createNuxt()
+    const declaration = { mode: "build", default: false }
+    Object.assign(nuxt.options, { vitehub: { env: { define: { FEATURE_ENABLED: declaration }, server: { FLAG: declaration } } } })
+    await viteHubNuxtModule({ host: "node", env: { define: { FEATURE_ENABLED: true }, server: { FLAG: true } } } as Parameters<typeof viteHubNuxtModule>[0], nuxt)
+
+    expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ env: { define: { FEATURE_ENABLED: true }, server: { FLAG: true } } })
+  })
+
   it("reads feature switches from the Nuxt module options", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { vitehub: { kv: {}, rateLimit: {} } })

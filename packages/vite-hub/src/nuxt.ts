@@ -895,22 +895,27 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
-/**
- * Merges the inline options of a `modules` entry into the `vitehub` key of nuxt.config.ts, one leaf at a time. The
- * inline value wins where both set the same leaf, as in `defineNuxtModule`. Arrays and other values are replaced, not
- * concatenated. `true` turns a feature on with its defaults, so it keeps the options object that the other form gives.
- */
-function mergeNuxtModuleOptions(inline: unknown, config: unknown): Record<string, unknown> {
-  const merged: Record<string, unknown> = isPlainObject(config) ? { ...config } : {}
-  if (!isPlainObject(inline)) return merged
+/** Merges `inline` into `config` one leaf at a time. The inline value wins; arrays and other values are replaced. */
+function mergeOptionLeaves(inline: Record<string, unknown>, config: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...config }
   for (const [key, value] of Object.entries(inline)) {
     if (value === undefined) continue
     const current = merged[key]
-    if (isPlainObject(value) && isPlainObject(current)) merged[key] = mergeNuxtModuleOptions(value, current)
-    else if (value === true && isPlainObject(current)) continue
-    else merged[key] = value
+    merged[key] = isPlainObject(value) && isPlainObject(current) ? mergeOptionLeaves(value, current) : value
   }
   return merged
+}
+
+/**
+ * Merges the inline options of a `modules` entry into the `vitehub` key of nuxt.config.ts, one leaf at a time, as in
+ * `defineNuxtModule`. A top-level feature switch set to `true` turns the feature on with its defaults, so it keeps the
+ * options object that the other form gives. Deeper `true` values, such as Env values, replace like any other leaf.
+ */
+function mergeNuxtModuleOptions(inline: unknown, config: unknown): Record<string, unknown> {
+  const configured = isPlainObject(config) ? config : {}
+  if (!isPlainObject(inline)) return { ...configured }
+  const features = Object.fromEntries(Object.entries(inline).filter(([key, value]) => !(value === true && isPlainObject(configured[key]))))
+  return mergeOptionLeaves(features, configured)
 }
 
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
