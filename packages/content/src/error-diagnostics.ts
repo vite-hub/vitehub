@@ -144,5 +144,85 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `previews: true` with one `github()` Source in `sources`, or name the Source with `previews: { source: \"docs\" }`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    /** `vitehub content check`: a document does not load or parse, such as frontmatter that is not valid YAML. Error. */
+    CONTENT_R0060: {
+      fix: "Fix the file that the finding names so it parses, then run `vitehub content check` again.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: frontmatter does not match the `schema` of `contentSource(input, { schema })`. Error. */
+    CONTENT_R0061: {
+      fix: "Change the frontmatter field that the finding names so it matches the schema, or change the schema.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link points to a missing page below a first path segment that holds pages, such as `/docs/kvv`. Error. */
+    CONTENT_R0062: {
+      fix: "Fix the link. When another route serves the path, add it to `defineContent({ check: { ignoreLinks } })` or pass `--ignore` to `vitehub content check`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link points to a path that no page of the Source serves, such as `/learn`. Another route may serve it. Warning. */
+    CONTENT_R0063: {
+      fix: "When another route of the app serves the path, add it to `defineContent({ check: { ignoreLinks } })` or pass `--ignore` to `vitehub content check`. Otherwise fix the link.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link names a heading that the target page does not have. Warning. */
+    CONTENT_R0064: {
+      fix: "Link to the id of an existing heading. Content makes the id from the heading text, such as `#configure-the-store`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page has no title, or a title shorter than 10 or longer than 60 characters. Warning. */
+    CONTENT_R0065: {
+      fix: "Set `title` in the frontmatter, between 10 and 60 characters with the site's title pattern. Use `seo.title` when the heading must stay.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page has no description, or one shorter than 70 or longer than 160 characters. Warning. */
+    CONTENT_R0066: {
+      fix: "Set `description` in the frontmatter, between 70 and 160 characters.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: two or more pages have the same title or the same description. Warning. */
+    CONTENT_R0067: {
+      fix: "Give each page its own title and description, or its own `seo.title` and `seo.description`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page skips a heading level, such as an `h2` followed by an `h4`. Warning. */
+    CONTENT_R0068: {
+      fix: "Go down one heading level at a time. The page title counts as the `h1`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `content.check()` or `vitehub content check` could not run, such as for an unknown Source or a commit GitHub does not give. */
+    CONTENT_R0069: {
+      fix: "Name a Source from `defineContent({ sources })`, pass `sha` only for a `github()` Source, and check that GitHub can serve the commit. In local mode, pass a folder that exists.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `content.pages()` or `content.page()` got an argument that is not valid. */
+    CONTENT_R0070: {
+      fix: "Pass a page path such as `/blog/hello` to `content.page()`, and a whole `offset` of 0 or more and a `limit` from 1 to 1000 to `content.pages()`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `content.sources.previewLinks()` found no pull request with that number, or the Source cannot list its files. */
+    CONTENT_R0075: {
+      fix: "Check the pull request number on GitHub. A private repository needs `VITEHUB_GITHUB_TOKEN` with read access to pull requests.",
+      why: ({ source, pull, reason }: { source: string, pull: number, reason: string }) => `[vitehub] Content source ${JSON.stringify(source)} has no preview links for pull request #${pull}: ${reason}.`,
+    },
+    /** A publish with `publish: "pr"` opened its pull request, but Content could not sign the preview links of its pages. */
+    CONTENT_R0076: {
+      fix: "Set `VITEHUB_CONTENT_KEY` to 32 random bytes as base64 or hex, such as from `openssl rand -base64 32`. The pull request is open; `vitehub content previews comment --pr <number>` prints its links later.",
+      why: ({ pull, reason }: { pull: number, reason: string }) => `[vitehub] Content opened pull request #${pull} but returned no preview links: ${reason}`,
+    },
+    /** `vitehub content previews comment --post` has no GitHub token to write the comment with. */
+    CONTENT_R0077: {
+      fix: "Set `VITEHUB_GITHUB_TOKEN` to a token that can write pull request comments, such as `${{ secrets.GITHUB_TOKEN }}` in a GitHub Action with `pull-requests: write`. Without --post, the command only prints the comment.",
+      why: () => "[vitehub] `vitehub content previews comment --post` needs VITEHUB_GITHUB_TOKEN.",
+    },
+    /** GitHub refused to list, create, or update the preview comment of a pull request. */
+    CONTENT_R0078: {
+      fix: "Check that the token in `VITEHUB_GITHUB_TOKEN` can write issues and pull requests of the repository, and that the pull request exists.",
+      why: ({ repo, pull, status, action }: { repo: string, pull: number, status: number, action: string }) => `[vitehub] GitHub answered ${status} when Content tried to ${action} the preview comment of ${repo}#${pull}.`,
+    },
+    /** `content.sources.previewLinks()` ran on a runtime without `defineContent({ previews })`, so the links would 404. */
+    CONTENT_R0079: {
+      fix: "Set `previews: true` in `defineContent()`, with one `github()` Source, so the app serves `/pr/<number>/<path>`.",
+      why: () => "[vitehub] content.sources.previewLinks() needs defineContent({ previews: true }): without it, the app serves no /pr/<number> URLs.",
+    },
   },
 })

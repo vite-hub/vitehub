@@ -23,6 +23,8 @@ export const realtimeCheckpointRejectedCode = "REALTIME_CHECKPOINT_REJECTED"
 export const realtimeSourceChangedCode = "REALTIME_SOURCE_CHANGED"
 /** A save or checkpoint asked a room whose codec cannot edit the stored document without loss. */
 export const realtimeReadOnlyCode = "REALTIME_READ_ONLY"
+/** A save found that the room body does not fit the editor schema, so writing it would lose content. */
+export const realtimeInvalidDocumentCode = "REALTIME_INVALID_DOCUMENT"
 /** Close code sent after a reset control frame. The client must drop its Y.Doc. */
 export const realtimeResetCloseCode = 4409
 /** Close code for updates a peer may not write: read-only access or the server-written status. */
@@ -53,7 +55,7 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
     if (!value || typeof value !== "object" || !("epoch" in value) || !("type" in value)) return
     if (typeof value.epoch !== "string" || !value.epoch) return
     if (value.type === "session" && "access" in value && (value.access === "read" || value.access === "write")) {
-      if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document")) {
+      if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document" || value.reason === "version")) {
         return { type: "session", access: value.access, epoch: value.epoch, reason: value.reason }
       }
       return { type: "session", access: value.access, epoch: value.epoch }

@@ -53,6 +53,7 @@ import type { EnvDeclarations } from "@vite-hub/env"
 import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
 import { resolveViteHubServerImports, type ServerAutoImport } from "./nuxt-server-imports.ts"
 
 const databaseRuntimeState = ownModule(import.meta.url, "internal/database-runtime-state")
@@ -895,6 +896,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...nuxt.options.vitehub,
     ...inlineOptions,
   } as ViteHubNuxtOptions
+  assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
   const moduleOptions = { ...configuredModuleOptions, host: configuredModuleOptions.host ?? detectHost() ?? "node" }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
@@ -1011,10 +1013,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     blob: consoleBlobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
     console: consoleOptions ? "vite-hub/console/server" : false,
-    db: options.database ? "vite-hub/database/drizzle" : false,
+    db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // Email and KV capabilities exist only when the app installed their packages.
-    ...ownerModules.emailVite ? { email: "vite-hub/email/server" } : {},
+    ...ownerModules.emailVite ? { email: "vite-hub/email" } : {},
     ...ownerModules.kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
   const consoleInvocationRootState = createConsoleInvocationRootState()
@@ -1100,7 +1102,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
-    const { hubDb: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
+    const { hubDatabase: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 

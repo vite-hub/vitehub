@@ -27,6 +27,19 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
    * visitors never open.
    */
   allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
+  /**
+   * The roles that give a permission of this tool, such as `comments-write`. Site access in the Console offers them when
+   * someone invites a guest, and adds them to the guest's `role` of Better Auth's `admin()` plugin. The tool checks the
+   * roles itself.
+   */
+  grants?: readonly ViteHubPageGrant[]
+}
+
+/** A role that gives one permission of a page tool, such as `{ id: "comments-write", label: "Write comments" }`. */
+export interface ViteHubPageGrant {
+  id: string
+  label: string
+  description?: string
 }
 
 interface PageToolsState {
@@ -34,6 +47,7 @@ interface PageToolsState {
   apps: WeakMap<object, object>
   installed: WeakSet<object>
   bases: WeakMap<object, string>
+  grants?: Map<string, ViteHubPageGrant>
 }
 
 const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
@@ -55,6 +69,13 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
     tools.set(nitroApp, registry)
   }
   registry.set(tool.id, tool)
+  const grants = state().grants ??= new Map()
+  for (const grant of tool.grants ?? []) grants.set(grant.id, grant)
+}
+
+/** The grants that the registered page tools declare, in registration order. */
+export function viteHubPageGrants(): ViteHubPageGrant[] {
+  return [...state().grants?.values() ?? []]
 }
 
 /** The path of a URL below the app base. A path outside the base stays as it is. */
@@ -129,7 +150,7 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
   const at = pathname.lastIndexOf(viteHubPageSessionPath)
   const base = at > 0 ? pathname.slice(0, at) : ""
   const tools = registered
-    .flatMap(({ allowed: _allowed, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
+    .flatMap(({ allowed: _allowed, grants: _grants, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
       ? [{ ...tool, ...(checks[index] === "lazy" ? { lazy: true } : {}), script: withViteHubBase(base, tool.script) }]
       : [])
   return sessionResponse({ tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0) })

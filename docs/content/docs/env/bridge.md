@@ -167,7 +167,7 @@ await bridge.grant(owner, {
 Server code then reads it through Server Env.
 
 ```ts
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 const env = await loadServerEnv()
 const token = env.githubToken.unseal()

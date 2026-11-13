@@ -68,7 +68,7 @@ Nuxt writes generated Agent files to `<buildDir>/vitehub/agent` (usually `.nuxt/
 | Do | Avoid |
 | --- | --- |
 | Call `sendQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
-| Import `useServerEnv()` from `#vitehub/env/server`. | Import `.vitehub/env/server.mjs` directly. |
+| Import `useServerEnv()` from `vite-hub/env`. | Import `.vitehub/env/server.mjs` directly. |
 | Inspect `.vercel/output` to debug a deploy. | Edit `.vercel/output` files as source. |
 
 ## Related

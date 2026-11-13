@@ -41,6 +41,11 @@ export interface GitHubHostOptions {
   /** Forge request timeout in milliseconds. Default 60000. */
   timeout?: number
   userAgent?: string
+  /**
+   * `false` stops Forge providers from revalidating repeated GETs with `If-None-Match`. Default: on. Entries are
+   * kept per App installation, so they survive the hourly token rotation, or per token without an App.
+   */
+  conditionalRequests?: boolean
 }
 
 export interface GitHubHostAccess {
@@ -383,6 +388,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         forge: "github",
         token: auth.token,
         fetch: observe(auth.credentialKey),
+        conditionalRequests: options.conditionalRequests === false ? false : { identity: auth.credentialKey },
         timeout: options.timeout ?? 60_000,
         userAgent: options.userAgent,
       })

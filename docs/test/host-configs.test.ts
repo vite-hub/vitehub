@@ -16,13 +16,13 @@ const landings = readdirSync(docsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(resolve(docsRoot, entry.name, "index.md")))
   .flatMap((entry) => {
     const source = readFileSync(resolve(docsRoot, entry.name, "index.md"), "utf8");
-    const match = source.match(/^ {2}:::code-tree\{feature="(\w+)"\}\n([\s\S]*?)^ {2}:::$/m);
+    const match = source.match(/^::code-tree\{feature="(\w+)"\}\n([\s\S]*?)^::$/m);
     if (!match) return [];
     return frameworks.map((framework) => {
-      const view = match[2]!.replace(/^ {2}::::framework\{name="([^"]+)"\}\n([\s\S]*?)^ {2}::::$/gm,
+      const view = match[2]!.replace(/^:::framework\{name="([^"]+)"\}\n([\s\S]*?)^:::$/gm,
         (_, name: string, content: string) => name === framework ? content : "");
-      const blocks = [...view.matchAll(/^ {2}```\w+ \[(.+)\]\n([\s\S]*?)^ {2}```$/gm)].map((block) => ({
-        code: block[2]!.split("\n").map((line) => line.slice(2)).join("\n").trimEnd(),
+      const blocks = [...view.matchAll(/^```\w+ \[(.+)\]\n([\s\S]*?)^```$/gm)].map((block) => ({
+        code: block[2]!.trimEnd(),
         path: block[1]!,
       }));
       return { blocks, feature: match[1] as FeatureId, framework, slug: entry.name };

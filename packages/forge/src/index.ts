@@ -14,6 +14,8 @@ export type { ForgeGitCredentials, ForgeGitCredentialsInput } from "./gaps/git-c
 export { forgeMerge } from "./gaps/merge.ts"
 export type { ForgeMergeOptions } from "./gaps/merge.ts"
 export { retargetPullRequest } from "./gaps/retarget.ts"
+export { conditionalFetch, forgeMemoryCache } from "./conditional.ts"
+export type { ForgeCachedResponse, ForgeConditionalRequests, ForgeMemoryCacheOptions, ForgeResponseCache } from "./conditional.ts"
 export { githubAppCredentials, readGitHubAppPrivateKey } from "./github-app.ts"
 export type { GitHubAppCredentials, GitHubAppInput, GitHubAppRepository } from "./github-app.ts"
 export { BranchMovedError } from "forges"

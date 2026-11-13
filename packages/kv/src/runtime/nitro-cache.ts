@@ -26,7 +26,7 @@ export default function createKVCacheDriver(options: KVCacheDriverOptions = {}):
     // Return the stored text: Nitro's storage parses driver values itself, and parsing twice turns a cached '"123"' into 123.
     getItem: name => unwrap(kv.get(key(name), { type: "text" })),
     setItem: (name, value, opts: TransactionOptions) => unwrap(kv.set(key(name), value, opts)),
-    removeItem: name => unwrap(kv.del(key(name))),
+    removeItem: name => unwrap(kv.delete(key(name))),
     async getKeys(base) {
       return (await unwrap(kv.keys(key(base)))).map(name => name.slice(prefix.length))
     },

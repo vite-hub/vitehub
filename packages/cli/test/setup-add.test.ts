@@ -234,7 +234,6 @@ describe("vitehub add", () => {
 
   it.each([
     ["node", "realtime", "realtime.authority=cloudflare"],
-    ["node", "realtime", "realtime.authority=auto"],
     ["cloudflare", "realtime", "realtime.authority=memory"],
     ["netlify", "cache", "cache.driver=fs-lite"],
   ])("rejects conflicting provider options on %s: %s %s before installing or writing", async (host, feature, option) => {
@@ -253,6 +252,8 @@ describe("vitehub add", () => {
 
   it.each([
     ["node", "realtime", "realtime.authority=memory"],
+    ["node", "realtime", "realtime.authority=auto"],
+    ["node", "realtime", "realtime.authority=postgres"],
     ["cloudflare", "realtime", "realtime.authority=cloudflare"],
     ["cloudflare", "realtime", "realtime.authority=auto"],
     ["node", "cache", "cache.driver=fs-lite"],

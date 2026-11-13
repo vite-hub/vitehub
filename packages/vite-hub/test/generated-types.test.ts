@@ -797,7 +797,7 @@ export default defineContent(${options})
     await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("generates /sitemap.xml and /robots.txt when defineContent() sets seo", async () => {
+  it("generates /sitemap.xml, /robots.txt, /rss.xml, and /mcp when defineContent() sets seo", async () => {
     const { root } = await createNestedProject()
     await Promise.all([
       mkdir(join(root, "server"), { recursive: true }),
@@ -808,12 +808,14 @@ export default defineContent(${options})
       `export default defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
-    await write(`{ sitemap: true, robots: { disallow: ["/admin"] } }`)
+    await write(`{ sitemap: true, robots: { disallow: ["/admin"] }, rss: { title: "Example" }, mcp: true }`)
 
     const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
     expect(handlers.filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
       { handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" },
+      { handler: join(root, ".vitehub/content/mcp.mjs"), route: "/mcp" },
       { handler: join(root, ".vitehub/content/robots.mjs"), method: "get", route: "/robots.txt" },
+      { handler: join(root, ".vitehub/content/rss.mjs"), method: "get", route: "/rss.xml" },
       { handler: join(root, ".vitehub/content/sitemap.mjs"), method: "get", route: "/sitemap.xml" },
     ])
     const load = async (name: string) => {
@@ -830,11 +832,18 @@ export default defineContent(${options})
     const sitemap = await (await load("sitemap")).fetch(new Request("https://site.test/sitemap.xml"))
     expect(sitemap.headers.get("content-type")).toBe("application/xml; charset=utf-8")
     await expect(sitemap.text()).resolves.toContain("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
+    const rss = await (await load("rss")).fetch(new Request("https://site.test/rss.xml"))
+    expect(rss.headers.get("content-type")).toBe("application/rss+xml; charset=utf-8")
+    await expect(rss.text()).resolves.toContain("<title>Example</title>")
+    const mcp = await (await load("mcp")).fetch(new Request("https://site.test/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list-pages" } }) }))
+    await expect(mcp.json()).resolves.toMatchObject({ result: { content: [{ type: "text", text: "[]" }], isError: false } })
 
     // Only the routes the call turns on are generated, and removed again when they are off.
     await write(`{ sitemap: true, robots: false }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual(["/api/content/**", "/sitemap.xml"])
     await expect(readFile(join(root, ".vitehub/content/robots.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(root, ".vitehub/content/rss.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(root, ".vitehub/content/mcp.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await write(`{ site: "https://example.com" }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual(["/api/content/**"])
   })

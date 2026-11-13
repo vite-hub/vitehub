@@ -52,7 +52,7 @@ import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
-import { feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey } from "../src/babysitter/merge.ts";
+import { approvedIfOutside, feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey, resolveBabysitterMerge } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../src/github/pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 import * as githubInstalls from "../src/github/install.ts";
@@ -70,7 +70,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -118,6 +118,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     title: "Fix value",
     body: "Repair the exported value.",
     user: { login: "developer" },
+    author_association: preset.authorAssociation ?? "MEMBER",
     labels: [{ name: "repair" }],
     head: { sha: head, ref: "fix", repo: { full_name: "acme/app" } },
     base: { sha: baseHead, ref: preset.base ?? "main", repo: { full_name: "acme/app", default_branch: "main", owner: { login: "acme" } } },
@@ -144,7 +145,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         title: "Fix value",
         body: "Repair the exported value.",
         author: { login: "developer", __typename: "User" },
-        authorAssociation: "MEMBER",
+        authorAssociation: preset.authorAssociation ?? "MEMBER",
         isCrossRepository: false,
         headRepository: { nameWithOwner: "acme/app" },
         labels: { nodes: [{ name: "repair" }], pageInfo },
@@ -175,7 +176,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         const node = {
           number: current.number, title: current.title, isDraft: current.draft, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
-          authorAssociation: "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
+          authorAssociation: preset.authorAssociation ?? "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
         };
         return { stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: openPullRequests ? [node] : [], pageInfo } } } }), stderr: "" };
@@ -268,6 +269,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       : ["api", ...(request.method === "GET" ? [] : ["-X", request.method]), path, ...fields];
     try {
       const result = await command(args, { signal: request.signal });
+      if (request.path.endsWith("/logs")) return result.stdout;
       const values: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
       if (request.path === "/graphql") {
         const first = values[0];
@@ -338,7 +340,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       },
     })] as never,
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
-    options: { filter: { labels: { allow: ["repair"] } }, ...(autoMerge ? { merge: "auto" as const } : {}), ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
+    options: { filter: { labels: { allow: ["repair"] } }, merge: (preset.merge ?? (autoMerge ? "auto" : false)) as false, ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.sandbox ? { sandbox: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.sandboxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
     driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
@@ -1172,6 +1174,69 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  /** A required `test` Actions job that fails on the PR head and on the base tip with `log` and `baseLog`. */
+  function inheritFailure(f: Awaited<ReturnType<typeof fixture>>, log: string, baseLog = log) {
+    const command = f.command.getMockImplementation()!;
+    const run = (id: number, sha: string) => ({ id, name: "test", head_sha: sha, status: "completed", conclusion: "failure", completed_at: "2026-11-09T00:00:00Z",
+      app: { slug: "github-actions", id: 15368 }, html_url: `https://github.com/acme/app/actions/runs/${id}/job/${id}` });
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path.includes("/check-runs")) return { stdout: JSON.stringify(path.includes(`/commits/${f.pr().head.sha}/`) ? run(1, f.pr().head.sha) : run(2, f.pr().base.sha)), stderr: "" };
+      if (path === "repos/acme/app/actions/jobs/1/logs") return { stdout: log, stderr: "" };
+      if (path === "repos/acme/app/actions/jobs/2/logs") return { stdout: baseLog, stderr: "" };
+      if (path === "repos/acme/app/branches/main/protection") return { stdout: JSON.stringify({ required_status_checks: { strict: false, contexts: ["test"] }, enforce_admins: { enabled: true },
+        required_signatures: { enabled: false }, lock_branch: { enabled: false }, required_linear_history: { enabled: false } }), stderr: "" };
+      return command(args, request);
+    });
+  }
+  const failedLog = (lines: string[]) => ["2026-11-09T00:00:00.0000000Z ##[group]Run pnpm test", "pnpm test", "##[endgroup]", ...lines, "##[error]Process completed with exit code 1."].join("\n");
+
+  it("parks a PR whose required check fails the same way on the base, without a pass", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds", "Test Files  1 failed | 3 passed (4)"]), failedLog([" FAIL  test/a.test.ts > adds", "Test Files  1 failed | 9 passed (10)"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked?.wait?.reason).toBe("unrelated-ci-failure");
+      expect(parked?.lastResult).toContain("test fails the same way on main");
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a configured main-repair branch even when its failure repeats the base", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false, mainRepairBranchPrefix: "fix" } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).not.toBe("unrelated-ci-failure");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("repairs a required check whose output names a failure the base lacks", async () => {
+    const f = await fixture(false, false, { merge: "direct", options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds", " FAIL  test/b.test.ts > new"]), failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).not.toBe("unrelated-ci-failure");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("merges past an inherited required check only where bypassInheritedChecks names it", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", bypassInheritedChecks: { "Acme/App": ["test"] } }, options: { ciRecovery: false } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    try {
+      await f.reconcile();
+      const merge = f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT"));
+      expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "bypass_rules=true", `sha=${"a".repeat(40)}`]));
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+      expect(await f.runtime.inbox.meta("inherited-merge-proof:acme/app#12")).toMatchObject({ head: "a".repeat(40), base: "c".repeat(40), checks: ["test"], checkIds: [1] });
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("recovers claimed execution and wait evaluation from stalled readiness", async () => {
     const ready = vi.fn(() => new Promise<true>(() => {}));
     const f = await fixture(false, false, { merge: { strategy: "direct", ready }, result: { disposition: "park", text: "Waiting", wait: { kind: "checks", headSha: "a".repeat(40) } } });
@@ -1707,18 +1772,45 @@ describe("Babysitter preset runtime", () => {
   });
 
   it("maps lifecycle labels into the shared PR filter", () => {
-    const filter = { repository: { allow: ["acme/app"] } };
+    const filter = { repository: { allow: ["acme/app"] }, author: { allow: ["octocat"] } };
     expect(resolveBabysitterLifecycleFilter(filter, { labels: { require: ["agent:repair"], deny: ["agent:paused"] } })).toEqual({
-      repository: { allow: ["acme/app"] },
+      ...filter,
       labels: { allow: ["agent:repair"], deny: ["agent:paused"] },
     });
-    expect(resolveBabysitterLifecycleFilter(filter, undefined)).toBe(filter);
+    expect(resolveBabysitterLifecycleFilter({ ...filter, labels: { deny: ["hold"] } }, undefined)).toEqual({ ...filter, labels: { deny: ["hold"] } });
     expect(() => resolveBabysitterLifecycleFilter(filter, null as never)).toThrow(/lifecycle must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: null as never })).toThrow(/must be an object/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { deny: null as never } })).toThrow(/arrays/);
     expect(() => resolveBabysitterLifecycleFilter({ labels: { allow: ["repair"] } }, { labels: { require: ["agent:repair"] } })).toThrow(/lifecycle labels or filter\.labels/);
     expect(() => resolveBabysitterLifecycleFilter(filter, { labels: { require: [""] } })).toThrow(/non-empty strings/);
+  });
+
+  it("selects only PRs from people with write access and skips babysitter:skip by default", () => {
+    const writeAccess = { allow: ["OWNER", "MEMBER", "COLLABORATOR"] };
+    expect(resolveBabysitterLifecycleFilter({}, {})).toEqual({ authorAssociation: writeAccess, labels: { deny: ["babysitter:skip"] } });
+    expect(resolveBabysitterLifecycleFilter({ author: { allow: ["renovate[bot]"] } }, {})).toEqual({ author: { allow: ["renovate[bot]"] }, labels: { deny: ["babysitter:skip"] } });
+    expect(resolveBabysitterLifecycleFilter({ authorAssociation: {} }, { labels: {} })).toEqual({ authorAssociation: {} });
+    expect(resolveBabysitterLifecycleFilter({}, { labels: { require: ["agent:repair"] } })).toEqual({ authorAssociation: writeAccess, labels: { allow: ["agent:repair"] } });
+  });
+
+  it("leaves an outside contributor's PR alone without an author rule", async () => {
+    const outside = await fixture(false, false, { authorAssociation: "NONE", options: { filter: {} } });
+    try {
+      await outside.reconcile();
+      expect(outside.passes).toHaveLength(0);
+    } finally { await outside.runtime.inbox.close(); }
+    const member = await fixture(false, false, { options: { filter: {} } });
+    try {
+      await member.reconcile();
+      expect(member.passes).toHaveLength(1);
+    } finally { await member.runtime.inbox.close(); }
+  });
+
+  it("merges directly and holds outside contributors for approval by default", () => {
+    expect(resolveBabysitterMerge(babysitter.options.merge)).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
+    expect(resolveBabysitterMerge({ strategy: "direct", method: "rebase" })).toEqual({ mode: "direct", method: "rebase", ready: approvedIfOutside });
+    expect(resolveBabysitterMerge({ strategy: "direct", markDraftsReady: ["Octocat"] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, markDraftsReady: new Set(["octocat"]) });
   });
 
   it("applies lifecycle labels before admitting a model pass", async () => {
@@ -1770,7 +1862,8 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
-    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: false } })).toThrow(/repairStackChildren requires merge: "direct"/);
+    expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: "direct" } })).not.toThrow();
     for (const modelConcurrency of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);
@@ -1931,19 +2024,24 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       expect(f.passes).toHaveLength(1);
-      const [first] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
       await botReview(301);
       await f.reconcile();
-      expect(f.passes).toHaveLength(1);
+      // The head's required checks pass, so it gets one assessment pass past the budget.
+      expect(f.passes).toHaveLength(2);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.exempt", expect.objectContaining({ exemption: `assessment:${f.pr().head.sha}` }));
+      const [, second] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
+      await botReview(304);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
       const parked = (await f.runtime.inbox.get("acme/app", 12))!;
-      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: first! + 24 * 60 * 60_000 });
-      expect(parked.lastResult).toMatch(/1 model pass in the last 24 hours.*next pass can start at/);
+      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: second! + 24 * 60 * 60_000 });
+      expect(parked.lastResult).toMatch(/2 model passes in the last 24 hours.*next pass can start at/);
       expect(f.events).toHaveBeenCalledWith("babysitter.wait.kept", expect.objectContaining({ reason: "daily-pass-budget", avoided_invocation: true }));
       // A person's comment is exempt and still starts a pass.
       await f.runtime.inbox.ingest("human-comment", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
         comment: { id: 302, body: "Please look again.", user: { login: "developer", type: "User" } } });
       await f.reconcile();
-      expect(f.passes).toHaveLength(2);
+      expect(f.passes).toHaveLength(3);
       // Bot feedback runs again once the window frees a pass.
       const db = new DatabaseSync(inboxPath);
       try {
@@ -1954,8 +2052,89 @@ describe("Babysitter preset runtime", () => {
       } finally { db.close(); }
       await botReview(303);
       await f.reconcile();
-      expect(f.passes).toHaveLength(3);
+      expect(f.passes).toHaveLength(4);
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("lifts the daily pass budget for a PR with a priority label", async () => {
+    const f = await fixture(false, false, { options: { dailyPassBudget: 1, noProgressBudget: false, priorityLabels: ["Urgent"] } });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      const labelled = { ...f.pr(), labels: [{ name: "repair" }, { name: "urgent" }] };
+      await f.runtime.inbox.ingest("labelled", "pull_request", { repository: { full_name: "acme/app" }, action: "labeled", pull_request: labelled });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: labelled,
+        review: { id: 301, body: "Finding", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.exempt", expect.objectContaining({ exemption: "priority-label" }));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("records each repair push under the daily push budget and refuses one past it", async () => {
+    const recordingPush = (f: Awaited<ReturnType<typeof fixture>>) => {
+      const push = f.push.getMockImplementation()!;
+      f.push.mockImplementation(async (target, options) => {
+        await options?.beforePush?.();
+        const head = await push(target, options);
+        await options?.afterPush?.(head);
+        return head;
+      });
+    };
+    const allowed = await fixture(false, false, { options: { dailyPushBudget: 1 } });
+    allowed.choose("pushRepair");
+    recordingPush(allowed);
+    try {
+      await allowed.reconcile();
+      expect(allowed.pr().head.sha).toBe("b".repeat(40));
+      expect(await allowed.runtime.inbox.meta("repair-pushes:acme/app#12")).toEqual([expect.any(Number)]);
+    } finally { await allowed.runtime.inbox.close(); }
+    const refused = await fixture(false, false, { options: { dailyPushBudget: 1 }, expectedOperationErrorAt: 0 });
+    refused.choose("pushRepair");
+    recordingPush(refused);
+    const earlier = Date.now() - 60_000;
+    await refused.runtime.inbox.setMeta("repair-pushes:acme/app#12", [earlier]);
+    try {
+      await refused.reconcile();
+      expect(JSON.stringify(refused.operationResults[0])).toContain("Daily push budget spent");
+      expect(refused.pr().head.sha).toBe("a".repeat(40));
+      expect(await refused.runtime.inbox.meta("repair-pushes:acme/app#12")).toEqual([earlier]);
+    } finally { await refused.runtime.inbox.close(); }
+  });
+
+  it("parks a failing PR without a pass while the daily push budget refuses its repair", async () => {
+    const f = await fixture(false, false, { options: { dailyPushBudget: 1, ciRecovery: false } });
+    f.reportCheckRun({ id: 9, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+    const lastPush = Date.now() - 60_000;
+    await f.runtime.inbox.setMeta("repair-pushes:acme/app#12", [lastPush]);
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      // A failing PR may push again two hours after its last push.
+      expect(parked.wait).toMatchObject({ reason: "daily-push-budget", retryAt: lastPush + 2 * 60 * 60_000 + 60_000 });
+      expect(parked.lastResult).toMatch(/1 repair pushes in the last 24 hours/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("gives a reviewed head with failing required checks its repair pass while the daily push budget allows a push", async () => {
+    const passesAfterRetry = async (options: Record<string, unknown>) => {
+      const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, options: { ciRecovery: false, ...options },
+        result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+      f.reportCheckRun({ id: 9, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+      try {
+        await f.reconcile();
+        const retryAt = (await f.runtime.inbox.get("acme/app", 12))?.wait?.retryAt;
+        expect(retryAt).toBeTypeOf("number");
+        const now = vi.spyOn(Date, "now").mockReturnValue(retryAt! + 1);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        return f.passes.length;
+      } finally { await f.runtime.inbox.close(); }
+    };
+    expect(await passesAfterRetry({})).toBe(1);
+    expect(await passesAfterRetry({ dailyPushBudget: 1 })).toBe(2);
   });
 
   it("retries a pass after a network error instead of failing it", async () => {
@@ -2454,6 +2633,25 @@ describe("Babysitter preset runtime", () => {
       expect(state.status).toBe("waiting");
       expect(state.wait?.headSha).toBe("b".repeat(40));
       expect(state.lease).toBeNull();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("opens the provider cooldown on the first rate limit with providerRetries 0 and gives back the daily pass", async () => {
+    const f = await fixture(false, false, { providerRetryDelayMs: 1, options: { providerRetries: 0 } });
+    const provider = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async (...args: unknown[]) => {
+      const runtime = await provider(...args);
+      return { ...runtime, sendTurn: async () => ({ turnId: "quota-turn" }), events: { async *[Symbol.asyncIterator]() {
+        yield { type: "turn.completed", turnId: "quota-turn", payload: { state: "failed", errorMessage: "429 Too Many Requests" } };
+      } } };
+    });
+    try {
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalledOnce();
+      expect(await f.runtime.inbox.metaNumber("provider-quota-blocked-until")).toBeGreaterThan(Date.now());
+      // The provider failed the pass before it did any work, so it does not count against the daily budget.
+      expect((await f.runtime.inbox.get("acme/app", 12))?.dailyPassBudget?.passes).toEqual([]);
+      expect(f.events).toHaveBeenCalledWith("babysitter.daily_pass_budget.released", expect.objectContaining({ reason: expect.stringContaining("429") }));
     } finally { await f.runtime.inbox.close(); }
   });
 

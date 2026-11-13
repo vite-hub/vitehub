@@ -310,12 +310,12 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await store.setMeta!("source-state", { private: true })
     vi.spyOn(blob, "put").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "put", "test", { cause }), undefined])
     await expect(store.history.commit({ ifHead: first.id, files: rawFiles({ "a.txt": "next" }) })).rejects.toMatchObject({ cause, code: "BLOB_OPERATION_FAILED" })
-    const originalDelete = blob.del.bind(blob)
-    vi.spyOn(blob, "del").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "del", "test", { cause }), undefined])
+    const originalDelete = blob.delete.bind(blob)
+    vi.spyOn(blob, "delete").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "delete", "test", { cause }), undefined])
     await expect(store.delete()).rejects.toMatchObject({ cause, code: "BLOB_OPERATION_FAILED" })
     expect(await store.history.head()).toBeNull()
     expect(await store.getMeta!("source-state")).toBeUndefined()
-    blob.del = originalDelete
+    blob.delete = originalDelete
     await store.delete()
     expect((await blob.list())[1]?.blobs).toEqual([])
   })

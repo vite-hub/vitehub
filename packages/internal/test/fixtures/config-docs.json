@@ -272,7 +272,7 @@
   {
     "key": "docs/content/docs/database/configure.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubDb } from '@vite-hub/database/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [hubDb()],\n  database: {\n    cli: { generate: false },\n  },\n})\n"
+    "code": "import { hubDatabase } from '@vite-hub/database/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [hubDatabase()],\n  database: {\n    cli: { generate: false },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/database/configure.md#2",
@@ -287,7 +287,7 @@
   {
     "key": "docs/content/docs/database/hosts.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubDb } from '@vite-hub/database/vite'\nimport { env, hubEnv } from '@vite-hub/env/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    hubEnv(),\n    hubDb({\n      connection: {\n        url: env({ source: env.source('TURSO_DATABASE_URL') }),\n        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),\n      },\n    }),\n  ],\n})\n"
+    "code": "import { hubDatabase } from '@vite-hub/database/vite'\nimport { env, hubEnv } from '@vite-hub/env/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    hubEnv(),\n    hubDatabase({\n      connection: {\n        url: env({ source: env.source('TURSO_DATABASE_URL') }),\n        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/database/hosts.md#2",
@@ -677,7 +677,7 @@
   {
     "key": "docs/content/docs/kv/configure.md#1",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [hubKv()],\n  kv: {\n    stores: {\n      default: { driver: 'fs-lite' },\n      rateLimit: { driver: 'upstash' },\n    },\n  },\n})\n"
+    "code": "export default defineConfig({\n  plugins: [hubKV()],\n  kv: {\n    stores: {\n      default: { driver: 'fs-lite' },\n      rateLimit: { driver: 'upstash' },\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/kv/configure.md#2",

@@ -5,7 +5,7 @@ import ConsoleSection from "./console-section.vue";
 // string, so the example is joined from lines.
 const snippet = [
   "import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'",
-  "import { useDatabase } from 'vite-hub/database/drizzle'",
+  "import { useDatabase } from 'vite-hub/database'",
   "",
   "export default defineAuth(() => {",
   "  const { db } = useDatabase('auth')",

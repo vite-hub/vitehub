@@ -19,7 +19,7 @@ The test examples import routes and Definitions from your app. Adapt those impor
 ```ts [test/signup.test.ts] fragment
 import { H3 } from 'h3'
 import { beforeEach, expect, test } from 'vitest'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { kv } from 'vite-hub/kv'
 import { setupViteHubTest } from 'vite-hub/test'
 
@@ -49,7 +49,7 @@ test('signup saves the user and sends the welcome email', async () => {
 })
 ```
 
-Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `#vitehub/env/server` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
+Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `vite-hub/env` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
 
 ```ts [vite.config.ts]
 /// <reference types="vitest/config" />

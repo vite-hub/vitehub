@@ -8,7 +8,8 @@ import { formatDiagnostic } from "nostics"
 import type { Diagnostic } from "nostics"
 
 import { CommitMemory, commitJson, commitKey, decodeCommit, encodeCommit, parserHash, readCommitJson, withCommitDocuments } from "./commit-cache.ts"
-import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
+import { checkContentDocuments, contentCheckReason, parseContentFiles } from "./check.ts"
+import { contentSource, contentSourceDefinition, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
@@ -16,6 +17,7 @@ import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
 import { openCommitSnapshot } from "./snapshots.ts"
 import { parseContentRef } from "./source-refs.ts"
 
+import type { ContentCheckInput, ContentCheckOptions } from "./check.ts"
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
 import type { ContentKV } from "./kv.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
@@ -26,7 +28,8 @@ import type { ContentSourceRef, ParsedContentRef } from "./source-refs.ts"
 
 /**
  * The commit that Content serves for a `github()` Source. Content keeps it in ViteHub KV and moves it only to a commit
- * whose documents all load and parse, so a push with a broken document never reaches readers.
+ * whose documents all load and parse and pass the error rules of `content.check()`, so a push with a broken document or
+ * link never reaches readers.
  */
 export interface ContentSourceHead {
   /** The Content source name, such as `default` or `docs`. */
@@ -103,8 +106,8 @@ export interface ContentSourceHeads {
   head(source?: string): Promise<ContentSourceHead>
   /**
    * Resolve the branch to its latest commit and move the head there when every document of that commit loads and
-   * parses. A commit that fails stays out: the head keeps the last valid commit and `rejected` names the failure.
-   * A pinned head does not move.
+   * parses, and `content.check()` finds no error, such as a link to a missing page. Warnings do not count. A commit that
+   * fails stays out: the head keeps the last valid commit and `rejected` names the failure. A pinned head does not move.
    */
   advance(source?: string): Promise<ContentSourceHead>
   /** Serve this full commit SHA until `unpin()`, for example to roll back. The commit must pass validation. */
@@ -140,7 +143,7 @@ export interface ContentSourceHeads {
 }
 
 /** A `github()` Source definition. */
-export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "resolveRef" | "contains" | "pullsAt">>
+export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "latest" | "changes" | "resolveRef" | "contains" | "pullsAt" | "pullChanges">>
 
 /** The KV value of a head. */
 interface StoredHead {
@@ -168,6 +171,8 @@ interface LoadedCommit {
   files: SourceItem<string, unknown, object>[]
   commit?: ContentCommit
   reason?: string
+  /** The file that did not parse, for `vitehub content check`. */
+  failure?: { path: string, message: string }
 }
 
 interface HeadState {
@@ -328,8 +333,17 @@ interface ContentSourceHeadsRuntime {
    * as for `at()`. The view stays open until the read ends.
    */
   read<T>(target: ContentSourceRef, read: (view: ComarkContent) => Promise<T>): Promise<T>
+  /**
+   * Load check documents from `sha` or the latest branch commit through the commit cache, without moving the head.
+   * `published` selects the accepted head for link targets of another Source, when one exists.
+   */
+  inspect(name: string, sha?: string, published?: boolean): Promise<{ sha: string, input: ContentCheckInput }>
   /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
+  /** Run `work` after the push webhook moves the head of a Source, such as computing page dates. */
+  onMove(work: (source: string) => Promise<void>): void
+  /** The work of `onMove()` for a Source whose head moved. The push webhook runs it in `waitUntil`. */
+  moved(source: string): Promise<void>
 }
 
 const runtimes = new WeakMap<object, ContentSourceHeadsRuntime>()
@@ -340,7 +354,9 @@ export function contentSourceHeadsRuntime(api: object): ContentSourceHeadsRuntim
 }
 
 /** Create the head state of a Content runtime. Reuse parsed KV documents only when the parser identity is known. */
-export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[] } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
+export function createContentSourceHeads(options: ContentOptions, access: { privateBranches?: readonly string[], check?: ContentCheckOptions, targets?: (source: string) => Promise<NonNullable<ContentCheckInput["targets"]>> } = {}, reuseParsed: boolean = false): ContentSourceHeadsRuntime {
+  /** `defineContent({ check })`, for the link rule of `check()`. */
+  const checkOptions: ContentCheckOptions = access.check ?? {}
   const states = new Map<string, HeadState>()
   /** The commits that this server instance holds, by cache key. Each load shares one promise, so one download serves all. */
   const memory = new CommitMemory<Promise<LoadedCommit>>()
@@ -422,40 +438,29 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     await kvCall(state, store => store.set(checkedKey(state.name), { origin: origin(state), at: new Date().toISOString() }))
   }
 
-  /** Load and parse every document of `input`. Returns the documents, or the error when a document does not parse. */
-  async function parse(name: string, input: ContentSourceInput): Promise<Omit<ContentCommit, "files"> | string> {
-    // A fresh memory cache, so `snapshot()` reads the parsed documents back without loading the files again.
-    const instance = createContentInstance(name, input, { ...options, cache: {}, logger: false, onError: "throw" })
-    // Index plugins, such as `sql-query`, write their tables on `file:bulk:load`. A check must not change them.
-    const { hooks } = instance
-    const callHook = hooks.callHook
-    hooks.callHook = ((hook: string, ...args: unknown[]) => hook === "file:bulk:load" ? Promise.resolve() : Reflect.apply(callHook, hooks, [hook, ...args])) as typeof callHook
-    try {
-      await instance.init({ partial: false, ignoreCache: true })
-      const { items } = await instance.snapshot()
-      return { manifest: await instance.manifest(), items }
-    }
-    catch (error) {
-      return error instanceof Error ? error.message : String(error)
-    }
-    finally {
-      await instance.dispose()
-    }
-  }
-
   /** Parse the files of one commit. Returns the commit, or why it is invalid. */
   async function parseCommit(state: HeadState, files: LoadedCommit["files"]): Promise<LoadedCommit> {
     // The Source options, such as `prefix` and `schema`, change the parsed documents.
     const { prefix, schema } = contentSource(state.input)
-    const parsed = await parse(state.name, contentSource({ items: async () => files }, { prefix, schema }))
-    if (typeof parsed !== "string") return { files, commit: { files, ...parsed } }
-    // Parse errors, such as YAML errors, do not name the document. Parse each document alone to find it.
-    for (const item of files) {
-      const single: Source<string, unknown, object> = { name: state.definition.name, getKeys: async () => [item.key], getItem: async () => item }
-      const error = await parse(state.name, contentSource(single, { prefix, schema }))
-      if (typeof error === "string") return { files, reason: `${item.path ?? item.key}: ${error}` }
+    const { commit, failures } = await parseContentFiles(state.name, files, { prefix, schema }, options)
+    if (commit) return { files, commit: { files, ...commit } }
+    const failure = failures[0]!
+    return { files, failure, reason: failure.path ? `${failure.path}: ${failure.message}` : failure.message }
+  }
+
+  /** The documents for `vitehub content check` from one loaded commit. */
+  function commitCheckInput(state: HeadState, loaded: LoadedCommit): ContentCheckInput {
+    const { schema } = contentSource(state.input)
+    const url = contentSourceUrl(state.input)
+    return {
+      source: state.name,
+      files: loaded.files,
+      items: loaded.commit?.items ?? [],
+      ...(loaded.commit ? {} : { failures: [loaded.failure ?? { path: "", message: loaded.reason ?? "the commit has no documents" }] }),
+      ...(schema ? { schema } : {}),
+      ...(url === undefined ? {} : { url }),
+      options: checkOptions,
     }
-    return { files, reason: parsed }
   }
 
   function hashOf(state: HeadState): Promise<string> {
@@ -548,13 +553,18 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   /**
-   * Load and parse every document of one commit. Returns why the commit is invalid, or undefined when it is valid.
-   * This is the seam for `vitehub content check`, which adds schema, link, and SEO checks.
+   * Load and parse every document of one commit, then run the error rules of `vitehub content check`: frontmatter that
+   * does not match the Source schema, and links to pages that the commit does not have. Returns why the commit is
+   * invalid, or undefined when it is valid. Warnings, such as a short title, do not count.
    */
   async function check(state: HeadState, revision: SourceRevision): Promise<string | undefined> {
     // A commit that does not download, such as on a network failure, is rejected too. `advance()` retries it.
+    let loaded: LoadedCommit
     try {
-      return (await load(state, revision)).reason
+      loaded = await load(state, revision)
+      if (!loaded.commit) return loaded.reason
+      const targets = await access.targets?.(state.name)
+      return contentCheckReason(checkContentDocuments({ ...commitCheckInput(state, loaded), targets }).findings)
     }
     catch (error) {
       return error instanceof Error ? error.message : String(error)
@@ -980,6 +990,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     return { repo, ref: typeof ref === "string" && ref !== "default" ? ref : undefined }
   }
 
+  const onMoved: Array<(source: string) => Promise<void>> = []
   const runtime: ContentSourceHeadsRuntime = {
     api,
     async dispose() {
@@ -1068,6 +1079,12 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         },
       })
     },
+    onMove(work) {
+      onMoved.push(work)
+    },
+    async moved(name) {
+      await Promise.all(onMoved.map(work => work(name)))
+    },
     names: () => [...states.keys()],
     async read(ref, read) {
       assertActive()
@@ -1076,6 +1093,39 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const loaded = await load(state, { id: target.sha, immutable: true })
       if (!loaded.commit) throw contentErrorDiagnostics.CONTENT_R0030({ source: state.name, ref: target.ref, sha: target.sha, reason: loaded.reason ?? "the commit has no documents" })
       return await readAt(state, target.sha, (_hub, view) => read(view))
+    },
+    async inspect(name, sha, published = false) {
+      const state = states.get(name)
+      if (!state) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] Content source ${JSON.stringify(name)} is no github() Source, so it has no commits to check.` })
+      // Read other Sources without advancing them: validation must not recursively wait on another head gate.
+      if (published) {
+        sha = state.served?.sha
+        if (await isLive(state)) {
+          try {
+            sha = (await read(state))?.sha ?? sha
+          }
+          catch (error) {
+            if (!isKVFailure(error)) throw error
+          }
+        }
+      }
+      let revision: SourceRevision | undefined
+      if (sha !== undefined) {
+        if (!fullSha.test(sha)) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] content.check({ sha }) needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
+        revision = { id: sha.toLowerCase(), immutable: true }
+      }
+      else {
+        revision = await createSource(state.definition).revision()
+        if (!revision?.immutable) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] GitHub gave no commit for the branch of Content source ${JSON.stringify(name)}, so there is nothing to check. Try again, or pass a sha.` })
+      }
+      let loaded: LoadedCommit
+      try {
+        loaded = await load(state, revision)
+      }
+      catch (error) {
+        throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] Content could not read commit ${revision.id} of Content source ${JSON.stringify(name)}: ${error instanceof Error ? error.message : String(error)}`, cause: error })
+      }
+      return { sha: revision.id, input: commitCheckInput(state, loaded) }
     },
     match(repo, ref, defaultBranch) {
       const result: { repository: boolean, sources: string[] } = { repository: false, sources: [] }

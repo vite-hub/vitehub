@@ -47,6 +47,13 @@ export interface ConsoleAccess {
   /** The Console team of a signed request from the Console, and the role of the user in it. */
   readonly team?: { readonly id: string, readonly role?: string }
   /**
+   * `"mcp"` when the ViteHub MCP of the Console signed the request for the user. The RPC then refuses operations with
+   * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
+   */
+  readonly surface?: "mcp"
+  /** The person agreed to this destructive MCP call. The signature covers it. */
+  readonly confirmed?: boolean
+  /**
    * The signed request: the name of its key, and the SHA-256 of the body that the signature covers. The reader of the
    * body compares the digest before it acts on the body.
    */
@@ -116,6 +123,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   let user: ConsoleUser | undefined
   let via: ConsoleAccess["via"]
   let team: ConsoleAccess["team"]
+  let surface: ConsoleAccess["surface"]
+  let confirmed: ConsoleAccess["confirmed"]
   let signature: ConsoleAccess["signature"]
   if (policy.mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
@@ -129,6 +138,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     if (signed.caller.via === "console") {
       user = { ...signed.caller.user }
       team = signed.caller.team
+      surface = signed.caller.surface
+      confirmed = signed.caller.confirmed
     }
   }
   let sections: ConsoleAccess["sections"] = "all"
@@ -138,7 +149,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       signature && via === "cli"
         ? { key: signature.key, request, via }
         : signature && via === "console" && user
-          ? { key: signature.key, request, user, via, ...(team ? { team } : {}) }
+          ? { key: signature.key, request, user, via, ...(team ? { team } : {}), ...(surface ? { surface } : {}) }
           : { request },
     )
     if (isRuntimeResponse(result)) return result
@@ -150,7 +161,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       sections = allowed
     }
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(signature ? { signature } : {}) })
+  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
 }
 
 /** The person of a checked access, or `undefined` for an access that the check did not create. */

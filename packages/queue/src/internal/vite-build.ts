@@ -58,9 +58,19 @@ export interface VercelQueueConsumerRoute {
   topic: string
 }
 
-function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: string): NormalizedQueueOptions {
+/** How the generated server reaches the app's Database, for the postgres provider. */
+export interface QueueDatabaseIntegration {
+  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/drizzle`. */
+  import?: string
+  /** The Default Database is on Postgres, as the Database integration resolved it. */
+  postgres?: boolean
+}
+
+export const defaultQueueDatabaseImport = "@vite-hub/database/drizzle"
+
+function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: string, postgresDatabase: boolean): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false
-  return normalizeQueueOptions(queue, { hosting }) || false
+  return normalizeQueueOptions(queue, { hosting, postgresDatabase }) || false
 }
 
 /**
@@ -71,6 +81,7 @@ function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: stri
 function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
   if (!development || queueConfig === false) return queueConfig
   if (queueConfig.provider === "local") return { ...queueConfig, development }
+  // A postgres build runs its jobs with the local provider too, so `vite dev` needs no Postgres database.
   return {
     base: resolve(rootDir, defaultLocalQueueBase),
     ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
@@ -108,10 +119,12 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
   }
 }
 
-function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean) {
+function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean, databaseImport: string) {
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
   const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
   const localRuntime = queueConfig !== false && queueConfig.provider === "local"
+  const postgresRuntime = queueConfig !== false && queueConfig.provider === "postgres"
+  const postgresDatabase = queueConfig !== false && queueConfig.provider === "postgres" ? queueConfig.database : undefined
   const cloudflare = cloudflareQueues && cloudflareRuntime
   const cloudflareGlobals = cloudflareRuntime && !development
   const runtimeClientFactory = cloudflareRuntime
@@ -120,7 +133,9 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
       ? "createVercelQueueRuntimeClient"
       : localRuntime
         ? "createLocalQueueRuntimeClient"
-        : undefined
+        : postgresRuntime
+          ? "createPostgresQueueRuntimeClient"
+          : undefined
   return [
     "import { definePlugin } from 'nitro'",
     ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolveVercelDependency("@vercel/queue")))}`] : []),
@@ -128,6 +143,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-vite")))}`] : []),
     ...(cloudflareRuntime ? [`import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-client")))}`] : []),
     ...(localRuntime ? [`import { closeLocalQueues, createLocalQueueRuntimeClient, startLocalQueue } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/local-client")))}`] : []),
+    ...(postgresRuntime ? [`import { closePostgresQueues, createPostgresQueueRuntimeClient, startPostgresQueue } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/postgres-client")))}`] : []),
     ...(vercelRuntime ? [`import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/vercel-client")))}`] : []),
     `import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
@@ -137,12 +153,20 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     ...(cloudflare ? [`const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}`, "const queueWorker = createQueueCloudflareWorker({ definitions: queueDefinitions, queue: queueConfig, registry: queueRegistry })"] : []),
     "",
-    `export default definePlugin((${cloudflare || localRuntime ? "nitro" : ""}) => {`,
+    `export default definePlugin((${cloudflare || localRuntime || postgresRuntime ? "nitro" : ""}) => {`,
     `  setQueueRuntimeConfig(queueConfig${runtimeClientFactory ? `, ${runtimeClientFactory}` : ""})`,
     "  setQueueRuntimeRegistry(queueRegistry)",
     ...(cloudflareGlobals ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
     ...(localRuntime ? ["  startLocalQueue(queueConfig)", "  nitro.hooks.hook('close', closeLocalQueues)"] : []),
+    // The workers start after the registry is set, and drain their running jobs when Nitro closes.
+    // The jobs use the postgres.js client of the Database, so they connect as the Database does.
+    ...(postgresRuntime ? [
+      postgresDatabase
+        ? `  startPostgresQueue(queueConfig, () => import(${JSON.stringify(databaseImport)}).then(module => module.databases))`
+        : "  startPostgresQueue(queueConfig)",
+      "  nitro.hooks.hook('close', closePostgresQueues)",
+    ] : []),
     "})",
     "",
   ].join("\n")
@@ -170,13 +194,13 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
 }
 
 /** Writes the generated Queue integration and returns the Queue config that its Nitro plugin uses. */
-export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<NormalizedQueueOptions> {
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName, database: QueueDatabaseIntegration = {}): Promise<NormalizedQueueOptions> {
   await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
-  const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting)
+  const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting, database.postgres === true)
   // Check Cloudflare names in dev too, so a name collision fails before the first build.
   const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
     ? createCloudflareQueueDefinitionNames(definitions, queueConfig.namePrefix)
@@ -192,7 +216,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
   if (vercelConsumers.length) await mkdir(vercelConsumerDir, { recursive: true })
   await Promise.all([
     writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
-    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, runtimeConfig, cloudflareQueues, queueDefinitions, development), "utf8"),
+    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, runtimeConfig, cloudflareQueues, queueDefinitions, development, database.import ?? defaultQueueDatabaseImport), "utf8"),
     writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, runtimeConfig, definitions.length > 0, development), "utf8"),
     ...vercelConsumers.map(async (consumer) => {
       const file = resolve(rootDir, consumer.handler)

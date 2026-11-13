@@ -42,7 +42,7 @@ function isPrimitive(value: unknown) {
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
 function serializeValue(value: unknown, operation = "setIfAbsent"): string {
   // set() removes a key for `undefined`; a conditional write cannot mean that.
-  if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.del() to remove a key.`)
+  if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.delete() to remove a key.`)
   if (isPrimitive(value)) return String(value)
   if (Array.isArray(value)) return JSON.stringify(value)
   if (value && typeof value === "object") {

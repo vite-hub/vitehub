@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Limitations
 
-- Memory counts live in one process. Do not use them in production on scaled-out or per-request hosts.
+- Memory counts live in one process. Do not use them in production on scaled-out or per-request hosts. On several Node instances, turn on KV so the `kv` provider shares the counts. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node).
 - A production build for an unknown host must set a provider or use a direct Rate Limiter.
 - The request identity defaults to the client address in the event's Standard Context, and explicit user or tenant identities remain application policy.
 - Managed policies must be static, so ViteHub can create the provider resources.
@@ -64,3 +64,13 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 | `RATE_LIMIT_R0028` | The driver does not support the window of the policy. The message lists the windows it supports. |
 | `RATE_LIMIT_R0029` | `createRateLimiter()` has no driver, or its options cannot be read. |
 | `RATE_LIMIT_R0004` to `RATE_LIMIT_R0006` | The Cloudflare driver has no binding, the binding failed, or it returned an invalid result. A failed binding follows the `failure` of the policy. |
+
+## KV limits
+
+The `kv` provider counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
+
+- Rejected requests also increment the counter, so `used` can be larger than `limit`. The manifest says `rejectedAttempts: "counted"`.
+- Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.
+- When KV fails or takes more than one second, the request follows the `failure` policy: `deny` returns `503`, `allow` lets it continue. `peek` and `reset` also return `unavailable` after one second. The deadline does not cancel the KV operation, so a timed-out request can still increment the counter. A KV configuration error, such as a missing `REDIS_URL` for an explicit `redis` store, throws.
+- `peekRateLimit()` and `resetRateLimit()` read the window from the policies that this process used. In a process that has not used the Rate Limit yet, `peek` returns `unused` and `reset` returns `unsupported`.
+- Without a KV store, the `kv` provider fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `delete` fails with `RATE_LIMIT_R0046`.

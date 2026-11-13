@@ -15,16 +15,19 @@ import type {
   ContentRevisionsOptions,
   ContentWriteOptions,
 } from "./collections-types.ts"
+import type { ContentCheckResult } from "./check.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
 import type { ContentScheduleStatus } from "./schedules.ts"
 import type { ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
+import type { ContentSourcePreviewRoutes as ContentPreviewRoutes } from "./ref-routes.ts"
 import type {
   ContentDevCollection,
   ContentDevCollectionsResult,
   ContentDevDiffResult,
   ContentDevHeadResult,
   ContentDevListResult,
+  ContentDevPreviewsResult,
   ContentDevPublishResult,
   ContentDevRemoveResult,
   ContentDevRevisionsResult,
@@ -82,6 +85,8 @@ const errorStatus = new Map([
   ["CONTENT_R0020", 409],
   ["CONTENT_R0021", 409],
   ["CONTENT_R0022", 424],
+  // A check that cannot run, such as for an unknown Source or a SHA of a Source without commits.
+  ["CONTENT_R0069", 400],
   ["WORKSPACE_CONFLICT", 409],
 ])
 
@@ -693,7 +698,13 @@ const publish = defineOperation({
     const options: ContentPublishOptions = { expect: input.expect, metadata: metadata(context) }
     if (input.message !== undefined) options.message = input.message
     const result = await content.publish(options)
-    return { documents: result.documents, dryRun: false, revision: result.revision, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
+    return {
+      documents: result.documents,
+      dryRun: false,
+      revision: result.revision,
+      ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}),
+      ...(result.previews ? { previews: result.previews.map(preview => ({ ...preview, expiresAt: preview.expiresAt.toISOString() })) } : {}),
+    }
   }),
   section: "content",
 })
@@ -819,7 +830,7 @@ const head = defineOperation({
 
 const advance = defineOperation({
   cli: { command: "advance", positional: ["source"] },
-  description: "Move the head of a github() Source to the latest commit of its branch when every document parses. A pinned head does not move.",
+  description: "Move the head of a github() Source to the latest commit of its branch when every document parses and `content check` finds no error. A pinned head does not move.",
   input: v.strictObject({ source: sourceName }),
   kind: "write",
   name: "content.advance",
@@ -832,7 +843,7 @@ const advance = defineOperation({
 
 const pin = defineOperation({
   cli: { command: "pin", positional: ["sha", "source"] },
-  description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse.",
+  description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse and pass the check.",
   input: v.strictObject({ sha: text, source: sourceName }),
   kind: "destructive",
   name: "content.pin",
@@ -856,5 +867,50 @@ const unpin = defineOperation({
   section: "content",
 })
 
+// A private pull request gets signed links, which open its drafts. So the operation needs the whole `content` section,
+// as moving a head does, and not only `content:read`.
+const previews = defineOperation({
+  cli: { command: "previews" },
+  description: "List the /pr/<number>/<path> preview links of the pages that a pull request adds or changes. A private pull request, such as a CMS publish, gets signed links.",
+  input: v.strictObject({
+    pr: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    site: optionalText,
+    maxAge: v.optional(v.pipe(v.number(), v.integer(), v.minValue(60), v.maxValue(86_400))),
+  }),
+  kind: "write",
+  name: "content.previews",
+  run: async (input): Promise<ContentDevPreviewsResult> => attempt(async () => {
+    const sources: unknown = Reflect.get(Object(await contentRuntime()), "sources")
+    if (typeof sources !== "object" || sources === null || !(Reflect.get(sources, "previewLinks") instanceof Function)) {
+      throw invalid("This Content runtime has no preview links. Update @vite-hub/content.")
+    }
+    // SAFETY: `sources` of a defineContent() runtime with previewLinks() is ContentSourcePreviewRoutes.
+    const routes = sources as ContentPreviewRoutes
+    const links = await routes.previewLinks(input.pr, { ...(input.site === undefined ? {} : { site: input.site }), ...(input.maxAge === undefined ? {} : { maxAge: input.maxAge }) })
+    return { ...links, expiresAt: links.expiresAt?.toISOString() ?? null }
+  }),
+  section: "content",
+})
+
+/** `content.check()` of the runtime. A runtime from before `check` cannot run it. */
+function contentChecker(content: ContentOperationsRuntime): (options: { source?: string, sha?: string }) => Promise<ContentCheckResult> {
+  const method: unknown = Reflect.get(Object(content), "check")
+  if (typeof method !== "function") throw invalid("This Content runtime has no check(). Update @vite-hub/content.")
+  return options => Reflect.apply(method, content, [options]) as Promise<ContentCheckResult>
+}
+
+const check = defineOperation({
+  cli: { command: "check", positional: ["source"] },
+  description: "Check the documents of the Sources: frontmatter against the schema, links to missing pages or headings, and title and description rules. A github() Source is checked at sha, or at the latest commit of its branch.",
+  input: v.strictObject({ source: sourceName, sha: v.optional(text) }),
+  kind: "read",
+  name: "content.check",
+  run: async (input): Promise<ContentCheckResult> => attempt(async () => {
+    const run = contentChecker(await contentRuntime())
+    return await run({ ...(input.source === undefined ? {} : { source: input.source }), ...(input.sha === undefined ? {} : { sha: input.sha }) })
+  }),
+  section: "content",
+})
+
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, head, advance, pin, unpin]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, previews, head, advance, pin, unpin, check]

@@ -291,7 +291,7 @@ Do not commit `.vitehub`, `.output`, `.nuxt`, `node_modules`, or `.env`. Local d
 
 ## Install one package without `vite-hub`
 
-To build a library or wire the server yourself, install one `@vite-hub/*` package. For example, `@vite-hub/kv` gives `hubKv()` from `@vite-hub/kv/vite`. You then own the server entry and host setup. The tutorials do not use this path; read the package README.
+To build a library or wire the server yourself, install one `@vite-hub/*` package. For example, `@vite-hub/kv` gives `hubKV()` from `@vite-hub/kv/vite`. You then own the server entry and host setup. The tutorials do not use this path; read the package README.
 
 This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, using pnpm 12 on Linux:
 
