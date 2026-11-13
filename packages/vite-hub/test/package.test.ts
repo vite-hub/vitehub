@@ -297,6 +297,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./cache",
       "./console",
       "./console/auth",
       "./console/mcp-client",
