@@ -528,6 +528,31 @@ describe("vitehub", () => {
     }
   })
 
+  it("installs the Cache section and its operations only when cache is set", async () => {
+    for (const cache of [true, false]) {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-console-cache-"))
+      try {
+        const plugins = vitehub({ cache, comments: false, console: { auth: false }, host: "node" })
+        const plugin = dependencyPluginByName(plugins, "vite-hub/console")
+        const config: Record<string, unknown> = { root, plugins }
+        await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+        await callHook(plugin.configResolved, [config])
+        const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        if (cache) {
+          expect(generated).toMatch(/cacheOperations: vitehubConsoleOperations\d+ \}/)
+          expect(generated).toMatch(/installConsoleSections\([^\n]+"cache"/)
+        }
+        else {
+          expect(generated).not.toContain("cacheOperations")
+          expect(generated).not.toMatch(/installConsoleSections\([^\n]+"cache"/)
+        }
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+  })
+
   it("keeps local operation runtime installers with Setup-only navigation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-setup-operations-"))
     try {

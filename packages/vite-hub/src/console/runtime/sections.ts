@@ -1,5 +1,5 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "site", "setup"] as const
+export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "cache", "site", "setup"] as const
 
 /**
  * Sections that are tools, not primitives, so the Overview does not offer them: Setup, which only a development server
@@ -66,6 +66,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "KV",
     routeName: "vitehub-console-kv",
   },
+  cache: {
+    description: "List, read, and invalidate the entries of Nitro's cache.",
+    icon: "i-vitehub-cache",
+    label: "Cache",
+    routeName: "vitehub-console-cache",
+  },
   site: {
     description: "Sign your browsers and invited guests in to the site, for the page tools.",
     icon: "i-lucide-globe-lock",
@@ -94,6 +100,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   logs: "runtime",
   databases: "data",
   kv: "data",
+  cache: "data",
   blob: "data",
   content: "data",
   comments: "data",
@@ -184,6 +191,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
   primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
   primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API."),
+  primitive("cache", "Cache", consoleSectionDetails.cache.icon, "kv/configure", "Keep the results of cached functions and handlers in a store of your host.", "kv/configure"),
   primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
   primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox."),
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
@@ -227,6 +235,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   logs: "l",
   databases: "d",
   kv: "k",
+  cache: "j",
   blob: "b",
   workspaces: "w",
   workflows: "f",
@@ -325,6 +334,7 @@ export function resolveConsoleSectionIds(options: {
   console?: unknown;
   agent?: unknown;
   blob?: unknown;
+  cache?: unknown;
   comments?: unknown;
   database?: unknown;
   email?: unknown;
@@ -353,6 +363,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),
+    ...(options.cache ? ["cache"] : []),
     ...(options.rateLimit ? ["rate-limits"] : []),
     ...(options.sandboxTask ? ["sandbox-tasks"] : []),
     ...(options.workspace ? ["workspaces"] : []),
