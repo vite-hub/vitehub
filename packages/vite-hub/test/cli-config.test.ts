@@ -10,6 +10,8 @@ import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
 import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
+import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
+import { consoleTestKey } from "./support/console-signature.ts";
 
 const roots: string[] = []
 
@@ -46,7 +48,7 @@ describe("ViteHub CLI config loading", () => {
     await writeFile(join(root, "vite.config.ts"), `
       // agent: false
       const unrelated = { agent: false }
-      export default { vitehub: { agent: { providers: { state: { provider: "memory" } }, cli: false } } }
+      export default { vitehub: { agent: { providers: { state: { driver: "memory" } }, cli: false } } }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
@@ -269,6 +271,26 @@ describe("shipped ViteHub CLI production discovery", () => {
   const execFileAsync = promisify(execFile);
   const bin = resolve(import.meta.dirname, "../dist/bin.js");
 
+  it.each([false, true])("checks a content-only folder through the public entrypoint (throwing config: %s)", async throwingConfig => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-content-only-"));
+    roots.push(root);
+    await mkdir(join(root, "content"));
+    await writeFile(join(root, "content/guide.md"), "---\ntitle: Getting started\ndescription: This description contains enough detail to meet the minimum length for search results.\n---\nSee [setup](/setup).\n");
+    await writeFile(join(root, "content/setup.md"), "---\ntitle: Project setup\ndescription: This setup description contains enough detail to meet the minimum length for search results.\n---\nBody\n");
+    if (throwingConfig) await writeFile(join(root, "vite.config.ts"), "throw new Error('project config must not load')\n");
+    const { stdout } = await execFileAsync(process.execPath, [bin, "content", "check", "--dir", "content", "--json"], { cwd: root });
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true, errors: 0, warnings: 0, sources: [{ source: "default", pages: 2 }] });
+
+    if (!throwingConfig) {
+      const result = await execFileAsync(process.execPath, [bin, "content", "check", "--json"], { cwd: root }).catch((error: { code: number, stderr: string }) => error);
+      expect(result).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown ViteHub CLI namespace: content") });
+      await writeFile(join(root, "content/guide.md"), "[Broken link](/guide/missing)\n");
+      const failed = await execFileAsync(process.execPath, [bin, "content", "check", "--dir", "content", "--json"], { cwd: root }).catch((error: { code: number, stdout: string }) => error);
+      expect(failed).toMatchObject({ code: 1 });
+      expect(JSON.parse(failed.stdout)).toMatchObject({ ok: false, errors: 1, findings: expect.arrayContaining([expect.objectContaining({ code: "CONTENT_R0062" })]) });
+    }
+  });
+
   it("inspects build-only Vite output through the framework entrypoint", async () => {
     const root = await createProject("vite");
     await writeFile(
@@ -362,25 +384,28 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       let body = "";
       request.on("data", (chunk: Buffer) => { body += chunk.toString(); });
       request.on("end", () => {
-        calls.push({ authorization: request.headers.authorization, body: JSON.parse(body), url: request.url });
+        calls.push({ authorization: request.headers.authorization, body: operationRpcRequest(body), signature: request.headers["x-vitehub-signature"], url: request.url });
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } }));
+        response.end(JSON.stringify(operationRpcReply(body, { ok: true, value: { id: "ainv_1", outcome: "requested", status: "running" } })));
       });
     });
     await new Promise<void>(resolveListen => server.listen(0, "127.0.0.1", resolveListen));
     try {
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected a TCP address.");
+      const ci = await consoleTestKey("CI");
       const { stdout } = await execFileAsync(
         process.execPath,
         [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}/_vitehub`],
-        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test" } },
+        // A bearer token is not a Console credential anymore. The CLI signs with its private key.
+        { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test", [`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`]: ci.key.privateKey } },
       );
       expect(stdout).toBe("ainv_1 cancel requested\n");
       expect(calls).toEqual([{
-        authorization: "Bearer cli-test",
+        authorization: undefined,
+        signature: expect.stringContaining("key=CI"),
         body: { input: { id: "ainv_1" }, operation: "invocations.cancel" },
-        url: "/_vitehub/rpc/__call",
+        url: "/_vitehub/rpc",
       }]);
     }
     finally {

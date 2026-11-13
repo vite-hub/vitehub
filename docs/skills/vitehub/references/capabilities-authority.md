@@ -15,7 +15,7 @@ Every Capability changes what an Agent may observe or do. For each one, name:
 
 - operations exposed to the model;
 - data and secret sources;
-- actor, scope, rate, and policy checks;
+- Invoker, scope, rate, and policy checks;
 - persistence or external side effects;
 - artifacts or traces available for inspection.
 

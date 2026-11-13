@@ -21,7 +21,7 @@ describe("Auth Console editing", () => {
   it.each(["string", "number", "boolean", "date", "string[]", "number[]"])("unsets an optional %s field", async (type) => {
     mocks.change.mockReset().mockResolvedValue({})
     const app = renderer.createApp({ ...Action, render: () => null }, {
-      base: "/manage", action: "editField", userId: "user", field: { key: "extra", type, required: false },
+      action: "editField", userId: "user", field: { key: "extra", type, required: false },
     })
     app.provide(ssrContextKey, {})
     const instance = app.mount({})
@@ -29,18 +29,18 @@ describe("Auth Console editing", () => {
     try {
       state.unset = true
       await state.submit()
-      expect(mocks.change).toHaveBeenCalledWith("/manage", { action: "editField", userId: "user", field: "extra", value: null })
+      expect(mocks.change).toHaveBeenCalledWith({ action: "editField", userId: "user", field: "extra", value: null })
     } finally { app.unmount() }
   })
 
   it("opens the organization drawer before its data loads and opens a member's user drawer", async () => {
     const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
-    mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"
+    mocks.read.mockReset().mockImplementation((operation) => operation === "organization"
       ? new Promise((resolve, reject) => pending.push({ resolve, reject }))
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
     await router.push("/")
-    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections", managementBase: "/manage" })
+    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections" })
     app.use(router)
     app.provide(ssrContextKey, {})
     const instance = app.mount({})
@@ -68,7 +68,7 @@ describe("Auth Console editing", () => {
       await nextPage
       expect(state.orgOffset).toBe(0)
       const retry = state.retryOrganization()
-      expect(mocks.read).toHaveBeenLastCalledWith("/manage", "organization", { id: "org", query: { offset: 25, limit: 25 } }, expect.any(AbortSignal))
+      expect(mocks.read).toHaveBeenLastCalledWith("organization", { id: "org", query: { offset: 25, limit: 25 } }, expect.any(AbortSignal))
       pending[2]!.resolve({ id: "org" })
       await retry
       expect(state.orgOffset).toBe(25)
@@ -81,12 +81,12 @@ describe("Auth Console editing", () => {
 
   it("ignores stale organization successes and errors after selection, closing, and unmount", async () => {
     const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
-    mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"
+    mocks.read.mockReset().mockImplementation((operation) => operation === "organization"
       ? new Promise((resolve, reject) => pending.push({ resolve, reject }))
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
     await router.push("/")
-    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections", managementBase: "/manage" })
+    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections" })
     app.use(router)
     app.provide(ssrContextKey, {})
     const instance = app.mount({})

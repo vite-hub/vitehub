@@ -1,10 +1,10 @@
 /*
  * The docs design, after the comark-ui site: column widths, a faint grain on the page, prose, highlighted code, and the
  * search modal. Colors, radii, fonts, and focus come from the ViteHub design system (`@vite-hub/ui/theme.css`), which
- * the module imports before this file, so comark-ui's blocks, which read the Nuxt UI variables, follow along.
+ * the module scopes to `.vh-docs` before this file, so comark-ui's blocks, which read the Nuxt UI variables, follow along.
  */
 
-:root {
+:root:where(.vh-docs) {
   --ui-header-height: 3.5rem;
   --ui-container: 90rem;
   /* The rail is 3.5rem wide. The page panel sits next to it. The page uses the rest of the viewport. */
@@ -21,13 +21,13 @@
   --vh-raised: var(--ui-bg);
 }
 
-:root.dark {
+:root:where(.vh-docs).dark {
   --vh-raised: var(--ui-bg-accented);
 }
 
 /* The grain sits on the page, and on the sticky surfaces that cover it. It scrolls with them: a `fixed` background
    would line the tiles up, but makes the browser repaint the whole page on every scrolled frame. */
-body,
+:where(.vh-docs) body,
 .vh-grain-surface {
   background-color: var(--ui-bg);
   background-image: var(--vh-grain);
@@ -36,13 +36,13 @@ body,
 }
 
 /* Highlighted code carries the light colors inline and the dark colors in variables. */
-html .shiki span {
+html:where(.vh-docs) .shiki span {
   font-style: var(--shiki-light-font-style);
   font-weight: var(--shiki-light-font-weight);
   text-decoration: var(--shiki-light-text-decoration);
 }
 
-html.dark .shiki span {
+html:where(.vh-docs).dark .shiki span {
   color: var(--shiki-dark) !important;
   background-color: var(--shiki-dark-bg) !important;
   font-style: var(--shiki-dark-font-style) !important;
@@ -427,7 +427,7 @@ html.dark .shiki span {
   }
 }
 
-.code-block-wrapper pre {
+:where(.vh-docs) .code-block-wrapper pre {
   margin: 0 !important;
   overflow-x: auto;
   border: none !important;
@@ -436,13 +436,13 @@ html.dark .shiki span {
   font-size: 0.8125rem;
 }
 
-.code-block-wrapper .shiki {
+:where(.vh-docs) .code-block-wrapper .shiki {
   min-height: 100%;
   background-color: transparent !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :where(.vh-docs) *, :where(.vh-docs) *::before, :where(.vh-docs) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

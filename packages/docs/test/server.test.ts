@@ -7,26 +7,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DocsPublicConfig } from "../src/nuxt.ts"
 
 const getItem = vi.fn<(key: string) => Promise<unknown>>()
-const useStorage = vi.fn((_base: string) => ({ getItem }))
+const useKV = vi.fn((_base: string) => ({ getItem }))
 const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase"> = {
   appBase: "/",
   site: { name: "Fixture", url: "https://docs.example.com", description: "", logo: null, badge: null },
   sitemap: ["/tutorials", "/docs/kv", "/a&b"],
 }
 
-// The handlers import Nitro auto-imports. h3 provides the same functions; storage and runtime config are fakes.
-vi.mock("#imports", async () => {
-  const h3 = await import("h3")
-  return {
-    createError: h3.createError,
-    defineEventHandler: h3.defineEventHandler,
-    getRequestURL: h3.getRequestURL,
-    getRouterParam: h3.getRouterParam,
-    setHeader: h3.setHeader,
-    useStorage,
-    useRuntimeConfig: () => ({ public: { docs: docsConfig } }),
-  }
-})
+// The handlers use the real `nitro/h3`. Storage and runtime config need a Nitro build, so they are fakes.
+vi.mock("nitro/kv", () => ({ useKV }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: docsConfig } }) }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 // The app's `parser` module: a Comark plugin that adds a paragraph, so the test sees which parser ran.
 vi.mock("#docs/example-sources", () => ({ default: {} }))
@@ -36,7 +28,7 @@ vi.mock("#docs/parser", () => ({
 }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
 })
 
 const { default: raw } = await import("../src/runtime/server/raw.ts")
@@ -60,7 +52,7 @@ describe("raw Markdown route", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
     expect(await response.text()).toBe(markdown)
-    expect(useStorage).toHaveBeenCalledWith("assets:docs-raw")
+    expect(useKV).toHaveBeenCalledWith("assets:docs-raw")
     expect(getItem).toHaveBeenCalledWith("docs/kv.md")
   })
 
@@ -79,7 +71,7 @@ describe("raw Markdown route", () => {
   })
 
   it.each(["%ZZ", "%E0%A4%A"])("returns 404 for malformed escapes %s without reading storage", async (path) => {
-    // Nitro 2 / H3 1 lets the malformed path reach the handler. H3 2 rejects it before routing with 400.
+    // H3 rejects the malformed path before routing with 400. Called directly, the handler still answers 404.
     const event = new H3Event(new Request(`https://docs.example.com/raw/docs/${path}.md`))
     event.context.params = { _: `docs/${path}.md` }
     await expect(raw(event)).rejects.toMatchObject({ statusCode: 404 })

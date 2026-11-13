@@ -75,8 +75,8 @@ describe("blob pathname validation", () => {
 
     await expect(storage.get(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.head(pathname)).rejects.toMatchObject(invalidPathname)
-    await expect(storage.del(pathname)).rejects.toMatchObject(invalidPathname)
-    await expect(storage.del(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
+    await expect(storage.delete(pathname)).rejects.toMatchObject(invalidPathname)
+    await expect(storage.delete(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
     await expect(storage.put(pathname, "x")).rejects.toMatchObject(invalidPathname)
     const served = await storage.serve(new Request("https://example.test/x"), pathname)
     expect(served.status).toBe(400)
@@ -263,14 +263,14 @@ describe("Cloudflare R2 native signed requests", () => {
     const driver = createR2NativeDriver(options)
 
     for (const pathname of ["x/..", "../other/key", "a/./b", ""]) {
-      await expect(driver.sign!(pathname, { expiresIn: 60, method: "GET" }), pathname).rejects.toMatchObject(invalidPathname)
-      await expect(driver.sign!(pathname, { expiresIn: 60, method: "PUT" }), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(driver.sign!(pathname, { expiresIn: 60, method: "GET" }, { store: "default" }), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(driver.sign!(pathname, { expiresIn: 60, method: "PUT" }, { store: "default" }), pathname).rejects.toMatchObject(invalidPathname)
     }
   })
 
   it("signs a path that stays under the bucket", async () => {
     const driver = createR2NativeDriver(options)
-    const signed = await driver.sign!("a b/%2e%2e/c?.txt", { expiresIn: 60, method: "GET" })
+    const signed = await driver.sign!("a b/%2e%2e/c?.txt", { expiresIn: 60, method: "GET" }, { store: "default" })
 
     expect(new URL(signed.url).pathname).toBe("/media/a%20b/%252e%252e/c%3F.txt")
   })

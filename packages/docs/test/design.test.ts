@@ -20,7 +20,7 @@ const sources = files(runtime).filter(file => /\.(?:vue|css|ts)$/.test(file)).ma
 function token(selector: string, name: string, css = design): string {
   let value = ""
   for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!selectors!.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map(part => part.trim()).includes(selector)) continue
+    if (!selectors!.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map(part => part.trim().replace(":where(.vh-docs)", "")).includes(selector)) continue
     value = body!.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1]?.trim() ?? value
   }
   return value

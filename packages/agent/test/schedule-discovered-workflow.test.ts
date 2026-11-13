@@ -27,8 +27,8 @@ it.each([
       await writeFile(join(agentDir, "skills/review/SKILL.md"), "Review the report.")
     }
     await writeFile(join(agentDir, "index.ts"), [
-      "import { defineAgent, workflow } from '@vite-hub/agent'",
-      `export default defineAgent({ ${explicit ? 'runtime: workflow("reporter"),' : ""} workspace: {}, driver: { run: () => 'inline' } })`,
+      "import { defineAgent, agentWorkflow } from '@vite-hub/agent'",
+      `export default defineAgent({ ${explicit ? 'runtime: agentWorkflow("reporter"),' : ""} workspace: {}, driver: { run: () => 'inline' } })`,
     ].join("\n"))
     await writeFile(schedule, [
       "import { startAgentInvocation } from '@vite-hub/agent'",
@@ -47,7 +47,7 @@ it.each([
       "  } finally { resetWorkflowRuntime() }",
       "} })",
     ].join("\n"))
-    const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+    const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
     const retained = await retainProviderOutputSources({ artifactDir: join(root, "snapshot"), roots: [root], paths: [schedule] })
     await prepareViteHubProviderSources([plugin], retained)

@@ -2,7 +2,7 @@
 title: Add the docs assistant
 description: Answer reader questions from your pages with a ViteHub Agent on your ChatGPT plan. Run it on Node.js or Cloudflare Workers and set its model and limits.
 navigation.title: Docs assistant
-navigation.order: 4
+navigation.order: 5
 icon: i-lucide-message-square-text
 ---
 
@@ -23,14 +23,14 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { preset: 'node', agent: true, connections: true, database: true }],
+    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
     '@vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
 })
 ```
 
-For Cloudflare Workers, use `preset: 'cloudflare'` instead of `'node'`.
+For Cloudflare Workers, use `host: 'cloudflare'` instead of `'node'`.
 
 Add the Agent. It answers from the pages in `content/`:
 
@@ -77,7 +77,7 @@ Start the app, then sign in once from the app folder:
 pnpm vitehub connections connect chatgpt --url http://localhost:3000
 ```
 
-A deployed app needs its own grant. Set `connections: { management: true }` to put the Connections API behind the Console sign-in, and move the grant with [`vitehub connections export` and `import`](/docs/connections/chatgpt#move-the-grant-to-a-vm).
+A deployed app needs its own grant. Set `connections: { management: { actor: './server/connections-actor.ts' } }` to put the Connections API behind your own actor policy, and move the grant with [`vitehub connections export` and `import`](/docs/connections/chatgpt#move-the-grant-to-a-vm).
 
 Every page now has an **Ask** button at the bottom right.
 

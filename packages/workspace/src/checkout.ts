@@ -810,7 +810,8 @@ function formatBytes(bytes: number): string {
  * `callOperation()` sends it, is over the request limit of `workspace.commit`, and names the largest files.
  */
 function assertCommitSize(workspace: string, input: object, putFiles: Record<string, { content: string }>): void {
-  const bytes = Buffer.byteLength(JSON.stringify({ operation: "workspace.commit", input }))
+  // The birpc message also holds `"t":"q"` and an id of 21 characters.
+  const bytes = Buffer.byteLength(JSON.stringify({ m: "workspace.commit", a: [input], t: "q", i: "0".repeat(21) }))
   if (bytes <= workspaceCommitRequestBytes) return
   const largest = Object.entries(putFiles)
     .map(([path, file]) => ({ path, bytes: Buffer.byteLength(file.content) }))

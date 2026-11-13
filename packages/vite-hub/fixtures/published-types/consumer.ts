@@ -11,12 +11,12 @@ import type {
 import * as agentCloudflare from "vite-hub/agent/cloudflare"
 import * as agentEval from "vite-hub/agent/eval"
 import * as agentServer from "vite-hub/agent/server"
-import * as agentSqliteState from "vite-hub/agent/state/sqlite"
+import * as agentSqliteState from "vite-hub/agent/state"
 import { useAgent, useChat } from "vite-hub/agent/vue"
 import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
 import type { SandboxDefinition } from "vite-hub/sandbox"
-import { useDatabase } from "vite-hub/database/drizzle"
+import { useDatabase } from "vite-hub/database"
 import { defineEnvProvider, env, type SecretEnv } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
@@ -26,7 +26,7 @@ import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
 import * as workspaceServer from "vite-hub/workspace/server"
 
-declare module "vite-hub/database/drizzle" {
+declare module "vite-hub/database" {
   interface DatabaseRegistry {
     default: {
       schema: { notes: { title: string } }
@@ -76,7 +76,7 @@ export const credentialsProvider = defineEnvProvider<{
 export default defineConfig({
   plugins: [vitehub({
     name: "published-consumer",
-    preset: "node",
+    host: "node",
     agent: true,
     blob: true,
     database: true,

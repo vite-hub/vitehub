@@ -3,6 +3,7 @@ import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import { createLibsqlDrizzle } from "./libsql-drizzle.ts"
 
 import type { Config } from "@libsql/client/http"
+import type { AnyRelations } from "drizzle-orm"
 import type { LibsqlClientFactory } from "./drizzle-adapter.ts"
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 
@@ -15,11 +16,11 @@ export const hostedLibsql: LibsqlClientFactory = {
   drizzle: createLibsqlDrizzle,
 }
 
-export function createHostedDrizzleDb<TSchema extends Record<string, unknown>>(
+export function createHostedDrizzleDb<TRelations extends AnyRelations>(
   dbConfig: ResolvedDrizzleDatabaseConfig,
-  schema: TSchema,
+  relations: TRelations,
 ) {
-  return createDrizzleSqliteAdapter(dbConfig, schema, {
+  return createDrizzleSqliteAdapter<Record<string, unknown>, TRelations>(dbConfig, relations, {
     libsql: hostedLibsql,
     missingConnection: "an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL",
     requireRemoteUrl: true,

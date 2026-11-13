@@ -1,12 +1,12 @@
 import { resolve } from "node:path";
-import { createApp, defineEventHandler, getCookie, toWebHandler, toWebRequest } from "h3";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { H3, getCookie } from "h3";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import staticAssets, { shouldServePrerenderedAsset } from "../server/middleware/static-assets";
 
 // Nitro builds `#docs/manifest` from the content folder. The test reads the same folder.
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("@vite-hub/docs/server");
-  return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "../content"), base: "/docs" }) };
+  return { default: await createDocsManifest({ dir: resolve(import.meta.dirname, "../content"), base: "/docs" }) };
 });
 
 const fetchAsset = vi.fn<(request: Request) => Promise<Response>>(() => Promise.resolve(new Response("prerendered: hidden", {
@@ -17,21 +17,22 @@ class Fetcher {
   readonly [Symbol.toStringTag] = "Fetcher";
   fetch = fetchAsset;
 }
-vi.stubGlobal("useRuntimeConfig", () => ({ agentDiscovery: { userAgents: ["GPTBot"] } }));
-// Nitro matches the route rules of nuxt.config.ts. The Learn rule is the only one with headers.
-vi.stubGlobal("getRouteRules", (event: { path: string }) => event.path.startsWith("/learn")
-  ? { headers: { "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" } }
-  : {});
-const request = toWebHandler(createApp()
-  .use(defineEventHandler((event) => {
-    // Nitro's `cloudflare_module` preset passes the Worker request here.
-    event.context.cloudflare = { env: { ASSETS: new Fetcher() }, request: toWebRequest(event) };
-  }))
+vi.mock("nuxt/server", () => ({
+  useRuntimeConfig: () => ({ agentDiscovery: { userAgents: ["GPTBot"] } }),
+  // Nitro matches the route rules of nuxt.config.ts. The Learn rule is the only one with headers.
+  getRouteRules: (event: { path: string }) => event.path.startsWith("/learn")
+    ? { headers: { "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" } }
+    : {},
+}));
+const app = new H3()
   .use(staticAssets)
-  .use(defineEventHandler(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden")));
+  .use(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden");
+// Nitro's Worker entry decorates the Request before passing it to H3.
+const request = (input: Request) => app.fetch(Object.assign(input, {
+  runtime: { cloudflare: { env: { ASSETS: new Fetcher() }, context: {} } },
+}));
 
 beforeEach(() => vi.clearAllMocks());
-afterAll(() => vi.unstubAllGlobals());
 
 describe("Cloudflare prerendered page middleware", () => {
   const input = { method: "GET", userAgents: ["GPTBot"] };
@@ -50,6 +51,18 @@ describe("Cloudflare prerendered page middleware", () => {
   it("normalizes media types and quality parameter names", () => {
     expect(shouldServePrerenderedAsset({ ...input, accept: "text/markdown;Q=0,*/*;q=1" })).toBe(true);
     expect(shouldServePrerenderedAsset({ ...input, accept: "text/markdown ; q=1,text/html;q=0" })).toBe(false);
+  });
+
+  it.each([
+    { Accept: "text/markdown", "User-Agent": "" },
+    { Accept: "text/html", "User-Agent": "GPTBot" },
+  ])("leaves negotiated requests in Nitro with headers %j", async (headers) => {
+    const response = await request(new Request("https://vitehub.dev/learn/first-agent", { headers }));
+
+    expect(fetchAsset).not.toHaveBeenCalled();
+    expect(await response.text()).toBe("rendered: hidden");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("vary")).toContain("Cookie");
   });
 
   it.each([
@@ -75,10 +88,11 @@ describe("Cloudflare prerendered page middleware", () => {
   it.each([undefined, "vh-tutorial-navigation=false"])("keeps hidden tutorials prerendered with cookie %s", async (cookie) => {
     const headers = new Headers({ Accept: "text/html" });
     if (cookie) headers.set("Cookie", cookie);
-    const response = await request(new Request("https://vitehub.dev/docs/kv/get-started", { headers }));
+    const input = new Request("https://vitehub.dev/docs/kv/get-started", { headers });
+    const response = await request(input);
 
     expect(fetchAsset).toHaveBeenCalledOnce();
-    expect(fetchAsset.mock.calls[0]?.[0].url).toBe("https://vitehub.dev/docs/kv/get-started");
+    expect(fetchAsset).toHaveBeenCalledWith(input);
     expect(await response.text()).toBe("prerendered: hidden");
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("vary")).toBe("Accept-Encoding, Accept, User-Agent, Cookie");

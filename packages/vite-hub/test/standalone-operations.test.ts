@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { createServer } from "vite"
 import { nitro } from "nitro/vite"
 import { describe, expect, it } from "vitest"
-import { hubKv } from "@vite-hub/kv/vite"
+import { hubKV } from "@vite-hub/kv/vite"
 import { hubBlob } from "@vite-hub/blob/vite"
 import { hubEmail } from "@vite-hub/email/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
@@ -27,7 +27,7 @@ describe("standalone primitive operation transport", () => {
       ].join("\n"))
       const baseURL = selection === "mounted" ? "/portal/" : "/"
       const plugins: Record<string, unknown> = {
-        kv: hubKv({ driver: "fs-lite", base: join(root, "kv") }),
+        kv: hubKV({ driver: "fs-lite", base: join(root, "kv") }),
         blob: hubBlob({ driver: "fs", base: join(root, "blob") }),
         email: hubEmail({ driver: "resend" }),
         "rate-limit": hubRateLimit(),

@@ -29,8 +29,8 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
-    console: { auth: 'app' },
+    host: 'node',
+    console: true,
     comments: { database: 'team' },
   },
 })
@@ -46,8 +46,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
-      console: { auth: 'app' },
+      host: 'node',
+      console: true,
       comments: { database: 'team' },
     }),
     nitro(),
@@ -64,8 +64,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
-      console: { auth: 'app' },
+      host: 'node',
+      console: true,
       comments: { database: 'team' },
     }),
   ],
@@ -120,7 +120,7 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 
 The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
 
-On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
+On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, [Sign in with GitHub](#sign-in-with-github), or a [page pass](#page-passes). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -191,7 +191,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comments through the Console
 
-Comment operations from the [Console](/docs/development/console), the CLI, and MCP need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/development/console), the CLI, and the [ViteHub MCP](/docs/development/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
 
 The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
@@ -200,7 +200,7 @@ The overlay on the app's pages does not read Console access. On pages, people ge
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } },
+  vitehub: { auth: true, console: { authorize: './server/console-authorize.ts' } },
 })
 ```
 :::
@@ -212,7 +212,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } }), nitro()],
+  plugins: [vitehub({ auth: true, console: { authorize: './server/console-authorize.ts' } }), nitro()],
 })
 ```
 :::
@@ -223,7 +223,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } })],
+  plugins: [vitehub({ auth: true, console: { authorize: './server/console-authorize.ts' } })],
 })
 ```
 :::
@@ -233,15 +233,14 @@ See [Limit a user to some sections](/docs/development/console#limit-a-user-to-so
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and Content field edits need the full `comments` grant and the Comments policy.
 
-| Console sign-in | Comment author |
+| Caller | Comment author |
 | --- | --- |
-| `auth: 'app'` or a Console Auth config | The signed-in Console user |
-| `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
-| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). |
+| The Console, or an agent on the ViteHub MCP | The person signed in to the Console |
+| The CLI, `auth: false`, or the dev server without a `console` option | A guest (`user: null` in policies). |
 
 ### Use your own login
 
-To use your own login, return the user from `identify`, or `null` when anonymous. `identify` names the user, and `authorize` decides what they may do. Comments then ignores the Auth session and Console access, so members, guests, and share link readers can comment in an app with the Console. Comment operations from the Console, the CLI, and MCP also call `identify` with the call's request. An agent's call has no request, so it has no user.
+To use your own login, return the user from `identify`, or `null` when anonymous. `identify` names the user, and `authorize` decides what they may do. Comments then ignores the Auth session and Console access, so members, guests, and share link readers can comment in an app with the Console. Comment operations from the Console, the CLI, and the ViteHub MCP also call `identify` with the call's request. An agent's call has no request, so it has no user.
 
 ::warning
 Without `authorize`, a production build lets in nobody that `identify` names. Write the policy.
@@ -281,9 +280,18 @@ The server does not verify a guest name or ID. They are display data, never proo
 
 A guest id starts with `guest:`, so it never matches a signed-in person's id. Guests cannot delete messages or threads, even when the policy allows `delete`, and nobody can mention a guest. To delete your messages, sign in, or ask a signed-in moderator with `delete`.
 
+### Page passes
+
+With the Console on, members can give a browser [site access](/docs/development/console#give-browsers-site-access): their own browsers and phones, or a guest they invite with a name and the grants they pick. When nobody signed in to the app, Comments takes the person of the pass:
+
+- A member comments under their Console name and picture, with every action.
+- A guest comments under the name the member gave them, with the actions the member picked. They don't type a name, and they own their messages like a signed-in person.
+
+The grants of the pass decide, and `authorize` does not run for it: `comments.read`, `comments.write`, `comments.resolve`, and `comments.delete`. Any of the last three also lets the person read. A person who signed in to the app, or whom `identify` names, keeps your policy, also when the browser holds a pass.
+
 ## Comments in your own UI
 
-The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the overlay tools of [ViteHub MCP](/docs/development/mcp) never show or change these threads.
+The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/development/mcp) never show or change these threads.
 
 ```ts [server/comments.ts]
 import { defineCommentSubject, defineComments } from 'vite-hub/comments'
@@ -490,7 +498,7 @@ import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
 import { migrateComments } from '@vite-hub/comments/database'
 
-const db = drizzle(createClient({ url: process.env.TURSO_DATABASE_URL!, authToken: process.env.TURSO_AUTH_TOKEN }))
+const db = drizzle({ client: createClient({ url: process.env.TURSO_DATABASE_URL!, authToken: process.env.TURSO_AUTH_TOKEN }) })
 console.log(await migrateComments(db))
 // { from: 'live', statements: [...], backup: 'vitehub_comment_threads_live' }
 ```
@@ -513,11 +521,12 @@ By default, a person may be mentioned only in a thread they may read: `authorize
 
 ```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
+import { foldName } from 'vite-hub/comments/client'
 import { team } from './utils/team'
 
 export const comments = defineComments({
   people: {
-    search: query => team.filter(person => person.name.toLowerCase().includes(query.toLowerCase())),
+    search: query => team.filter(person => foldName(person.name).includes(foldName(query))),
     byIds: ids => team.filter(person => ids.includes(person.id)),
   },
   // Only people of the same team, whatever they may read.
@@ -527,13 +536,15 @@ export const comments = defineComments({
 
 `people.search` gets the text after `@` and returns at most 20 people. Return full records for `canMention` and `authorize`; the browser gets only `id`, `name`, and `image`. A message keeps at most 20 mentions, as ids.
 
+Suggestions keep a person whose name holds the text after `@` when accents and case do not count, so `@jose` keeps José. `foldName()` removes accents and case in the same way. Auth users and earlier authors are found with a database search that does not remove accents, so there `@jose` finds only names written without them. Give `people` to find them all.
+
 ## Notify mentioned people
 
 `onMention` runs once per saved message that mentions people, with those people. An edit runs it only for added people. It runs after the response, through `waitUntil` where available. A failure is logged and never fails the comment. Use it with [Email](/docs/email):
 
 ```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 import { findUserEmail } from './utils/users'
 
 export const comments = defineComments({
@@ -751,7 +762,7 @@ The Comments section of the [Console](/docs/development/console) lists the 500 t
 
 ## Fix comments with an Agent
 
-The app serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. A connected Agent lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts with your Console access, and `authorize` applies to each call.
+Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call.
 
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
 
@@ -759,4 +770,4 @@ Your own MCP server can register the same tools. `commentsMcpTools(comments)` fr
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.
 ::
 
-Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the Request or the H3 event of the call; `authorize` then decides. Without `identify`, the tools use `user`. Pass `commentsMcpTools(comments, { console: true })` only when your server checked Console access of the `comments` section first, as ViteHub MCP does: the default policy then trusts `user`, the same as the comment operations. Browser guest headers name an author only when `authorize` permits the anonymous caller.
+Without an event, the tools use this user even when Comments defines `identify`. To use `identify`, pass `call(input, { user, event })` with the Request or the H3 event of the call; `authorize` then decides. Without `identify`, the tools use `user`. Pass `commentsMcpTools(comments, { console: true })` only when your server checked Console access of the `comments` section first, as the Console route does: the default policy then trusts `user`, the same as the comment operations. Browser guest headers name an author only when `authorize` permits the anonymous caller.

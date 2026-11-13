@@ -24,13 +24,13 @@
     "@vite-hub/workflow": "*",
     "@vite-hub/workspace": "*",
     "better-auth": "1.7.15",
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "1.0.0-rc.5",
     "vite": "8.2.2",
     "vite-hub": "*"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
-    "drizzle-kit": "0.31.11",
+    "drizzle-kit": "1.0.0-rc.5",
     "typescript": "6.0.3"
   },
   "optionalDependencies": {

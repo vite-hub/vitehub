@@ -21,6 +21,8 @@ import { consoleMcpClientOperations } from "../src/console/runtime/server/mcp-cl
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -29,7 +31,7 @@ import type { ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, 
 /** The app's default KV store, for `VITEHUB_CONSOLE_MCP_KEY`. Each value is a copy, as a real store keeps. */
 const kvValues = vi.hoisted(() => new Map<string, unknown>())
 const kv = vi.hoisted(() => ({
-  del: async (key: string) => [undefined, kvValues.delete(key)] as const,
+  delete: async (key: string) => [undefined, kvValues.delete(key)] as const,
   get: async (key: string) => [undefined, kvValues.has(key) ? structuredClone(kvValues.get(key)) : null] as const,
   keys: async (base = "") => [undefined, [...kvValues.keys()].filter(key => key.startsWith(base))] as const,
   set: async (key: string, value: unknown) => {
@@ -46,7 +48,7 @@ const people: Record<string, { email: string, name: string }> = {
 const discoveryMetadataSchema = v.record(v.string(), v.unknown())
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
-const seen = { consoleRedirects: [] as IncomingMessage["headers"][], grants: [] as string[], mcpCookies: [] as string[], redirectedHeaders: [] as IncomingMessage["headers"][], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
+const seen = { grants: [] as string[], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
 const codes = new Map<string, { challenge: string, clientId: string | null, person: string, redirectUri: string, resource: string | null }>()
 const tokens = new Map<string, string>()
 const issued: string[] = []
@@ -54,7 +56,8 @@ let origin = ""
 /** Whether the authorization server lists `offline_access`, as Better Auth does. */
 let offersOfflineAccess = false
 let resourceScopes: string[] | undefined = ["openid", "profile", "email"]
-let consoleMcpRedirect = false
+/** Signs RPC calls as the Console does while a test takes only signed calls. */
+let signer: Awaited<ReturnType<typeof signedConsoleAccess>> | undefined
 
 function deferred() {
   let resolve!: () => void
@@ -174,30 +177,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     response.writeHead(200).end()
     return
   }
-  if (url.pathname === "/_vitehub/mcp") {
-    if (consoleMcpRedirect) {
-      seen.consoleRedirects.push(request.headers)
-      response.writeHead(307, { location: "/redirected-mcp" }).end()
-      return
-    }
-    // ViteHub MCP reads the Console session of each request. Here the session cookie names the person.
-    const person = /(?:^|; )console=(\w+)/.exec(request.headers.cookie ?? "")?.[1]
-    if (!person || !people[person]) {
-      response.writeHead(401).end()
-      return
-    }
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-    await mcpServer(() => person).connect(transport)
-    await transport.handleRequest(request, response, request.method === "POST" ? JSON.parse(await body(request)) : undefined)
-    return
-  }
-  if (url.pathname === "/redirected-mcp") {
-    seen.redirectedHeaders.push(request.headers)
-    response.writeHead(404).end()
-    return
-  }
   if (url.pathname === "/mcp") {
-    if (request.headers.cookie) seen.mcpCookies.push(request.headers.cookie)
     const token = /^Bearer (\S+)$/.exec(request.headers.authorization ?? "")?.[1]
     const person = token === "fin_lucia" ? "lucia" : token && !seen.revoked.has(token) ? tokens.get(token) : undefined
     if (!person) {
@@ -248,9 +228,8 @@ afterAll(async () => {
 })
 
 afterEach(() => {
-  consoleMcpRedirect = false
-  seen.consoleRedirects.length = 0
-  seen.redirectedHeaders.length = 0
+  signer?.restore()
+  signer = undefined
   offersOfflineAccess = false
   delete process.env.VITEHUB_CONSOLE_MCP_KEY
   kvValues.clear()
@@ -261,18 +240,19 @@ afterEach(() => {
   installConsoleOperations([])
 })
 
-/** Console RPC calls, as the person in `user` when the access checks sessions. Every body is kept to check for tokens. */
+/** Console RPC calls, signed for the person in `user` when the test takes only signed calls. Every body is kept to check for tokens. */
 const responses: string[] = []
 async function rpc<T>(operation: string, input: unknown = {}, user?: string, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<{ status: number, value: T, failure?: { code: string, message: string } }> {
-  const response = await handleConsoleRpcRequest(new Request(`${origin}/_vitehub/rpc/__call`, {
-    body: JSON.stringify({ input, operation }),
-    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...(user ? { "x-test-user": user } : {}), ...headers },
+  const request = new Request(`${origin}/_vitehub/rpc`, {
+    body: operationRpcBody(operation, input),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
     signal,
-  }))
+  })
+  const response = await handleConsoleRpcRequest(signer && user ? await signer.sign(request, { id: user }) : request)
   const text = await response.text()
   responses.push(text)
-  const parsed = JSON.parse(text) as { code: string, message: string, ok: boolean, value: T }
+  const parsed = operationRpcResult(JSON.parse(text)) as { code: string, message: string, ok: boolean, value: T }
   return { status: response.status, value: parsed.value, ...(parsed.ok ? {} : { failure: { code: parsed.code, message: parsed.message } }) }
 }
 
@@ -293,8 +273,8 @@ async function connectAs(person: string, options: { prompt?: "login", user?: str
   return completed.value
 }
 
-function install(kv = false, preset: "node" | "cloudflare" = "node"): void {
-  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, preset }))
+function install(kv = false, host: "node" | "cloudflare" = "node"): void {
+  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, host }))
   installConsoleOperations([{ operations: consoleMcpClientOperations, plugin: "vite-hub" }])
 }
 
@@ -331,7 +311,7 @@ describe("MCP client section", () => {
     const overview = await rpc<ConsoleMcpOverview>("mcp-client.list")
     expect(overview.value).toEqual({
       connections: [],
-      servers: [{ authorizationServer: origin, label: "Test Finance", url: `${origin}/mcp` }, { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` }],
+      servers: [{ authorizationServer: origin, label: "Test Finance", url: `${origin}/mcp` }],
       sharedSession: false,
     })
   })
@@ -340,7 +320,7 @@ describe("MCP client section", () => {
     install()
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ resource: `${origin}/` }))
     const overview = await rpc<ConsoleMcpOverview>("mcp-client.list")
-    expect(overview.value.servers).toEqual([{ label: "This app", url: `${origin}/` }, { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` }])
+    expect(overview.value.servers).toEqual([{ label: "This app", url: `${origin}/` }])
   })
 
   it.each([
@@ -567,15 +547,6 @@ describe("MCP client section", () => {
     expect(deadlines[0]).toBe(deadlines[1])
   })
 
-  it("says when the Console shares its session with the app's own sign-in", async () => {
-    install()
-    // With app Auth, signing in as someone else at an authorization server on this origin would switch the Console too.
-    installConsoleAccess({ authBasePath: async () => "/api/auth", check: async () => undefined, mode: "auth", user: async () => ({ id: "admin-1" }) })
-    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.sharedSession).toBe(true)
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ id: "admin-1" }) })
-    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.sharedSession).toBe(false)
-  })
-
   it("signs in with OAuth as two people at once, each with their own token and MCP session", async () => {
     install()
     const registrations = seen.registrations
@@ -614,30 +585,6 @@ describe("MCP client section", () => {
 
     // The browser never gets a token.
     for (const token of issued) expect(responses.join("\n")).not.toContain(token)
-  })
-
-  it("connects to ViteHub MCP with the Console session of each request, and sends it nowhere else", async () => {
-    install()
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ email: "ada@example.com", id: "admin-1", name: "Ada" }) })
-    const lucia = { cookie: "console=lucia" }
-    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/_vitehub/mcp" }, undefined, lucia)
-    expect(started.value.authorizationUrl).toBeUndefined()
-    expect(started.value.connection).toMatchObject({ auth: "console", identity: { email: "ada@example.com", name: "Ada", subject: "admin-1" }, label: "Ada", status: "connected" })
-    expect(started.value.connection.grant).toBeUndefined()
-    const id = started.value.connection.id
-    const call = (headers: Record<string, string>) => rpc<ConsoleMcpOutcome>("mcp-client.call", { id, tool: "whoami" }, undefined, headers)
-    // Queued operations each use their own request's session; the connection keeps none of them.
-    const [asLucia, asMaxi, withoutSession] = await Promise.all([call(lucia), call({ cookie: "console=maxi" }), call({})])
-    expect(asLucia.value.result).toMatchObject({ content: [{ text: "Lucía", type: "text" }] })
-    expect(asMaxi.value.result).toMatchObject({ content: [{ text: "Maxi", type: "text" }] })
-    expect(withoutSession.failure).toMatchObject({ code: "CONSOLE_MCP_SIGNED_OUT", message: "ViteHub MCP did not accept your Console session." })
-    expect((await rpc<ConsoleMcpConnectResult>("mcp-client.reconnect", { id }, undefined, lucia)).value.connection.status).toBe("connected")
-    // One Console session is one account: connecting again opens the same connection.
-    expect((await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/_vitehub/mcp" }, undefined, lucia)).value.connection.id).toBe(id)
-    // Other servers on this origin, such as the app's own /mcp, never get the Console session.
-    const other = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }, undefined, lucia)
-    expect(other.value.authorizationUrl).toBeDefined()
-    expect(seen.mcpCookies).toEqual([])
   })
 
   it("keeps connections sealed in KV with VITEHUB_CONSOLE_MCP_KEY, so they outlive a restart", async () => {
@@ -711,22 +658,6 @@ describe("MCP client section", () => {
     expect(await records.connections("user:a")).toEqual([connection])
   })
 
-  it.each(["connect", "call"])("refuses ViteHub MCP redirects during %s without forwarding any Console session header", async (operation) => {
-    install()
-    const headers = { authorization: "Bearer console-token", "cf-access-jwt-assertion": "console-jwt", cookie: "console=lucia" }
-    const input = { server: "/_vitehub/mcp" }
-    const connected = operation === "call" ? await rpc<ConsoleMcpConnectResult>("mcp-client.connect", input, undefined, headers) : undefined
-    if (connected) expect(connected.failure).toBeUndefined()
-    consoleMcpRedirect = true
-    const rejected = connected
-      ? await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: connected.value.connection.id, tool: "whoami" }, undefined, headers)
-      : await rpc<ConsoleMcpConnectResult>("mcp-client.connect", input, undefined, headers)
-    expect(rejected.failure).toBeDefined()
-    expect(seen.consoleRedirects).not.toHaveLength(0)
-    expect(seen.consoleRedirects[0]).toMatchObject(headers)
-    expect(seen.redirectedHeaders).toEqual([])
-  })
-
   it.each([
     { name: "lists scopes", scopes: ["openid", "profile", "email"], expected: "openid profile email offline_access" },
     { name: "omits scopes", scopes: undefined, expected: "offline_access" },
@@ -750,7 +681,7 @@ describe("MCP client section", () => {
   it.each([false, true])("keeps the registration used by each concurrent first sign-in (sealed: %s)", async (durable) => {
     install(durable)
     if (durable) process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async event => ({ id: event["~standard"].req?.headers instanceof Headers ? event["~standard"].req.headers.get("x-test-user") ?? "" : "" }) })
+    signer = await signedConsoleAccess()
     const nativeFetch = globalThis.fetch
     const registration = deferred()
     let registrations = 0
@@ -978,11 +909,7 @@ describe("MCP client section", () => {
 
   it("keeps each person's connections and sign-ins to themselves", async () => {
     install()
-    installConsoleAccess({
-      check: async () => undefined,
-      mode: "auth",
-      user: async event => ({ id: event["~standard"].req?.headers instanceof Headers ? event["~standard"].req.headers.get("x-test-user") ?? "" : "" }),
-    })
+    signer = await signedConsoleAccess()
     const maxi = await connectAs("maxi", { user: "admin-1" })
     expect((await rpc<ConsoleMcpOverview>("mcp-client.list", {}, "admin-2")).value.connections).toEqual([])
     const call = await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: maxi.id, tool: "whoami" }, "admin-2")

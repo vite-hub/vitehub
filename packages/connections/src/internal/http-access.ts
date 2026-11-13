@@ -1,3 +1,5 @@
+import { isViteHubLoopbackPeer } from "@vite-hub/internal/dev-peer"
+import { getStandardContext } from "@vite-hub/runtime"
 import * as v from "valibot"
 
 import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
@@ -16,8 +18,9 @@ export type ConnectionsActor = (request: Request) => string | Response | undefin
  * Access policy of the Connections management routes.
  *
  * - A {@link ConnectionsActor} function checks every request.
- * - `"development"` allows every request as `user:local` on a development server
- *   (`NODE_ENV=development`). Any other runtime gets `500` with `CONNECTIONS_AUTH_REQUIRED`.
+ * - `"development"` allows a request from this machine as `user:local` on a development server
+ *   (`NODE_ENV=development`). A request from another machine, such as a LAN address of `vite --host` or a tunnel, gets
+ *   `403`. Any other runtime gets `500` with `CONNECTIONS_AUTH_REQUIRED`.
  */
 export type ConnectionsAccessPolicy = ConnectionsActor | "development"
 
@@ -69,7 +72,12 @@ export async function checkConnectionsAccess(
   let actor: unknown
   if (policy === "development") {
     if (!v.is(developmentProcessSchema, globalThis.process)) {
-      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
+      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires an actor module outside local development.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
+    }
+    // The development policy has no sign-in, so it trusts only this machine. The dev server front process signs
+    // loopback requests for its worker, which never sees the client address.
+    if (!await isViteHubLoopbackPeer(request, getStandardContext(request).runtime?.clientAddress)) {
+      return reject(403, "CONNECTIONS_FORBIDDEN", "The development policy allows Connections management only from this machine.")
     }
     actor = "user:local"
   }

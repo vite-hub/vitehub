@@ -9,6 +9,13 @@ export interface ViteHubConsoleDefinitionCatalogView {
   notice: string
 }
 
+/** Lists Workspace Definitions like a catalog, and browses the refs, revisions, and files of the selected one. */
+export interface ViteHubConsoleWorkspaceBrowserView {
+  kind: "workspace-browser"
+  /** States which runtime data the browser does not include. */
+  notice: string
+}
+
 export interface ViteHubConsoleRecordColumn {
   /** Set it for a column with few values, such as a status. The Console then filters the table by its values. */
   filter?: boolean
@@ -39,8 +46,13 @@ export interface ViteHubConsoleOperationColumn {
   /** Dot path into each item of the result, such as `author.name` or `messages.0.body`. */
   key: string
   label: string
-  /** `datetime` shows a time in milliseconds since the epoch as a date. `excerpt` cuts a long text. */
-  format?: "datetime" | "excerpt"
+  /**
+   * `datetime` shows a time in milliseconds since the epoch as a relative date, such as `5m ago`. `excerpt` cuts a long
+   * text. `status` shows the value as a status with a colored dot, such as `Open`. `tones` picks the color of each value.
+   */
+  format?: "datetime" | "excerpt" | "status"
+  /** The color of each value of a `status` column, such as `{ open: "info", resolved: "success" }`. Other values are neutral. */
+  tones?: Readonly<Record<string, "error" | "info" | "neutral" | "success" | "warning">>
 }
 
 /** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
@@ -91,7 +103,8 @@ export type ViteHubConsoleSectionView =
   | ViteHubConsoleAuthView
   | ViteHubConsoleDefinitionCatalogView
   | ViteHubConsoleRecordTableView
-  | ViteHubConsoleDocumentEditorView;
+  | ViteHubConsoleDocumentEditorView
+  | ViteHubConsoleWorkspaceBrowserView;
 
 /**
  * The overview of a document editor section: document counts by state, the changes that wait for a publish, recent
@@ -552,6 +565,10 @@ export interface ViteHubConsoleDocumentRevision {
 export interface ViteHubConsoleDocumentPublished {
   revision: string | null
   documents: Array<{ collection: string, id: string, change: "add" | "update" | "delete" }>
+  /** Set when the owner publishes through a pull request: the documents go live when it merges. */
+  pullRequest?: { number: number, url: string }
+  /** The signed preview link of each document of `pullRequest` with a page URL, and when it expires as an ISO date. */
+  previews?: Array<{ collection: string, id: string, locale?: string, url: string, expiresAt: string }>
 }
 
 /** One unpublished change with what the dashboard shows of it. */

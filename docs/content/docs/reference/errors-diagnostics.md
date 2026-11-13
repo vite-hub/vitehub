@@ -51,10 +51,10 @@ Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, suc
 Catch a diagnostic by its full `code` when your app can fix or classify that exact defect.
 
 ```ts
-import { getAgentFromRegistry } from 'vite-hub/agent'
+import { loadAgent } from 'vite-hub/agent'
 
 try {
-  await getAgentFromRegistry('triage', {})
+  await loadAgent('triage', {})
 }
 catch (error) {
   if (error instanceof Error && 'code' in error && error.code === 'AGENT_R0001') {
@@ -77,6 +77,12 @@ Packages that do not follow the error contract yet keep the `ViteHubError` contr
 `ViteHubError` copies and freezes its public `name`, `code`, `message`, `details`, and `requestId` when created. `toJSON()` omits its `cause`. Public details must be bounded JSON data.
 
 Use an operational code to choose what your app does. Use a Nostics code to find and fix ViteHub config, build, or runtime code.
+
+<a id="durability"></a>
+
+## Durability diagnostics
+
+A Node server throws `RUNTIME_R0017` at boot when `VITEHUB_INSTANCES` or `node.instances` is greater than 1 and a primitive keeps its state in one process or on one host. The message lists each primitive with its fix. Move each one to a shared store, or run one instance. `RUNTIME_R0018` means that the instance count is not a positive integer. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances).
 
 ## Agent diagnostics
 
@@ -192,7 +198,7 @@ Public errors include only bounded ids, categories, retry delays, reset times, a
 
 ## Bundle checks
 
-`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning.
+`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning. [Bundle checks](/docs/bundle/checks) shows how to run them in CI.
 
 ### BUNDLE_STARTUP_UNUSED
 

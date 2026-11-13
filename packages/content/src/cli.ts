@@ -10,16 +10,22 @@ import { callOperation } from "@vite-hub/internal/operations"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentPreviewComment, postContentPreviewComment } from "./preview-comment.ts"
 import { renderContentSitemap } from "./sitemap.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { JsonSchema } from "comark-content"
+import type { ContentCheckResult } from "./check.ts"
 import type { ContentDocumentStatus, ContentRef } from "./collections-types.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentSchedule, ContentScheduleStatus } from "./schedules.ts"
+import type { ContentSourceHead } from "./source-heads.ts"
 import type {
   ContentDevCollectionsResult,
   ContentDevDiffResult,
+  ContentDevHeadResult,
   ContentDevListResult,
+  ContentDevPreviewsResult,
   ContentDevPublishResult,
   ContentDevRemoveResult,
   ContentDevRevisionsResult,
@@ -45,12 +51,14 @@ export interface ContentCliOptions {
 }
 
 type ContentCliOption =
-  | "at" | "collection" | "cursor" | "dry-run" | "file" | "id" | "if-digest" | "limit" | "message" | "override-lease"
-  | "ref" | "revision" | "search" | "site" | "status" | "xml" | "yes"
+  | "at" | "collection" | "cursor" | "dir" | "dry-run" | "file" | "id" | "if-digest" | "ignore" | "limit" | "max-age"
+  | "message" | "override-lease" | "page-url" | "post" | "pr" | "ref" | "revision" | "schema" | "search" | "sha" | "site"
+  | "status" | "title-template" | "xml" | "yes"
 
 type ContentCliCommandName =
   | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "delete" | "restore"
-  | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap"
+  | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap" | "previews" | "head" | "advance" | "pin" | "unpin"
+  | "check"
 
 interface ContentCliCommand {
   description: string
@@ -61,26 +69,38 @@ interface ContentCliCommand {
 }
 
 interface ParsedContentArgs {
+  /** The action of `previews`. `comment` is the only one. */
+  action?: string
   at?: string
   collection?: string
   cursor?: string
+  dir?: string
   dryRun: boolean
   file?: string
   help: boolean
   id?: string
   ids?: string[]
   ifDigest?: string
+  ignore?: string[]
   json: boolean
   limit?: number
+  maxAge?: number
   message?: string
   overrideLease: boolean
+  pageUrl?: string
+  post: boolean
+  pr?: number
   ref?: ContentRef
   revision?: string
   schedule?: string
+  schema?: string
   search?: string
+  sha?: string
   site?: string
+  source?: string
   status?: ContentScheduleStatus
   timeout?: number
+  titleTemplate?: string
   url: string
   xml: boolean
   yes: boolean
@@ -115,24 +135,39 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "List pending, overdue, and failed schedules, earliest first.", name: "scheduled", options: ["status"], positionals: ["collection?", "id?"] },
   { description: "Cancel a pending schedule, or dismiss a failed one.", name: "unschedule", options: [], positionals: ["schedule"] },
   { description: "Print the sitemap URLs of published documents of collections, and documents of Sources, with a url.", name: "sitemap", options: ["site", "xml"], positionals: [] },
+  { description: "Print the Markdown comment with the /pr/<number> preview link of each page that a pull request adds or changes, signed when the pull request is private. --post creates or updates that one comment on GitHub with VITEHUB_GITHUB_TOKEN.", name: "previews", options: ["pr", "post", "site", "max-age"], positionals: ["action"] },
+  { description: "Show the commit that each github() Source serves, the rejected commit, the last webhook delivery, and what holds the head back.", name: "head", options: [], positionals: ["source?"] },
+  { description: "Move the head of a github() Source to the latest commit of its branch when every document parses and `content check` finds no error. Exits 1 when the head is held back.", name: "advance", options: [], positionals: ["source?"] },
+  { description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse and pass the check.", name: "pin", options: [], positionals: ["sha", "source?"] },
+  { description: "Remove the pin of a github() Source and move its head to the latest valid commit of its branch.", name: "unpin", options: [], positionals: ["source?"] },
+  { description: "Check documents for frontmatter that does not match the schema, links to missing pages or headings, and title and description rules. With --dir it checks a folder without a running app. Exits 1 on errors.", name: "check", options: ["sha", "dir", "page-url", "schema", "site", "ignore", "title-template"], positionals: ["source?"] },
 ]
 
 const optionUsage: Record<ContentCliOption, string> = {
   "at": "--at <time>",
   "collection": "[--collection <name>]",
   "cursor": "[--cursor <cursor>]",
+  "dir": "[--dir <folder>]",
   "dry-run": "[--dry-run]",
   "file": "[--file <path>|-]",
   "id": "[--id <id>...]",
   "if-digest": "[--if-digest <digest>]",
+  "ignore": "[--ignore <path>...]",
   "limit": "[--limit <n>]",
+  "max-age": "[--max-age <seconds>]",
   "message": "[--message <text>]",
   "override-lease": "[--override-lease]",
+  "page-url": "[--page-url <pattern>]",
+  "post": "[--post]",
+  "pr": "--pr <number>",
   "ref": "[--ref draft|published]",
   "revision": "--revision <id>",
+  "schema": "[--schema <file>]",
   "search": "[--search <text>]",
+  "sha": "[--sha <sha>]",
   "site": "[--site <url>]",
   "status": "[--status pending|overdue|failed]",
+  "title-template": "[--title-template <pattern>]",
   "xml": "[--xml]",
   "yes": "[--yes]",
 }
@@ -141,24 +176,33 @@ const optionHelp: Record<ContentCliOption, string> = {
   "at": "  --at <time>          When to publish: an ISO timestamp with a time zone, such as 2026-10-20T09:00:00+02:00.",
   "collection": "  --collection <name>  Select one collection. Omit it to select every collection.",
   "cursor": "  --cursor <cursor>    Continue after this cursor. The command prints the next cursor.",
+  "dir": "  --dir <folder>       Check this folder of the working tree as one Source, without a running app. For CI.",
   "dry-run": "  --dry-run            List the changes, with each draft digest and field issue count, and change nothing.",
   "file": "  --file <path>        Save this file as the draft instead of opening an editor. `-` reads standard input.",
   "id": "  --id <id>            Select only this document of --collection. Repeatable.",
   "if-digest": "  --if-digest <digest> Save only if the draft still has this digest, as `show --json` prints it.",
+  "ignore": "  --ignore <path>      With --dir: a link target that another route serves, such as /docs/*/diagnostics/**. Repeatable.",
   "limit": "  --limit <n>          Show at most n entries. Defaults to 20 for revisions and 50 for list. Maximum 100.",
+  "max-age": "  --max-age <seconds>  How long signed links work: 3600 (one hour) by default, 86400 at most.",
   "message": "  --message <text>     Revision message.",
   "override-lease": "  --override-lease     Write even while another session holds the edit lease of the document.",
+  "page-url": "  --page-url <pattern> With --dir: the page URL of each document, such as /blog/:id. Defaults to the document path.",
+  "post": "  --post               Create or update the comment on GitHub with VITEHUB_GITHUB_TOKEN instead of printing it.",
+  "pr": "  --pr <number>        The pull request of the github() Source that previews read.",
   "ref": "  --ref <ref>          `draft` (default) or `published`. For revisions, `draft` lists saves and `published` publishes.",
   "revision": "  --revision <id>      The revision to restore from, as `vitehub content revisions` lists it.",
+  "schema": "  --schema <file>      With --dir: a JSON Schema file that the frontmatter must match.",
   "search": "  --search <text>      Only documents whose search fields contain the text.",
+  "sha": "  --sha <sha>          Check this full commit SHA of a github() Source. Defaults to the latest commit of its branch.",
   "site": "  --site <url>         Public origin of the URLs. Defaults to defineContent({ seo: { site } }).",
   "status": "  --status <status>    Only pending, overdue, or failed schedules.",
+  "title-template": "  --title-template <p> With --dir: the <title> pattern of the site, such as \"%s · ViteHub\", for the title length rule.",
   "xml": "  --xml                Print the sitemap XML that /sitemap.xml serves.",
   "yes": "  --yes, -y            Do it without asking for confirmation.",
 }
 
-const booleanOptions = { "dry-run": "dryRun", "override-lease": "overrideLease", "xml": "xml", "yes": "yes" } as const
-const valueOptions = ["at", "collection", "cursor", "file", "id", "if-digest", "limit", "message", "ref", "revision", "search", "site", "status"] as const
+const booleanOptions = { "dry-run": "dryRun", "override-lease": "overrideLease", "post": "post", "xml": "xml", "yes": "yes" } as const
+const valueOptions = ["at", "collection", "cursor", "dir", "file", "id", "if-digest", "ignore", "limit", "max-age", "message", "page-url", "pr", "ref", "revision", "schema", "search", "sha", "site", "status", "title-template"] as const
 
 function commandUsage(command: ContentCliCommand): string {
   const positionals = command.positionals.map(name => name.endsWith("?") ? ` [${name.slice(0, -1)}]` : ` <${name}>`).join("")
@@ -172,8 +216,9 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     "",
     command.description,
     "The command runs the content.* operation of the running app, so it reads and writes the same Workspace Store",
-    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set the credentials in",
-    "VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set",
+    "VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls.",
+    ...command.name === "check" ? ["With --dir, check reads a folder instead and needs no running app."] : [],
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
@@ -209,6 +254,14 @@ function setValueOption(parsed: ParsedContentArgs, option: typeof valueOptions[n
     case "limit":
       parsed.limit = parseLimit(value)
       return
+    case "pr":
+      if (!/^[1-9]\d{0,8}$/.test(value)) throw usageError("--pr must be a pull request number, such as 12.")
+      parsed.pr = Number(value)
+      return
+    case "max-age":
+      if (!/^\d+$/.test(value) || Number(value) < 60 || Number(value) > 86_400) throw usageError("--max-age must be whole seconds from 60 to 86400.")
+      parsed.maxAge = Number(value)
+      return
     case "ref":
       if (value !== "draft" && value !== "published") throw usageError("--ref must be draft or published.")
       parsed.ref = value
@@ -220,13 +273,22 @@ function setValueOption(parsed: ParsedContentArgs, option: typeof valueOptions[n
     case "if-digest":
       parsed.ifDigest = value
       return
+    case "ignore":
+      (parsed.ignore ??= []).push(value)
+      return
+    case "page-url":
+      parsed.pageUrl = value
+      return
+    case "title-template":
+      parsed.titleTemplate = value
+      return
     default:
       parsed[option] = value
   }
 }
 
 function parseArgs(command: ContentCliCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedContentArgs {
-  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: "", xml: false, yes: false }
+  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, post: false, url: "", xml: false, yes: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -280,9 +342,16 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
     }
     if (name.startsWith("collection")) parsed.collection = value
     else if (name === "schedule") parsed.schedule = value
+    else if (name.startsWith("source")) parsed.source = value
+    else if (name === "sha") parsed.sha = value
+    else if (name === "action") parsed.action = value
     else parsed.id = value
   })
   if (parsed.ids && parsed.collection === undefined) throw usageError("--id requires --collection.")
+  if (command.name === "previews" && !parsed.help) {
+    if (parsed.action !== "comment") throw usageError(`Unknown previews action: ${parsed.action}. Use \`vitehub content previews comment --pr <number>\`.`)
+    if (parsed.pr === undefined) throw usageError("Missing --pr.")
+  }
   if (command.options.includes("at") && parsed.at === undefined && !parsed.help) throw usageError("Missing --at.")
   if (command.options.includes("revision") && parsed.revision === undefined && !parsed.help) throw usageError("Missing --revision. `vitehub content revisions` lists them.")
   if (command.options.includes("at") && parsed.at !== undefined && !parsed.help) {
@@ -292,6 +361,12 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
     if (date.getTime() <= Date.now()) throw contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] schedule({ at }) must be in the future; received ${date.toISOString()}. Use publish({ expect }) to publish now.` })
   }
   if (parsed.ifDigest !== undefined && parsed.file === undefined) throw usageError("--if-digest requires --file. An editor session pins the digest it opened.")
+  if (command.name === "check") {
+    if (parsed.dir === undefined && (parsed.pageUrl ?? parsed.schema ?? parsed.site ?? parsed.ignore ?? parsed.titleTemplate) !== undefined) {
+      throw usageError("--page-url, --schema, --site, --ignore, and --title-template need --dir. A running app reads them from defineContent({ check }).")
+    }
+    if (parsed.dir !== undefined && parsed.sha !== undefined) throw usageError("--sha checks a commit of a github() Source in the running app, and --dir checks a folder. Pass one.")
+  }
   return parsed
 }
 
@@ -437,6 +512,111 @@ function writeSitemap(result: ContentDevSitemapResult, parsed: Pick<ParsedConten
   context.stdout.write(`${result.entries.map(entry => entry.lastmod ? `${entry.loc}  ${entry.lastmod}` : entry.loc).join("\n")}\n`)
 }
 
+/** Print the findings of a check, errors first, and exit 1 when one is an error. */
+function writeCheck(result: ContentCheckResult, parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext): number {
+  if (parsed.json) {
+    context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return result.ok ? 0 : 1
+  }
+  const several = result.sources.length > 1
+  for (const finding of result.findings) {
+    const at = `${several ? `${finding.source}/` : ""}${finding.line === null ? finding.path : `${finding.path}:${finding.line}`}`
+    context.stdout.write(`${at}  ${finding.severity}  ${finding.code}  ${finding.message}\n`)
+  }
+  const sources = result.sources.map(({ source, sha, pages }) => `${plural(pages, "page")} in ${source}${sha ? ` at ${sha}` : ""}`).join(", ")
+  const summary = `${sources || "No Sources"}: ${plural(result.errors, "error")}, ${plural(result.warnings, "warning")}.`
+  if (result.findings.length) context.stdout.write("\n")
+  ;(result.ok ? context.stdout : context.stderr).write(`${summary}\n`)
+  return result.ok ? 0 : 1
+}
+
+/** `vitehub content check --dir`: check a folder of the working tree without a running app. */
+async function runLocalCheck(parsed: ParsedContentArgs, context: ContentCliContext): Promise<number> {
+  const { checkContentDirectory } = await import("./check-local.ts")
+  let schema: JsonSchema | undefined
+  if (parsed.schema !== undefined) {
+    try {
+      schema = JSON.parse(await readFile(resolve(context.cwd, parsed.schema), "utf8")) as JsonSchema
+    }
+    catch (error) {
+      return writeFailure(parsed, context, { code: "CONTENT_R0069", message: `Could not read the JSON Schema ${parsed.schema}: ${error instanceof Error ? error.message : String(error)}` })
+    }
+  }
+  try {
+    const result = await checkContentDirectory({
+      dir: resolve(context.cwd, parsed.dir!),
+      ...(parsed.source === undefined ? {} : { source: parsed.source }),
+      ...(parsed.pageUrl === undefined ? {} : { url: parsed.pageUrl }),
+      ...(schema ? { schema } : {}),
+      ...(parsed.site === undefined ? {} : { site: parsed.site }),
+      ...(parsed.ignore ? { ignoreLinks: parsed.ignore } : {}),
+      ...(parsed.titleTemplate === undefined ? {} : { titleTemplate: parsed.titleTemplate }),
+    })
+    return writeCheck(result, parsed, context)
+  }
+  catch (error) {
+    const failure: ContentCliFailure = { message: error instanceof Error ? error.message : String(error) }
+    if (isRecord(error) && String(error.code) === error.code) failure.code = error.code
+    if (isRecord(error) && String(error.fix) === error.fix) failure.fix = error.fix
+    return writeFailure(parsed, context, failure)
+  }
+}
+
+/** The lines of one head: the commit, the pin, the last check, the rejected commit, the last webhook, and the diagnostic. */
+function headLines(head: ContentSourceHead): string[] {
+  const lines = [head.source]
+  if (!head.live) lines.push(`  Not live: each load reads the latest commit${head.ref ? ` of ${head.ref}` : ""} without validation.`)
+  else if (!head.sha) lines.push("  Head:      none yet. No commit passed validation.")
+  else lines.push(`  Head:      ${head.sha}${head.ref ? ` on ${head.ref}` : ""}${head.movedAt ? `, moved ${head.movedAt}` : ""}`)
+  if (head.pinned) lines.push(`  Pinned:    yes. \`vitehub content unpin ${head.source}\` follows the branch again.`)
+  if (head.checkedAt) lines.push(`  Checked:   ${head.checkedAt}`)
+  // CONTENT_R0019 below gives the reason.
+  if (head.rejected) lines.push(`  Rejected:  ${head.rejected.sha} at ${head.rejected.at}${head.diagnostic?.code === "CONTENT_R0019" ? "" : `: ${head.rejected.reason}`}`)
+  if (head.webhook) {
+    const { at, error, id, result, sha } = head.webhook
+    lines.push(`  Webhook:   ${result}${sha ? ` ${sha}` : ""} at ${at}${id ? ` (delivery ${id})` : ""}${error ? `: ${error}` : ""}`)
+  }
+  if (head.diagnostic) {
+    const message = head.diagnostic.message.replace(/^\[vitehub\]\s*/, "").replaceAll("\n", "\n    ")
+    lines.push(`  ${head.diagnostic.code}: ${message}`, `  Fix: ${head.diagnostic.fix}`)
+  }
+  return lines
+}
+
+function writeHeads(result: ContentDevHeadResult, context: ContentCliContext): void {
+  if (!result.heads.length) {
+    context.stderr.write("No github() Sources. Only a github() Source in defineContent({ sources }) has a head.\n")
+    return
+  }
+  context.stdout.write(`${result.heads.map(head => headLines(head).join("\n")).join("\n\n")}\n`)
+}
+
+/** Move a head, print where it went, and exit 1 when it is held back: no token, no KV, a rejected commit, or a rate limit. */
+async function runMove(command: ContentCliCommand, parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall): Promise<number> {
+  const source = parsed.source === undefined ? {} : { source: parsed.source }
+  const before = command.name === "pin" ? undefined : await call("head", source)
+  if (before?.failure) return writeFailure(parsed, context, before.failure)
+  const moved = command.name === "pin"
+    ? await call("pin", { sha: parsed.sha, ...source })
+    : await call(command.name === "unpin" ? "unpin" : "advance", source)
+  if (moved.failure) return writeFailure(parsed, context, moved.failure)
+  const head = moved.result
+  // A pin is on purpose. Otherwise a diagnostic means the head does not serve the latest commit of the branch.
+  const held = !head.live || (command.name !== "pin" && !head.pinned && head.diagnostic !== null)
+  if (parsed.json) {
+    context.stdout.write(`${JSON.stringify(head, null, 2)}\n`)
+    return held ? 1 : 0
+  }
+  const previous = before?.result.heads.find(entry => entry.source === head.source)?.sha ?? null
+  if (!head.live) context.stdout.write(`${head.source} has no head, so nothing moved.\n`)
+  else if (command.name === "pin") context.stdout.write(`Pinned ${head.source} to ${head.sha}. It stays there until \`vitehub content unpin ${head.source}\`.\n`)
+  else if (head.pinned) context.stdout.write(`${head.source} is pinned to ${head.sha}, so it did not move. \`vitehub content unpin ${head.source}\` follows the branch again.\n`)
+  else if (head.sha !== previous) context.stdout.write(`Moved ${head.source} ${previous ? `from ${previous} ` : ""}to ${head.sha}.\n`)
+  else context.stdout.write(`${head.source} stays on ${head.sha ?? "no commit"}.\n`)
+  context.stdout.write(`${headLines(head).join("\n")}\n`)
+  return held ? 1 : 0
+}
+
 const shortDigestLength = 12
 
 function shortDigest(digest: string | null | undefined): string {
@@ -543,9 +723,14 @@ type ContentDevOperation = keyof ContentDevResults
 type ContentDevRequestOptions = Record<string, unknown>
 
 interface ContentDevResults {
+  advance: ContentSourceHead
+  check: ContentCheckResult
   collections: ContentDevCollectionsResult
   diff: ContentDevDiffResult
+  head: ContentDevHeadResult
   list: ContentDevListResult
+  pin: ContentSourceHead
+  previews: ContentDevPreviewsResult
   publish: ContentDevPublishResult
   remove: ContentDevRemoveResult
   restore: ContentDevSaveResult
@@ -556,6 +741,7 @@ interface ContentDevResults {
   show: ContentDevShowResult
   sitemap: ContentDevSitemapResult
   status: ContentDevStatusResult
+  unpin: ContentSourceHead
   unschedule: ContentDevUnscheduleResult
 }
 
@@ -630,6 +816,9 @@ async function runPublish(
   }
   if (result.pullRequest) {
     context.stdout.write(`Opened pull request #${result.pullRequest.number} for ${plural(result.documents.length, "document")}:\n${changeLines(result.documents)}\n${result.pullRequest.url}\nThe documents are published when it merges.\n`)
+    if (result.previews?.length) {
+      context.stdout.write(`Preview links, signed until ${result.previews[0]!.expiresAt}:\n${result.previews.map(preview => `  ${preview.collection}/${preview.id}${preview.locale === undefined ? "" : ` (${preview.locale})`}  ${preview.url}`).join("\n")}\n`)
+    }
     return 0
   }
   context.stdout.write(`Published ${plural(result.documents.length, "document")} in revision ${result.revision.id}:\n${changeLines(result.documents)}\n`)
@@ -774,6 +963,39 @@ async function runRestore(parsed: ParsedContentArgs, context: ContentCliContext,
   return 0
 }
 
+/** Print the preview comment of a pull request, or with `--post` create or update it on GitHub. */
+async function runPreviewComment(parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall): Promise<number> {
+  const { failure, result } = await call("previews", {
+    pr: parsed.pr,
+    ...(parsed.site === undefined ? {} : { site: parsed.site }),
+    ...(parsed.maxAge === undefined ? {} : { maxAge: parsed.maxAge }),
+  })
+  if (failure) return writeFailure(parsed, context, failure)
+  const body = contentPreviewComment(result)
+  if (!parsed.post) {
+    if (parsed.json) context.stdout.write(`${JSON.stringify({ ...result, comment: body }, null, 2)}\n`)
+    else context.stdout.write(body)
+    return 0
+  }
+  const token = context.env.VITEHUB_GITHUB_TOKEN
+  if (!token) {
+    const error = contentErrorDiagnostics.CONTENT_R0077()
+    return writeFailure(parsed, context, { code: "CONTENT_R0077", message: error.message, ...(error.fix ? { fix: error.fix } : {}) })
+  }
+  let posted
+  try {
+    posted = await postContentPreviewComment(body, { repo: result.repo, pull: result.pull.number, token, fetch: context.fetch ?? globalThis.fetch })
+  }
+  catch (error) {
+    const code: unknown = Reflect.get(Object(error), "code")
+    const fix: unknown = Reflect.get(Object(error), "fix")
+    return writeFailure(parsed, context, { message: error instanceof Error ? error.message : String(error), ...(String(code) === code ? { code } : {}), ...(String(fix) === fix ? { fix } : {}) })
+  }
+  if (parsed.json) context.stdout.write(`${JSON.stringify({ ...result, comment: body, posted }, null, 2)}\n`)
+  else context.stdout.write(`${posted.action === "updated" ? "Updated" : "Created"} the preview comment with ${plural(result.pages.length, "page")}: ${posted.url}\n`)
+  return 0
+}
+
 /** The roots that a dev server may name for this project: the Vite root and the ViteHub project root. */
 function projectRoots(rootDir: string): string[] {
   try {
@@ -805,6 +1027,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     writeUsage(command, context.stdout)
     return 0
   }
+  if (command.name === "check" && parsed.dir !== undefined) return await runLocalCheck(parsed, context)
   const roots = parsed.url ? undefined : projectRoots(context.rootDir)
   // The dev server of this project, never a guessed port. Another project may use 5173.
   if (!parsed.url) {
@@ -843,6 +1066,24 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       return await runRemove(parsed, context, call, options)
     case "restore":
       return await runRestore(parsed, context, call)
+    case "advance":
+    case "pin":
+    case "unpin":
+      return await runMove(command, parsed, context, call)
+    case "previews":
+      return await runPreviewComment(parsed, context, call)
+    case "check": {
+      const { failure, result } = await call("check", { ...(parsed.source === undefined ? {} : { source: parsed.source }), ...(parsed.sha === undefined ? {} : { sha: parsed.sha }) })
+      if (failure) return writeFailure(parsed, context, failure)
+      return writeCheck(result, parsed, context)
+    }
+    case "head": {
+      const { failure, result } = await call("head", parsed.source === undefined ? {} : { source: parsed.source })
+      if (failure) return writeFailure(parsed, context, failure)
+      if (parsed.json) print(result)
+      else writeHeads(result, context)
+      return 0
+    }
     case "diff": {
       const { failure, result } = await call("diff", requestBody(parsed))
       if (failure) return writeFailure(parsed, context, failure)
@@ -933,7 +1174,7 @@ export async function runContentCli(args: string[], context: ContentCliContext, 
 export function createContentCliContributor(options: ContentCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.",
+      description: "Inspect, edit, delete, restore, publish, and schedule Content documents, check them, show or move the head of github() Sources, and comment preview links on pull requests, in the running dev server or a deployed app.",
       features: contentCommands.map(command => ({
         description: command.description,
         name: command.name,

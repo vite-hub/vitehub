@@ -50,8 +50,8 @@ async function fixture(page) {
     published: documents.filter((doc) => doc.state === "published").length,
     deleted: 0,
   });
-  await page.route("**/_vitehub/rpc/__call", async (route) => {
-    const { operation, input = {} } = route.request().postDataJSON();
+  await page.route("**/_vitehub/rpc", async (route) => {
+    const { m: operation, a: [input = {}], i } = route.request().postDataJSON();
     const action = operation === "documents.action" ? input.action : operation;
     if (controls.hold[action]) await controls.hold[action];
     if (controls.delay[action])
@@ -60,10 +60,13 @@ async function fixture(page) {
       return route.fulfill({
         status: 503,
         json: {
-          ok: false,
-          status: 503,
-          code: "CONSOLE_REQUEST_FAILED",
-          message: "The local fixture is temporarily unavailable.",
+          t: "s",
+          i,
+          e: {
+            status: 503,
+            code: "CONSOLE_REQUEST_FAILED",
+            message: "The local fixture is temporarily unavailable.",
+          },
         },
       });
     const query = input.body ?? {};
@@ -147,7 +150,7 @@ async function fixture(page) {
       } else if (action === "revisions") value = { revisions: [] };
       else value = null;
     } else return route.continue();
-    return route.fulfill({ json: { ok: true, value } });
+    return route.fulfill({ json: { t: "s", i, r: value } });
   });
   return Object.assign(controls, { documents });
 }

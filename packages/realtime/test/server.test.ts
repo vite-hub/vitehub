@@ -317,6 +317,31 @@ describe("realtime server handler", () => {
     expect(identify).toHaveBeenCalledOnce()
   })
 
+  it("lets in the other origins a definition's origins() accepts, and only for identify()", async () => {
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const identify = vi.fn(() => ({ id: "ana" }))
+    const origins = vi.fn(({ origin }: { origin: string }) => origin === "https://preview.example")
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { document: { workspace: "test" }, identify, origins } }),
+    } as never)
+    const connect = (origin: string) => handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md?ticket=t", {
+      headers: { origin, upgrade: "websocket" },
+    })) as Promise<Response & { crossws?: unknown }>
+
+    expect((await connect("https://preview.example")).crossws).toBeDefined()
+    expect(origins).toHaveBeenCalledWith(expect.objectContaining({ definition: "docs", origin: "https://preview.example" }))
+    expect((await connect("https://evil.example")).status).toBe(403)
+    expect(identify).toHaveBeenCalledOnce()
+    // The app's own origin never asks.
+    origins.mockClear()
+    expect((await connect("https://app.example")).crossws).toBeDefined()
+    expect(origins).not.toHaveBeenCalled()
+  })
+
   it("rejects saves when the Workspace Store cannot write conditionally", async () => {
     serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
@@ -356,7 +381,7 @@ describe("realtime server handler", () => {
     const response = await handler.fetch(request)
 
     expect(response.status).toBe(501)
-    await expect(response.json()).resolves.toMatchObject({ message: "Durable realtime rooms require a durable Workspace Store." })
+    await expect(response.json()).resolves.toMatchObject({ message: "Durable and shared realtime rooms require a durable Workspace Store." })
     expect(writeFile).not.toHaveBeenCalled()
     client.destroy()
   })

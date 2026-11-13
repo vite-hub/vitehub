@@ -12,6 +12,7 @@ describe("@vite-hub/auth package contract", () => {
   it("exposes only the documented public entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       ".",
+      "./abilities",
       "./agent",
       "./cli",
       "./console",

@@ -75,7 +75,9 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0018: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }` in `defineAuth()`."),
     AUTH_R0003: withFix("Keep one of `server/auth.ts` and `server.auth.ts` and delete the others that the message lists. For Nuxt layers, add `server/auth.ts` to the app to select the Definition."),
     AUTH_R0004: withFix("Pass a non-empty `message` of at most 16,384 characters to `authenticated()`, or remove `message`."),
+    AUTH_C0060: withFix("Keep one abilities file at `shared/abilities.ts`. Remove the other files listed in the message, or add the app file to replace layer rules."),
     AUTH_B0001: withFix("Set `env.projectRoot` of `@vite-hub/auth/nuxt` to the `projectRoot` of the `hubEnv()` plugin, or remove `env.projectRoot`."),
+    AUTH_B0002: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a rule for the guarded path that turns the cache off, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. If the page is public, remove the route from `access.routes`."),
     AUTH_R0005: withFix("Add `server/auth.ts` with `export default defineAuth({})`. For a Nuxt layer, add it to the app."),
     AUTH_R0006: withFix("Send the `Origin` header with the request. Browsers send it. A server-side caller must set it, for example `headers: { origin: 'https://app.example.com' }`."),
     AUTH_R0007: withFix("Add the origin to Better Auth's `trustedOrigins` in the Auth Definition, for example `trustedOrigins: ['https://app.example.com']`. Or send the request from the app origin."),
@@ -89,5 +91,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0015: withFix("Pass your handler function, for example `withAuth((event, { user }) => ({ id: user.id }))`."),
     AUTH_R0016: withFix("Set `VITEHUB_SECRET` to at least 32 random characters. Run `openssl rand -base64 32` to make one."),
     AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub database generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
+    AUTH_R0020: withFix("Add the named rule to `shared/abilities.ts` with `defineAbilities()`, or use an existing ability name."),
+    AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
   },
 })

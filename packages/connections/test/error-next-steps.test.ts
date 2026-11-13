@@ -4,21 +4,19 @@ import { connectionsErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { errorResponse } from "../src/internal/http-routes.ts"
 
 describe("Connection errors that need a person", () => {
-  it("names the Connection, its Console page, and the CLI command to reconnect", () => {
+  it("names the CLI command that reconnects the Connection", () => {
     const error = connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: "t3:alice" })
-    expect(error.fix).toBe("Open the Console page of Connection \"t3:alice\" (/_vitehub/connections?connection=t3%3Aalice) and select Reconnect. Follow the setup notes on that page, if it has them. Or run `vitehub connections connect t3:alice`.")
+    expect(error.fix).toBe("Run `vitehub connections connect t3:alice`, and follow the setup notes of the Connection, if it has them.")
     expect(error.docs).toBe("https://vitehub.dev/docs/connections/diagnostics/connections_needs_reconnect")
   })
 
-  it("names the approval, its Console tab, and the CLI command that approves it", () => {
+  it("names the approval and the CLI command that approves it", () => {
     const error = connectionsErrorDiagnostics.CONNECTIONS_APPROVAL_REQUIRED({ action: "POST /repos", approval: "apr_1", connection: "t3:alice" })
-    expect(error.fix).toContain("/_vitehub/connections?connection=t3%3Aalice&tab=approvals")
     expect(error.fix).toContain("`vitehub connections approvals approve apr_1`")
   })
 
-  it("points an API key Connection to Set key", () => {
+  it("points an API key Connection to set-key", () => {
     const error = connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: true, connection: "stripe" })
-    expect(error.fix).toContain("select Set key")
     expect(error.fix).toContain("`vitehub connections set-key stripe`")
   })
 
@@ -38,7 +36,7 @@ describe("Connection errors that need a person", () => {
     expect(body.error).toMatchObject({
       code: "CONNECTIONS_NEEDS_RECONNECT",
       docs: "https://vitehub.dev/docs/connections/diagnostics/connections_needs_reconnect",
-      fix: expect.stringContaining("Connection \"t3:alice\""),
+      fix: expect.stringContaining("vitehub connections connect t3:alice"),
     })
   })
 })

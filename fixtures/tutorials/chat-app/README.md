@@ -1,6 +1,6 @@
 # Nuxt chat tutorial
 
-A text chat app with ViteHub Agents, Nuxt, and `@vite-hub/ui`. The app owns its encrypted sign-in cookie, SQLite history, routes, and access checks. The default Driver streams a fixed reply without a network request or API key.
+A text chat app with ViteHub Agents, Nuxt 5, Nitro 3, H3 2, and `@vite-hub/ui`. The app owns its encrypted sign-in cookie, SQLite history, routes, and access checks. The default Driver streams a fixed reply without a network request or API key.
 
 Read [Build an AI chat app with Nuxt and ViteHub](../../../docs/content/docs/agents/build-a-chat-app.md). The tutorial contains the full application files. `docs/test/chat-tutorial.test.ts` checks that those files match this fixture.
 
@@ -22,7 +22,7 @@ Open `http://127.0.0.1:4318`. Read `CHAT_PASSWORD` from `.env` and sign in. Sele
 
 `setup` creates random local credentials with file mode `0600`. It refuses to replace an existing `.env`. Nuxt loads `.env` in development. The production start command uses Node's `--env-file` option. Keep `.env` out of source control.
 
-The Nuxt config sets `buildDir: ".nuxt"` so Nitro transforms the generated TypeScript. The pinned Nitro version skips TypeScript under `node_modules`, which contains Nuxt's default build directory.
+The Nuxt config sets `buildDir: ".nuxt"` to keep generated files at the path used by `tsconfig.json`.
 
 ## Check the app
 

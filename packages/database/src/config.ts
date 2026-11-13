@@ -25,6 +25,7 @@ import type {
   DatabaseDialect,
   DatabaseOptions,
   DiscoveredDatabaseDefinition,
+  PostgresDatabaseDriver,
   ResolvedCloudflareD1BindingConfig,
   ResolvedCloudflareHyperdriveConfig,
   ResolvedDBViteConfig,
@@ -610,6 +611,14 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
   throw databaseErrorDiagnostics.DATABASE_INVALID_DIALECT({ file })
 }
 
+/** Reads the static `driver` of a Postgres Database Definition. */
+export function readDatabaseDefinitionDriver(file: string): PostgresDatabaseDriver | undefined {
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "driver")
+  if (expression === undefined) return
+  if (readStaticStringLiteral(expression) === "pglite") return "pglite"
+  throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({ file })
+}
+
 function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
   const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
@@ -685,7 +694,8 @@ function discoverViteDatabases(rootDir: string) {
   return [...defaultDefinitions, ...suffixDefinitions]
 }
 
-const schemaOnlyDefinitionKeys = new Set(["name", "schema"])
+// Relations merge across layers like the schema, so they are not database options.
+const schemaOnlyDefinitionKeys = new Set(["name", "relations", "schema"])
 
 /** Lists the database options that a Definition sets, or returns `undefined` when ViteHub cannot read them. */
 function readDefinitionOptionKeys(file: string): Set<string> | undefined {
@@ -968,10 +978,11 @@ export function resolveDBViteConfig(
     // Postgres Definitions own their connection. SQLite, libSQL, and D1 integration defaults do not apply.
     if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") {
       const url = readDefinitionConnectionConfig(definition.handler)?.url
+      const driver = readDatabaseDefinitionDriver(definition.handler)
       databases[definition.name] = {
         connection: url === undefined ? {} : { url },
         dialect: "postgresql",
-        drizzle: {},
+        ...driver ? { driver } : {},
         generatedSchemaFile,
         hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
         migrationsDir,
@@ -1007,7 +1018,6 @@ export function resolveDBViteConfig(
       cloudflare,
       connection: resolveDefinitionConnection(definition.handler, definition.name, options?.connection),
       dialect: "sqlite",
-      drizzle: {},
       generatedSchemaFile,
       migrationsDir,
       mode: definition.mode,

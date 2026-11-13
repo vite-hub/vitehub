@@ -15,7 +15,7 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { defineSchedule } from "../../schedule/src/definition.ts"
-import { runSchedule } from "../../schedule/src/runtime/execute.ts"
+import { runScheduleFrom } from "../../schedule/src/runtime/execute.ts"
 import { executeCloudflareStaticSchedules, executeStaticSchedule } from "../../schedule/src/runtime/static.ts"
 import { documents, singleton } from "../src/collections.ts"
 import { contentScheduleOverdueMs, contentSchedulesRef, defineContent } from "../src/index.ts"
@@ -35,7 +35,7 @@ async function historyWorkspace(): Promise<string> {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `schedules-${++workspaces}`
@@ -270,7 +270,7 @@ describe("scheduled publishing on Schedule hosts", { timeout: 30_000 }, () => {
   it("publishes from a manual run, as `vitehub schedule run content-publish` starts it", async () => {
     const { content, posts } = await due()
     const definition = runner(content)
-    const run = await runSchedule("content-publish", { registry: { "content-publish": async () => ({ default: definition }) } })
+    const run = await runScheduleFrom({ "content-publish": async () => ({ default: definition }) }, "content-publish")
     expect(run.status).toBe("succeeded")
     await expect(posts.get("hello")).resolves.not.toBeNull()
   })

@@ -438,7 +438,7 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com", id: "chat:user-1" },
     })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("preserves metadata owned by an explicit chat Invoker", async () => {
@@ -477,7 +477,7 @@ describe("Agent message metadata", () => {
     await parseAgentMessageMeta(agent, context)
 
     expect(context.get("invoker")).toEqual({ id: "chat:user-1", kind: "chat", meta: { audience: "support", id: "chat:user-1" } })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("removes derived Invoker identity stripped by the metadata schema", async () => {
@@ -496,7 +496,7 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", id: "chat:user-1" },
     })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("retains user identity metadata when the schema strips the matching raw field", async () => {
@@ -516,7 +516,7 @@ describe("Agent message metadata", () => {
       kind: "chat",
       meta: { audience: "technical", email: "user@example.com" },
     })
-    expect(context.get("actor")).toEqual(context.get("invoker"))
+    expect(context.get("actor" as never)).toBeUndefined()
   })
 
   it("preserves explicit programmatic Invokers while parsing Channel metadata", async () => {

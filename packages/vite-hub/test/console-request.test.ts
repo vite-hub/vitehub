@@ -16,19 +16,22 @@ import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../
 import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 
 // Decode each stateless call and answer with the result that mocks.call returns.
 const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-  const payload: { input: unknown; operation: string } = JSON.parse(String(init?.body))
+  const payload = operationRpcRequest(init?.body)
   const signal = init?.signal ?? undefined
   const result = await new Promise<ConsoleRpcResult>((resolve, reject) => {
     signal?.throwIfAborted()
     signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
     Promise.resolve(mocks.call(payload.operation, payload.input)).then(resolve, reject)
   })
-  return Response.json(result, { status: result.ok ? 200 : result.status })
+  // A failure without a code stands for host middleware, which answers without a birpc reply.
+  if (!result.ok && !result.code) return Response.json(result, { status: result.status })
+  return operationRpcResponse(init?.body, result)
 })
 
 beforeEach(() => {
@@ -69,14 +72,15 @@ describe("Console requests", () => {
     await expect(requestConsole("/_vitehub/api/sections", { signal }))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
-      body: JSON.stringify({ operation: "sections.list", input: {} }),
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc", {
+      body: expect.any(String),
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
       signal,
     })
+    expect(operationRpcRequest(fetchMock.mock.calls[0]![1]!.body)).toEqual({ input: {}, operation: "sections.list" })
   })
 
   it("lets a release outlive the page with keepalive", async () => {
@@ -92,7 +96,7 @@ describe("Console requests", () => {
     await expect(requestConsole("/_vitehub/api/sections"))
       .resolves.toEqual({ sections: ["kv"] })
 
-    expect(fetchMock).toHaveBeenCalledWith("/tenant/_vitehub/api/thing/_vitehub/rpc/__call", expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith("/tenant/_vitehub/api/thing/_vitehub/rpc", expect.any(Object))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
@@ -137,6 +141,24 @@ describe("Console requests", () => {
       .rejects.toMatchObject({ name: "ConsoleRequestError", status: 502 })
   })
 
+  it("shows the Console sentence for an Auth guard refusal", async () => {
+    const refusal = (status: number, statusText: string, code: string) =>
+      Response.json({ status, statusText, message: `${statusText}.`, data: { code } }, { status, statusText })
+    fetchMock.mockResolvedValueOnce(refusal(401, "Unauthorized", "SIGNED_OUT"))
+    await expect(requestConsole("/signed-out/_vitehub/api/sections")).rejects.toMatchObject({
+      code: "CONSOLE_SIGN_IN_REQUIRED",
+      status: 401,
+      why: "You are not signed in, or your session ended.",
+    })
+
+    fetchMock.mockResolvedValueOnce(refusal(403, "Forbidden", "FORBIDDEN"))
+    await expect(requestConsole("/forbidden/_vitehub/api/sections")).rejects.toMatchObject({
+      code: "CONSOLE_ACCESS_DENIED",
+      status: 403,
+      why: "The Console access policy rejected this account.",
+    })
+  })
+
   it("deduplicates keys repeated across provider pages", () => {
     expect(appendUniqueConsoleKeys(["first", "repeated"], ["repeated", "last"]))
       .toEqual(["first", "repeated", "last"])
@@ -148,7 +170,7 @@ describe("Console requests", () => {
 
     await expect(requestConsole("/_vitehub/api/sections"))
       .resolves.toEqual({ sections: ["kv"] })
-    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", expect.objectContaining({ method: "POST", signal: undefined }))
+    expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc", expect.objectContaining({ method: "POST", signal: undefined }))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
@@ -339,7 +361,7 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps why navigation failed, so a signed-out Console asks to sign in", async () => {
+  it("keeps why navigation failed, so the Console says that the app refused it", async () => {
     const base = "/sign-in-test/_vitehub/api/sections"
     mocks.call.mockResolvedValueOnce({ ok: false, status: 401, message: "Sign in to use the Console." })
     await expect(loadConsoleNavigation(base)).resolves.toBeUndefined()
@@ -360,7 +382,6 @@ describe("Console requests", () => {
     await expect(
       loadConsoleNavigation("/navigation-test/_vitehub/api/sections"),
     ).resolves.toEqual({
-      auth: false,
       contributions: {},
       operations: [],
       projectName: "console-host",
@@ -388,20 +409,12 @@ describe("Console requests", () => {
     ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"], readOnly: ["kv"] })
   })
 
-  it("loads independent auth availability in the navigation response", async () => {
-    mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
-
-    await expect(
-      loadConsoleNavigation("/auth-navigation-test/_vitehub/api/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
-  })
-
-  it("preserves Cloudflare Access auth mode in the navigation response", async () => {
+  it("ignores an auth field of an older app in the navigation response", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { auth: "cloudflare-access", sections: ["kv"] } })
 
     await expect(
-      loadConsoleNavigation("/cloudflare-navigation-test/_vitehub/api/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
+      loadConsoleNavigation("/auth-navigation-test/_vitehub/api/sections"),
+    ).resolves.toEqual({ contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -422,14 +435,14 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/contributions-navigation-test/_vitehub/api/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
+    ).resolves.toEqual({ contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
   it.each(["", "/admin"])("loads navigation without a page session under the app mount %s", async (mount) => {
     const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" } }
     const hidden = { ...comments, id: "hidden" }
-    const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
-    const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
+    const navigation = { ok: true as const, value: { contributions: [comments, hidden], sections: ["comments"] } }
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? operationRpcResponse(init.body, navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
     setConsoleProject({ origin: "", base: mount })
     const base = `/_vitehub/api/sections?page-session-test${mount}`
@@ -453,9 +466,9 @@ describe("Console requests", () => {
 describe("Console storage actions", () => {
   it.each([
     { action: "set", operation: "kv.set", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache", value: "hi" } },
-    { action: "del", operation: "kv.del", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache" } },
+    { action: "delete", operation: "kv.delete", path: "/_vitehub/api/kv", input: { key: "greeting", store: "cache" } },
     { action: "put", operation: "blob.put", path: "/_vitehub/api/blob", input: { data: "aGk=", pathname: "docs/hi.txt" } },
-    { action: "del", operation: "blob.del", path: "/_vitehub/api/blob", input: { pathname: "docs/hi.txt" } },
+    { action: "delete", operation: "blob.delete", path: "/_vitehub/api/blob", input: { pathname: "docs/hi.txt" } },
     { action: "peek", operation: "rate-limit.peek", path: "/_vitehub/api/rate-limit", input: { key: "192.0.2.1", name: "login" } },
     { action: "reset", operation: "rate-limit.reset", path: "/_vitehub/api/rate-limit", input: { key: "192.0.2.1", name: "login" } },
   ])("sends the $action action of $path as $operation", async ({ action, input, operation, path }) => {
@@ -471,7 +484,7 @@ describe("Console storage actions", () => {
 
   it("shows a failed write as the operation reports it", async () => {
     mocks.call.mockResolvedValue({ code: "KV_UNSUPPORTED_OPERATION", message: "This store is read-only.", ok: false, status: 400 })
-    await expect(requestConsole("/_vitehub/api/kv", { body: { action: "del", key: "a", store: "default" }, method: "POST" }))
+    await expect(requestConsole("/_vitehub/api/kv", { body: { action: "delete", key: "a", store: "default" }, method: "POST" }))
       .rejects.toMatchObject({ status: 400, message: expect.stringContaining("read-only") })
   })
 })

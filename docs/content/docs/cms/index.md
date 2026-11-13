@@ -8,8 +8,7 @@ icon: i-lucide-newspaper
 ---
 
 ::product-hero{tagline="Edit Markdown documents in the Console, keep every draft, and publish to your site or a pull request." hosts="Node, Docker, Cloudflare, Vercel"}
-  :::cms-console-demo
-  :::
+  :hero-figure{name="cms"}
 ::
 
 The CMS is the `vite-hub/cms` package, built on [Content](/docs/content). Add `extends: cms` to `server/content.ts`, and ViteHub stores your [document collections](/docs/content/configure#document-collections). It turns on Workspace, Database, and Blob, adds the Workspace and its history tables, and adds a Database when the app has none. You write no Workspace, Database, or schema code.
@@ -40,7 +39,7 @@ Start with the Blob + Database store. One option changes the store, and the coll
 
 ::product-features
   :::product-feature-item{title="One line selects the preset" icon="i-lucide-file-code-2" to="/docs/cms/get-started"}
-  Add `extends: cms` to `server/content.ts`. `vitehub()` needs no settings for it.
+  Add `extends: cms` to `server/content.ts`. ViteHub needs no settings for it.
   :::
 
   :::product-feature-item{title="No wiring to write" icon="i-lucide-blocks" to="/docs/cms/configure#what-the-preset-adds"}

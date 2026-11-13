@@ -390,8 +390,9 @@ describe("useRealtimeTiptap", () => {
     ])!
     const provider = providers.find(item => item.room === "page.md")!
 
-    expect(provider.params).toEqual({ editor: "2" })
-    expect(providers.find(item => item.room === "other.md")!.params).toEqual({})
+    expect(provider.params).toEqual({ clientId: String(provider.doc.clientID), editor: "2" })
+    const otherProvider = providers.find(item => item.room === "other.md")!
+    expect(otherProvider.params).toEqual({ clientId: String(otherProvider.doc.clientID) })
     control(provider, { type: "session", access: "read", epoch: "seed-1", reason: "version" })
     expect(versioned.readOnly.value).toBe(true)
     expect(versioned.readOnlyReason.value).toBe("version")

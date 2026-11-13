@@ -72,8 +72,7 @@
     "@vite-hub/runtime": "workspace:*",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ocache": "catalog:unjs",
-    "ofetch": "catalog:unjs"
+    "ocache": "catalog:unjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
@@ -95,7 +94,7 @@
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"

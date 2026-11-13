@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
-import { readFile, writeFile } from "node:fs/promises"
 import { delimiter } from "node:path"
 import process from "node:process"
 
@@ -73,34 +72,9 @@ export interface DeployResult {
   project?: { id?: string, name: string, accountId?: string }
 }
 
-/**
- * One host. `setSecret` sends the value over stdin or in a JSON request body, never in argv.
- * `withTemporaryVar` writes a plain runtime var for the deploy and restores the generated files afterwards.
- */
+/** One host. */
 export interface DeployAdapter {
   deploy: () => Promise<DeployResult>
-  setSecret: (name: string, value: string) => Promise<void>
-  hasSecret: (name: string) => Promise<boolean>
-  /** False when the host project does not exist yet, so a secret has no place to go before the first deploy. */
-  projectExists: () => Promise<boolean>
-  withTemporaryVar?: (name: string, value: string, deploy: () => Promise<DeployResult>) => Promise<DeployResult>
-}
-
-/** Keep temporary vars in generated output only while the host reads it, including when writing or deploying fails. */
-export async function withTemporaryOutput(files: readonly string[], key: "vars" | "environment", name: string, value: string, deploy: () => Promise<DeployResult>): Promise<DeployResult> {
-  const originals = await Promise.all(files.map(file => readFile(file)))
-  try {
-    for (const [index, file] of files.entries()) {
-      const config: unknown = JSON.parse(originals[index]!.toString("utf8"))
-      if (!isRecord(config)) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
-      config[key] = { ...(isRecord(config[key]) ? config[key] : {}), [name]: value }
-      await writeFile(file, `${JSON.stringify(config, null, 2)}\n`)
-    }
-    return await deploy()
-  }
-  finally {
-    await Promise.all(files.map((file, index) => writeFile(file, originals[index]!)))
-  }
 }
 
 /** Where a deployment came from, when the host says. */
@@ -282,14 +256,6 @@ export { isRecord }
 
 export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
-}
-
-/** True when `value` or a nested object has `key: name`, such as an env var list. */
-export function listsName(value: unknown, keys: readonly string[], name: string): boolean {
-  if (Array.isArray(value)) return value.some(item => listsName(item, keys, name))
-  if (!isRecord(value)) return false
-  if (keys.some(key => value[key] === name)) return true
-  return Object.values(value).some(item => typeof item === "object" && listsName(item, keys, name))
 }
 
 /** The first `https://` URL in `text` that matches `host`, else undefined. */

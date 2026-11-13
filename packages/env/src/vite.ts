@@ -6,7 +6,9 @@ import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
 import {
+  createNoExternalAddition,
   createViteHubEnvImportAliases,
+  isServerEnvironment,
   resolveViteHubProjectRoot,
   VITEHUB_ENV_PUBLIC_ID,
   VITEHUB_ENV_SERVER,
@@ -50,6 +52,8 @@ import type { Plugin, UserConfig } from "vite"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
+const envNoExternal = createNoExternalAddition("@vite-hub/env")
+
 export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
 export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
@@ -255,6 +259,11 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
     },
+    // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.
+    configEnvironment(name, config) {
+      if (!isServerEnvironment(name, config)) return
+      return { resolve: { noExternal: envNoExternal(config.resolve?.noExternal) } }
+    },
     async config(config, env) {
       let developmentSecret: string | undefined
       let developmentSecretGenerated = false
@@ -404,6 +413,7 @@ async function prepareEnvGeneratedTypes(
         ]
       : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports, schemaModules, viteHubEnvAmbientTypesPath(root))),
+    writeFileIfChanged(envAccessorTypesPath(root), createEnvAccessorTypes(publicTypes, serverRegistry, runtimeImports, schemaModules, envAccessorTypesPath(root))),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports, schemaModules, viteHubEnvServerModuleTypesPath(root))),
@@ -580,6 +590,7 @@ async function refreshEnvGeneratedFiles(
         ]
       : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports, schemaModules, viteHubEnvAmbientTypesPath(root))),
+    writeFileIfChanged(envAccessorTypesPath(root), createEnvAccessorTypes(publicTypes, serverRegistry, runtimeImports, schemaModules, envAccessorTypesPath(root))),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
@@ -686,11 +697,10 @@ function createServerEnvModule(
       : []),
     `const providers = Object.fromEntries([${providers.map(([name], index) => `[${JSON.stringify(name)}, envProvider${index}]`).join(", ")}]);`,
     createServerEnvDescriptionModule(serverRegistry).trimEnd(),
-    'export const manageServerEnv = envRuntime.createServerEnvManagement?.(registry, providers) ?? (async () => Response.json({ message: "Env management is unavailable." }, { status: 503 }));',
     "export function useServerEnv(event) { return envRuntime.resolveServerEnv(registry, event); }",
-    `export async function deriveSecret(purpose, event) { return await envRuntime.deriveSecret(purpose, event, undefined, ${JSON.stringify(developmentSecretGenerated)}, ${JSON.stringify(developmentSecretEnvKey)}); }`,
+    `export async function deriveSecret(purpose, options) { return await envRuntime.deriveSecret(purpose, options, { envKey: ${JSON.stringify(developmentSecretEnvKey)}, generated: ${JSON.stringify(developmentSecretGenerated)} }); }`,
     `let sealing;`,
-    `function useSealing() { return sealing ??= envRuntime.createSealing((purpose, event, root) => envRuntime.deriveSecret(purpose, event, root, root === undefined && ${JSON.stringify(developmentSecretGenerated)}, ${JSON.stringify(developmentSecretEnvKey)})); }`,
+    `function useSealing() { return sealing ??= envRuntime.createSealing((purpose, event, root) => envRuntime.deriveSecret(purpose, { event, root }, { envKey: ${JSON.stringify(developmentSecretEnvKey)}, generated: root === undefined && ${JSON.stringify(developmentSecretGenerated)} })); }`,
     "export async function seal(purpose, value, options) { return await useSealing().seal(purpose, value, options); }",
     "export async function unseal(purpose, sealed, options) { return await useSealing().unseal(purpose, sealed, options); }",
     "export async function loadServerEnv(event, options) { return await envRuntime.loadServerEnv(registry, event, { ...options, providers }); }",
@@ -755,7 +765,7 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
     ...createServerTypeFields(serverRegistry, 2, schemaTypes),
     "}",
     `export function useServerEnv(event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): ServerEnv`,
-    `export function deriveSecret(purpose: string, event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): Promise<string>`,
+    `export function deriveSecret(purpose: string, options?: { event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext; root?: string }): Promise<string>`,
     `export const seal: typeof import(${JSON.stringify(runtimeImports.server)}).seal`,
     `export const unseal: typeof import(${JSON.stringify(runtimeImports.server)}).unseal`,
     ...createReadonlyServerEnvTypes(0, "SecretEnv"),
@@ -764,6 +774,35 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
     `export function runWithServerEnv<T>(event: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext | undefined, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<T>`,
     "",
   ].join("\n")
+}
+
+function envAccessorTypesPath(root: string): string {
+  return resolve(root, ".vitehub", "types", "env-accessors.d.ts")
+}
+
+/**
+ * Types `useServerEnv()` and `usePublicEnv()` of the Env root with the declared fields. The file is a module, so its
+ * `declare module` blocks augment the package instead of replacing it.
+ */
+function createEnvAccessorTypes(
+  publicTypes: Record<string, string>,
+  serverRegistry: EnvRuntimeRegistry,
+  runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+  schemaModules: Record<string, string>,
+  outputPath: string,
+): string {
+  const schemaTypes = { modules: schemaModules, outputPath }
+  const block = (moduleName: string) => [
+    `declare module ${JSON.stringify(moduleName)} {`,
+    "  interface PublicEnv {",
+    ...createPublicTypeFields(publicTypes, 4),
+    "  }",
+    "  interface ServerEnv {",
+    ...createServerTypeFields(serverRegistry, 4, schemaTypes, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
+    "  }",
+    "}",
+  ]
+  return [...block("@vite-hub/env"), ...block("vite-hub/env"), "", "export {}", ""].join("\n")
 }
 
 function createViteTypes(
@@ -788,7 +827,7 @@ function createViteTypes(
     ...createServerTypeFields(serverRegistry, 4, schemaTypes, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
     "  }",
     `  export function useServerEnv(event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): ServerEnv`,
-    `  export function deriveSecret(purpose: string, event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext): Promise<string>`,
+    `  export function deriveSecret(purpose: string, options?: { event?: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext; root?: string }): Promise<string>`,
     `  export const seal: typeof import(${JSON.stringify(runtimeImports.server)}).seal`,
     `  export const unseal: typeof import(${JSON.stringify(runtimeImports.server)}).unseal`,
     ...createReadonlyServerEnvTypes(2, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
@@ -806,7 +845,6 @@ function createServerEnvInspectionTypes(indent: number): string[] {
     `${prefix}export interface ServerEnvDescriptionEntry { path?: string; canonicalName?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
-    `${prefix}export function manageServerEnv(request: Request, options?: { allowedOrigin?: string }): Promise<Response>`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  path?: string`,

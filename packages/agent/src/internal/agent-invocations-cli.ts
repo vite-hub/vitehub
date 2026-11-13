@@ -4,7 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
-import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
+import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { isCompatibleAgentDevServerRoot } from "./agent-info-cli.ts"
@@ -16,6 +17,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
+import { invocationActivityTrace } from "../invocations/activity.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
 import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
@@ -54,6 +56,8 @@ const fileActions = new Set<string | undefined>(["export", "list", "show", "tail
 
 interface ParsedArgs {
   action?: Action | "cancel"
+  /** export adds a compact activity trace. */
+  activity: boolean
   /** wait-idle only waits on this Agent's Invocations. */
   /** export only prints this Agent's Invocations. */
   agent?: string
@@ -140,9 +144,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "",
     "Options:",
     "  --url <url>               Deployed app URL, such as https://app.example.com. Uses the Console RPC endpoint.",
-    "                            Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and",
-    "                            CF_ACCESS_CLIENT_SECRET to authenticate. A localhost URL uses the Console only for a",
-    "                            /_vitehub path, such as http://localhost:3000/_vitehub.",
+    "                            Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. A localhost URL uses the",
+    "                            Console only for a /_vitehub path, such as http://localhost:3000/_vitehub.",
     "                            Other localhost URLs: the invocation endpoint for list, show, and tail",
     "                            (default http://localhost:5173/api/invocations), or the Development Server for cancel.",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
@@ -171,6 +174,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --agent <name>            export only this Agent's Invocations.",
     "  --since <duration|date>   export only Invocations created after this age or ISO date, such as 7d or 2026-10-01.",
     "  --observations            export every observation too.",
+    "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
+    "                            token usage, approvals, and errors, in order. Long text is cut.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -247,6 +252,7 @@ function redactCliArgument(argument: string): string {
 
 function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const parsed: ParsedArgs = {
+    activity: false,
     dryRun: false,
     help: false,
     interval: 1_000,
@@ -291,6 +297,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "--json") parsed.json = true
     else if (argument === "--dry-run") parsed.dryRun = true
     else if (argument === "--observations") parsed.observations = true
+    else if (argument === "--activity") parsed.activity = true
     else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
     else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
@@ -341,7 +348,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && !waiting && parsed.action !== "export" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle and export." })
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
   if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
-  const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined]] as const
+  const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
   const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
   if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
   if (parsed.action === "export" && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
@@ -391,7 +398,7 @@ function consoleBaseUrl(value: string): URL | undefined {
     throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed Console, except for localhost." })
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_AUTHORIZATION or VITEHUB_CONSOLE_COOKIE for credentials." })
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls." })
   }
   // Accept the app URL or a pasted Console page URL. The RPC endpoint is under the app base.
   const base = consolePath ? url.pathname.slice(0, consolePath.index) : url.pathname
@@ -444,7 +451,6 @@ function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
 }
 
 /** Console RPC contract owned by `vite-hub/console`. Its tests drive this client against the real handler. */
-const consoleCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 /** The Console returns at most 100 records per page. */
 const consolePageLimit = 100
 const consoleDefaultListLimit = 50
@@ -457,44 +463,49 @@ interface ConsoleTarget {
 }
 
 function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
+  return Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */
 async function consoleCall<T>(target: ConsoleTarget, operation: string, input: Record<string, unknown>, parseResponse: ResponseParser<T>): Promise<T> {
   const url = new URL(operationRpcPath.slice(1), target.base)
-  let response: Response
+  let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
   try {
-    response = await target.fetch(url.href, {
-      // The operation comes first so the server can find large calls within the first bytes.
-      body: JSON.stringify({ operation, input }),
-      headers: operationHeaders(target.env),
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(target.timeout),
+    outcome = await callOperationRpc(operation, input, async (body) => {
+      const response = await target.fetch(url.href, {
+        body,
+        headers: await signedOperationHeaders(target.env, url, body),
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(target.timeout),
+      })
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = text ? JSON.parse(text) : undefined
+      }
+      catch {
+        json = undefined
+      }
+      return { body: json, response }
     })
   }
   catch (error) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}` })
   }
-  const text = await response.text()
-  let json: unknown
-  try {
-    json = text ? JSON.parse(text) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && isRuntimeRecord(json) && json.ok === true) return parseResponse(json.value)
-  const message = isRuntimeRecord(json) && typeof json.message === "string" && json.message ? json.message.replace(/\.$/, "") : undefined
-  const status = response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status
+  if (outcome.ok) return parseResponse(outcome.value)
+  const { body: json, response } = outcome.answer
+  // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+  const failure: unknown = outcome.error ?? json
+  const message = isRuntimeRecord(failure) && typeof failure.message === "string" && failure.message ? failure.message.replace(/\.$/, "") : undefined
+  const status = outcome.error?.status ?? (response.ok && isRuntimeRecord(json) && typeof json.status === "number" ? json.status : response.status)
   if (status === 401 || (status >= 300 && status < 400)) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${consoleCredentialHint}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console authentication failed with HTTP ${status}${message ? `: ${message}` : ""}. ${operationCredentialHint}` })
   }
   if (status === 403) {
-    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${consoleCredentialHint}`}` })
+    throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${operationCredentialHint}`}` })
   }
-  if (!isRuntimeRecord(json)) {
+  if (!isRuntimeRecord(failure)) {
     throw agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
   }
   throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })
@@ -934,8 +945,9 @@ function observationAttributes(observations: readonly Observation[], name: strin
 /**
  * One export line: the record without observations, plus the prompt, the final assistant text, and each Channel
  * delivery that the observations carry. `final` is the finish result text, or the final message deltas before finish.
+ * `--activity` adds the compact activity trace, and `--observations` every observation.
  */
-function exportLine(record: AgentInvocationRecord, includeObservations: boolean) {
+function exportLine(record: AgentInvocationRecord, options: { activity: boolean, observations: boolean }) {
   const { cursor: _cursor, observations, ...invocation } = record
   const start = observationAttributes(observations, "agent.invocation.start")[0] ?? {}
   const finish = observationAttributes(observations, "agent.invocation.finish").at(-1)?.["result.text"]
@@ -963,7 +975,8 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
       kind: effect["channel.effect.kind"],
       ...(effect["channel.effect.skipped"] === undefined ? {} : { skipped: effect["channel.effect.skipped"] }),
     })),
-    ...(includeObservations ? { observations } : {}),
+    ...(options.activity ? invocationActivityTrace(observations) : {}),
+    ...(options.observations ? { observations } : {}),
   }
 }
 
@@ -975,7 +988,7 @@ async function exportInvocations(parsed: ParsedArgs, context: AgentInvocationsCl
       && (parsed.since === undefined || record.createdAt >= parsed.since))
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
   for (const summary of records) {
-    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed.observations))}\n`)
+    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed))}\n`)
   }
   return 0
 }

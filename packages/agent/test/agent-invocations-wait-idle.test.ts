@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runAgentInvocationsCli } from "../src/internal/agent-invocations-cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 function stream() {
   let value = ""
@@ -141,8 +142,8 @@ describe("vitehub agent invocations wait-idle", () => {
   it("reads the Console once per poll for a deployed --url", async () => {
     const methods: string[] = []
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      methods.push(JSON.parse(String(init?.body)).operation)
-      return Response.json({ ok: true, value: { invocations: [summary("a", "completed"), summary("b", "running")] } })
+      methods.push(operationRpcRequest(init?.body).operation)
+      return operationRpcResponse(init?.body, { ok: true, value: { invocations: [summary("a", "completed"), summary("b", "running")] } })
     })
     // SAFETY: The mock implements the fetch call shape that the CLI uses.
     const result = await waitIdle(["--url", "https://agent.example.com", "--timeout", "1s", "--json"], fetch as unknown as typeof globalThis.fetch)

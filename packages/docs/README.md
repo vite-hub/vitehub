@@ -53,6 +53,7 @@ export default defineNuxtConfig({
 - The docs page answers only below `/docs`. The app keeps its own pages, its layouts, and its error page, also next to its own `pages/[...slug].vue`.
 - The app keeps its `app.vue`. The docs layouts draw the site header, the search, and the page head on docs pages only. The `app.vue` must wrap `<NuxtPage />` in `<UApp>` and `<NuxtLayout>`, as Nuxt UI and Nuxt layouts need. The development server warns when one is missing.
 - The build prerenders every docs page and crawls nothing else, so the app's own pages stay server-rendered.
+- The docs theme applies to the docs pages only. The app's pages keep its Nuxt UI theme. See [Theme](#theme).
 
 ## Content
 
@@ -74,7 +75,7 @@ The module reads the folder at build time. In development it watches the folder:
 
 ### Multiple sources and Markdown components
 
-Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and serves its original Markdown through Nitro server assets.
+Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and reads its original Markdown through Nitro server assets. A build packs the Markdown of every source and the raw copies into one gzip module, so a site with thousands of pages stays far below Cloudflare's limit of 5,000 Worker modules.
 
 `sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
 
@@ -226,6 +227,12 @@ A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebar
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 
+A Vue entry holds the parts that docs pages share with other ViteHub surfaces. Their styles are in `@vite-hub/ui/styles.css`, which the module loads.
+
+| Entry | Parts |
+| --- | --- |
+| `@vite-hub/docs/primitive-rail` | `PrimitiveRail`, `PrimitiveRailGroup`, `PrimitiveRailItem`, and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. The docs rail and the Console use them. They are internal and can change in any release. |
+
 ### Examples
 
 `::example` shows a preview and its source, with a Preview and Code switch. Around an `md`, `markdown`, `mdc`, or `comark` code block, the preview is that Markdown, rendered with the same plugins as the page:
@@ -274,7 +281,7 @@ Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console 
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `comarkUi` | `{ typeset: false, chips: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
+| `comarkUi` | `{ typeset: false, chips: false, diagrams: false, badge: { download: false } }` | Options of comark-ui's preset, merged over the defaults, such as `{ chips: true }`. `mermaid` fences render as SVG on the server with no network request. `diagrams: true` draws D2, PlantUML, and Graphviz fences through kroki.io, which receives their source; `diagrams: { server }` uses your own Kroki server. When `docs.github` is set, `github.references.repo` defaults to its repository, so `#123` links to its issues. |
 | `examples.tags` | `["example", "correct", "incorrect"]` | Tags of the blocks that get a preview of their first fenced block, such as `["example", "correct", "incorrect"]`. |
 | `examples.play` | None | `(source, tag) => url`: a playground URL for the block's Markdown, written as its `play`. Return `undefined` for no link. |
 | `plugins` | `[]` | More Comark plugins, after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. A plugin that adds a tag that comark-ui doesn't render needs a component for it in `app/components/content/`. |
@@ -285,6 +292,14 @@ The design follows the comark-ui site on top of the ViteHub design system (`@vit
 
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
+
+In an app with its own `app.vue`, the theme stays on the docs pages:
+
+- The theme's CSS applies below the `vh-docs` class. The docs layouts put it on `<html>` on docs pages only.
+- The docs layouts give the theme's slot classes and default props to Nuxt UI's `<UTheme>`, with the live `app.config.ts` UI values above the design. The app's pages keep their look.
+- The docs pages use the app's Nuxt UI colors and icons. To change the docs pages only, set the CSS variables on `:root.vh-docs`.
+
+### Link checks
 
 The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
 
@@ -341,7 +356,7 @@ pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite
 // nuxt.config.ts
 export default defineNuxtConfig({
   modules: [
-    ["vite-hub/nuxt", { preset: "node", agent: true, connections: true, database: true }],
+    ["vite-hub/nuxt", { host: "node", agent: true, connections: true, database: true }],
     "@vite-hub/docs/nuxt",
   ],
   docs: { assistant: true },
@@ -420,7 +435,7 @@ export default defineContent({
 
 ## Inspect
 
-- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. A script reads the whole manifest with `createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
+- The manifest, every section and page with its resolved title, order, layout, and flags, is in `.nuxt/docs/manifest.mjs`. The server reads it. Components read the copy in `.nuxt/docs/app-manifest.mjs` with `useDocsManifest()`: each page has only its `DocsAppPage` fields, such as `title`, `description`, `icon`, and `layout`. The page route returns the other fields of a page, such as `seo`, `tagline`, and `credits`. The build lists the pages and `.navigation.yml` files through ViteHub Content: `createDocsContent()` gives one `glob()` Source per content folder, named `docs_<index>`. A script reads the whole manifest with `await createDocsManifest({ dir, base })` from `@vite-hub/docs/server`.
 - The agent copy of each page is in `.nuxt/docs/raw/`.
 - The Markdown blocks that pages can use are in `.nuxt/docs/components.mjs`.
 - A running site serves the parsed page at `/api/_docs/page/<page>.json` and the search index at `/api/_docs/search.json`.

@@ -7,7 +7,6 @@ import { getAuthenticationSession } from "./session.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type {
-  AgentActor,
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerResolveContext,
@@ -19,9 +18,13 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 // The server module loads Better Auth. Agent routes import this module at startup, so load the server on first use.
-// One shared import also keeps Vitest module mocks in place for concurrent first calls.
+// One shared import also keeps Vitest module mocks in place for concurrent first calls. A failed import lets the next
+// call try again.
 let server: Promise<typeof import("./server.ts")> | undefined
-const loadServer = () => server ??= import("./server.ts")
+const loadServer = () => server ??= import("./server.ts").catch((error: unknown) => {
+  server = undefined
+  throw error
+})
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -99,20 +102,20 @@ export interface AuthenticatedOptions<
 
 /**
  * The `auth` primitive that Agent Capabilities receive when Auth is configured. Generated Agent routes and Schedules
- * pass it, so a Capability can act for the Auth user behind an Agent Actor.
+ * pass it, so a Capability can act for the Auth user behind an Agent Invoker.
  */
 export interface AgentAuth {
   /**
-   * The Auth user an Actor stands for. `authenticated()` records the user id as `actor.meta.authUserId`, and this reads
-   * that user from the Auth database again, so it also works when an approved tool call runs later. Null for an Actor
+   * The Auth user an Invoker stands for. `authenticated()` records the user id as `invoker.meta.authUserId`, and this reads
+   * that user from the Auth database again, so it also works when an approved tool call runs later. Null for an Invoker
    * without `authUserId`, or when the user no longer exists.
    */
-  user(actor: AgentActor | null | undefined): Promise<AuthenticatedUser | null>
+  user(invoker: AgentInvoker | null | undefined): Promise<AuthenticatedUser | null>
 }
 
 export const agentAuth: AgentAuth = {
-  async user(actor) {
-    const meta: unknown = actor?.meta
+  async user(invoker) {
+    const meta: unknown = invoker?.meta
     const userId = isRecord(meta) ? readString(meta.authUserId) : undefined
     if (!userId) return null
     const { getAuth } = await loadServer()

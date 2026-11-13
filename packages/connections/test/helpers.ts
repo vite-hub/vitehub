@@ -92,7 +92,7 @@ export function mailConnection(access?: Record<string, ConnectionAccessRule<Conn
 export function createStore(): ConnectionStore {
   const client = createClient({ url: ":memory:" })
   // The test runtime clock is fixed in the past, so age-based activity pruning would drop its events.
-  return createDatabaseConnectionStore({ activityRetention: false, db: drizzle(client), encryptionKey: new Uint8Array(32).fill(3) })
+  return createDatabaseConnectionStore({ activityRetention: false, db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(3) })
 }
 
 export interface TestRuntime {

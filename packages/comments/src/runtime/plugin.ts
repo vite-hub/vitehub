@@ -1,11 +1,10 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { installRequestStandardContext } from "@vite-hub/runtime"
 
+import { commentsPassGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
 import { runtimeBuilds } from "../installed.ts"
-import { commentsMcpTools } from "./mcp.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Comments } from "../index.ts"
@@ -86,8 +85,6 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     runtimeBuilds.set(options.comments, build)
     installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
-    // The ViteHub MCP server at `/_vitehub/mcp` runs them only for people with Console access to Comments.
-    registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { console: true }))
 
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return
@@ -101,6 +98,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
+      grants: commentsPassGrants,
       async allowed({ request }) {
         // In a ViteHub app, the Request of the session route carries the Standard Context of the request.
         installRequestStandardContext(request)

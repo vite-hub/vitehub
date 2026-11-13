@@ -122,3 +122,5 @@ The response lists `get-page` and `list-pages`.
 
 The [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) tells the agent how to work in a ViteHub project and prove the result. The MCP server lets it read the current docs during the task.
 Install both when the agent builds ViteHub apps. Use the MCP server alone when you only ask questions about the docs.
+
+To let the agent also work on the apps of your Console team, connect the [ViteHub MCP](/docs/development/mcp) at `https://console.vitehub.dev/mcp/account` instead. It has the docs tools too.

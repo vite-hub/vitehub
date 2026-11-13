@@ -16,7 +16,7 @@ beforeEach(async () => {
 })
 
 const key = "k".repeat(43)
-const url = "http://localhost:3000/_vitehub/rpc/__call"
+const url = "http://localhost:3000/_vitehub/rpc"
 
 function request(evidence: string | undefined, init: { method?: string, url?: string } = {}): Request {
   return new Request(init.url ?? url, { headers: evidence === undefined ? {} : { [peer.viteHubDevPeerHeader]: evidence }, method: init.method ?? "POST" })
@@ -25,11 +25,11 @@ function request(evidence: string | undefined, init: { method?: string, url?: st
 // Node gives a dev handler the request headers with lowercase names. A browser on this machine sends this `Host`.
 const localHost = { host: "localhost:3000" }
 
-function nodeEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc/__call") {
-  return { node: { req: { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path } } }
+function nodeEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc") {
+  return { runtime: { node: { req: { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path } } } }
 }
 
-function webEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc/__call") {
+function webEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc") {
   const node = { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path }
   return { node, event: { req: new Request(`http://localhost:3000${path}`, { headers, method: "POST" }), runtime: { node: { req: node } } } }
 }
@@ -43,19 +43,19 @@ async function signs(headers: Record<string, string>): Promise<boolean> {
   await peer.viteHubDevPeerDevHandler(v2.event)
   const upgrade = { headers: { ...headers }, method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "/api/_vitehub/realtime/content/doc" }
   peer.viteHubDevPeerUpgradeListener(upgrade)
-  const results = [peer.viteHubDevPeerHeader in v1.node.req.headers, v2.event.req.headers.has(peer.viteHubDevPeerHeader), peer.viteHubDevPeerHeader in upgrade.headers]
+  const results = [peer.viteHubDevPeerHeader in v1.runtime.node.req.headers, v2.event.req.headers.has(peer.viteHubDevPeerHeader), peer.viteHubDevPeerHeader in upgrade.headers]
   expect(new Set(results).size, JSON.stringify(headers)).toBe(1)
   return results[0]!
 }
 
 describe("dev peer evidence", () => {
   it("accepts evidence for the same method and path", async () => {
-    const evidence = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call?x=1" })
+    const evidence = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc?x=1" })
     await expect(peer.verifyViteHubDevPeer(request(evidence), key)).resolves.toBe(true)
   })
 
   it("refuses missing, malformed, and tampered evidence", async () => {
-    const evidence = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" })
+    const evidence = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" })
     const [version, timestamp, nonce, signature] = evidence.split(".") as [string, string, string, string]
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
     const flip = (value: string) => `${value.slice(0, -2)}${value.at(-2) === "A" ? "B" : "A"}${value.at(-1)}`
@@ -81,35 +81,35 @@ describe("dev peer evidence", () => {
   })
 
   it("refuses evidence for another key, method, or path", async () => {
-    const evidence = () => peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" })
+    const evidence = () => peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" })
     await expect(peer.verifyViteHubDevPeer(request(await evidence()), "x".repeat(43))).resolves.toBe(false)
     await expect(peer.verifyViteHubDevPeer(request(await evidence(), { method: "PUT" }), key)).resolves.toBe(false)
-    await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/_vitehub/mcp" }), key)).resolves.toBe(false)
-    await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/app/_vitehub/rpc/__call" }), key)).resolves.toBe(false)
+    await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/_vitehub/auth/manage" }), key)).resolves.toBe(false)
+    await expect(peer.verifyViteHubDevPeer(request(await evidence(), { url: "http://localhost:3000/app/_vitehub/rpc" }), key)).resolves.toBe(false)
     // A protocol-relative request target keeps its own path.
-    const relative = await peer.signViteHubDevPeer(key, { method: "POST", path: "//attacker.example/_vitehub/rpc/__call" })
+    const relative = await peer.signViteHubDevPeer(key, { method: "POST", path: "//attacker.example/_vitehub/rpc" })
     await expect(peer.verifyViteHubDevPeer(request(relative), key)).resolves.toBe(false)
   })
 
   it("refuses expired and future evidence", async () => {
     const now = Date.now()
-    const old = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" }, now - peer.viteHubDevPeerMaxAgeMs - 1)
+    const old = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" }, now - peer.viteHubDevPeerMaxAgeMs - 1)
     await expect(peer.verifyViteHubDevPeer(request(old), key, now)).resolves.toBe(false)
-    const future = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" }, now + 10_000)
+    const future = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" }, now + 10_000)
     await expect(peer.verifyViteHubDevPeer(request(future), key, now)).resolves.toBe(false)
-    const fresh = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" }, now - peer.viteHubDevPeerMaxAgeMs + 1_000)
+    const fresh = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" }, now - peer.viteHubDevPeerMaxAgeMs + 1_000)
     await expect(peer.verifyViteHubDevPeer(request(fresh), key, now)).resolves.toBe(true)
   })
 
   it("accepts each piece of evidence for one request only", async () => {
-    const evidence = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" })
+    const evidence = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" })
     const first = request(evidence)
     await expect(peer.verifyViteHubDevPeer(first, key)).resolves.toBe(true)
     // The Console can check one request twice.
     await expect(peer.verifyViteHubDevPeer(first, key)).resolves.toBe(true)
     await expect(peer.verifyViteHubDevPeer(request(evidence), key)).resolves.toBe(false)
     // Two concurrent replays cannot both pass the async signature check.
-    const again = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc/__call" })
+    const again = await peer.signViteHubDevPeer(key, { method: "POST", path: "/_vitehub/rpc" })
     const results = await Promise.all([peer.verifyViteHubDevPeer(request(again), key), peer.verifyViteHubDevPeer(request(again), key)])
     expect(results.filter(Boolean)).toHaveLength(1)
   })
@@ -157,7 +157,7 @@ describe("dev peer key", () => {
     expect(process.env).not.toHaveProperty(peer.viteHubDevPeerKeyEnv)
     expect(child()).toBe("undefined")
     expect(peer.readViteHubDevPeerKey()).toBe(inherited)
-    const evidence = await peer.signViteHubDevPeer(inherited, { method: "POST", path: "/_vitehub/rpc/__call" })
+    const evidence = await peer.signViteHubDevPeer(inherited, { method: "POST", path: "/_vitehub/rpc" })
     await expect(peer.isViteHubLoopbackPeer(request(evidence), undefined)).resolves.toBe(true)
   })
 
@@ -172,10 +172,10 @@ describe("dev peer key", () => {
 })
 
 describe("dev peer dev handler", () => {
-  it("signs a loopback request of H3 1 and replaces a client copy", async () => {
+  it("signs a loopback Node request without a Web request and replaces a client copy", async () => {
     const event = nodeEvent("127.0.0.1", { ...localHost, [peer.viteHubDevPeerHeader]: "v1.forged" })
     await expect(peer.viteHubDevPeerDevHandler(event)).resolves.toBeUndefined()
-    const evidence = event.node.req.headers[peer.viteHubDevPeerHeader]
+    const evidence = event.runtime.node.req.headers[peer.viteHubDevPeerHeader]
     expect(evidence).not.toBe("v1.forged")
     await expect(peer.verifyViteHubDevPeer(request(evidence), peer.useViteHubDevPeerKey())).resolves.toBe(true)
   })
@@ -190,13 +190,13 @@ describe("dev peer dev handler", () => {
   })
 
   it("strips client evidence from a remote or unknown peer and adds none", async () => {
-    const forged = await peer.signViteHubDevPeer(peer.useViteHubDevPeerKey(), { method: "POST", path: "/_vitehub/rpc/__call" })
+    const forged = await peer.signViteHubDevPeer(peer.useViteHubDevPeerKey(), { method: "POST", path: "/_vitehub/rpc" })
     for (const address of ["192.168.0.38", "203.0.113.9", "::ffff:10.0.0.1", undefined]) {
       // A remote client also sends the headers that a proxy would add for a local peer.
       const headers = { host: "localhost", [peer.viteHubDevPeerHeader]: forged, "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" }
       const v1 = nodeEvent(address, headers)
       await peer.viteHubDevPeerDevHandler(v1)
-      expect(v1.node.req.headers, String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
+      expect(v1.runtime.node.req.headers, String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
       const v2 = webEvent(address, headers)
       await peer.viteHubDevPeerDevHandler(v2.event)
       expect(v2.event.req.headers.has(peer.viteHubDevPeerHeader), String(address)).toBe(false)
@@ -205,9 +205,9 @@ describe("dev peer dev handler", () => {
   })
 
   it("signs no request target that is not a path", async () => {
-    const event = nodeEvent("127.0.0.1", localHost, "http://attacker.example/_vitehub/rpc/__call")
+    const event = nodeEvent("127.0.0.1", localHost, "http://attacker.example/_vitehub/rpc")
     await peer.viteHubDevPeerDevHandler(event)
-    expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(event.runtime.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("signs no request that a tunnel or a proxy on this machine forwards", async () => {
@@ -283,7 +283,7 @@ describe("dev peer dev handler", () => {
     peer.useViteHubDevPeerKey()
     const http2 = nodeEvent("127.0.0.1", { ":authority": "localhost:3000" })
     await peer.viteHubDevPeerDevHandler(http2)
-    expect(http2.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(http2.runtime.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("refuses conflicting HTTP/2 Host and authority headers", async () => {
@@ -295,11 +295,11 @@ describe("dev peer dev handler", () => {
     ]) {
       const event = nodeEvent("127.0.0.1", headers)
       await peer.viteHubDevPeerDevHandler(event)
-      expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+      expect(event.runtime.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
     }
     const matching = nodeEvent("127.0.0.1", { ...localHost, ":authority": localHost.host })
     await peer.viteHubDevPeerDevHandler(matching)
-    expect(matching.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(matching.runtime.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("goes first in Nitro dev handlers once, and creates the key", () => {
@@ -341,7 +341,7 @@ describe("the WebSocket upgrade signer of the front process", () => {
     // The same evidence for another path, or a second time, is refused.
     expect(await peer.verifyViteHubDevPeer(new Request(target, { headers: { [peer.viteHubDevPeerHeader]: String(evidence) } }), key)).toBe(false)
     const other = upgrade("::1")[peer.viteHubDevPeerHeader]
-    expect(await peer.verifyViteHubDevPeer(new Request("http://localhost:3000/_vitehub/rpc/__call", { headers: { [peer.viteHubDevPeerHeader]: String(other) } }), key)).toBe(false)
+    expect(await peer.verifyViteHubDevPeer(new Request("http://localhost:3000/_vitehub/rpc", { headers: { [peer.viteHubDevPeerHeader]: String(other) } }), key)).toBe(false)
   })
 
   it("removes client evidence and signs no remote or unknown peer", () => {

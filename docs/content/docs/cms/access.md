@@ -124,7 +124,7 @@ import { cmsConsoleAuthorize } from 'vite-hub/cms/access'
 export default defineConsoleAuthorize(cmsConsoleAuthorize)
 ```
 
-Set `console: { auth: 'app', authorize: './server/console-authorize.ts' }` in `vitehub()` so the Console uses the app's signed-in user.
+Set `console: { authorize: './server/console-authorize.ts' }` in `vitehub()`. The Console signs the person who calls, and `authorize` gets that user.
 
 ## Inspect the roles
 

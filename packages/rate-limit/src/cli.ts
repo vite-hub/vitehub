@@ -61,7 +61,7 @@ function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout
     "Options:",
     ...(command.name === "reset" ? ["  --yes, -y         Reset without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --json            Print JSON.",
-    "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
+    "  --url <url>       Deployed app URL. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
     "  -h, --help        Show this help.",
     "",

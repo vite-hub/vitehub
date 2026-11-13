@@ -25,6 +25,8 @@ async function createProject() {
   tempDirs.push(rootDir)
   await mkdir(join(rootDir, "server/databases"), { recursive: true })
   await writeFile(join(rootDir, "package.json"), '{ "type": "module" }\n')
+  // Kit 1.0 reads the nearest tsconfig and warns about the `paths` of this package's tsconfig.
+  await writeFile(join(rootDir, "tsconfig.json"), "{}\n")
   return rootDir
 }
 
@@ -34,7 +36,6 @@ async function writeDefinition(rootDir: string, options: string) {
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     "const users = sqliteTable('users', { id: integer().primaryKey(), displayName: text() })",
     "const schema = { users }",
-    "const drizzle = { casing: 'snake_case' as const }",
     `export default defineDatabase({ ${options} })`,
   ].join("\n"))
   const config = resolveDBViteConfig(undefined, rootDir)!

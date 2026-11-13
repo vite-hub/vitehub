@@ -108,9 +108,11 @@ describe("public package export contracts", () => {
     }
   })
 
-  it("keeps Comments dependencies installed and classifies its optional Vite peer", () => {
+  it("keeps Comments database peers required and classifies its optional Vite peer", () => {
     const manifest = readPackageManifest("comments")
-    expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["drizzle-orm"]).toBeUndefined()
+    expect(manifest.peerDependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["drizzle-orm"]?.optional).not.toBe(true)
     expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
     expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
     for (const subpath of ["database", "database/postgres", "server"]) {
@@ -242,6 +244,15 @@ describe("public package export contracts", () => {
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })
 
+  it("keeps Cloudflare Worker declarations out of the vite-hub install", () => {
+    const manifest = readPackageManifest("vite-hub")
+    expect(manifest.dependencies?.["@cloudflare/workers-types"], "vite-hub should not install @cloudflare/workers-types").toBeUndefined()
+    // `cloudflare-types.d.ts` only needs the global Worker declarations, which every 4.x and 5.x release has. npm stops
+    // with ERESOLVE when the app already installs a version that the optional peer range does not accept.
+    expect(manifest.peerDependencies?.["@cloudflare/workers-types"]).toBe(">=4")
+    expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
+  })
+
   it("keeps Blob declarations independent from H3 host declarations", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
     expect(source).not.toMatch(/from ["']h3["']/)
@@ -249,7 +260,7 @@ describe("public package export contracts", () => {
 
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
     const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
-    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
+    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry, options: RealtimeHandlerOptions = \{\}\): RealtimeHandler/)
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 

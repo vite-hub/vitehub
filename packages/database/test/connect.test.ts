@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite"
 import { createClient } from "@libsql/client"
 import { createClient as createHttpClient } from "@libsql/client/http"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -20,7 +20,7 @@ vi.mock("@libsql/client/http", () => ({ createClient: vi.fn() }))
 const notes = sqliteTable("notes", { id: integer("id").primaryKey(), body: text("body").notNull() })
 const setup = ["CREATE TABLE IF NOT EXISTS notes (id integer PRIMARY KEY, body text NOT NULL)"]
 
-/** A D1 binding on an in-memory SQLite database, with D1's result shapes: `raw()` arrays, and batch rows as objects. */
+/** A D1 binding on an in-memory SQLite database, with D1's result shapes: `raw()` arrays, `all()` and batch rows as objects. */
 function fakeD1() {
   const sqlite = new DatabaseSync(":memory:")
   const queries: string[] = []
@@ -42,6 +42,9 @@ function fakeD1() {
       const statement = this.prepared()
       statement.setReturnArrays(true)
       return statement.all(...this.values)
+    }
+    async all() {
+      return { results: this.objects() }
     }
     objects() {
       const statement = this.prepared()
@@ -112,14 +115,44 @@ describe("connectDatabase", () => {
       await runWithActiveCloudflareEnv({ NOTES: d1.binding }, async () => {
         await db.insert(notes).values({ id: 1, body: "one" })
         expect(await db.select().from(notes).where(eq(notes.id, 2)).get()).toBeUndefined()
-        expect(await db.query.notes.findFirst({ where: eq(notes.id, 2) })).toBeUndefined()
+        expect(await db.query.notes.findFirst({ where: { id: 2 } })).toBeUndefined()
         expect(await db.select().from(notes).where(eq(notes.id, 2)).all()).toEqual([])
         expect(await db.select().from(notes).where(eq(notes.id, 1)).get()).toEqual({ id: 1, body: "one" })
-        expect(await db.query.notes.findFirst({ where: eq(notes.id, 1) })).toEqual({ id: 1, body: "one" })
+        expect(await db.query.notes.findFirst({ where: { id: 1 } })).toEqual({ id: 1, body: "one" })
         expect(await db.batch([
-          db.query.notes.findFirst({ where: eq(notes.id, 2) }),
-          db.query.notes.findFirst({ where: eq(notes.id, 1) }),
+          db.query.notes.findFirst({ where: { id: 2 } }),
+          db.query.notes.findFirst({ where: { id: 1 } }),
         ])).toEqual([undefined, { id: 1, body: "one" }])
+        // Raw SQL reads rows as objects by column name.
+        expect(await db.all(sql`select id, body from notes`)).toEqual([{ id: 1, body: "one" }])
+        expect(await db.get(sql`select body from notes where id = ${1}`)).toEqual({ body: "one" })
+        expect(await db.get(sql`select body from notes where id = ${2}`)).toBeUndefined()
+      })
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it.each(["D1", "libSQL", "Node"])("decodes boolean, timestamp, and JSON columns on %s", async (driver) => {
+    const d1 = fakeD1()
+    const client = createClient({ url: ":memory:" })
+    vi.mocked(createHttpClient).mockReturnValue(client)
+    const flags = sqliteTable("flags", {
+      id: integer("id").primaryKey(),
+      on: integer("on", { mode: "boolean" }).notNull(),
+      at: integer("at", { mode: "timestamp" }).notNull(),
+      data: text("data", { mode: "json" }).$type<{ tags: string[] }>().notNull(),
+    })
+    const options = { setup: ["CREATE TABLE IF NOT EXISTS flags (id integer PRIMARY KEY, \"on\" integer NOT NULL, at integer NOT NULL, data text NOT NULL)"], schema: { flags } }
+    const db = driver === "Node" ? connectDatabase(":memory:", options) : connectWorker(driver === "D1" ? "d1:NOTES" : "https://db.test", options)
+    const row = { id: 1, on: true, at: new Date("2026-11-09T12:00:00.000Z"), data: { tags: ["a"] } }
+    try {
+      await runWithActiveCloudflareEnv({ NOTES: d1.binding }, async () => {
+        await db.insert(flags).values(row)
+        expect(await db.select().from(flags).get()).toEqual(row)
+        expect(await db.query.flags.findFirst()).toEqual(row)
+        expect(await db.batch([db.select().from(flags)])).toEqual([[row]])
       })
     }
     finally {

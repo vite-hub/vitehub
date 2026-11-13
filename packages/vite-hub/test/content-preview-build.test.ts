@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
 import { browserChecks, expectBrowserFrameRedirects } from "./content-preview-browser.ts"
-import { cachedRouteRules, contentKey, contentModule, contentRoutes, createHistoryDatabase, expectBoundedFrameUploads, expectFrameRedirects, expectPreviewBypassesCache, followFrame, linkFixtureModules, nitro2FrameRoutes, nitro3FrameRoutes, startBuiltServer } from "./content-preview-fixture.ts"
+import { cachedRouteRules, contentKey, contentModule, contentRoutes, createHistoryDatabase, expectBoundedFrameUploads, expectFrameRedirects, expectPreviewBypassesCache, followFrame, linkFixtureModules, nitro3FrameRoutes, startBuiltServer } from "./content-preview-fixture.ts"
 
 describe("Content preview in a built Nitro 3 app", () => {
   it("keeps preview requests out of the swr route cache, and lets the browser post a preview frame form through redirects", async () => {
@@ -32,7 +32,7 @@ describe("Content preview in a built Nitro 3 app", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         nitro: { routeRules: cachedRouteRules, serverDir: join(root, "server") },
-        plugins: [nitro() as never, vitehub({ preset: "node" })],
+        plugins: [nitro() as never, vitehub({ host: "node" })],
         root,
       } as never)
       await builder.buildApp()
@@ -61,8 +61,8 @@ async function writeFiles(root: string, files: Array<[string, string]>): Promise
   }
 }
 
-describe("Content preview in a built Nuxt 4 app", () => {
-  it("previews whole pages and server routes on Nitro 2, keeps them out of the swr route cache, and lets the browser post a preview frame form through redirects", async () => {
+describe("Content preview in a built Nuxt app", () => {
+  it("previews whole pages and server routes, keeps them out of the swr route cache, and lets the browser post a preview frame form through redirects", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-content-preview-nuxt-")))
     try {
       const nuxt = dirname(createRequire(import.meta.url).resolve("nuxt/package.json"))
@@ -75,7 +75,7 @@ describe("Content preview in a built Nuxt 4 app", () => {
           `export default defineNuxtConfig({`,
           `  compatibilityDate: "2026-10-01",`,
           `  devtools: { enabled: false },`,
-          `  modules: [[viteHubNuxt, { preset: "node" }]],`,
+          `  modules: [[viteHubNuxt, { host: "node" }]],`,
           `  routeRules: ${JSON.stringify({ ...cachedRouteRules, "/post": { swr: 60 }, "/old-post": { redirect: "/post" } })},`,
           `  telemetry: false,`,
           `})`,
@@ -101,9 +101,9 @@ describe("Content preview in a built Nuxt 4 app", () => {
           ``,
         ].join("\n")],
         ["server/content.ts", contentModule],
-        ...nitro2FrameRoutes("../content.ts").map(([path, source]): [string, string] => [`server/${path}`, source]),
-        ["server/api/post.ts", `import content from "../content.ts"\n\nexport default defineEventHandler(async () => ({ title: (await content.collection("posts").get("hello"))?.data.title }))\n`],
-        ...contentRoutes("../content.ts", code => `defineEventHandler(${code})`).map(([path, source]): [string, string] => [`server/${path}`, source]),
+        ...nitro3FrameRoutes("../content.ts").map(([path, source]): [string, string] => [`server/${path}`, source]),
+        ["server/api/post.ts", `import content from "../content.ts"\n\nexport default async () => ({ title: (await content.collection("posts").get("hello"))?.data.title })\n`],
+        ...contentRoutes("../content.ts").map(([path, source]): [string, string] => [`server/${path}`, source]),
       ])
       const database = join(root, "history.sqlite")
       await createHistoryDatabase(database)
@@ -136,7 +136,7 @@ describe("Content preview in a built Nuxt 4 app", () => {
         }))
         for (const read of reads) expect(read.title).toBe(read.preview ? "Draft" : "Published")
 
-        // Preview frames on Nitro 2, whose redirects h3 v1 writes to the Node response directly.
+        // Preview frames.
         const token = await expectFrameRedirects(server, expect)
         // A route rule redirect and an SSR middleware redirect land on the Nuxt page, which reads Content through
         // /api/post, with the document on screen.
@@ -146,7 +146,7 @@ describe("Content preview in a built Nuxt 4 app", () => {
           expect(framed.response.status).toBe(200)
           expect(/<h1>([^<]*)<\/h1>/.exec(await framed.response.text())?.[1]).toBe("On screen")
         }
-        if (browserChecks) console.info(`Nuxt 4 Chromium frame checks: ${await expectBrowserFrameRedirects(server, token, expect, ["/post", "/old-post", "/redirecting"])} passed`)
+        if (browserChecks) console.info(`Nuxt Chromium frame checks: ${await expectBrowserFrameRedirects(server, token, expect, ["/post", "/old-post", "/redirecting"])} passed`)
         expect((await page(false)).title).toBe("Published")
         await expectBoundedFrameUploads(server, expect)
       }

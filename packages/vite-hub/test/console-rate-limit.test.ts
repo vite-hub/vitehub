@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { parseConsoleRateLimitPeek, peekConsoleRateLimit, resetConsoleRateLimit } from "../src/console/runtime/client/rate-limit.ts"
+import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 const calls: Array<{ input: unknown, operation: string }> = []
 let answer: unknown
 
 beforeEach(() => {
-  vi.stubGlobal("fetch", vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-    calls.push(JSON.parse(String(init?.body)))
+  vi.stubGlobal("fetch", operationRpcFetch(vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(operationRpcRequest(init?.body))
     return Response.json({ ok: true, value: answer })
-  }))
+  })))
 })
 
 afterEach(() => {

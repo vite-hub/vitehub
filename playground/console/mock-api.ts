@@ -1,5 +1,4 @@
 import { createLogBuffer } from "../../packages/vite-hub/src/logs/memory.ts"
-import { authFixture } from "./auth-fixture.ts";
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
 import * as v from "valibot"
@@ -42,7 +41,6 @@ const sections = [
   "logs",
   "auth",
   "env",
-  "connections",
   "agents",
   "skills",
   "usage",
@@ -59,6 +57,7 @@ const sections = [
   "queues",
   "schedules",
   "comments",
+  "site",
 ] as const;
 const definitions = {
   "rate-limits": [
@@ -316,104 +315,6 @@ async function body(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
 }
 
-const googleScopes = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"]
-const connections = new Map([
-  ["gmail", {
-    account: { email: "ada@example.com", id: "108230129837" },
-    actions: [
-      { highRisk: false, id: "gmail.users.messages.list", method: "GET", write: false },
-      { highRisk: false, id: "gmail.users.messages.modify", method: "POST", write: true },
-      { highRisk: true, id: "gmail.users.messages.send", method: "POST", write: true },
-    ],
-    connectedAt: "2026-09-21T08:12:00.000Z",
-    credential: "oauth2",
-    name: "gmail",
-    provider: "google",
-    refreshedAt: "2026-09-29T07:58:00.000Z",
-    scopes: { declared: googleScopes, granted: googleScopes, missing: [] },
-    status: "connected",
-  }],
-  ["calendar", {
-    account: { email: "ada@example.com", id: "108230129837" },
-    actions: [{ highRisk: false, id: "calendar.events.list", method: "GET", write: false }],
-    connectedAt: "2026-08-02T10:40:00.000Z",
-    credential: "oauth2",
-    name: "calendar",
-    provider: "google",
-    scopes: {
-      declared: ["https://www.googleapis.com/auth/calendar.events"],
-      granted: [],
-      missing: ["https://www.googleapis.com/auth/calendar.events"],
-    },
-    status: "reauth_required",
-  }],
-  ["support-inbox", {
-    actions: [{ highRisk: false, id: "gmail.users.threads.list", method: "GET", write: false }],
-    credential: "oauth2",
-    docs: "Connect **support@example.com**, not your own inbox.\n\n1. Ask IT to add you as a delegate of the support inbox.\n2. Click **Connect** and choose the support account in Google.\n3. Approve read-only access. The Agent never sends from this inbox.",
-    name: "support-inbox",
-    provider: "google",
-    scopes: { declared: ["https://www.googleapis.com/auth/gmail.readonly"], granted: [], missing: ["https://www.googleapis.com/auth/gmail.readonly"] },
-    status: "disconnected",
-  }],
-  ["executor", {
-    actions: [],
-    credential: "api-key",
-    name: "executor",
-    provider: "executor",
-    scopes: { declared: [], granted: [], missing: [] },
-    status: "disconnected",
-  }],
-])
-const connectionActivity = [
-  { action: "use", actor: { id: "email-labeller", kind: "agent" }, id: "cact_004", invocationId: "ainv_email_labeller", key: "connection/gmail", operation: "gmail.users.messages.send", operationId: "cop_004", outcome: "denied", timestamp: "2026-09-29T08:03:00.000Z" },
-  { action: "use", actor: { id: "email-labeller", kind: "agent" }, id: "cact_003", invocationId: "ainv_email_labeller", key: "connection/gmail", operation: "gmail.users.messages.modify", operationId: "cop_003", outcome: "succeeded", timestamp: "2026-09-29T08:02:00.000Z" },
-  { action: "resolve", actor: { id: "email-labeller", kind: "agent" }, id: "cact_002", key: "connection/gmail", operationId: "cop_002", outcome: "succeeded", timestamp: "2026-09-29T08:01:00.000Z" },
-  { action: "replace", actor: { id: "ada", kind: "user" }, id: "cact_001", key: "connection/gmail", operationId: "cop_001", outcome: "succeeded", timestamp: "2026-09-21T08:12:00.000Z" },
-]
-const connectionApprovals = [
-  { action: "gmail.users.messages.send", actor: "agent:email-labeller", createdAt: "2026-09-29T08:03:00.000Z", id: "capr_002", input: { to: "team@example.com" }, invocationId: "ainv_email_labeller", name: "gmail", status: "pending" },
-  { action: "gmail.users.messages.send", actor: "agent:email-labeller", createdAt: "2026-09-28T16:20:00.000Z", decidedAt: "2026-09-28T16:24:00.000Z", decidedBy: "user:ada", id: "capr_001", input: { to: "ada@example.com" }, name: "gmail", status: "executed" },
-]
-
-// Synthetic Connections management API. It accepts the same JSON actions as `/_vitehub/connections`.
-async function handleConnections(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  // SAFETY: This synthetic API receives the fixed JSON action shapes from the Console fixture client.
-  const input = await body(request) as { action?: string, before?: string, id?: string, key?: string, name?: string, status?: string }
-  const approvalView = ({ input: _input, ...approval }: typeof connectionApprovals[number]) => approval
-  const connection = input.name ? connections.get(input.name) : undefined
-  const approval = connectionApprovals.find(entry => entry.id === input.id)
-  switch (input.action) {
-    case "list": return json(response, { connections: [...connections.values()] })
-    case "inspect": return connection ? json(response, { connection }) : json(response, { error: { code: "CONNECTIONS_NOT_FOUND", message: `No Connection Definition was discovered for "${input.name}".` } }, 404)
-    case "revoke":
-      if (!connection) return json(response, { error: { code: "CONNECTIONS_NOT_FOUND", message: "Unknown Connection." } }, 404)
-      Object.assign(connection, { scopes: { ...connection.scopes, granted: [], missing: connection.scopes.declared }, status: "revoked" })
-      return json(response, { connection })
-    case "set-key":
-      // The synthetic API keeps no key. It only marks the API key Connection as connected.
-      if (connection?.credential !== "api-key" || !input.key) return json(response, { error: { code: "CONNECTIONS_INVALID_REQUEST", message: "Set a key only on an API key Connection." } }, 400)
-      Object.assign(connection, { connectedAt: new Date().toISOString(), status: "connected" })
-      return json(response, { connection })
-    case "activity": return json(response, { activity: input.before ? [] : connectionActivity.filter(event => event.key === `connection/${input.name}`) })
-    case "approval-counts": return json(response, { counts: Object.fromEntries([...connections.keys()].map(name => [name, connectionApprovals.filter(entry => entry.name === name && entry.status === "pending").length])) })
-    case "approvals":
-    case "approval-summaries": {
-      const approvals = connectionApprovals.filter(entry => (!input.name || entry.name === input.name) && (!input.status || entry.status === input.status))
-      return json(response, { approvals: input.action === "approval-summaries" ? approvals.map(approvalView) : approvals })
-    }
-    case "approve":
-    case "approve-summary":
-    case "deny":
-    case "deny-summary":
-      if (!approval || approval.status !== "pending") return json(response, { error: { code: "CONNECTIONS_INVALID_REQUEST", message: "This approval is not pending." } }, 400)
-      Object.assign(approval, { decidedAt: new Date().toISOString(), decidedBy: "user:local", status: input.action === "approve" || input.action === "approve-summary" ? "executed" : "denied" })
-      if (input.action === "approve-summary" || input.action === "deny-summary") return json(response, { approval: approvalView(approval) })
-      return json(response, input.action === "approve" ? { approval, result: { id: "msg_synthetic" } } : { approval })
-    default: return json(response, { error: { code: "CONNECTIONS_UNKNOWN_ACTION", message: "Invalid Connections request." } }, 400)
-  }
-}
-
 function summary(record: Awaited<ReturnType<typeof invocations.get>>): Record<string, unknown> | undefined {
   if (!record) return
   const { observations: _observations, ...value } = record
@@ -516,7 +417,7 @@ function playgroundFailure(request: IncomingMessage, path: string): number | und
 }
 
 const playgroundFailureMessages: Record<number, string> = {
-  401: "The Cloudflare Access token is not valid for this Console.",
+  401: "The app does not accept the signature of this Console.",
   403: "This account cannot read this Console section.",
   500: "The Console handler threw an error.",
   503: "The Console server is restarting.",
@@ -945,7 +846,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     }
     const blobs: Array<(typeof blobStores)["default"][number]> = blobStores[store]
     const index = blobs.findIndex(blob => blob.pathname === pathname)
-    if (input.action === "del") {
+    if (input.action === "delete") {
       if (index !== -1) blobs.splice(index, 1)
       json(response, { deleted: index !== -1, pathname, store })
       return true
@@ -998,7 +899,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
         json(response, { error: "KV store or key not found" }, 404)
         return true
       }
-      if ((input.action === "set" || input.action === "del") && input.key.toLowerCase().startsWith("vitehub:")) {
+      if ((input.action === "set" || input.action === "delete") && input.key.toLowerCase().startsWith("vitehub:")) {
         json(response, { code: "KV_RESERVED_KEY", message: `ViteHub owns the keys that start with vitehub:.`, status: 403 }, 403)
         return true
       }
@@ -1008,7 +909,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
         json(response, { created, key: input.key, store: name, type: typeof input.value })
         return true
       }
-      if (input.action === "del") {
+      if (input.action === "delete") {
         const deleted = kvStores[name].delete(input.key)
         json(response, { deleted, key: input.key, store: name })
         return true
@@ -1046,22 +947,6 @@ export function consoleMockAPI(): Plugin {
           if (url.pathname === "/") {
             response.statusCode = 302
             response.setHeader("location", "/_vitehub/")
-            response.end()
-            return
-          }
-          if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
-            json(response, authFixture(await body(request), process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"));
-            return
-          }
-          if (request.method === "POST" && url.pathname === "/_vitehub/connections") {
-            await handleConnections(request, response)
-            return
-          }
-          if (request.method === "GET" && url.pathname.startsWith("/_vitehub/connections/connect/")) {
-            // Synthetic playground: no provider is contacted. Return to the Console like the real result page.
-            const back = url.searchParams.get("return")
-            response.statusCode = 302
-            response.setHeader("location", back?.startsWith("/") && !back.startsWith("//") ? back : "/_vitehub/connections")
             response.end()
             return
           }

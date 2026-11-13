@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 
+import { consolePrivateKeyPrefix, consolePublicKeyPrefix, createConsoleKeyPair, isConsoleKeyName } from "@vite-hub/internal/console-signature"
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 
 import type { ViteHubCliFeature } from "@vite-hub/internal/cli"
@@ -19,6 +20,7 @@ interface SecretCliFeature {
 
 const generateUsage = "vitehub secret generate"
 const deriveUsage = "vitehub secret derive <purpose>"
+const consoleKeyUsage = "vitehub secret console-key [name]"
 
 function help(args: string[]): boolean {
   return args.includes("-h") || args.includes("--help")
@@ -42,8 +44,8 @@ async function derive(args: string[], context: SecretCliContext): Promise<number
     context.stdout.write([
       `Usage: ${deriveUsage}`,
       "",
-      "Print the secret that deriveSecret(<purpose>) returns for VITEHUB_SECRET (or NUXT_APP_SECRET).",
-      "For example, `vitehub secret derive vitehub:dispatch` prints the VITEHUB_DISPATCH_KEY of a deployment.",
+      "Print the secret that deriveSecret(<purpose>) returns for VITEHUB_SECRET.",
+      "For example, `vitehub secret derive myapp:webhooks` prints the same key on every machine with the same root secret.",
       "",
     ].join("\n"))
     return 0
@@ -66,6 +68,38 @@ async function derive(args: string[], context: SecretCliContext): Promise<number
   return 0
 }
 
+/**
+ * Print a new Ed25519 key pair for signed Console requests: the public key line for the app, and the private key line
+ * for the machine or CI job that calls it with `--url`. The name defaults to `CLI`.
+ */
+async function consoleKey(args: string[], context: Pick<SecretCliContext, "stderr" | "stdout">): Promise<number> {
+  if (help(args)) {
+    context.stdout.write([
+      `Usage: ${consoleKeyUsage}`,
+      "",
+      "Print a new key pair for signed Console requests. Set the first line on the app (console: { auth: \"token\" }),",
+      "and the second line where the CLI runs, such as a CI secret. The name defaults to CLI.",
+      "",
+    ].join("\n"))
+    return 0
+  }
+  const [input = "CLI", ...rest] = args
+  const name = input.toUpperCase().replace(/[^A-Z0-9]+/g, "_")
+  if (rest.length || !isConsoleKeyName(name)) {
+    context.stderr.write(`Usage: ${consoleKeyUsage}\nThe name has 1 to 64 letters, digits, or underscores.\n`)
+    return 1
+  }
+  const { privateKey, publicKey } = await createConsoleKeyPair()
+  context.stdout.write([
+    "# The app: set this variable on the deployment.",
+    `${consolePublicKeyPrefix}${name}=${publicKey}`,
+    "# The CLI: keep this one secret, such as in a CI secret. Remove the app variable to revoke it.",
+    `${consolePrivateKeyPrefix}${name}=${privateKey}`,
+    "",
+  ].join("\n"))
+  return 0
+}
+
 /** `vitehub secret` features. They read only the process env and never load the project. */
 export const secretCliFeatures: SecretCliFeature[] = [
   {
@@ -79,5 +113,11 @@ export const secretCliFeatures: SecretCliFeature[] = [
     name: "derive",
     run: async (args: string[], context: SecretCliContext) => await derive(args, context),
     usage: deriveUsage,
+  },
+  {
+    description: "Print a new key pair for signed Console requests from the CLI.",
+    name: "console-key",
+    run: async (args: string[], context: SecretCliContext) => await consoleKey(args, context),
+    usage: consoleKeyUsage,
   },
 ] satisfies ViteHubCliFeature[]

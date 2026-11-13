@@ -14,6 +14,7 @@ Use this guide to turn a requested behavior into a tested change. [AGENTS.md](AG
 | Other `packages/*/src/` | Each Server Primitive or integration |
 | `playground/console/` | Real Console UI with synthetic API data |
 | `fixtures/`, `test/consumer/`, `test/output/` | Consumer applications and generated output proof |
+| `test/multi-instance/` | One app on three Node instances against Postgres and Redis |
 | `docs/` | User documentation and the first-party website |
 
 Use these names consistently: Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Runtime policy belongs in its owner package.
@@ -88,15 +89,19 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Root contracts or development tooling | `corepack pnpm exec vp test --config vitest.config.ts test/<file>.test.ts` after required builds |
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
+| A primitive on several Node instances | `corepack pnpm exec vp run e2e:multi-instance` (needs Docker, see [its README](test/multi-instance/README.md)) |
+| Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
+
+A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 
-A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke deployments also require successful CI for the exact `main` commit. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
+A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke runs test the newest `main` commit with successful CI from the last 48 hours, and fail when there is none. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
 
 The [Console playground](playground/console/README.md) exercises the real UI with synthetic data. It cannot prove invocation execution, persistence, or provider behavior. For a Console runtime change, also exercise the real route and runtime with a local consumer.
 
@@ -180,6 +185,42 @@ The site renders nothing for `::agent-only`. Use it only for content that helps 
 A block with `skill="<name>"` is also the source of `docs/skills/vitehub/references/primitives/<name>.md`. Edit the block, not the generated file, then run `corepack pnpm --dir docs exec vp test test/agent-resources.test.ts -u`.
 
 Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/nuxt.config.ts`, which prints them at the top of llms.txt. To measure whether agent-only content helps, run the [agent docs eval](docs/evals/agent-docs/README.md).
+
+### Site parity
+
+When a change can alter what vitehub.dev serves without a content edit, such as how `@vite-hub/docs` loads pages, prove that no page changed. `docs/scripts/parity.mjs` fetches every URL the site serves: each page as HTML, as negotiated Markdown, as its `.md` twin, at `/raw`, and as page JSON, and through the MCP `get-page` tool. It also fetches the sitemaps, llms.txt, llms-full.txt, `search.json`, the skills, and the links it finds in them. It removes build hashes and timestamps, and it keeps text, headings, links, and head tags. Record the base, then the change, from the same kind of build:
+
+```sh
+# On the base commit, then again on your branch
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+cd docs && ../node_modules/.bin/wrangler dev --config .output/server/wrangler.json --port 4791 &
+node docs/scripts/parity.mjs crawl http://127.0.0.1:4791 /tmp/parity/base --site https://vitehub.dev
+node docs/scripts/parity.mjs compare /tmp/parity/base /tmp/parity/branch
+```
+
+`compare` lists added, removed, and changed URLs with the changed lines, and exits with 1 when there is a difference. The snapshots are large (about 150 MB of bodies), so keep them out of the repository. `crawl https://vitehub.dev` records the live site in the same format.
+
+`crawl` and `compare` also exit with 1 when requests fail after retries or the request limit skips URLs. These snapshots have `complete: false` and are only for diagnosis. Fix the request failure or increase `--limit` (default: 20000), then crawl again. HTTP responses such as 404s remain comparable. Record both snapshots again if they predate completeness tracking.
+
+### Worker bench
+
+When a change can make the docs Worker bigger or slower, such as how `@vite-hub/docs` loads pages, measure the built Worker before and after. `docs/scripts/bench-worker.mjs` reports:
+
+- Worker bytes from `wrangler deploy --dry-run --outdir`, and aggregate gzip bytes from Wrangler's rounded upload report. Per-module gzip sizes are separate diagnostics.
+- Start time: how long a fresh `workerd` takes to emit its control-pipe `listen` event after module compilation and top-level initialization, minus the same for an empty Worker. No request is sent.
+- Cold latency: a fresh `wrangler dev` per sample, and the first request for each of 20 fixed pages.
+- Warm latency: one `wrangler dev`, two warmup rounds, then ten measured rounds.
+- Memory: the RSS that the loaded Worker adds to `workerd`, and the peak RSS of the `wrangler dev` `workerd`. These are process numbers, not the isolate heap that the 128 MB limit counts.
+
+```sh
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/base.json
+# Build your branch the same way, then
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/branch.json
+node docs/scripts/bench-worker.mjs compare /tmp/bench/base.json /tmp/bench/branch.json
+```
+
+A run takes about two minutes and uses port 4813 (`--port` changes it). `compare` prints ratios and exits with 1 when cold p95 is more than 1.5 times the base. On a busy machine, two runs of the same build gave cold p95 values 1.8 times apart, so run each side twice and compare the per-page cold p50 values, which stayed within 15% for pages above 10 ms. Start time and bytes are stable.
 
 ## Downstream patch loop
 

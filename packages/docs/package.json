@@ -55,7 +55,12 @@
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./primitive-rail": {
+      "types": "./dist/primitive-rail.d.ts",
+      "import": "./dist/primitive-rail.js",
+      "default": "./dist/primitive-rail.js"
+    }
   },
   "scripts": {
     "build": "vp pack",
@@ -73,6 +78,7 @@
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
+    "comark-content": "catalog:markdown-ui",
     "defu": "catalog:unjs",
     "nuxt-agent-discovery": "^0.8.2",
     "nuxt-link-checker": "^6.0.1",
@@ -80,6 +86,7 @@
     "nuxt-og-image": "^7.0.7",
     "nuxt-schema-org": "catalog:nuxt",
     "nuxt-site-config": "^5.0.3",
+    "postcss": "^8.5.29",
     "rou3": "^1.0.0",
     "shiki": "^4.5.0",
     "ultrahtml": "^1.7.0",
@@ -91,13 +98,16 @@
     "@comark/vue": "0.9.0",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
+    "@vue/test-utils": "2.5.1",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
-    "nitropack": "catalog:unjs",
+    "happy-dom": "21.0.3",
+    "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "tailwindcss": "^4.3.3",

@@ -20,7 +20,7 @@ Turn on `agent` and `workspace`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true, workspace: true },
+  vitehub: { host: 'node', agent: true, workspace: true },
 })
 ```
 :::
@@ -33,7 +33,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, workspace: true }),
+    vitehub({ host: 'node', agent: true, workspace: true }),
     nitro(),
   ],
 })
@@ -47,7 +47,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, workspace: true }),
+    vitehub({ host: 'node', agent: true, workspace: true }),
   ],
 })
 ```
@@ -107,7 +107,7 @@ export default defineAgent({
 })
 ```
 
-## Scope access by Actor
+## Scope access by Invoker
 
 Use `access()` to limit the files one invocation sees, based on the trusted caller. Put it before `workspaceShell()`, so the shell gets the scoped Workspace.
 
@@ -132,7 +132,7 @@ export default defineAgent({
 })
 ```
 
-Authenticate the request and pass an [Agent Actor](/docs/agents/actors) first. Workspace policy enforces authorization, so base it only on trusted identity and facts your app owns. Scoped access from `access()` is read-only for model-backed and custom Drivers. Provider Drivers get a writable session limited to the selected paths. Without it, write rights depend on the Workspace mode, its rules, and the Driver's tools.
+Authenticate the request and pass an [Agent Invoker](/docs/agents/trusted-invokers) before deriving Invoker-specific access. Workspace policy enforces authorization, so base it only on trusted identity and application-owned facts. Invoker-scoped Workspace access from `access()` is read-only for model-backed and custom Drivers; provider Drivers receive a writable session limited to the selected paths. Without Invoker-scoped Access, write authority depends on the Workspace mode, its rules, and the tools exposed to the Driver.
 
 ## Use Workspace context with a provider
 
@@ -164,7 +164,7 @@ After the provider ends, the host can call `checkout.push(cwd)`. It refreshes so
 | Files or generated state | Workspace files and Sources |
 | Rules for the model | Colocated or Driver Instructions |
 | Read or write tools | Capabilities such as `workspaceShell` |
-| Caller-specific file scope | Access plus a trusted Agent Actor |
+| Caller-specific file scope | Access plus a trusted Agent Invoker |
 | Provider working directory | A write-mode Workspace |
 
 Check the resolved Workspace, Sources, and access policy with the [CLI](/docs/development/cli) before production.

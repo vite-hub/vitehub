@@ -1,31 +1,63 @@
-import { computed, getCurrentInstance, getCurrentScope, shallowRef, watch } from "vue"
+import abilities from "#vitehub/auth/abilities"
+import { computed, defineComponent, getCurrentInstance, getCurrentScope, inject, onServerPrefetch, provide, shallowRef, watch } from "vue"
 
+import { checkAbility } from "./ability-check.ts"
+import { AbilityError } from "./ability-error.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
 
 import type { BetterAuthClientOptions, SessionQueryParams } from "better-auth"
+import type { inferAdditionalFields } from "better-auth/client/plugins"
 import type { createAuthClient as createBetterAuthClient, BetterFetchError, VueAuthClient } from "better-auth/vue"
-import type { ComputedRef, DeepReadonly, EffectScope, Ref } from "vue"
+import type { ComputedRef, DeepReadonly, EffectScope, InjectionKey, Ref, VNode } from "vue"
+import type { AbilityArgs, AbilityName, AbilityRefusal } from "./abilities.ts"
+import type { AbilityCheckRefusal } from "./ability-check.ts"
+import type { AbilityErrorData } from "./ability-error.ts"
+import type { AuthDefinition, AuthFor } from "./types.ts"
 
 export type { VueAuthClient } from "better-auth/vue"
 
 const LOAD = Symbol.for("vitehub.auth.client.load")
 
 type Callable = (...args: unknown[]) => unknown
-type NuxtApp = { runWithContext<T>(run: () => T): T }
+type NuxtApp = { runWithContext<T>(run: () => T): T, isHydrating?: boolean, $vitehubAuthClient?: AuthClientLike }
+
+const authClientKey: InjectionKey<AuthClientLike> = Symbol("vitehub.auth.client")
+
+/**
+ * The members of a client that the composables read. Every Better Auth Vue client has them. `VueAuthClient<any>`
+ * rejects a client with a required additional field, because its `signUp.email()` needs that field.
+ */
+type AuthClientLike = Pick<VueAuthClient<{}>, "$fetch" | "getSession"> & {
+  $Infer: { Session: { session: object, user: object } }
+  signIn: unknown
+  signOut: unknown
+  signUp: unknown
+  useSession: () => unknown
+}
+
+/** What `authorize()` passes to Nuxt's `createError()`: the refusal, as the server sends it, and `fatal`. */
+type NuxtErrorInput = { status: number, statusText: string, message: string, data: AbilityErrorData, fatal: true }
 
 let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
-let sessionSeedResolver: (() => unknown) | undefined
+let nuxtErrorFactory: ((input: NuxtErrorInput) => Error) | undefined
+let sessionSeedResolver: ((read: boolean) => unknown) | undefined
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
   nuxtAppResolver = resolver
 }
 
+/** Internal bridge installed by the Nuxt module: Nuxt's `createError()`, so a refusal of `authorize()` shows the error page. */
+export function setNuxtErrorFactory(factory: ((input: NuxtErrorInput) => Error) | undefined): void {
+  nuxtErrorFactory = factory
+}
+
 /**
  * Internal bridge installed by the Nuxt module. The resolver returns the session that the server read for this
  * request, `null` when the request had none, or `undefined` when nobody knows yet, such as on a prerendered page.
+ * With `read` on the server, it reads the session if the request did not read it yet, and can return a promise of it.
  */
-export function setSessionSeedResolver(resolver: (() => unknown) | undefined): void {
+export function setSessionSeedResolver(resolver: ((read: boolean) => unknown) | undefined): void {
   sessionSeedResolver = resolver
 }
 
@@ -36,12 +68,16 @@ const pendingState = (refetch: Callable) => ({ data: null, error: null, isPendin
  * Better Auth's Vue client with the same options, types, and calls, which loads `better-auth/vue` the first time it is
  * used. Creating one costs nothing, so an app can create it up front and only pages that sign in pay for Better Auth.
  * Calls such as `signIn.social()` wait for the load. Hooks such as `useSession()` return a ref at once that is
- * pending until then. In Nuxt, `useSession()` starts with the session that the server read for the request, so it is
- * settled during server rendering and hydration. Use `loadAuthClient()` for anything else, such as `$store`.
+ * pending until then. In Nuxt, `useSession()` in a component starts with the session that the server read for the
+ * request, so it is settled during server rendering and hydration. Use `loadAuthClient()` for anything else, such as `$store`.
  */
 export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => {
   let loaded: Promise<VueAuthClient<Option>> | undefined
-  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)))
+  // A failed load, such as a chunk that a flaky network did not deliver, lets the next call try again.
+  const load = () => (loaded ??= import("better-auth/vue").then(module => module.createAuthClient(options)).catch((error: unknown) => {
+    loaded = undefined
+    throw error
+  }))
 
   function hook(name: string, args: unknown[]) {
     const scope = getCurrentScope()
@@ -55,11 +91,25 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
       const current = state.value as { refetch?: Callable }
       return current === initial ? undefined : current.refetch?.(...query)
     }
+    const settled = (data: unknown) => ({ data, error: null, isPending: false, isRefetching: false, refetch })
     // With a session that the server rendered, the hook starts settled, so the page does not flash signed out.
-    const seed = name === "useSession" ? sessionSeedResolver?.() : undefined
-    const initial = seed === undefined ? pendingState(refetch) : { data: seed, error: null, isPending: false, isRefetching: false, refetch }
+    // On the server, only a component can make the render wait, so only a component starts the session read.
+    const server = !("window" in globalThis)
+    const seed = name === "useSession" ? sessionSeedResolver?.(server && Boolean(getCurrentInstance())) : undefined
+    const reading = seed instanceof Promise ? seed : undefined
+    const initial = seed === undefined || reading ? pendingState(refetch) : settled(seed)
     const state = shallowRef<unknown>(initial)
-    if (!("window" in globalThis)) return state
+    if (server) {
+      if (reading) {
+        // The read settles the ref itself: Vue runs `onServerPrefetch` only after an async setup ends, and that setup
+        // can wait for the session. The render waits for the same read.
+        const done = reading.then((value: unknown) => {
+          if (value !== undefined) state.value = settled(value)
+        })
+        onServerPrefetch(() => done)
+      }
+      return state
+    }
     void load().then((client) => {
       if (scope && !scope.active) return
       runIn(scope, () => watch(real(client) as Ref<unknown>, (value) => {
@@ -103,18 +153,75 @@ function runIn<T>(scope: EffectScope | undefined, run: () => T): T | undefined {
 }
 
 /** Better Auth's own Vue client behind one that `createAuthClient()` returned, once it has loaded. */
-export async function loadAuthClient<Client extends VueAuthClient<any>>(client: Client): Promise<Client> {
+export async function loadAuthClient<Client extends AuthClientLike>(client: Client): Promise<Client> {
   const load = Reflect.get(client, LOAD) as (() => Promise<Client>) | undefined
   return load ? await load() : client
 }
 
-export const authClient: VueAuthClient<{}> = createAuthClient({ basePath: resolveAuthMountPath("/api/auth") })
+/** The fields that a server plugin's `schema` adds to one table. A plugin without a `schema`, such as `bearer()`, adds none. */
+type ServerPluginTableFields<TSchema, TTable extends "session" | "user"> = TSchema extends { [Key in TTable]: { fields: infer TFields extends Record<string, unknown> } }
+  ? TFields
+  : {}
 
-export function useAuthClient(): typeof authClient {
-  return authClient
+/**
+ * The endpoints of a server plugin that change the session response, such as the `getSession` of `customSession()`.
+ * Better Auth marks them with `CUSTOM_SESSION`. The client keeps no other plugin endpoint.
+ */
+type ServerPluginSessionEndpoints<TEndpoints> = {
+  [Key in keyof TEndpoints as TEndpoints[Key] extends { options: { metadata: { CUSTOM_SESSION: boolean } } } ? Key : never]: TEndpoints[Key]
 }
 
-export interface AuthSessionState<Client extends VueAuthClient<any> = typeof authClient> {
+/**
+ * A type-only client plugin with the user and session fields of one server plugin, such as the `role` of `admin()`,
+ * and the session response of `customSession()`. It keeps only these, so every server plugin gives a valid client plugin.
+ */
+type ServerPluginFields<TPlugin> = TPlugin extends { id: infer Id extends string, schema?: infer Schema, endpoints?: infer Endpoints }
+  ? {
+      id: Id
+      $InferServerPlugin: {
+        endpoints: ServerPluginSessionEndpoints<Endpoints>
+        schema: { session: { fields: ServerPluginTableFields<Schema, "session"> }, user: { fields: ServerPluginTableFields<Schema, "user"> } }
+      }
+    }
+  : never
+
+/**
+ * Client options with type-only plugins: Better Auth's `inferAdditionalFields()` for `user.additionalFields` and
+ * `session.additionalFields`, and the fields of each server plugin.
+ */
+type ServerFieldsClientOptions<TAuth extends { options: { plugins?: readonly unknown[] } }> = {
+  plugins: Array<ReturnType<typeof inferAdditionalFields<TAuth>> | ServerPluginFields<NonNullable<TAuth["options"]["plugins"]>[number]>>
+}
+
+/**
+ * The type of the default client. Generated declarations register the app's Auth Definition, so `user` and `session`
+ * have the fields that the Definition and its plugins add. Without them, it has the plain Better Auth fields.
+ */
+export type RegisteredAuthClient<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
+  // An `any` Definition, such as from a `server/auth.ts` that the app's tsconfig cannot resolve, keeps the plain fields.
+  ? 0 extends 1 & TDefinition ? VueAuthClient<{}> : ServerFieldsClient<ServerFieldsClientOptions<AuthFor<TDefinition>>>
+  : VueAuthClient<{}>
+
+/** A client that Better Auth cannot type with these options keeps the plain fields, so `user` never becomes `never`. */
+type ServerFieldsClient<TOptions> = TOptions extends BetterAuthClientOptions ? VueAuthClient<TOptions> : VueAuthClient<{}>
+
+// SAFETY: the plugins of `RegisteredAuthClient` change only types. Better Auth sends the same requests without them.
+export const authClient = createAuthClient({ basePath: resolveAuthMountPath("/api/auth") }) as RegisteredAuthClient
+
+/** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
+export function provideAuthClient(client: AuthClientLike): void {
+  provide(authClientKey, client)
+}
+
+export function useAuthClient(): typeof authClient {
+  const instance = getCurrentInstance()
+  const client = instance ? inject(authClientKey, undefined) : undefined
+  const nuxtApp = nuxtAppResolver?.() || instance?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
+  // SAFETY: the configured client uses the app's Auth Definition, which supplies `RegisteredAuthClient`'s types.
+  return (client ?? nuxtApp?.$vitehubAuthClient ?? authClient) as typeof authClient
+}
+
+export interface AuthSessionState<Client extends AuthClientLike = typeof authClient> {
   data: Client["$Infer"]["Session"] | null
   error: BetterFetchError | null
   isPending: boolean
@@ -122,15 +229,15 @@ export interface AuthSessionState<Client extends VueAuthClient<any> = typeof aut
   refetch: (queryParams?: { query?: SessionQueryParams }) => Promise<void>
 }
 
-type AuthSessionRef<Client extends VueAuthClient<any> = typeof authClient> = DeepReadonly<Ref<AuthSessionState<Client>>>
+type AuthSessionRef<Client extends AuthClientLike = typeof authClient> = DeepReadonly<Ref<AuthSessionState<Client>>>
 
-export function useSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = authClient as Client): AuthSessionRef<Client> {
+export function useSession<Client extends AuthClientLike = typeof authClient>(client: Client = useAuthClient() as Client): AuthSessionRef<Client> {
   return client.useSession() as AuthSessionRef<Client>
 }
 
-type ClientSession<Client extends VueAuthClient<any>> = Client["$Infer"]["Session"]
+type ClientSession<Client extends AuthClientLike> = Client["$Infer"]["Session"]
 
-export interface UserSession<Client extends VueAuthClient<any> = typeof authClient> {
+export interface UserSession<Client extends AuthClientLike = typeof authClient> {
   data: ComputedRef<ClientSession<Client> | null>
   error: ComputedRef<BetterFetchError | null>
   /** The id of the administrator who opened this session as `user`, or `null`. Better Auth's admin plugin sets it. */
@@ -148,7 +255,7 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   user: ComputedRef<ClientSession<Client>["user"] | null>
 }
 
-export function useUserSession<Client extends VueAuthClient<any> = typeof authClient>(client: Client = authClient as Client): UserSession<Client> {
+export function useUserSession<Client extends AuthClientLike = typeof authClient>(client: Client = useAuthClient() as Client): UserSession<Client> {
   const state = client.useSession() as AuthSessionRef<Client>
   return {
     data: computed(() => state.value.data),
@@ -173,3 +280,182 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
     user: computed(() => state.value.data?.user ?? null),
   }
 }
+
+/** What `useAbility()` returns. */
+export interface Ability {
+  /**
+   * Whether a rule from `shared/abilities.ts` allows the visitor: `undefined` until the session is known. The arguments
+   * are passed as they are, so load the data before you ask.
+   */
+  can: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => boolean | undefined
+  /** Whether a rule refuses the visitor: the opposite of `can()`, and `undefined` until the session is known. */
+  cannot: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => boolean | undefined
+  /**
+   * Checks a rule and throws when it refuses, with the status and the `{ code, details }` data that `requireAbility()`
+   * sends. In Nuxt, the error is fatal, so the page shows the error page. In the browser, except while Nuxt hydrates,
+   * it asks Better Auth's `/get-session` for the current session. On the server, a session that the server could not
+   * read counts as signed out.
+   */
+  authorize: <const Name extends AbilityName>(name: Name, ...args: AbilityArgs<Name>) => Promise<void>
+  /** `true` once the session is known. */
+  ready: ComputedRef<boolean>
+}
+
+type SessionState = { isPending: boolean, data: { user: object } | null }
+
+/** The refusal of a rule for the visitor: `undefined` while the session is unknown, `null` when the rule allows. */
+function abilityRefusal(state: SessionState, name: string, args: unknown[]): AbilityCheckRefusal | null | undefined {
+  if (state.isPending) return undefined
+  return checkAbility(abilities, state.data?.user ?? null, name, args)
+}
+
+/**
+ * The user that `authorize()` checks. The server uses the session it read for the request. While Nuxt hydrates, the
+ * browser uses the same session, so it decides as the server did. Otherwise the browser asks the client of
+ * `useAbility()`, because a sign-in or sign-out in the tab makes the server's session old. In Nuxt, that is the client of
+ * the page guard, at the configured Auth `basePath` below `app.baseURL`.
+ */
+async function authorizedUser(client: Pick<typeof authClient, "getSession">, state: Readonly<Ref<SessionState>>): Promise<object | null> {
+  const known = !state.value.isPending
+  if (!("window" in globalThis) || (known && nuxtAppResolver?.()?.isHydrating)) return state.value.data?.user ?? null
+  const { data } = await client.getSession()
+  return data?.user ?? null
+}
+
+/**
+ * Checks the rules of `shared/abilities.ts` in the app, with the same rules the server runs. Read `can()` and
+ * `cannot()` in a template or a `computed()`, so they follow the session. Call `authorize()` in a page that the visitor
+ * must not see when the rule refuses.
+ *
+ * @example
+ * const { can, authorize } = useAbility()
+ * const editable = computed(() => post.value && can("posts.edit", post.value))
+ * // In a page, after the post loads:
+ * await authorize("posts.edit", loadedPost)
+ */
+export function useAbility(client: AuthClientLike = useAuthClient()): Ability {
+  const state = useSession(client)
+  const allows = (name: string, args: unknown[]) => {
+    const refusal = abilityRefusal(state.value, name, args)
+    return refusal === undefined ? undefined : refusal === null
+  }
+  return {
+    can: (name, ...args) => allows(name, args),
+    cannot: (name, ...args) => {
+      const allowed = allows(name, args)
+      return allowed === undefined ? undefined : !allowed
+    },
+    authorize: async (name, ...args) => {
+      const refusal = checkAbility(abilities, await authorizedUser(client, state), name, args)
+      if (!refusal) return
+      const error = new AbilityError(refusal)
+      throw nuxtErrorFactory ? nuxtErrorFactory({ ...error.toJSON(), fatal: true }) : error
+    },
+    ready: computed(() => !state.value.isPending),
+  }
+}
+
+/**
+ * How `<Can>` passes the arguments of a rule: no prop for a rule without arguments, `with` for a rule with one
+ * (required or optional), and `args` with the list for every other rule, such as two arguments, a default after the
+ * first, or a rest parameter.
+ */
+type CanArguments<Args extends unknown[]> = Args extends [] ? { with?: never, args?: never }
+  : number extends Args["length"] ? { with?: never, args: Args }
+    : Exclude<Args["length"], 0> extends 1
+      ? (0 extends Args["length"] ? { with?: Args[0], args?: never } : { with: Args[0], args?: never })
+      : { with?: never, args: Args }
+
+/**
+ * The props of `<Can>`: a rule name in `do`, its arguments in `with` or `args`, and `pending` to show nothing while
+ * the data for the arguments loads.
+ */
+export type CanProps<Name extends AbilityName> = { do: Name, pending?: boolean } & CanArguments<AbilityArgs<Name>>
+
+/** The slots of `<Can>`: the default slot when the rule allows, `#denied` with the refusal when it refuses. */
+export interface CanSlots<Name extends AbilityName> {
+  default?: () => VNode[]
+  denied?: (refusal: AbilityRefusal<Name>) => VNode[]
+}
+
+/** The type that vue-tsc reads for a generic component, so `do` checks the name and `with`, `args` and `#denied` follow it. */
+export type CanComponent = <const Name extends AbilityName>(props: CanProps<Name>) => VNode & {
+  __ctx?: { props: CanProps<Name>, slots: CanSlots<Name> }
+}
+
+/** The runtime props of `<Can>` and `<Cannot>`. */
+const abilityProps = {
+  do: { type: String, required: true },
+  with: { type: null, default: undefined },
+  args: { type: Array, default: undefined },
+  pending: { type: Boolean, default: false },
+} as const
+
+/** The refusal of the rule that the props name. It follows the session, and is `undefined` while `pending` is `true`. */
+function usePropsRefusal(props: { do: string, with: unknown, args?: unknown[], pending: boolean }): ComputedRef<AbilityCheckRefusal | null | undefined> {
+  const state = useSession()
+  return computed(() => {
+    if (props.pending) return undefined
+    // `with` is the one argument of the rule. Without it, an optional argument stays absent, as in `can(name)`.
+    const args: unknown[] = props.args ?? (props.with === undefined ? [] : [props.with])
+    return abilityRefusal(state.value, props.do, args)
+  })
+}
+
+/**
+ * Shows its content when a rule from `shared/abilities.ts` allows the visitor, the `#denied` slot with the refusal when
+ * it refuses, and nothing while the session is unknown or `pending` is `true`.
+ *
+ * @example
+ * <Can do="posts.edit" :with="post">
+ *   <button>Edit</button>
+ *   <template #denied="{ code }">{{ code }}</template>
+ * </Can>
+ * <Can do="posts.move" :args="[from, to]">Move</Can>
+ */
+// SAFETY: the runtime component takes the props of `CanComponent`. The cast gives templates its generic types.
+export const Can: CanComponent = defineComponent({
+  name: "Can",
+  props: abilityProps,
+  setup(props, { slots }) {
+    const refusal = usePropsRefusal(props)
+    return () => {
+      const value = refusal.value
+      if (value === undefined) return null
+      if (value === null) return slots.default?.()
+      return slots.denied?.({ code: value.code, details: value.details })
+    }
+  },
+}) as unknown as CanComponent
+
+/** The slot of `<Cannot>`: its content, with the refusal, when the rule refuses. */
+export interface CannotSlots<Name extends AbilityName> {
+  default?: (refusal: AbilityRefusal<Name>) => VNode[]
+}
+
+/** The type that vue-tsc reads for `<Cannot>`: the props of `<Can>`, and the refusal in the default slot. */
+export type CannotComponent = <const Name extends AbilityName>(props: CanProps<Name>) => VNode & {
+  __ctx?: { props: CanProps<Name>, slots: CannotSlots<Name> }
+}
+
+/**
+ * The mirror of `<Can>`: shows its content, with the refusal, only when a rule from `shared/abilities.ts` refuses the
+ * visitor. It shows nothing when the rule allows, while the session is unknown, or while `pending` is `true`.
+ *
+ * @example
+ * <Cannot do="billing.upgrade" v-slot="{ code, details }">
+ *   <UpgradeHint :code="code" :limit="details.limit" />
+ * </Cannot>
+ */
+// SAFETY: the runtime component takes the props of `CannotComponent`. The cast gives templates its generic types.
+export const Cannot: CannotComponent = defineComponent({
+  name: "Cannot",
+  props: abilityProps,
+  setup(props, { slots }) {
+    const refusal = usePropsRefusal(props)
+    return () => {
+      const value = refusal.value
+      return value ? slots.default?.({ code: value.code, details: value.details }) : null
+    }
+  },
+}) as unknown as CannotComponent

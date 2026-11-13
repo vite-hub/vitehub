@@ -29,9 +29,13 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `decisions` | Decisions |
 | `email` | Email |
 | `env` | Env |
+| `forge` | Forge |
+| `forms` | Forms |
 | `gateways` | AI Gateways |
+| `i18n` | i18n |
 | `kv` | KV |
 | `logs` | Logs |
+| `mcp` | MCP server |
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |
@@ -49,6 +53,9 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `guides` | Guides |
 | `development` | Development and the CLI |
 | `hosts` | Frameworks and hosts |
+| `web-container` | WebContainer |
+| `bundle` | Bundle reports |
+| `codemods` | Codemods |
 | `reference` | Reference |
 | `compare` | Comparisons |
 

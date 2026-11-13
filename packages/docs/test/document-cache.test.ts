@@ -3,18 +3,17 @@ import { resolve } from "node:path"
 import { H3 } from "h3"
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
-const { getItem, parsed, useStorage } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), useStorage: vi.fn() }))
-vi.mock("#imports", async () => ({
-  ...(await import("h3")),
-  useStorage,
-}))
+const { getItem, parsed, useKV } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), useKV: vi.fn() }))
+vi.mock("nitro/kv", () => ({ useKV }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
   return {
-    default: createDocsManifest({
+    default: await createDocsManifest({
       dir: resolve(import.meta.dirname, "fixtures/content"),
       base: "/docs",
     }),
@@ -24,7 +23,7 @@ vi.mock("#docs/manifest", async () => {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
-  useStorage.mockImplementation(() => ({ getItem }))
+  useKV.mockImplementation(() => ({ getItem }))
   getItem.mockImplementation((key: string) =>
     readFile(resolve(import.meta.dirname, "fixtures/content", key), "utf8"),
   )
@@ -120,7 +119,7 @@ it("keeps page keywords in the cached search index", async () => {
 
 it("caches identical file names separately for each mapped source", async () => {
   const reads = vi.fn(async (base: string) => `# ${base}`)
-  useStorage.mockImplementation((base: string) => ({ getItem: () => reads(base) }))
+  useKV.mockImplementation((base: string) => ({ getItem: () => reads(base) }))
   const { loadDocsDocument } = await import("../src/runtime/documents.ts")
   const load = (source: string) => loadDocsDocument("index.md", source)
   const [first, second] = await Promise.all([load("docs"), load("docs-1")])
@@ -140,7 +139,7 @@ it("reads mapped page and search content from the configured storage mount", asy
   onTestFinished(() => { page.source = source })
   page.source = "docs-1"
   const mapped = vi.fn(async () => "# Mapped page\n\nOnly in mapped content.")
-  useStorage.mockImplementation((base: string) => ({ getItem: base === "assets:docs-1" ? mapped : getItem }))
+  useKV.mockImplementation((base: string) => ({ getItem: base === "assets:docs-1" ? mapped : getItem }))
   const server = await app()
   const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
   expect(response.status).toBe(200)

@@ -4,7 +4,7 @@ import { defaultExportExpression, objectProperties, scanModule, staticString, st
 
 import type { CallExpression, Expression, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
-import { discoverAuthDefinition } from "./discovery.ts"
+import { discoverAuthAbilities, discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
@@ -324,7 +324,9 @@ export function resolveAuthViteConfig(
   assertStaticObjectKeys(body, "options")
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
 
+  const abilities = discoverAuthAbilities(rootDir, discovery)
   return {
+    ...(abilities ? { abilities } : {}),
     access: {
       routes: readAuthAccessRoutesConfig(body),
     },

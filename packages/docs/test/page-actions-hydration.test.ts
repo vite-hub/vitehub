@@ -5,12 +5,14 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
-import { CopyButton, useCopy } from "@vite-hub/ui/copy-button"
+import { CopyButton, useCopy } from "@vite-hub/ui"
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
 import { afterEach, expect, it, vi } from "vitest"
 import * as vue from "vue"
 import { compileScript, parse } from "vue/compiler-sfc"
 import { renderToString } from "vue/server-renderer"
+
+import { resolveDocsTheme } from "../runtime/app/utils/docs-theme.ts"
 
 // Vue captures these at import time. Hold idle hydration until the test releases it.
 const { idleCallbacks } = vi.hoisted(() => {
@@ -38,7 +40,7 @@ const { descriptor } = parse(readFileSync(filename, "utf8"), { filename })
 const source = compileScript(descriptor, { id: "page-actions", inlineTemplate: true }).content
 const Header = evaluate(source, {
   vue,
-  "@vite-hub/ui/copy-button": { CopyButton, useCopy },
+  "@vite-hub/ui": { CopyButton, useCopy },
   "#docs/navigation": {
     findDocsPage: () => ({}),
     docsMarkdownLinks: () => ({ markdownPath: "/docs/page.md" }),
@@ -81,10 +83,20 @@ const Menu = vue.defineComponent({
 })
 
 function app(loader: () => Promise<vue.Component>) {
-  return vue.createSSRApp(Header)
+  const app = vue.createSSRApp(Header)
     .component("UFieldGroup", vue.defineComponent({ setup: (_, { attrs, slots }) => () => vue.h("div", attrs, slots.default?.()) }))
     .component("UButton", vue.defineComponent({ setup: (_, { attrs, slots }) => () => vue.h("button", attrs, slots.default?.()) }))
     .component("LazyUDropdownMenu", createLazyIdleComponent("test-menu", loader))
+  // Nuxt auto-imports the shell's composables into templates. This standalone harness supplies the same helper,
+  // with the empty scope a docs-only site gets, while exercising the real lazy hydration boundary below.
+  app.config.globalProperties.withDocsTheme = evaluate(
+    readFileSync(resolve(import.meta.dirname, "../runtime/app/composables/docs-theme.ts"), "utf8"),
+    {
+      "#docs/theme": { __esModule: true, default: { ui: {}, props: {} } },
+      "../utils/docs-theme": { resolveDocsTheme },
+    },
+  ).withDocsTheme
+  return app
 }
 
 const cleanups: Array<() => void> = []

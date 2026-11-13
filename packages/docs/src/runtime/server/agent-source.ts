@@ -1,7 +1,7 @@
-import { useRuntimeConfig, useStorage } from "#imports"
+import { useRuntimeConfig } from "nitro/runtime-config"
 
-import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
+import { readDocsFile } from "../files.ts"
 import { docsAppPath, docsIndexedPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
@@ -15,7 +15,7 @@ interface AgentPageEntry {
 
 interface AgentContentSource {
   list: () => AgentPageEntry[]
-  get: (route: string, event?: H3Event) => Promise<{ markdown: string, title?: string, description?: string } | null>
+  get: (route: string) => Promise<{ markdown: string, title?: string, description?: string } | null>
 }
 
 /**
@@ -37,17 +37,16 @@ const source: AgentContentSource = {
       .sort((left, right) => rank(left.route) - rank(right.route) || (left.route < right.route ? -1 : left.route > right.route ? 1 : 0))
       .map(page => ({ ...page, route: docsAppPath(page.route, appBase) }))
   },
-  async get(route, event) {
-    const { appBase } = useRuntimeConfig(event).public.docs as DocsPublicConfig
+  async get(route) {
+    const { appBase } = useRuntimeConfig().public.docs as DocsPublicConfig
     const prefix = appBase.replace(/\/+$/, "")
     const path = prefix && (route === prefix || route.startsWith(`${prefix}/`)) ? route.slice(prefix.length) || "/" : route
     const found = findDocsPage(manifest, path)
     if (!found) return null
-    const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
+    const markdown = await readDocsFile("docs-raw", docsRawFile(found.page.path))
     if (markdown === null) return null
-    const text = String(markdown)
-    const footerIndex = text.lastIndexOf(docsRawSectionLinksMarker)
-    return { markdown: footerIndex < 0 ? text : text.slice(0, footerIndex), title: found.page.sourceTitle, description: found.page.description ?? undefined }
+    const footerIndex = markdown.lastIndexOf(docsRawSectionLinksMarker)
+    return { markdown: footerIndex < 0 ? markdown : markdown.slice(0, footerIndex), title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }
 

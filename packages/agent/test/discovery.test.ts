@@ -1973,7 +1973,7 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const { handlers, server } = createFakeServer(root, {
       default: defineAgent({
-        capabilities: ({ actor }) => actor.kind === "inspection"
+        capabilities: ({ invoker }) => invoker.kind === "inspection"
           ? [defineCapability({ id: "inspection-only", tools: { inspect: { name: "inspect" } } })]
           : [],
         name: "support",
@@ -2053,7 +2053,7 @@ describe("agent chat capability discovery", () => {
     const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "calories.ts"), "export default {}", "utf8")
-    await installStubPackages(root, ["@vite-hub/database/drizzle"])
+    await installStubPackages(root, ["@vite-hub/database/runtime/registry"])
 
     const { db } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -2074,7 +2074,7 @@ describe("agent chat capability discovery", () => {
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => {
-      if (args[0] === "@vite-hub/database/drizzle") return { agentDb }
+      if (args[0] === "@vite-hub/database/runtime/registry") return { agentDb }
       return { default: agent }
     })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -2107,7 +2107,7 @@ describe("agent chat capability discovery", () => {
       { type: "finish" },
       { type: "done" },
     ])
-    expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/drizzle")
+    expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/runtime/registry")
     expect(runtimeDbs).toEqual([initialAgentDb])
     expect(runtimeSchedule).toBeUndefined()
     expect(server.ssrLoadModule).not.toHaveBeenCalledWith("#vitehub/schedule/registry")
@@ -2183,8 +2183,8 @@ it.each([
   ['export default enabled ? defineAgent({}) : defineAgent({}); const helper = defineAgent({ workspace: {} })', false],
   ['export default defineAgent({ driver: enabled ? { workspace: {} } : {} })', false],
   ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({ workspace: {} })', true],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; const notes = makeAgent({ workspace: {} }); export default makeAgent({ extends: notes })', false],
   ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({})', false],
-  ['const notes = defineAgent({}); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', false],
   ['export default defineAgent<{ load: () => Promise<void> }>({ workspace: {} })', true],
   ['export default defineAgent<{ load: () => Promise<void> }>({})', false],
   ['export default <AgentDefinition>defineAgent({ workspace: {} })', true],
@@ -2197,10 +2197,9 @@ it.each([
   ['export default defineAgent({ pattern: /[}]/, workspace: {} })', true],
   ['const helper = defineAgent({}); export default defineAgent({ workspace: {} })', true],
   ['const helper = defineAgent({ workspace: {} }); export default defineAgent({})', false],
-  ['const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "notes", presets: { notes: defineAgent({}) } })', false],
-  ['export default defineAgent({ preset: "notes", presets: { notes: defineAgent({}) } }); const unrelated = { notes: defineAgent({ workspace: {} }) }', false],
-  ['export default defineAgent({ preset: "notes", presets: { other: defineAgent({ workspace: {} }), notes: defineAgent({}) } })', false],
-  ['const notes = defineAgent({}); const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "notes", presets: { notes } })', false],
+  ['export default defineAgent({ extends: defineAgent({ workspace: {} }) })', false],
+  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ extends: notes })', false],
+  ['const notes = defineAgent({}); const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ extends: notes })', false],
   ['export default defineAgent({ driver: { providerSettings: { workspace: {} } } })', false],
 ])("discovers Workspace ownership from the selected exported Agent: %s", async (source, workspace) => {
   const root = await createTempRoot("vitehub-agent-preset-discovery-")

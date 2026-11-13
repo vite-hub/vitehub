@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
-import { projectUrl } from "../client/project";
+import { projectAppUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleMcpConnect from "./console-mcp-connect.vue";
 import ConsoleMcpConnectionView from "./console-mcp-connection.vue";
@@ -37,7 +37,7 @@ const connectOpen = ref(false);
 const connectPreset = ref<{ another?: boolean, server: string }>();
 let request: AbortController | undefined;
 
-const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectUrl("/"), window.location.href).origin) : []);
+const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectAppUrl("/"), window.location.href).origin) : []);
 const connections = computed(() => overview.value?.connections ?? []);
 
 function queryValue(name: string): string | undefined {

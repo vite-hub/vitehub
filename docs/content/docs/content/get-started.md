@@ -24,7 +24,7 @@ Add Content to your app:
 pnpm add @vite-hub/content
 ```
 
-You do not change `vite.config.ts`. `vitehub()` finds the `server/content.ts` file that you write in the next step, and turns on Content.
+You do not change `nuxt.config.ts` or `vite.config.ts`. ViteHub finds the `server/content.ts` file that you write in the next step, and turns on Content.
 
 ::
 

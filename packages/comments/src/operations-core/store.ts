@@ -24,7 +24,7 @@ import type {
  * groups writes with `batch()` or `transaction()` when the driver has one. The Postgres tables have the same property
  * names, so one set of queries serves every driver.
  */
-export type CommentsDatabase = LibSQLDatabase<Record<string, never>>
+export type CommentsDatabase = LibSQLDatabase
 
 type ThreadRow = typeof commentThreads.$inferSelect
 type MessageRow = typeof commentMessages.$inferSelect

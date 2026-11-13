@@ -25,7 +25,7 @@ function project(extra: Record<string, string> = {}) {
 
 function plugins(root: string, options: Record<string, unknown> = {}): PluginOption[] {
   return vitehub({
-    preset: "node",
+    host: "node",
     env: false,
     database: true,
     workspace: true,
@@ -65,8 +65,9 @@ describe("Content cms preset on libSQL", () => {
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
     const migrationsDir = join(root, "server/databases/default/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const [migration] = await readdir(migrationsDir)
+    expect(migration).toMatch(/^\d{14}_/)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
       "CREATE TABLE `vitehub_content_sessions`",
       "CREATE TABLE `workspace_history_metadata`",
@@ -139,13 +140,13 @@ describe("Content cms preset with only server/content.ts", () => {
       "server/content.ts": contentDefinition,
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })\n",
     })
-    const zeroPlan = await plannedCloudflareResources(zeroConfig, vitehub({ preset: "cloudflare", env: false }))
-    const explicitPlan = await plannedCloudflareResources(explicit, vitehub({ preset: "cloudflare", env: false, database: true, blob: true, workspace: true }))
+    const zeroPlan = await plannedCloudflareResources(zeroConfig, vitehub({ host: "cloudflare", env: false }))
+    const explicitPlan = await plannedCloudflareResources(explicit, vitehub({ host: "cloudflare", env: false, database: true, blob: true, workspace: true }))
     expect(zeroPlan).toEqual(explicitPlan)
     expect(zeroPlan.actions?.map(action => action.kind)).toEqual(["cloudflare-r2-bucket"])
 
     // The preset's Database is planned like an app Definition once D1 is named.
-    const d1Plan = await plannedCloudflareResources(zeroConfig, vitehub({ preset: "cloudflare", env: false, database: { driver: "d1", databaseName: "cms-db" } }))
+    const d1Plan = await plannedCloudflareResources(zeroConfig, vitehub({ host: "cloudflare", env: false, database: { driver: "d1", databaseName: "cms-db" } }))
     expect(d1Plan.actions?.map(action => `${action.kind} ${action.name}`).toSorted()).toEqual(["cloudflare-d1 cms-db", "cloudflare-r2-bucket content-cms-zero-config"])
   }, 60_000)
 
@@ -154,7 +155,7 @@ describe("Content cms preset with only server/content.ts", () => {
       "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
       "server/content.ts": contentDefinition,
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ preset: "node", env: false, workspace: false })), "build"))
+    await expect(resolveConfig(serverBuild(root, vitehub({ host: "node", env: false, workspace: false })), "build"))
       .rejects.toThrow("uses the Content cms preset: it needs workspace enabled. Set vitehub({ workspace: true }) in your Vite config.")
   }, 60_000)
 
@@ -162,7 +163,7 @@ describe("Content cms preset with only server/content.ts", () => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "content-plain", private: true, type: "module" }),
     })
-    const config = await resolveConfig(serverBuild(root, vitehub({ preset: "node", env: false })), "build")
+    const config = await resolveConfig(serverBuild(root, vitehub({ host: "node", env: false })), "build")
     const names = config.plugins.map(plugin => plugin.name)
     expect(names).not.toContain("@vite-hub/database/vite")
     expect(names).not.toContain("@vite-hub/workspace/vite")

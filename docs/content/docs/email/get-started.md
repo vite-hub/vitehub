@@ -29,7 +29,7 @@ pnpm add @vite-hub/email
 ::tutorial-step{title="Configure Resend"}
 ## Configure Resend
 
-Add `email` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Add `email` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -39,7 +39,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -61,7 +61,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -82,7 +82,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -127,7 +127,7 @@ Each request to this route sends one more real email.
 
 ```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export default defineEventHandler(async () => {
   const [error, sent] = await email.send({

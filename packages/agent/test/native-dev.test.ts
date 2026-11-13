@@ -33,11 +33,11 @@ describe("Agent package in vite dev", () => {
   it("reads the registry that the vite dev Nitro plugin installs when Node loads the package", async () => {
     // The package import `#vitehub/agent/registry` and the `server/registry` export must be one module in Node.
     const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
-      import { getAgentFromRegistry } from "@vite-hub/agent"
+      import { loadAgent } from "@vite-hub/agent"
       import { installAgentRegistry } from ${JSON.stringify(registryModuleUrl)}
       const agent = { description: "installed" }
       installAgentRegistry({ default: { echo: async () => ({ default: agent }) }, metadata: { echo: { name: "echo" } } })
-      process.stdout.write(String(await getAgentFromRegistry("echo") === agent))
+      process.stdout.write(String(await loadAgent("echo") === agent))
     `], { cwd: packageRoot })
     expect(stdout).toBe("true")
   })
@@ -104,7 +104,7 @@ describe("Agent package in vite dev", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined })
     const installer = join(root, ".vitehub/agent/registry-dev-plugin.ts")
     const source = (await readFile(installer, "utf8")).replaceAll(JSON.stringify(registryModule), JSON.stringify(registryModuleUrl))
-    await writeFile(consumer, `import { getAgentFromRegistry } from ${JSON.stringify(import.meta.resolve("@vite-hub/agent"))}\nprocess.stdout.write((await getAgentFromRegistry("echo")).description)\nexport default () => {}\n`)
+    await writeFile(consumer, `import { loadAgent } from ${JSON.stringify(import.meta.resolve("@vite-hub/agent"))}\nprocess.stdout.write((await loadAgent("echo")).description)\nexport default () => {}\n`)
     for (const revision of ["first", "second"]) {
       await writeFile(join(root, ".vitehub/agent/registry.mjs"), `export default { echo: async () => ({ default: { description: ${JSON.stringify(revision)} } }) }\nexport const metadata = { echo: { name: "echo" } }\n`)
       await writeFile(installer.replace(".ts", `-${revision}.mjs`), source.replace("./registry.mjs", `./registry-${revision}.mjs`))

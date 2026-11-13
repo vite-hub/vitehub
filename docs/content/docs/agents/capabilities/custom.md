@@ -178,7 +178,7 @@ Return `undefined` from the resolver to hide the CLI for this run; the Capabilit
 ```ts [server/capabilities/inventory-runtime.ts] fragment
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',
-  cli: ({ actor }) => actor.kind === 'support'
+  cli: ({ invoker }) => invoker.kind === 'support'
     ? {
         name: 'inventory',
         commands: {

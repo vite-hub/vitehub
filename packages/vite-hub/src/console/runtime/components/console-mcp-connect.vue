@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 
 import { consoleMcpEndpoint, requestConsoleMcp } from "../client/mcp-client";
-import { projectUrl } from "../client/project";
+import { projectAppUrl } from "../client/project";
 import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMcpCandidate, ConsoleMcpConnection } from "../mcp-client";
@@ -33,7 +33,7 @@ const pending = ref(false);
 const error = ref<unknown>();
 
 // The app origin, where the Console's own session lives.
-const appOrigin = new URL(projectUrl("/"), window.location.href).origin;
+const appOrigin = new URL(projectAppUrl("/"), window.location.href).origin;
 const sameOrigin = computed(() => {
   try {
     return new URL(server.value.trim() || "/", appOrigin).origin === appOrigin;

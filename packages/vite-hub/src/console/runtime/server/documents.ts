@@ -7,6 +7,7 @@ import { parseConsoleDocumentSetup } from "../definitions.ts"
 
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleTicket } from "./tickets.ts"
 
 import { consoleDocumentActionNames, maximumConsoleDocumentRequestBytes } from "./limits.ts"
 
@@ -170,3 +171,27 @@ const guardedHandler: ConsoleAccessRoute<typeof consoleDocumentsHandler> = withC
   section: event => consoleRequestURL(event).searchParams.get("section") ?? undefined,
 })
 export default guardedHandler
+
+/**
+ * `documents.preview`: a one-time link that opens the page of a document with its draft. The owner `get` action checks
+ * that the person may read the document and gives its page URL, which must be a page of the app. Redemption runs the
+ * owner `preview` action as the person again. See `tickets.ts`.
+ */
+export async function issueConsoleDocumentPreview(
+  context: { access: ConsoleAccess, request?: Request, event?: unknown },
+  input: { collection: string, id: string, section: string },
+): Promise<ConsoleTicket> {
+  const actions = await loadConsoleDocumentActions(input.section)
+  const user = await consoleDocumentActionContext(context.access)
+  const document: unknown = await runConsoleDocumentAction(() => actions.get({ collection: input.collection, id: input.id }, user))
+  if (!document) throw consoleRequestError(404, "The document does not exist.")
+  const url: unknown = Reflect.get(Object(document), "url")
+  if (String(url) !== url || !url) throw consoleRequestError(409, "The document has no page. Set url on its collection to preview its pages.")
+  const page = new URL(url, "http://vitehub.invalid")
+  // A page URL must be a path of the app. An absolute URL to another site would make the ticket a redirect.
+  if (page.origin !== "http://vitehub.invalid" && !(context.request && page.origin === new URL(context.request.url).origin)) {
+    throw consoleRequestError(409, "The page URL of the document is not on this app.")
+  }
+  const { issueConsoleTicket } = await import("./tickets.ts")
+  return await issueConsoleTicket(context, "content.preview", { collection: input.collection, id: input.id, path: `${page.pathname}${page.search}`, section: input.section })
+}

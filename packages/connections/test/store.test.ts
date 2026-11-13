@@ -12,7 +12,7 @@ describe("stored Connection scopes", () => {
   it("rejects corrupt scopes instead of reporting a partial grant", async () => {
     const client = createClient({ url: ":memory:" })
     try {
-      const db = drizzle(client)
+      const db = drizzle({ client: client })
       const store = createDatabaseConnectionStore({ db, encryptionKey: new Uint8Array(32).fill(9) })
       await store.state.put({ name: "mail", scopes: ["mail.read"], status: "connected", updatedAt: "2026-09-30T00:00:00Z" })
       expect((await store.state.get("mail"))?.scopes).toEqual(["mail.read"])
@@ -30,7 +30,7 @@ describe("stored Connection scopes", () => {
 it("gives the Connections bridge no standing administrator access", async () => {
   const client = createClient({ url: ":memory:" })
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
     await store.secrets.replace({ key: "connection/mail", value: "token", expectedRevision: null })
     const actor = { id: "connections", kind: "service" } as const
     await expect(store.bridge.read({ env: {}, keys: ["connection/mail"] })).rejects.toMatchObject({ code: "ENV_BRIDGE_DENIED" })
@@ -48,7 +48,7 @@ it("migrates sealed grants and pending OAuth transactions from the legacy tables
   const client = createClient({ url: ":memory:" })
   const key = new Uint8Array(32).fill(9)
   try {
-    const db = drizzle(client)
+    const db = drizzle({ client: client })
     const sealKey = await importSealKey(key)
     const grantPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-grant", "mail", "legacy-revision"])), JSON.stringify({ accessToken: "legacy-access", refreshToken: "legacy-refresh", scopes: ["mail.read"], tokenType: "bearer", account: "account-1" }))
     const pendingPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-pending", "legacy-state"])), JSON.stringify({ actor: { id: "agent-1", kind: "agent" }, redirectUri: "https://app.example/callback", verifier: "legacy-verifier" }))
@@ -105,7 +105,7 @@ describe("approval execution leases", () => {
   it("adds leases to an existing approvals table and only renews active executions", async () => {
     const client = createClient({ url: ":memory:" })
     try {
-      const db = drizzle(client)
+      const db = drizzle({ client: client })
       await db.run(
         sql`CREATE TABLE vitehub_connection_approvals (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, trace_id TEXT, invocation_id TEXT, created_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT, error TEXT)`,
       )
@@ -154,7 +154,7 @@ it("removes authorizations at their exact expiration timestamp", async () => {
   const now = Date.now()
   const clock = vi.spyOn(Date, "now").mockReturnValue(now)
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
     await store.authorizations.put({ actor: "user:local", expiresAt: now, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "expired", verifier: "verifier" })
     await store.authorizations.put({ actor: "user:local", expiresAt: now + 60_000, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "current", verifier: "verifier" })
     await expect(store.authorizations.take("expired")).resolves.toBeUndefined()
@@ -168,7 +168,7 @@ it("removes authorizations at their exact expiration timestamp", async () => {
 it("updates Connection metadata atomically at the token revision", async () => {
   const client = createClient({ url: ":memory:" })
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
     const state = { name: "mail", scopes: ["mail.read"], status: "connected" as const, updatedAt: "2026-09-30T00:00:00Z" }
     expect(await store.state.putForToken(state, null)).toBe(true)
     const first = await store.secrets.replace({ key: "connection/mail", value: "token-one", expectedRevision: null })
@@ -185,7 +185,7 @@ it("updates Connection metadata atomically at the token revision", async () => {
 it.each(["pending", "executed"] as const)("paginates %s approvals without skipping or repeating entries", async (status) => {
   const client = createClient({ url: ":memory:" })
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
     for (let index = 0; index < 205; index++) {
       await store.approvals.create({
         id: `approval-${index}`,

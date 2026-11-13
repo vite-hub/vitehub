@@ -23,8 +23,8 @@ export default defineComments({
 
 | Field | Meaning |
 | --- | --- |
-| `user` | The signed-in user with app fields such as `role`, or `null`. Stored authors and mention suggestions keep only `id`, `name`, and `image`. |
-| `actor` | The Agent Actor when an agent acts for `user`. |
+| `user` | The signed-in user, including application fields such as `role`, or `null`. Stored authors and mention suggestions contain only `id`, `name`, and `image`. |
+| `actor` | The Agent Invoker when an agent acts for `user`. |
 | `action` | `read`, `write`, `resolve`, or `delete`. |
 | `thread` | The thread the action is about. Not set for `create`, `list`, and `users`. |
 | `subject` | The subject of `thread`, of the new thread for `create`, or of the `list` filter. Not set for `users` or an unfiltered `list`. |

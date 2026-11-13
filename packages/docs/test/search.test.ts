@@ -15,7 +15,7 @@ const examplesDir = resolve(import.meta.dirname, "../../../docs/app/examples")
 let search: ReturnType<typeof createDocsSearch>
 
 beforeAll(async () => {
-  const manifest = createDocsManifest({ dir: contentDir, base: "/docs" })
+  const manifest = await createDocsManifest({ dir: contentDir, base: "/docs" })
   const examples = Object.fromEntries(await Promise.all(
     (await readdir(examplesDir)).filter(file => file.endsWith(".vue")).map(async file => [
       file.slice(0, -4),
@@ -73,8 +73,14 @@ describe("docs search on the vitehub.dev content", () => {
 
   it("ranks Installation pages above Install headings", () => {
     const results = search("install", 12)
-    expect(results.slice(0, 2).map(record => record.id)).toEqual(["/docs/getting-started/installation", "/docs/ui/installation"])
-    expect(results[2]?.level).toBeGreaterThan(1)
+    const ids = results.map(record => record.id)
+    // Other pages can mention installing, so check the order against headings, not exact positions.
+    const firstHeading = results.findIndex(record => record.level > 1)
+    expect(firstHeading).toBeGreaterThan(1)
+    for (const page of ["/docs/getting-started/installation", "/docs/ui/installation"]) {
+      expect(ids.indexOf(page)).toBeGreaterThanOrEqual(0)
+      expect(ids.indexOf(page)).toBeLessThan(firstHeading)
+    }
   })
 
   it("tolerates a typo, a swapped pair of letters, and an unfinished word", () => {

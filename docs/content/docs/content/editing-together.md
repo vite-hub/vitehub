@@ -162,7 +162,7 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 ## Live editing
 
 > [!NOTE]
-> The live editor was part of the Console that the app served, which is removed. The hosted Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
+> The live editor was part of the Console that the app served, which is removed. The Console edits with the edit lease. The rooms below stay for [your own live editor](#build-your-own-live-editor).
 
 With Realtime, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
 
@@ -172,8 +172,7 @@ With Realtime, several people edit one Markdown document at the same time. Turn 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
-    console: { auth: 'app' },
+    host: 'node',
     realtime: { authority: 'memory' },
   },
 })
@@ -189,8 +188,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
-      console: { auth: 'app' },
+      host: 'node',
       realtime: { authority: 'memory' },
     }),
     nitro(),
@@ -207,8 +205,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
-      console: { auth: 'app' },
+      host: 'node',
       realtime: { authority: 'memory' },
     }),
   ],
@@ -217,7 +214,7 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` uses the memory authority by default. A Node build needs `authority: 'memory'` (one server process). Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room authority: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
+`vite dev` uses the memory authority by default. A Node build shares rooms across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database, and keeps them in one process without either. Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room authority: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
 ### What people see
 
@@ -234,7 +231,7 @@ The room holds the edit lease as `kind: 'live'` for everyone in it. It holds it 
 
 ### Build your own live editor
 
-ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the Console session when the Console is on, else with the ViteHub Auth session. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
+ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the ViteHub Auth session. With the Console on, rooms check Console access instead, which takes only signed calls, so a browser editor needs the Console off. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
 
 ```ts [app editor]
 import { contentRealtimeEditor } from 'vite-hub/content/editor'

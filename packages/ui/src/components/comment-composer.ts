@@ -43,11 +43,19 @@ export interface CommentMentionItemScope {
   active: boolean;
 }
 
+/** The scope of the `mention-empty` slot: the text after `@`, and whether the lookup failed or found nobody. */
+export interface CommentMentionEmptyScope {
+  query: string;
+  failed: boolean;
+}
+
 export type CommentComposerSlots = {
   /** Above the text field, such as a field for a suggested change. */
   extra?: () => VNode[];
   /** One person of the mention menu. */
   "mention-item"?: (scope: CommentMentionItemScope) => VNode[];
+  /** The line of the mention menu when it has no one to show. */
+  "mention-empty"?: (scope: CommentMentionEmptyScope) => VNode[];
 };
 
 interface MentionMenu {
@@ -57,7 +65,15 @@ interface MentionMenu {
   before: string;
   items: CommentUser[];
   index: number;
+  /** The text after `@`. */
+  query: string;
+  /** The lookup failed. The menu then has no items. */
+  failed: boolean;
 }
+
+// `comments.users` searches from two characters. A one word query that long gets a line when it finds no one, so `@`
+// never fails in silence. After a space the text is more likely a sentence than a name, so the menu stays closed.
+const emptyLineQuery = /^\S{2,}$/u;
 
 const placeholders: Record<CommentComposerVariant, string> = {
   comment: "Add a comment",
@@ -123,6 +139,12 @@ export const CommentComposer = defineComponent({
     accept: { type: String },
     /** Send files without text. Default: on for a reply, off for a new comment. */
     allowEmpty: { default: undefined, type: Boolean },
+    /**
+     * `box` is a bordered field. `row` is one line with attach, the text and send, for a box that already sits inside a
+     * card, as the reply box of a thread and the box at the bottom of a panel do.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    layout: { default: "box", type: String as PropType<"box" | "row"> },
   },
   emits: ["update:modelValue", "update:mentions", "update:files", "submit", "cancel"],
   // SAFETY: Vue uses Object as its runtime slots marker.
@@ -242,8 +264,10 @@ export const CommentComposer = defineComponent({
       if (!field) return;
       field.setAttribute("role", "combobox");
       field.setAttribute("aria-autocomplete", "list");
-      field.setAttribute("aria-expanded", String(open !== null));
-      if (open) {
+      // A menu with only its empty line has no options, so the box controls no listbox.
+      const listed = open !== null && open.items.length > 0;
+      field.setAttribute("aria-expanded", String(listed));
+      if (listed) {
         field.setAttribute("aria-controls", `${menuId}-list`);
         field.setAttribute("aria-activedescendant", optionId(open.index));
       } else {
@@ -305,12 +329,20 @@ export const CommentComposer = defineComponent({
         menu.value = null;
         return;
       }
-      const results = await find(found.query).catch(() => []);
+      let results: CommentUser[] = [];
+      let failed = false;
+      try {
+        results = await find(found.query);
+      } catch (error) {
+        failed = true;
+        console.warn("[vitehub] The comment box could not load people to mention:", error);
+      }
       const items = rankPeople(results, found.query, { exclude: self(), participants: props.participants });
       checkSelection();
       if (run !== lookup || found.start === dismissed) return;
       const sameToken = field.selectionStart === field.selectionEnd && field.value.slice(0, field.selectionStart) === before;
-      menu.value = sameToken && items.length > 0 ? { before, index: 0, items, start: found.start } : null;
+      const show = items.length > 0 || emptyLineQuery.test(found.query);
+      menu.value = sameToken && show ? { before, failed, index: 0, items, query: found.query, start: found.start } : null;
     }
 
     function submit(payload: PromptInputSubmit) {
@@ -333,13 +365,15 @@ export const CommentComposer = defineComponent({
     function keydown(event: KeyboardEvent) {
       if (event.isComposing) return;
       const open = menu.value;
-      if (open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      // The empty line is not an option, so the arrows, Enter, and Tab act as if the menu were closed.
+      const listed = open !== null && open.items.length > 0;
+      if (listed && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
         open.index = (open.index + step + open.items.length) % open.items.length;
         return;
       }
-      if (open && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+      if (listed && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
         choose(open.items[open.index]!);
@@ -349,6 +383,8 @@ export const CommentComposer = defineComponent({
       // Esc belongs to the composer while it has the focus, so the page does not leave comment mode.
       event.preventDefault();
       event.stopPropagation();
+      // A held Esc repeats. Only a new press counts, so holding the key does not discard the text.
+      if (event.repeat) return;
       if (open) {
         // A lookup that is still on its way must not open the menu again.
         lookup++;
@@ -383,6 +419,7 @@ export const CommentComposer = defineComponent({
           "data-busy": props.busy ? "true" : undefined,
           "data-dirty": hasContent() ? "true" : undefined,
           "data-dragging": dragging.value ? "true" : undefined,
+          "data-layout": props.layout,
           "data-shake": shaking.value ?? undefined,
           "data-slot": "comment-composer",
           "data-variant": props.variant,
@@ -423,6 +460,7 @@ export const CommentComposer = defineComponent({
               accept: props.accept,
               "aria-label": labels[props.variant],
               attachments: attachmentsOn.value,
+              attachVariant: props.layout === "row" ? "ghost" : "outline",
               files: fileParts.value,
               filesDisabled: props.busy,
               filterFiles: (list: readonly File[]) => {
@@ -436,7 +474,18 @@ export const CommentComposer = defineComponent({
               "onUpdate:files": (next: readonly FileUIPart[]) => setFiles(files.value.filter((file) => next.includes(partOf(file)))),
               "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
             }),
-            menu.value
+            menu.value && menu.value.items.length === 0
+              ? h(
+                  "div",
+                  { "data-slot": "comment-composer-mentions", "data-state": menu.value.failed ? "error" : "empty", role: "status" },
+                  h(
+                    "p",
+                    { "data-slot": "comment-composer-mention-empty" },
+                    slots["mention-empty"]?.({ failed: menu.value.failed, query: menu.value.query })
+                      ?? (menu.value.failed ? "Could not load people." : "No one by that name can be mentioned here."),
+                  ),
+                )
+              : menu.value
               ? h(
                   "ul",
                   { "aria-label": "People", "data-slot": "comment-composer-mentions", id: `${menuId}-list`, role: "listbox" },

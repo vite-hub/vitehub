@@ -3,10 +3,18 @@ import { resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
 
+import { docsUi } from "../../packages/docs/src/theme";
+
+import type { Unstable_RawConfig } from "wrangler";
+
 const docsRoot = resolve(import.meta.dirname, "..");
+const serverRoot = resolve(docsRoot, ".output/server");
+const workerConfig: Unstable_RawConfig = JSON.parse(readFileSync(resolve(serverRoot, "wrangler.json"), "utf8"));
 const server = createTestHarness({
-  root: docsRoot,
-  workers: [{ configPath: ".output/server/wrangler.json" }],
+  root: serverRoot,
+  // Nitro 3 emits thousands of modules. Bundle them for the local runtime to avoid
+  // Miniflare's slow serialization of the separate modules into its config.
+  workers: [{ config: { ...workerConfig, no_bundle: false, rules: [] } }],
 });
 
 beforeAll(async () => {
@@ -48,6 +56,11 @@ describe("Cloudflare docs artifact", () => {
     expect(await response.json()).toMatchObject({ openapi: "3.1.0" });
   });
 
+  it("server-renders the color mode button", async () => {
+    const response = await server.fetch("/docs/getting-started", { headers: { accept: "text/html" } });
+    expect(await response.text()).toContain(`aria-label="Switch to dark mode"`);
+  });
+
   it.each([
     ["text/markdown", "text/markdown"],
     ["text/html, text/markdown;q=0.5", "text/html"],
@@ -57,6 +70,14 @@ describe("Cloudflare docs artifact", () => {
     expect(response.headers.get("content-type")).toContain(contentType);
     expect(response.headers.get("vary")?.toLowerCase()).toContain("accept");
     if (contentType === "text/markdown") expect(await response.text()).toMatch(/^# Introduction/);
+  });
+
+  it("server-renders Markdown with the prose components", async () => {
+    const response = await server.fetch("/docs/getting-started", { headers: { accept: "text/html" } });
+    const html = await response.text();
+    const content = html.slice(html.indexOf(`class="comark-content"`), html.indexOf(`class="vh-product-footer`));
+    // Nuxt UI's prose link, as the browser renders it after hydration.
+    expect(content).toMatch(/<a href="\/docs\/[^"]+" class="[^"]*underline/);
   });
 
   it("serves a prerendered robots.txt before the Worker for AhrefsBot", async () => {
@@ -73,5 +94,17 @@ describe("Cloudflare docs artifact", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/plain");
     expect(await response.text()).toBe(robots);
+  });
+
+  it("builds the CSS of every class in the docs design", () => {
+    const cssDir = resolve(docsRoot, ".output/public/_nuxt");
+    const css = readdirSync(cssDir).filter(file => file.endsWith(".css")).map(file => readFileSync(resolve(cssDir, file), "utf8")).join("\n");
+    const strings = (value: unknown): string[] => typeof value === "string"
+      ? value.split(/\s+/)
+      : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
+    // Utilities only: icon names and plain words such as `vertical` are not classes.
+    const classes = new Set(strings(docsUi("ViteHub")).filter(name => /[-:[]/.test(name) && !name.startsWith("i-")));
+    const selector = (name: string) => `.${name.replace(/[^\w-]/g, character => `\\${character}`)}`;
+    expect([...classes].filter(name => !css.includes(selector(name)))).toEqual([]);
   });
 });

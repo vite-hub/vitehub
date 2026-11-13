@@ -6,7 +6,7 @@ import process from "node:process"
 
 import { expect, it } from "vitest"
 
-import { expectNoLeak, fakeHosts, HASH, PENDING_ID } from "./setup-deploy-helpers.ts"
+import { expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -38,7 +38,7 @@ async function linkWorkspaceInstall(app: string): Promise<void> {
 
 it("builds a `vitehub init` Cloudflare app for real and uploads it with a fake Wrangler", async () => {
   const parent = await createProject()
-  const init = await runSetup(["init", "app", "--host", "cloudflare", "--features", "kv", "--pm", "pnpm", "--console", `${PENDING_ID}:sha256:${HASH}`, "--no-install", "--yes", "--json"], parent)
+  const init = await runSetup(["init", "app", "--host", "cloudflare", "--features", "kv", "--pm", "pnpm", "--no-install", "--yes", "--json"], parent)
   expect(init.exitCode, init.stdout + init.stderr).toBe(0)
   const app = join(parent, "app")
   // The workspace packages stand in for the install, like the docs host fixture builds. The workspace has `vp`, the
@@ -66,17 +66,14 @@ it("builds a `vitehub init` Cloudflare app for real and uploads it with a fake W
 
   const calls = await hosts.calls()
   expect(calls.map(call => [call.argv, call.stdin, call.cwd])).toEqual([
-    [["secret", "put", "VITEHUB_CONSOLE_TOKEN_SHA256", "--config", "./server/wrangler.json"], HASH, output],
-    [["secret", "list", "--config", "./server/wrangler.json", "--format", "json"], "", output],
     [["deploy", "--config", "./server/wrangler.json"], "", output],
   ])
   const url = `https://${wrangler.name}.example.workers.dev`
   expect(result.json).toEqual({
-    console: { linkUrl: `https://console.vitehub.dev/link#p=${PENDING_ID}&url=${encodeURIComponent(url)}`, secret: "set" },
     host: "cloudflare",
     schemaVersion: 1,
     url,
     version: "version-1",
   })
-  expectNoLeak(calls, result.stdout + result.stderr, [HASH, "cf-token-1"])
+  expectNoLeak(calls, result.stdout + result.stderr, ["cf-token-1"])
 }, 600_000)

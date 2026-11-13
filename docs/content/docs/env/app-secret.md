@@ -14,23 +14,25 @@ pnpm vitehub secret generate
 
 Save the output as `VITEHUB_SECRET` on the host (`openssl rand -base64 32` also works). It needs at least 32 characters. Use a different one per deployment.
 
-In a Nuxt app, ViteHub reads `NUXT_APP_SECRET` when `VITEHUB_SECRET` is not set. ViteHub uses its own salt, so its secrets never match the ones from Nuxt's `deriveSecret()`.
+ViteHub reads only `VITEHUB_SECRET`, not `NUXT_APP_SECRET`, so a Nuxt application sets `VITEHUB_SECRET` too. ViteHub derives with its own salt, so the same root never produces the same secret as Nuxt's `deriveSecret()`.
 
 ## Derive a secret
 
 ```ts [server/utils/session.ts]
-import { deriveSecret } from '#vitehub/env/server'
+import { deriveSecret } from 'vite-hub/env'
 
 export async function sessionPassword() {
   return await deriveSecret('my-app:session')
 }
 ```
 
-`deriveSecret(purpose)` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. Each purpose gets its own result, stable until the root secret changes. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+`deriveSecret(purpose, { event, root })` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. The result is stable while the root secret is unchanged, and it is different for every purpose. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+
+Both options are optional. On Cloudflare, pass the request event, as in `deriveSecret('my-app:session', { event })`, so ViteHub reads `VITEHUB_SECRET` from the Worker bindings of that request. Pass `root` to derive from another root secret than `VITEHUB_SECRET`.
 
 | Failure | Error code |
 | --- | --- |
-| `VITEHUB_SECRET` and `NUXT_APP_SECRET` are not set | `ENV_REQUIRED_MISSING` |
+| `VITEHUB_SECRET` is not set | `ENV_REQUIRED_MISSING` |
 | The root secret is shorter than 32 characters | `ENV_RUNTIME_VALUE_INVALID` |
 
 `vitehub secret derive <purpose>` prints the same value from `VITEHUB_SECRET` in your shell. It does not load the project.
@@ -77,7 +79,7 @@ export async function readTicket(ticket: string) {
 
 A missing root secret is a configuration error, so `seal()` and `unseal()` throw `ENV_REQUIRED_MISSING`, as `deriveSecret()` does. A bad argument, such as an empty purpose, a `ttl` that is not a positive number, or a value that is not JSON, throws `ENV_SEAL_ARGUMENT_INVALID`.
 
-`seal()` and `unseal()` from `vite-hub/env` read `VITEHUB_SECRET` or `NUXT_APP_SECRET`. `#vitehub/env/server` exports the same two functions, and they also read the [development secret](#development) that ViteHub generates when neither is set.
+`seal()` and `unseal()` from `vite-hub/env` read `VITEHUB_SECRET`. `#vitehub/env/server` exports the same two functions, and they also read the [development secret](#development) that ViteHub generates when it is not set.
 
 ### Sealed values that you store
 
@@ -109,20 +111,18 @@ export async function readCredentials(stored: string, secret: string) {
 | --- | --- | --- |
 | `vitehub:seal:<purpose>` | The key of each [`seal()`](#seal-a-value) purpose | Hand-written AES-GCM keys |
 | `vitehub:auth` | [Auth](/docs/auth/configure#secret) session signing when the app sets no Better Auth secret | `BETTER_AUTH_SECRET`, which still wins when it is set, as do `secret` and `secrets` in the Auth Definition |
-| `vitehub:console-auth` | Inline [Console Auth](/docs/development/console) session signing | `BETTER_AUTH_SECRET`, which still wins when it is set |
-| `vitehub:dispatch` | [Signed dispatch](/docs/development/cli#run-a-schedule-on-demand) from the CLI to a deployment | A pasted Console session cookie |
 
 ## Development
 
-When the Vite dev server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and inline Console Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
+When the Vite dev server starts without `VITEHUB_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
 
 Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at the first derivation, not at build.
 
 ## Rotation and storage
 
-When you rotate `VITEHUB_SECRET`, every Console session and every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
+When you rotate `VITEHUB_SECRET`, every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
 
 Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`. Give `seal()` a separate `secret` for stored values for the same reason.
 
 > [!WARNING]
-> Anyone with the root secret can derive every secret above, including Console session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.
+> Anyone with the root secret can derive every secret above, including Auth session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.

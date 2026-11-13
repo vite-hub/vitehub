@@ -167,6 +167,23 @@ export function collectSnippets(sources = snippetSources()) {
   return snippets
 }
 
+/**
+ * `hubAuth()` registers the rules of `shared/abilities.ts` in `.vitehub/types/auth.d.ts`.
+ * A snippet program can register one rules file.
+ */
+function abilitiesDeclarations(snippets) {
+  const rules = snippets.filter(snippet => snippet.label === "shared/abilities.ts" && isAppFile(snippet))
+  if (rules.length > 1) throw new Error(`Only one page can show shared/abilities.ts. Found: ${rules.map(snippet => snippet.page).join(", ")}`)
+  if (!rules.length) return []
+  return [[join(docsRoot, ".snippets/vitehub-auth-abilities.d.ts"), [
+    `declare global {`,
+    `  namespace ViteHub {`,
+    `    interface AuthRegistry { abilities: typeof import(${JSON.stringify(rules[0].file)}).default }`,
+    `  }`,
+    `}`,
+    `export {}`,
+  ].join("\n")]]
+}
 /** A whole file of the page's app. Excerpts and examples of mistakes are not part of it. */
 const isAppFile = snippet => !snippet.fragment && !snippet.fails
 
@@ -254,8 +271,8 @@ const registries = [
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
-    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` is the Auth Definition of the app.
-    definitions: label => /^server\/auth(?:\/index)?\.[cm]?ts$/.test(label) ? ["definition"] : [],
+    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` or `server.auth.ts` is the Auth Definition of the app.
+    definitions: label => /^(?:server\/auth(?:\/index)?|server\.auth)\.[cm]?ts$/.test(label) ? ["definition"] : [],
     render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
     type: "auth",
   },
@@ -273,11 +290,11 @@ const registries = [
       const name = /^server\/databases\/([^/]+)(?:\/index)?\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
-    render: entries => ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(module => [
+    render: entries => ["@vite-hub/database", "vite-hub/database"].flatMap(module => [
       `import ${JSON.stringify(module)}`,
       `declare module ${JSON.stringify(module)} {`,
       "  interface DatabaseRegistry {",
-      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema }`),
+      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema; relations: typeof import(${path}).default.relations }`),
       "  }",
       "}",
     ]),
@@ -390,7 +407,7 @@ export function defaultEnvDeclarations() {
 async function envTypes(pageRoot, env, plugins) {
   if (!plugins.length) {
     const { vitehub } = await import(pathToFileURL(join(packagesRoot, "vite-hub/dist/index.js")).href)
-    plugins.push((await vitePlugins(vitehub({ preset: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
+    plugins.push((await vitePlugins(vitehub({ host: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
   }
   const root = mkdtempSync(join(tmpdir(), "vitehub-snippet-env-"))
   let code
@@ -422,6 +439,20 @@ async function envTypes(pageRoot, env, plugins) {
   ].join("\n")
   return [
     { code, file: join(pageRoot, envTypesFile) },
+    {
+      code: [
+        `import type { PublicEnv as GeneratedPublicEnv } from "#vitehub/env/public"`,
+        `import type { ServerEnv as GeneratedServerEnv } from "#vitehub/env/server"`,
+        ...["@vite-hub/env", "vite-hub/env"].flatMap(module => [
+          `declare module ${JSON.stringify(module)} {`,
+          "  interface PublicEnv extends GeneratedPublicEnv {}",
+          "  interface ServerEnv extends GeneratedServerEnv {}",
+          "}",
+        ]),
+        "",
+      ].join("\n"),
+      file: join(pageRoot, ".vitehub/types/env-accessors.d.ts"),
+    },
     { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }
@@ -438,6 +469,7 @@ const installedResolutions = new Map()
 export function checkSnippets(snippets, declarations = [], oldProgram = undefined) {
   const virtualFiles = new Map([
     ...[...appDeclarations, ...declarations].map(declaration => [declaration.file, declaration.code]),
+    ...abilitiesDeclarations(snippets),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
   // A page can show one file several times as it grows. A relative import gets the last full version of the

@@ -8,7 +8,7 @@ import config from "../nuxt.config";
 import { createDocsRedirectRouteRules, docsPageRedirects } from "../modules/vitehub-docs/redirects";
 
 const docsRoot = resolve(import.meta.dirname, "..");
-const docsManifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+const docsManifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
 const categories = config.docs?.categories ?? [];
 const railExclude = config.docs?.railExclude ?? [];
 
@@ -25,10 +25,13 @@ const serverPrimitiveSections = [
   "decisions",
   "email",
   "env",
+  "forge",
   "forms",
+  "gateways",
   "i18n",
   "kv",
   "logs",
+  "mcp",
   "queue",
   "rate-limit",
   "realtime",
@@ -53,9 +56,14 @@ describe("docs product navigation", () => {
     expect(railExclude).toEqual(["Develop and deploy", "Reference"]);
     expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(candidate => candidate.id))
       .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
-    expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id)).toEqual(["reference", "compare"]);
+    expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id))
+      .toEqual(expect.arrayContaining(["reference", "compare"]));
     const railSectionIds = rail.flat().map(candidate => candidate.id);
-    for (const sectionId of ["development", "frameworks-hosts", "guides", "reference", "compare"]) {
+    const excludedSectionIds = catalog
+      .filter(group => railExclude.includes(group.category))
+      .flatMap(group => group.sections.map(candidate => candidate.id));
+    expect(excludedSectionIds).toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides", "reference", "compare"]));
+    for (const sectionId of excludedSectionIds) {
       expect(railSectionIds).not.toContain(sectionId);
     }
     // Every section has a known category, so the rail has one group per category that it keeps.
@@ -220,9 +228,9 @@ describe("docs product navigation", () => {
     for (const [from, to] of Object.entries(docsPageRedirects)) {
       expect(findDocsPage(docsManifest, from), from).toBeNull();
       expect(findDocsPage(docsManifest, to), to).not.toBeNull();
-      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
-      expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
-      expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
+      expect(routeRules[from]).toEqual({ redirect: { status: 301, to } });
+      expect(routeRules[`${from}/`]).toEqual({ redirect: { status: 301, to } });
+      expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { status: 301, to: `/raw${to}.md` } });
     }
   });
 });

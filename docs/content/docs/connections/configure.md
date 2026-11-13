@@ -85,7 +85,7 @@ export default defineConnection({
 | `requests` | None | Pacing, retries, and a timeout for provider requests. See [Request policy](#request-policy). |
 | `verify` | None | Checks a new key before it is stored. Gets the runtime `fetch` and a 30-second abort signal. |
 | `fallback` | None | Key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
-| `id` | `'api-key'` | Provider id in the Console and inspection. |
+| `id` | `'api-key'` | Provider id in inspection. |
 
 Pipe the key to the CLI:
 
@@ -109,7 +109,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -132,7 +132,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -154,7 +154,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -170,7 +170,7 @@ export default defineConfig({
 ::
 
 ```ts [server/connections/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
@@ -206,7 +206,7 @@ export default defineConnection({
 })
 ```
 
-This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
+This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI lists each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
 
 ## Setup docs
 
@@ -219,7 +219,7 @@ Connect the **support@** account, not your own.
 2. Click **Connect** and approve `offline_access`.
 ```
 
-The Console shows this Markdown on the Connection, before the **Connect** button. `vitehub connections inspect crm` prints it after the actions, and `inspect()` returns it as `docs`, so an Agent can read it too. A `.connection.ts` file uses a `.connection.md` file next to it.
+`vitehub connections inspect crm` prints it after the actions, and `inspect()` returns it as `docs`, so an Agent can read it too. A `.connection.ts` file uses a `.connection.md` file next to it.
 
 The `docs` option of a definition replaces the file. Use it when the steps depend on the instance of a [keyed Connection](#keyed-connections), which share the file otherwise:
 
@@ -325,7 +325,7 @@ The preset allows every method on the `mcp` endpoint without approval, because M
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. No `env.provider()` and no default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` and `vite-hub/nuxt` turn on `database` when unset. Without a Database Definition, Connections use an empty `default` Database, and `vitehub inspect` says why. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module also builds Connections for production, including Cloudflare Workers. Production mounts the management API only with `management`, which uses the Console sign-in.
+`vitehub({ connections })` and `vite-hub/nuxt` turn on `database` when unset. Without a Database Definition, Connections use an empty `default` Database, and `vitehub inspect` says why. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module also builds Connections for production, including Cloudflare Workers. Production mounts the management API only with `management: { actor }`, the access policy of your app.
 
 ## Activity retention
 

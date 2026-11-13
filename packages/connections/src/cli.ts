@@ -10,7 +10,6 @@ import * as v from "valibot"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
-import { consoleCredentialHeaders, operationCredentialHint } from "@vite-hub/internal/operations"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { isLoopbackHost } from "./api-key.ts"
@@ -35,7 +34,7 @@ export interface ConnectionsCliOptions {
 
 interface ParsedArgs {
   confirm?: string
-  /** Console credentials for an app named with `--url` or `VITEHUB_CONNECTIONS_URL`, and `--cookie`. */
+  /** The app session cookie of `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. */
   credentials: Headers
   flags: Map<string, string | true>
   json: boolean
@@ -73,8 +72,8 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     flags.set(flag, value)
   }
   const url = stringFlag(flags.get("--url")) ?? (env.VITEHUB_CONNECTIONS_URL || undefined)
-  // A discovered dev server never receives deployment credentials, as in the operation commands.
-  const credentials = url ? consoleCredentialHeaders(env) : new Headers()
+  // The management API is the app's own API: its actor module reads the app session in this cookie.
+  const credentials = new Headers()
   const cookie = stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE
   if (cookie) credentials.set("cookie", cookie)
   return {
@@ -172,7 +171,7 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
         origin: base.origin,
       },
       method: "POST",
-      // Keep Console credentials and management actions on the selected app origin.
+      // Keep the session cookie and management actions on the selected app origin.
       redirect,
       signal: AbortSignal.timeout(seconds * 1_000),
     }
@@ -195,10 +194,10 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
   }
   if (!response.ok) {
     const parsedError = v.safeParse(v.object({ error: errorBody }), value)
-    // The Console access check answers with the error fields at the top level.
-    const consoleError = v.safeParse(errorBody, value)
-    const error = parsedError.success ? parsedError.output.error : consoleError.success ? consoleError.output : undefined
-    const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? `${operationCredentialHint} Or pass --cookie.` : undefined)
+    // An actor module can answer with the error fields at the top level.
+    const topLevel = v.safeParse(errorBody, value)
+    const error = parsedError.success ? parsedError.output.error : topLevel.success ? topLevel.output : undefined
+    const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts." : undefined)
     throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${fix ? `\n${fix}` : ""}`)
   }
   const result = v.safeParse(schema, value)
@@ -377,7 +376,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       const base = appUrl(parsed)
       if (!isLoopback(base)) {
         const url = managementUrl(base, `/connect/${encodeURIComponent(name)}`)
-        write(context, parsed, { url: url.href }, () => `Open this URL while signed in to the Console:\n\n  ${url.href}`)
+        write(context, parsed, { url: url.href }, () => `Open this URL while signed in to the app:\n\n  ${url.href}`)
         return
       }
       const connection = await connectLoopback(name, parsed, context, options)
@@ -516,9 +515,7 @@ function usage(): string {
     "",
     "Options:",
     "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
-    "  --cookie <value>  Console session cookie (or VITEHUB_CONNECTIONS_COOKIE) for protected apps.",
-    "                With --url or VITEHUB_CONNECTIONS_URL, the Console credentials VITEHUB_CONSOLE_AUTHORIZATION,",
-    "                VITEHUB_CONSOLE_COOKIE, and CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are sent too.",
+    "  --cookie <value>  App session cookie (or VITEHUB_CONNECTIONS_COOKIE) that the app's Connections actor accepts.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
     "",

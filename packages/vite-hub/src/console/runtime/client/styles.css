@@ -138,3 +138,217 @@ body {
   line-height: 1.25rem;
   padding: 2rem 1.5rem;
 }
+
+/*
+ * The first paint of an `account` Console (hosted/account.html). The Console server picks the view that the visit opens,
+ * and the page draws its frame at the same size as the app: the sign-in page, the team sidebar of
+ * console-account-shell.vue, or the rail of an open app. Only names and lists that need the account are missing.
+ */
+.vitehub-account-boot {
+  height: 100dvh;
+}
+
+.vitehub-account-boot:not([data-vitehub-boot="app"]) > .vitehub-account-boot__app,
+.vitehub-account-boot:not([data-vitehub-boot="shell"]) > .vitehub-account-boot__shell,
+.vitehub-account-boot:not([data-vitehub-boot="sign-in"], [data-vitehub-boot="invite"]) > .vitehub-account-boot__sign-in,
+.vitehub-account-boot[data-vitehub-boot="invite"] .vitehub-account-boot__intro {
+  display: none;
+}
+
+.vitehub-account-boot__shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.vitehub-account-boot__sidebar {
+  background: var(--ui-bg-muted);
+  border-inline-end: 1px solid var(--ui-border);
+  display: none;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 16rem;
+}
+
+@media (min-width: 64rem) {
+  .vitehub-account-boot__sidebar {
+    display: flex;
+  }
+}
+
+.vitehub-account-boot__sidebar-header {
+  align-items: center;
+  display: flex;
+  gap: 0.25rem;
+  height: 2.75rem;
+  padding-inline: 0.5rem;
+}
+
+.vitehub-account-boot__mark {
+  color: var(--ui-text-highlighted);
+  flex-shrink: 0;
+  height: 1.15rem;
+  margin-inline-start: 0.375rem;
+  width: 1.15rem;
+}
+
+.vitehub-account-boot__slash {
+  color: var(--ui-text-muted);
+  line-height: 1.5rem;
+}
+
+.vitehub-account-boot__row {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+}
+
+.vitehub-account-boot__team-mark {
+  background: var(--ui-bg-accented);
+  border-radius: 0.3125rem;
+  flex-shrink: 0;
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+.vitehub-account-boot__avatar {
+  background: var(--ui-bg-elevated);
+  border-radius: 999px;
+  flex-shrink: 0;
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.vitehub-account-boot__bar {
+  background: var(--ui-bg-accented);
+  border-radius: 999px;
+  height: 0.5rem;
+  width: 4.5rem;
+}
+
+.vitehub-account-boot__end {
+  color: var(--ui-text-muted);
+  flex-shrink: 0;
+  height: 0.875rem;
+  margin-inline-start: auto;
+  width: 0.875rem;
+}
+
+.vitehub-account-boot__fill {
+  flex: 1;
+}
+
+.vitehub-account-boot__nav {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 1px;
+  padding: 0 0.5rem 0.75rem;
+}
+
+.vitehub-account-boot .vitehub-console__section-icon {
+  height: calc(0.8125rem * 1.15);
+  width: calc(0.8125rem * 1.15);
+}
+
+.vitehub-account-boot[data-vitehub-page="home"] .vitehub-console__section-link[data-vitehub-page="home"],
+.vitehub-account-boot[data-vitehub-page="team"] .vitehub-console__section-link[data-vitehub-page="team"],
+.vitehub-account-boot[data-vitehub-page="settings"] .vitehub-console__section-link[data-vitehub-page="settings"] {
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
+}
+
+.vitehub-account-boot .vitehub-account-boot__heading {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  height: 2.75rem;
+  padding: 1rem 0.25rem 0.25rem 0.5rem;
+}
+
+.vitehub-account-boot__footer {
+  border-top: 1px solid var(--ui-border);
+  display: grid;
+  gap: 1px;
+  padding: 0.5rem;
+}
+
+.vitehub-account-boot__panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vitehub-account-boot__navbar {
+  align-items: center;
+  border-bottom: 1px solid var(--ui-border);
+  display: flex;
+  flex-shrink: 0;
+  height: 2.75rem;
+  padding-inline: 0.75rem;
+}
+
+.vitehub-account-boot__toggle {
+  color: var(--ui-text);
+  height: 1rem;
+  margin-inline-start: 0.375rem;
+  opacity: 0.8;
+  width: 1rem;
+}
+
+@media (min-width: 40rem) {
+  .vitehub-account-boot__navbar {
+    padding-inline: 1rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .vitehub-account-boot__toggle {
+    display: none;
+  }
+}
+
+/* A fast load ends before the status shows. A slow one says what the page waits for. */
+.vitehub-account-boot__status {
+  animation: vitehub-account-boot-status 150ms ease-out 1.5s both;
+  color: var(--ui-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.vitehub-account-boot__shell .vitehub-account-boot__status {
+  box-sizing: content-box;
+  margin-inline: auto;
+  max-width: 42rem;
+  padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem);
+}
+
+@keyframes vitehub-account-boot-status {
+  from {
+    opacity: 0;
+  }
+}
+
+.vitehub-account-boot__gate-mark {
+  color: var(--ui-text-highlighted);
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.vitehub-account-boot__intro {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.vitehub-account-boot__title {
+  color: var(--ui-text-highlighted);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+  text-wrap: balance;
+}

@@ -20,10 +20,11 @@ import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/consol
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
-import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Content contributes its Console actions by the path of its own file.
 const contentConsoleModule = ownModule(new URL("../../content/package.json", import.meta.url).href, "runtime/console")
@@ -79,15 +80,19 @@ function install(actions: ConsoleDocumentActions, sections: readonly string[] = 
   installConsoleDefinitions("/app", { content: { collections: [], kind: "document-editor" } }, [])
 }
 
+/** Signs each call of a test that takes only signed calls. */
+let signAs: ((request: Request) => Promise<Request>) | undefined
+
 async function call(operation: string, input: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
-  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+  const unsigned = new Request("http://localhost/_vitehub/rpc", {
     // The client puts the operation first, so a large document body can be classified within the ordinary limit.
-    body: JSON.stringify({ operation, input }),
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   })
+  const request = signAs ? await signAs(unsigned) : unsigned
   const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
-  const body: Record<string, unknown> = Object(await response.json())
+  const body: Record<string, unknown> = Object(await operationRpcResponseResult(response))
   return { body, status: response.status }
 }
 
@@ -95,21 +100,23 @@ const documents = (action: string, body: unknown, headers?: Record<string, strin
   call("documents.action", { action, body, section: "content" }, headers)
 
 describe("Console document editor route", () => {
-  it("runs an owner action with the signed-in user, read only when the action needs it", async () => {
+  it("runs an owner action as the person that the Console signed", async () => {
     const save = vi.fn((input: unknown, context: { user: Record<string, unknown> | null }) => ({ input, user: context.user }))
-    const readUser = vi.fn(async () => ({ email: "ada@example.com", id: "ada" }))
-    installConsoleAccess({ check: async () => undefined, mode: "auth", user: readUser })
-    install(fakeActions({ save }))
-
-    const sections = await call("sections.list", {})
-    expect(sections.status).toBe(200)
-    expect(sections.body.value).not.toHaveProperty("scoped")
-    // Navigation does not read the user.
-    expect(readUser).not.toHaveBeenCalled()
-
-    const result = await documents("save", { collection: "posts", id: "hello" })
-    expect(result).toEqual({ body: { ok: true, value: { input: { collection: "posts", id: "hello" }, user: { email: "ada@example.com", id: "ada" } } }, status: 200 })
-    expect(readUser).toHaveBeenCalledOnce()
+    const signer = await signedConsoleAccess()
+    signAs = request => signer.sign(request, { email: "ada@example.com", id: "ada" })
+    try {
+      install(fakeActions({ save }))
+      const sections = await call("sections.list", {})
+      expect(sections.status).toBe(200)
+      expect(sections.body.value).not.toHaveProperty("scoped")
+      const result = await documents("save", { collection: "posts", id: "hello" })
+      expect(result).toEqual({ body: { ok: true, value: { input: { collection: "posts", id: "hello" }, user: { email: "ada@example.com", id: "ada" } } }, status: 200 })
+    }
+    finally {
+      signAs = undefined
+      signer.restore()
+      installConsoleAccess({ mode: "open" })
+    }
   })
 
   it("passes a null user when the access mode has none", async () => {
@@ -352,14 +359,18 @@ describe("Console document editor discovery", () => {
 })
 
 describe("Console access user", () => {
-  it("reads the user from the original request once per access", async () => {
-    const readUser = vi.fn(async () => ({ id: "ada" }))
-    const policy: ConsoleAccessPolicy = { check: async () => undefined, mode: "auth", user: readUser }
-    installConsoleAccess(policy)
-    const { readConsoleAccessUser } = await import("../src/console/runtime/server/access.ts")
-    const route = withConsoleAccess(async (_event, access) => [await readConsoleAccessUser(access), await readConsoleAccessUser(access)], { anySection: true })
-    await expect(route(requestEvent(new Request("http://localhost/_vitehub")))).resolves.toEqual([{ id: "ada" }, { id: "ada" }])
-    expect(readUser).toHaveBeenCalledOnce()
-    await expect(readConsoleAccessUser(Object.freeze({ mode: "auth", sections: "all", user: { id: "forged" } }) as never)).resolves.toBeUndefined()
+  it("reads the signed person, and never the user of an access that the check did not create", async () => {
+    const signer = await signedConsoleAccess()
+    try {
+      const { readConsoleAccessUser } = await import("../src/console/runtime/server/access.ts")
+      const request = await signer.sign(new Request("http://localhost/_vitehub/rpc", { body: "{}", method: "POST" }), { id: "ada" })
+      const route = withConsoleAccess(async (_event, access) => readConsoleAccessUser(access), { anySection: true })
+      await expect(route(requestEvent(request))).resolves.toEqual({ id: "ada" })
+      expect(readConsoleAccessUser(Object.freeze({ mode: "token", sections: "all", user: { id: "forged" } }) as never)).toBeUndefined()
+    }
+    finally {
+      signer.restore()
+      installConsoleAccess({ mode: "open" })
+    }
   })
 })

@@ -175,10 +175,10 @@ describe("resolving the cms preset resources", () => {
     const module = renderCmsWorkspaceModule({ ...usage, store: "blob-database", blob: "media", database: "audit", databaseReason: "option", workspace: "site" }, {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
-      database: "vite-hub/database/drizzle",
+      database: "vite-hub/database",
       workspace: "vite-hub/workspace",
     })
-    expect(module).toContain("import { useDatabase } from \"vite-hub/database/drizzle\"")
+    expect(module).toContain("import { useDatabase } from \"vite-hub/database\"")
     expect(module).toContain("try { database = useDatabase(\"audit\").db }")
     expect(module).toContain("blob: blob.store(\"media\"),")
     expect(module).toContain("workspace: \"site\",")
@@ -191,7 +191,7 @@ describe("defineContent({ extends: cms })", () => {
     const root = await temporaryRoot()
     const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
     cleanup.push(() => client.close())
-    const database = drizzle(client, { schema: workspaceHistorySchema })
+    const database = drizzle({ client: client })
     const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
     for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
     const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
@@ -261,7 +261,7 @@ describe("hubCms()", () => {
     expect(workspaces).toEqual([{ definition: { export: "contentWorkspace", module }, name: "content", reason: "Stores the documents of the Content cms preset." }])
     const generated = await readFile(module, "utf8")
     expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
-    expect(generated).toContain("import { useDatabase } from \"@vite-hub/database/drizzle\"")
+    expect(generated).toContain("import { useDatabase } from \"@vite-hub/database\"")
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }, { database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
   })
 
@@ -388,7 +388,7 @@ describe("the cms preset on the GitHub store", () => {
       return list.length ? { names: [...list].sort(), status: "ambiguous" as const } : { status: "none" as const }
     },
   })
-  const imports = { blob: "vite-hub/blob", blobDatabase: "vite-hub/workspace/blob-database", database: "vite-hub/database/drizzle", workspace: "vite-hub/workspace" }
+  const imports = { blob: "vite-hub/blob", blobDatabase: "vite-hub/workspace/blob-database", database: "vite-hub/database", workspace: "vite-hub/workspace" }
 
   it("reads the GitHub options as string literals", () => {
     expect(readCmsPresetUsage(githubSource("store: 'github', repo: 'onmax/docs', branch: 'main', draftBranch: 'cms/drafts', root: 'content', publish: 'commit', database: 'default'"), file, "/app", parseAst))
@@ -466,10 +466,16 @@ describe("the cms preset on the GitHub store", () => {
   })
 
   it("publishes with pull requests only on the GitHub store with publish: pr", () => {
-    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr" })
-    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content" })
-    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content" })
-    expect(cms.configure({ ...cms.options, access: "roles", store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function) })
+    const privateBranches = ["vitehub/content"]
+    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", privateBranches })
+    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content", privateBranches })
+    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content", privateBranches })
+    expect(cms.configure({ ...cms.options, access: "roles", store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function), privateBranches })
+  })
+
+  it("keeps the draft branch of the GitHub store private for content.sources.allow()", () => {
+    expect(cms.configure({ ...cms.options, store: "github", draftBranch: "drafts/site" }).privateBranches).toEqual(["drafts/site"])
+    expect(cms.configure({ ...cms.options }).privateBranches).toBeUndefined()
   })
 
   it("contributes only the sessions table, and needs no Blob store", async () => {

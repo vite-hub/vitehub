@@ -7,7 +7,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { consoleEnvName, groupConsoleEnv } from "../client/env-groups";
 import { indexEnvStatuses } from "../client/env-status";
 import { requestConsole } from "../client/request";
-import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
+import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
@@ -43,18 +43,14 @@ const props = defineProps<{
   definitionsBase: string;
   kvBase: string;
   envBase: string;
-  managementBase: string;
   searchBase: string;
   sectionsBase: string;
 }>();
 const entries = ref<readonly ServerEnvDescriptionEntry[]>([]);
-// The search, source, open variable, and its management tab live in the URL, so a reload or a shared link opens the
-// same view.
-const { manage: managing, q: search, source, tab: manageTab, variable } = useConsoleQuery({
-  manage: queryFlag({ history: "push" }),
+// The search, source, and open variable live in the URL, so a reload or a shared link opens the same view.
+const { q: search, source, variable } = useConsoleQuery({
   q: queryText(),
   source: queryText({ fallback: "all" }),
-  tab: queryChoice(["credential", "activity", "access"], "credential", { history: "push" }),
   variable: querySelection(),
 });
 /** After a status check, shows only the values that block the application. */
@@ -66,10 +62,7 @@ const selected = computed({
   set: (entry: ServerEnvDescriptionEntry | undefined) => {
     undisclosed.value = entry && !entry.path ? entry : undefined;
     if (variable.value === entry?.path) return;
-    // Another variable opens with its details, not with the management of the last one.
     variable.value = entry?.path;
-    managing.value = false;
-    manageTab.value = "credential";
   },
 });
 const loading = ref(true);
@@ -77,6 +70,10 @@ const failed = ref<unknown>();
 // Status is loaded on request because inspection can call providers.
 const statuses = ref<ReadonlyMap<ServerEnvDescriptionEntry, EnvStatus>>();
 const statusFailed = ref(false);
+// A status check can call providers, so the button shows progress and the toolbar shows when it finished.
+const checking = ref(false);
+const checkedAt = ref<Date>();
+const statusUnavailable = ref(false);
 let request: AbortController | undefined;
 const detailOpen = computed({
   get: () => Boolean(selected.value),
@@ -136,8 +133,10 @@ async function refresh(includeStatus = false) {
   const current = new AbortController();
   request = current;
   loading.value = true;
+  checking.value = includeStatus;
   failed.value = undefined;
   statusFailed.value = false;
+  statusUnavailable.value = false;
   try {
     const result = v.parse(
       descriptionSchema,
@@ -151,6 +150,10 @@ async function refresh(includeStatus = false) {
     statuses.value = result.status
       ? indexEnvStatuses(result.entries, result.status)
       : undefined;
+    if (includeStatus) {
+      checkedAt.value = new Date();
+      statusUnavailable.value = !result.status;
+    }
     if (!blockingCount.value) attentionOnly.value = false;
     if (!sourceItems.value.some((item) => item.value === source.value)) source.value = "all";
     if (undisclosed.value && !entries.value.includes(undisclosed.value)) undisclosed.value = undefined;
@@ -163,9 +166,13 @@ async function refresh(includeStatus = false) {
     }
     else failed.value = cause;
   } finally {
-    if (!current.signal.aborted) loading.value = false;
+    if (!current.signal.aborted) {
+      loading.value = false;
+      checking.value = false;
+    }
   }
 }
+const checkedTime = computed(() => checkedAt.value?.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" }));
 onMounted(() => {
   rememberConsoleSection("env");
   void refresh(false);
@@ -188,6 +195,7 @@ onBeforeUnmount(() => request?.abort());
             icon="i-lucide-heart-pulse"
             label="Check status"
             variant="ghost"
+            :loading="checking"
             :disabled="loading"
             @click="refresh(true)"
           />
@@ -218,7 +226,8 @@ onBeforeUnmount(() => request?.abort());
           aria-label="Filter by source"
         />
         <div class="ms-auto flex items-center gap-3 text-xs text-muted tabular-nums" aria-live="polite">
-          <span v-if="statusFailed" role="alert" class="text-error">Could not check status.</span>
+          <span v-if="statusFailed" role="alert" class="text-error">Could not check status. Try again.</span>
+          <span v-else-if="statusUnavailable">This host cannot check status.</span>
           <!-- An on and off filter, not a view switch, so it stays a pressed button. -->
           <UButton
             v-else-if="statuses && blockingCount"
@@ -228,9 +237,10 @@ onBeforeUnmount(() => request?.abort());
             :aria-pressed="attentionOnly"
             @click="attentionOnly = !attentionOnly"
           >
-            <Status :label="`${plural(blockingCount, 'value')} need attention`" tone="error" />
+            <Status :label="`${plural(blockingCount, 'value')} ${blockingCount === 1 ? 'needs' : 'need'} attention`" tone="error" />
           </UButton>
           <Status v-else-if="statuses" label="All values resolve" tone="success" />
+          <span v-if="checkedTime && !checking && !statusFailed" class="text-dimmed">Checked at {{ checkedTime }}</span>
           <span>{{ summary }}</span>
         </div>
       </ConsolePageToolbar>
@@ -312,7 +322,7 @@ onBeforeUnmount(() => request?.abort());
       :ui="{ title: 'font-mono text-sm', description: 'sr-only' }"
     >
       <template #body
-        ><ConsoleEnvDetails v-if="selected" v-model:managing="managing" v-model:tab="manageTab" :entry="selected" :endpoint="managementBase" :status="selected && status(selected)"
+        ><ConsoleEnvDetails v-if="selected" :entry="selected" :status="selected && status(selected)"
       /></template>
     </USlideover>
 </template>

@@ -41,6 +41,12 @@ function callback(state: string): Request {
   });
 }
 
+/** Put the client address that a host adapter reports in the Standard Context of the request. */
+function fromPeer(request: Request, clientAddress: string): Request {
+  Object.defineProperty(request, "~standard", { value: { req: request, res: { headers: new Headers() }, runtime: { clientAddress }, vendor: "test" } });
+  return request;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
@@ -128,13 +134,34 @@ describe("Connections route guard contract", () => {
   it("allows the development policy on a development server as user:local", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const test = createTestRuntime();
-    const handler = createConnectionsHandler({ actor: "development", runtime: () => test.runtime });
+    const development = createConnectionsHandler({ actor: "development", runtime: () => test.runtime });
+    // The host adapter reports the client address in the Standard Context of the request.
+    const handler: ConnectionsHandler = { ...development, fetch: request => development.fetch(fromPeer(request, "127.0.0.1")) };
     expect((await handler.fetch(routeRequests.action())).status).toBe(200);
     const state = await start(handler);
     test.provider.tokenResponses.push(tokenResponse());
     expect((await handler.fetch(callback(state))).status).toBe(200);
     const activity = await test.runtime.activity({ name: "mail" });
     expect(activity.find((entry) => entry.action === "replace")).toMatchObject({ actor: { id: "local", kind: "user" } });
+  });
+
+  it.each([
+    ["a LAN address", "192.168.1.20", {}],
+    ["no reported address", undefined, {}],
+    ["a forwarded loopback request", "127.0.0.1", { "x-forwarded-for": "203.0.113.9" }],
+  ])("refuses the development policy for %s", async (_name, clientAddress, headers) => {
+    vi.stubEnv("NODE_ENV", "development");
+    const runtime = vi.fn(() => createTestRuntime().runtime);
+    const handler = createConnectionsHandler({ actor: "development", runtime });
+    const request = new Request(`${origin}${base}`, {
+      body: JSON.stringify({ action: "set-key", key: "replacement", name: "mail" }),
+      headers: { "content-type": "application/json", ...headers },
+      method: "POST",
+    });
+    const response = await handler.fetch(clientAddress ? fromPeer(request, clientAddress) : request);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_FORBIDDEN" } });
+    expect(runtime).not.toHaveBeenCalled();
   });
 
   it("does not start a flow for a cross-site request", async () => {

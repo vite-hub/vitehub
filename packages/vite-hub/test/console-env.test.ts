@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { consoleStateKey } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { installConsoleEnv, manageConsoleEnv } from "../src/console/runtime/server/env.ts"
+import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import envHandlerRoute from "../src/console/runtime/server/env.get.ts"
 import { allowed } from "./support/console-access.ts"
@@ -96,7 +96,7 @@ describe("Console Env", () => {
       { masked: false, path: "env.server.label", required: false, source: "env" as const, status: "missing" as const },
       { masked: true, provider: "vault", required: true, source: "provider" as const, status: "missing" as const },
     ] }))
-    installConsoleEnv("/env-test", metadata, undefined, inspect)
+    installConsoleEnv("/env-test", metadata, inspect)
     await expect(envHandler(consoleEvent({ method: "GET", url: "http://localhost/_vitehub/api/env" }))).resolves.toEqual(metadata)
     expect(inspect).not.toHaveBeenCalled()
     await expect(envHandler(consoleEvent({ url: "/_vitehub/api/env?status=1" }))).resolves.toEqual({
@@ -115,21 +115,8 @@ describe("Console Env", () => {
     const statusEvent = consoleEvent({ url: "/_vitehub/api/env?status=1" })
     installConsoleEnv("/env-test", { entries: [] })
     await expect(envHandler(statusEvent)).rejects.toMatchObject({ statusCode: 503, statusMessage: "Env status is unavailable." })
-    installConsoleEnv("/env-test", { entries: [] }, undefined, async () => { throw new Error("private provider detail") })
+    installConsoleEnv("/env-test", { entries: [] }, async () => { throw new Error("private provider detail") })
     await expect(envHandler(statusEvent)).rejects.toMatchObject({ statusCode: 503, statusMessage: "Env status is unavailable." })
-  })
-  it("preserves the authenticated request and keeps management out of metadata", async () => {
-    installConsoleSections("/env-test", ["env"])
-    const request = new Request("https://app.test/_vitehub/env/manage", { method: "POST", headers: { cookie: "session=test", origin: "https://app.test" }, body: JSON.stringify({ action: "inspect", path: "env.server.token" }) })
-    let received: Request | undefined
-    installConsoleEnv("/env-test", { entries: [] }, async value => { received = value; return Response.json({ ok: true }) })
-    await expect(envHandler(consoleEvent({ method: "GET", url: "http://localhost/_vitehub/api/env" }))).resolves.toEqual({ entries: [] })
-    expect(await (await manageConsoleEnv(request)).json()).toEqual({ ok: true })
-    expect(received).toBe(request)
-    expect(received?.headers.get("cookie")).toBe("session=test")
-    expect(await received?.json()).toEqual({ action: "inspect", path: "env.server.token" })
-    installConsoleSections("/env-test", [])
-    expect((await manageConsoleEnv(request)).status).toBe(404)
   })
   it("rejects requests when Env is disabled", async () => {
     installConsoleSections("/env-test", [])

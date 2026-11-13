@@ -37,24 +37,24 @@ function render(props: Record<string, unknown>) {
 }
 
 describe("Console state", () => {
-  it("shows the Connections 403 without a dead-end retry", () => {
+  it("shows a 403 without a dead-end retry", () => {
     const retry = vi.fn()
     const { app, buttons, root } = render({
       error: new ConsoleRequestError(403, {
-        code: "CONSOLE_MANAGER_REQUIRED",
-        message: "The Console accepted this request, but the session has no user id.",
+        code: "CONSOLE_ACCESS_DENIED",
+        message: "The Console access policy rejected this account.",
       }),
       retry,
-      title: "Could not load Connections",
+      title: "Could not load Agents",
     })
     try {
       expect(root.querySelector("[role=alert]")).not.toBeNull()
-      expect(root.textContent).toContain("Could not load Connections")
-      expect(root.textContent).toContain("the session has no user id")
-      expect(root.textContent).toContain("Sign out and sign in again.")
-      expect(root.textContent).toContain("CONSOLE_MANAGER_REQUIRED · 403")
+      expect(root.textContent).toContain("Could not load Agents")
+      expect(root.textContent).toContain("rejected this account")
+      expect(root.textContent).toContain("ask the Console owner for access")
+      expect(root.textContent).toContain("CONSOLE_ACCESS_DENIED · 403")
       expect(buttons).toEqual(["Read the docs"])
-      expect(root.querySelector("a")?.getAttribute("href")).toBe("https://vitehub.dev/docs/connections/server-api#management-routes")
+      expect(root.querySelector("a")?.getAttribute("href")).toBe("https://vitehub.dev/docs/development/console#how-each-mode-checks-a-request")
     }
     finally { app.unmount() }
   })
@@ -67,20 +67,6 @@ describe("Console state", () => {
       expect([...root.querySelectorAll("p")].map(paragraph => paragraph.textContent)).toEqual(["You are not signed in, or your session ended."])
     }
     finally { app.unmount() }
-  })
-
-  it("links Sign in again to the sign-in page that the Console page names", () => {
-    const meta = { getAttribute: (name: string) => (name === "content" ? "/sign-in" : null) }
-    vi.stubGlobal("document", { querySelector: (selector: string) => (selector === 'meta[name="vitehub-console-sign-in"]' ? meta : null) })
-    vi.stubGlobal("window", { location: new URL("http://vitehub.local/_vitehub/env") })
-    try {
-      const { app, root } = render({ error: new ConsoleRequestError(401), retry: vi.fn(), title: "Could not load Env" })
-      try {
-        expect(root.querySelector("[data-button='Sign in again']")?.getAttribute("href")).toBe("/sign-in?redirect=%2F_vitehub%2Fenv")
-      }
-      finally { app.unmount() }
-    }
-    finally { vi.unstubAllGlobals() }
   })
 
   it("offers a retry only for a transient failure with a retry handler", () => {
@@ -111,12 +97,12 @@ describe("Console state", () => {
   })
 
   it("links the setup guide of the section in an empty state", () => {
-    const { app, buttons, root } = render({ description: "Add a Connection Definition.", section: "connections", title: "No Connections yet" })
+    const { app, buttons, root } = render({ description: "Add a KV store.", section: "kv", title: "No keys yet" })
     try {
       expect(root.querySelector("[role=status]")).not.toBeNull()
-      expect(root.textContent).toContain("Add a Connection Definition.")
+      expect(root.textContent).toContain("Add a KV store.")
       expect(buttons).toEqual(["Get started"])
-      expect(root.querySelector("a")?.getAttribute("href")).toBe("https://vitehub.dev/docs/connections/get-started")
+      expect(root.querySelector("a")?.getAttribute("href")).toBe("https://vitehub.dev/docs/kv/get-started")
     }
     finally { app.unmount() }
   })

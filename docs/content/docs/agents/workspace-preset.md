@@ -19,8 +19,7 @@ import workspace from 'vite-hub/presets/workspace'
 import { github } from 'vite-hub/source'
 
 export default defineAgent({
-  preset: 'workspace',
-  presets: { workspace },
+  extends: workspace,
   driver: { model: 'your-codex-model' },
   workspace: {
     sources: {

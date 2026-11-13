@@ -7,12 +7,17 @@ import {
   forgeErrorStatus,
   forgeProvider,
   readForgeEnv,
+  useForge,
   withSignal,
 } from "@vite-hub/forge";
-import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
+import type { Forge, ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
+import { createGitHubReadMemory, fetchGitHubRead, fromBase64, githubKVKey, hasWorkspaceKV, readWorkspaceKV, toBase64, writeWorkspaceKV } from "./cache.ts";
+import { readTarGz } from "./tar.ts";
+
+import type { GitHubReadMemory } from "./cache.ts";
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
@@ -97,8 +102,15 @@ async function waitForRetry(delay: number, signal?: AbortSignal | null) {
   });
 }
 
-/** `fetch` that retries reads after a network error, a 429 or a 5xx response. The Forge provider sends every request through it. */
-export async function requestGitHub(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+/**
+ * `fetch` that retries reads after a network error, a 429 or a 5xx response, and reuses answers that did not change
+ * (`cache.ts`). The Forge provider sends every request through it.
+ */
+export async function requestGitHub(input: string | URL | Request, init: RequestInit = {}, memory: GitHubReadMemory = createGitHubReadMemory()): Promise<Response> {
+  return await fetchGitHubRead(memory, input, init, async request => await sendGitHub(input, request));
+}
+
+async function sendGitHub(input: string | URL | Request, init: RequestInit): Promise<Response> {
   const method = (init.method || "GET").toUpperCase();
   const retryable = method === "GET" || method === "HEAD";
   for (let attempt = 0; ; attempt++) {
@@ -119,14 +131,41 @@ export async function requestGitHub(input: string | URL | Request, init: Request
 }
 
 /** A lazy connection: the repository name is checked on the first request. */
-export function connectGitHubRepository(repository: string, token: string): GitHubRepository {
-  let provider: Promise<GitHubProvider> | undefined;
+/** How the Store signs in to GitHub: a token, or a GitHub App installation with its own rate limit. */
+export type GitHubCredential = { token: string } | { app: Forge<"github"> };
+
+/**
+ * A lazy connection: the repository name is checked on the first request. A GitHub App credential mints an
+ * installation token for the repository, keeps it until a minute before it expires, then mints the next one.
+ */
+export function connectGitHubRepository(repository: string, credential: string | GitHubCredential): GitHubRepository {
+  const signIn = typeof credential === "string" ? { token: credential } : credential;
+  let provider: { token: string; provider: Promise<GitHubProvider> } | undefined;
+  // The answers of this connection. A new Store starts with none; the shared KV store outlives it.
+  const memory = createGitHubReadMemory();
+  const fetch = async (input: string | URL | Request, init?: RequestInit) => await requestGitHub(input, init, memory);
+  const token = async (): Promise<string> => {
+    if ("token" in signIn) return signIn.token;
+    const [error, minted] = await signIn.app.token({ repository });
+    if (error) throw workspaceError(`[vitehub] GitHub workspace could not get a GitHub App token for ${repository}: ${error.message}`, { cause: error });
+    return minted.token;
+  };
   return {
     name: repository,
-    blobReadKey: (sha) => JSON.stringify([repository, token, sha]),
+    blobReadKey: (sha) => JSON.stringify([repository, "token" in signIn ? signIn.token : "app", sha]),
     provider: async () => {
       splitGitHubRepository(repository);
-      return await (provider ||= forgeProvider({ fetch: requestGitHub, forge: "github", token, userAgent: "vitehub-workspace" }));
+      const current = await token();
+      if (provider?.token !== current) {
+        // Workspace owns conditional reads and immutable KV entries; do not add a second validator layer.
+        const next = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace", conditionalRequests: false }) };
+        // A failed load lets the next request try again.
+        next.provider.catch(() => {
+          if (provider === next) provider = undefined;
+        });
+        provider = next;
+      }
+      return await provider.provider;
     },
     ref: (client) => {
       const { owner, repo } = splitGitHubRepository(repository);
@@ -198,6 +237,19 @@ function readLocationEnv(name: string, env: Record<string, string | undefined>):
   return env[name]?.trim() || undefined;
 }
 
+/**
+ * The GitHub App of the Server Env, when `VITEHUB_GITHUB_APP_ID` is set: its installation tokens have a rate limit of
+ * their own, apart from the personal tokens of the people who share an account. Read from the active Cloudflare bindings,
+ * then from `env`. `VITEHUB_GITHUB_INSTALLATION_ID` skips the lookup of the installation for the repository.
+ */
+export function readGitHubEnvApp(
+  env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
+): Forge<"github"> | undefined {
+  const lookup = (name: string): unknown => getActiveCloudflareBinding<unknown>(name) ?? env[name];
+  if (!readForgeEnv(forgeEnv.github.appId, lookup)) return undefined;
+  return useForge({ env: lookup, fetch: requestGitHub, userAgent: "vitehub-workspace" });
+}
+
 /** The Server Env GitHub token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`, from the active Cloudflare bindings and then from `env`. */
 export function readGitHubEnvToken(
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
@@ -213,7 +265,7 @@ export function requireGitHubOption(
 ): string {
   if (!value) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0072({
-      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN or the token option." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
+      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN, the token option, or a GitHub App with VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
     });
   }
   return value;
@@ -321,6 +373,21 @@ export function resolveGitHubRefsOption(options: GitHubWorkspaceOptions): GitHub
   return published || draft ? { ...(published ? { published } : {}), ...(draft ? { draft } : {}) } : undefined;
 }
 
+/**
+ * How the Store signs in: the `token` option, else a GitHub App from `VITEHUB_GITHUB_APP_ID`, else
+ * `VITEHUB_GITHUB_TOKEN`. The App comes before the env token, the same order as `useForge()`.
+ */
+export function resolveGitHubCredential(
+  options: GitHubWorkspaceOptions,
+  env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
+): GitHubCredential {
+  const token = resolveGitHubOption(options.token);
+  if (token && !isMaskedGitHubTokenOption(token)) return { token };
+  const app = readGitHubEnvApp(env);
+  if (app) return { app };
+  return { token: requireGitHubOption("a token", readGitHubEnvToken(env)) };
+}
+
 export function resolveGitHubTokenOption(
   options: GitHubWorkspaceOptions,
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
@@ -335,6 +402,18 @@ const githubBlobReads = new Map<string, Promise<Uint8Array>>();
 const githubBlobByteLimit = 32 * 1024 * 1024;
 const githubBlobFileLimit = 4 * 1024 * 1024;
 let githubBlobBytes = 0;
+
+/** Keep the bytes of a blob, the oldest out first. Different request scopes can finish the same blob; it counts once. */
+function rememberGitHubBlob(sha: string, bytes: Uint8Array): void {
+  if (bytes.byteLength > githubBlobFileLimit || githubBlobs.has(sha)) return;
+  for (const [oldestSha, oldest] of githubBlobs) {
+    if (githubBlobBytes + bytes.byteLength <= githubBlobByteLimit) break;
+    githubBlobs.delete(oldestSha);
+    githubBlobBytes -= oldest.byteLength;
+  }
+  githubBlobs.set(sha, bytes);
+  githubBlobBytes += bytes.byteLength;
+}
 
 /** The bytes of one remote file. A symlink is read by its blob, so the bytes are the link target and not the file it points at. */
 export async function readGitHubFile(
@@ -357,16 +436,7 @@ export async function readGitHubFile(
       if (await gitBlobSha(bytes) !== entry.sha) {
         throw workspaceError("[vitehub] GitHub workspace returned a malformed blob response.");
       }
-      // Different request scopes can finish the same blob; retain and count it only once.
-      if (bytes.byteLength <= githubBlobFileLimit && !githubBlobs.has(entry.sha)) {
-        for (const [sha, oldest] of githubBlobs) {
-          if (githubBlobBytes + bytes.byteLength <= githubBlobByteLimit) break;
-          githubBlobs.delete(sha);
-          githubBlobBytes -= oldest.byteLength;
-        }
-        githubBlobs.set(entry.sha, bytes);
-        githubBlobBytes += bytes.byteLength;
-      }
+      rememberGitHubBlob(entry.sha, bytes);
       return bytes;
     }).finally(() => {
       githubBlobReads.delete(readKey);
@@ -377,11 +447,62 @@ export async function readGitHubFile(
   return (await withSignal(read, signal)).slice();
 }
 
+/** The last archive that each repository connection read, by commit. */
+const lastArchives = new WeakMap<GitHubRepository, { ref: string; bytes: Promise<Uint8Array> }>();
+
+/**
+ * The gzipped tarball of `ref`. The archive of a commit sha never changes, so the last one stays in memory and goes to
+ * the shared KV store, where another server instance reads it without a request.
+ */
 export async function readGitHubArchive(repository: GitHubRepository, ref: string, signal?: AbortSignal): Promise<Uint8Array> {
-  return await githubRequest(repository, async (provider, repo) => {
-    const stream = await forgeArchive(provider, repo, { ref, signal });
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  });
+  const pinned = /^[0-9a-f]{40}$/i.test(ref);
+  const last = lastArchives.get(repository);
+  if (pinned && last?.ref === ref) return (await withSignal(last.bytes, signal)).slice();
+  const read = (async () => {
+    const kvKey = pinned && hasWorkspaceKV() ? await githubKVKey(repository.name, `archive:${ref}`) : undefined;
+    const stored = kvKey ? await readWorkspaceKV<string>(kvKey) : undefined;
+    if (stored) return fromBase64(stored);
+    const bytes = await githubRequest(repository, async (provider, repo) => {
+      const stream = await forgeArchive(provider, repo, { ref, signal });
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    });
+    if (kvKey && bytes.byteLength <= maxArchiveKVBytes) await writeWorkspaceKV(kvKey, toBase64(bytes));
+    return bytes;
+  })();
+  if (pinned) {
+    const entry = { ref, bytes: read };
+    lastArchives.set(repository, entry);
+    read.catch(() => {
+      if (lastArchives.get(repository) === entry) lastArchives.delete(repository);
+    });
+  }
+  return (await withSignal(read, signal)).slice();
+}
+
+/** The largest archive that goes to KV, before base64. */
+const maxArchiveKVBytes = 8 * 1024 * 1024;
+
+/** Above this many blobs that are not in memory, one archive costs less than a request per blob. */
+const archiveReadThreshold = 8;
+
+/**
+ * Keep the bytes of many files of one commit in memory, so the next `readGitHubFile()` of each needs no request. Few
+ * files are read one by one. Many files come from one archive of the commit. A file whose archive bytes do not match its
+ * blob sha, such as a symlink, is left for `readGitHubFile()`.
+ */
+export async function preloadGitHubFiles(
+  repository: GitHubRepository,
+  commit: string,
+  entries: ReadonlyArray<Pick<GitHubTreeEntry, "mode" | "path" | "sha">>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const missing = entries.filter(entry => !githubBlobs.has(entry.sha) && entry.mode !== "120000");
+  if (missing.length <= archiveReadThreshold) return;
+  const wanted = new Map(missing.map(entry => [entry.path, entry]));
+  for (const file of readTarGz(await readGitHubArchive(repository, commit, signal))) {
+    const entry = wanted.get(file.path);
+    if (entry && await gitBlobSha(file.content) === entry.sha) rememberGitHubBlob(entry.sha, file.content);
+  }
 }
 
 /** The files and symlinks of the tree at `ref`, by their Workspace path under `root`. */

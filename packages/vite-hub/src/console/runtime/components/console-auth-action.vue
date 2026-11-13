@@ -10,7 +10,6 @@ import { changeAuthConsole } from "../client/auth-management";
 import { consoleDurationWords } from "../client/format";
 import { useConsoleToast } from "../client/toast";
 const props = defineProps<{
-  base: string;
   action?: AuthConsoleAction;
   userId?: string;
   id?: string;
@@ -58,7 +57,7 @@ const copy = computed(() => {
     case "editField":
       return { title: `Edit ${field}`, description: `Change ${field} for ${user}.`, submit: "Save", pending: "Saving…" };
     case "impersonate":
-      return { title: "Impersonate user", description: `Open the app as ${user}.`, submit: "Impersonate", pending: "Opening the app…" };
+      return { title: "Impersonate user", description: `Open the app as ${user} in a new tab.`, submit: "Impersonate", pending: "Opening the app…" };
     default:
       return { title: "Auth action", description: "", submit: "Continue", pending: "Working…" };
   }
@@ -143,7 +142,7 @@ async function submit() {
       default:
         body = { action: props.action, userId: props.userId! };
     }
-    await changeAuthConsole(props.base, body);
+    await changeAuthConsole(body);
     const done = doneTitle(props.action);
     if (done) toast.show({ title: done });
     emit("changed", props.action);
@@ -170,15 +169,15 @@ async function submit() {
           <li class="flex gap-3">
             <UIcon name="i-lucide-log-in" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty"
-              >This browser signs in to the app as {{ name ?? "this user" }}, and the app opens.
-              Your own session comes back when you stop.</span
+              >A new tab opens the app as {{ name ?? "this user" }}. This browser must be signed in to the app
+              with the email of your Console account. Your own session comes back when you stop.</span
             >
           </li>
           <li class="flex gap-3">
             <UIcon name="i-lucide-timer" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty"
-              >The session ends after {{ consoleDurationWords(duration ?? 3600) }}. To stop sooner, open
-              Auth in the Console.</span
+              >The session ends after {{ consoleDurationWords(duration ?? 3600) }}. To stop sooner, select
+              Stop impersonating on any user in the Console.</span
             >
           </li>
           <li class="flex gap-3">

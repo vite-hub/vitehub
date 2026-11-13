@@ -1,12 +1,9 @@
-import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { isBlockingServerEnvEntry } from "@vite-hub/env"
 import { runWithCloudflareEnv } from "@vite-hub/env/internal/server"
 import { consoleState } from "../../internal.ts"
 import type { ServerEnvDescription, ServerEnvInspection, ServerEnvInspectionEntry } from "@vite-hub/env"
-import type { EnvBridgeRequestOptions } from "@vite-hub/env/bridge"
 import type { ConsoleEnvInspection } from "../../internal.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
-import { getConsoleSections } from "./sections.ts"
 
 export type ConsoleEnvStatusEntry = Pick<ServerEnvInspectionEntry, "path" | "status"> & {
   /** The entry makes `loadServerEnv()` fail. */
@@ -21,12 +18,10 @@ export type ConsoleEnvResponse = ServerEnvDescription & {
 export function installConsoleEnv(
   projectRoot: string,
   description: ServerEnvDescription,
-  manage?: (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response>,
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>,
 ): ConsoleEnvInspection {
   const scope: ConsoleEnvInspection = { ...description }
   if (inspect) scope.inspect = inspect
-  if (manage) scope.manage = manage
   return consoleState().env = scope
 }
 
@@ -52,11 +47,4 @@ export async function getConsoleEnvStatus(event: ConsoleRequestEvent): Promise<C
     entries: inspection.entries,
     status,
   }
-}
-
-/** `options.allowedOrigin` is set only for a cross-origin bearer call that the Console access check accepted. */
-export async function manageConsoleEnv(request: Request, options: EnvBridgeRequestOptions = {}): Promise<Response> {
-  const manage = getConsoleSections().includes("env") ? consoleState().env?.manage : undefined
-  if (!manage) return Response.json(consoleDiagnosticBody("CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"), { status: 404, headers: { "cache-control": "no-store" } })
-  return manage(request, options)
 }

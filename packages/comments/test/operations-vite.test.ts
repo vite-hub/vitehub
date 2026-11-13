@@ -76,9 +76,9 @@ describe("defineComments", () => {
     expect(definition.options.authorize).toBe(authorize)
     expect(builtinCommentSubjects.map(subject => [subject.kind, subject.scope("x")])).toEqual([["page", "site"], ["content", "site"]])
     expect(commentsOperations.map(operation => operation.name)).toEqual([
-      "comments.list", "comments.get", "comments.create", "comments.reply", "comments.edit", "comments.delete", "comments.resolve", "comments.reopen", "comments.users", "comments.upload", "comments.attachment", "comments.session",
+      "comments.threads", "comments.list", "comments.get", "comments.create", "comments.reply", "comments.edit", "comments.delete", "comments.resolve", "comments.reopen", "comments.users", "comments.upload", "comments.attachment", "comments.session",
     ])
-    expect(commentsOperations.map(operation => operation.kind)).toEqual(["read", "read", "write", "write", "write", "destructive", "write", "write", "read", "write", "read", "read"])
+    expect(commentsOperations.map(operation => operation.kind)).toEqual(["read", "read", "read", "write", "write", "write", "destructive", "write", "write", "read", "write", "read", "read"])
     expect(commentsOperations.every(operation => operation.section === "comments")).toBe(true)
   })
 })

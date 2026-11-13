@@ -143,7 +143,7 @@ export const CommentReply = defineComponent({
     onDelete: { type: Function as PropType<(messageId: string) => Done> },
   },
   // SAFETY: Vue uses Object as its runtime slots marker.
-  slots: Object as SlotsType<CommentReplySlots & Pick<CommentComposerSlots, "mention-item">>,
+  slots: Object as SlotsType<CommentReplySlots & Pick<CommentComposerSlots, "mention-item" | "mention-empty">>,
   setup(props, { slots }) {
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
@@ -248,7 +248,10 @@ export const CommentReply = defineComponent({
                   people: props.people,
                   users: props.users,
                   variant: "edit",
-                }, slots["mention-item"] ? { "mention-item": slots["mention-item"] } : undefined)
+                }, {
+                  ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+                  ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
+                })
               : (slots.body?.({ message }) ?? h(Markdown, {
                   components: bodyComponents,
                   "data-slot": "comment-reply-body",
@@ -421,10 +424,12 @@ export const CommentThread = defineComponent({
       ...(slots.body ? { body: slots.body } : {}),
       ...(slots.attachments ? { attachments: slots.attachments } : {}),
       ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+      ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
     });
     const composerSlots = () => ({
       ...(slots.extra ? { extra: slots.extra } : {}),
       ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+      ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
     });
 
     return () => {
@@ -499,6 +504,7 @@ export const CommentThread = defineComponent({
             error: failure.value ?? props.error,
             files: files.value,
             guard: false,
+            layout: "row",
             mentions: mentions.value,
             modelValue: reply.value,
             onCancel: close,

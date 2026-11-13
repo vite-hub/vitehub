@@ -30,13 +30,12 @@ const content: DocsContentRuntime = {
   collection: () => ({ get }),
 }
 
-vi.mock("#imports", async () => {
-  const h3 = await import("h3")
-  return { createError: h3.createError, defineEventHandler: h3.defineEventHandler, getRouterParam: h3.getRouterParam, setHeader: h3.setHeader, useStorage: () => ({ getItem }) }
-})
+vi.mock("nitro/kv", () => ({ useKV: () => ({ getItem }) }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: fixtures, base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: fixtures, base: "/docs" }) }
 })
 vi.mock("#docs/content", () => ({ content }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))

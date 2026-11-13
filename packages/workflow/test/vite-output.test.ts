@@ -236,7 +236,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await writeFile(mixedStep, "export default async function mixed() {}\n")
   await writeFile(join(mixedDependencyRoot, ".git"), "gitdir: /tmp/mixed-dependency.git\n")
   await writeFile(mixedDependency, 'export const value = "retained"\n')
-  await writeFile(agentHandler, "export default defineAgent({ runtime: workflow() })\n")
+  await writeFile(agentHandler, "export default defineAgent({ runtime: agentWorkflow() })\n")
   await writeFile(join(skillsRoot, "review", "SKILL.md"), "# Review\n")
   await writeFile(join(skillsRoot, "review", ".git"), "gitdir: /tmp/review-skill.git\n")
   await writeFile(join(workspaceRoot, ".git"), "gitdir: /tmp/review-workspace.git\n")
@@ -277,7 +277,7 @@ it("preserves literal parent Agent Workflow references without retaining their t
     mkdir(dirname(policy), { recursive: true }),
   ])
   await Promise.all([
-    writeFile(handler, "export default defineAgent({ runtime: workflow() })\n"),
+    writeFile(handler, "export default defineAgent({ runtime: agentWorkflow() })\n"),
     writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nReview the change.\n`),
     writeFile(policy, "Follow the shared Workflow policy.\n"),
   ])
@@ -1427,7 +1427,7 @@ describe("Vite workflow provider outputs", () => {
     await mkdir(generatedWorkflowDir, { recursive: true })
     await writeFile(join(rootDir, "server", "email.ts"), "export const outboxRuntimeId = \"disabled\"\nexport default { driver: () => ({ send: async () => ({}) }) }\n")
     await writeFile(join(generatedWorkflowDir, "01-collect.ts"), "export default async function collect(input) { return { ...input, collected: true } }\n")
-    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email/server'\nexport default async function send(input) { await email.send(input); return input }\n")
+    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email'\nexport default async function send(input) { await email.send(input); return input }\n")
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,
@@ -1442,7 +1442,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync(vp, ["build"], {
       cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
@@ -1466,7 +1466,7 @@ describe("Vite workflow provider outputs", () => {
     await rm(generatedWorkflowDir, { recursive: true })
     await execFileAsync(vp, ["build"], {
       cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
     expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))

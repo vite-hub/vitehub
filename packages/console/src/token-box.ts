@@ -1,7 +1,7 @@
 /**
- * The Console keeps the token of each project, so it can call the project's Operations endpoint. It stores the token
- * encrypted with AES-GCM. The key comes from `VITEHUB_CONSOLE_SECRET`, and the project id is the associated data, so
- * a sealed token copied to another project row does not open.
+ * The Console keeps the private signing key of each project link, so it can sign calls to the project's Operations
+ * endpoint. It stores the key encrypted with AES-GCM. The encryption key comes from `VITEHUB_CONSOLE_SECRET`, and the
+ * project id is the associated data, so a sealed key copied to another project row does not open.
  */
 
 export const consoleSecretVariable = "VITEHUB_CONSOLE_SECRET"
@@ -31,10 +31,10 @@ export function consoleSecretProblem(secret: string | undefined): string | undef
   return undefined
 }
 
-async function tokenKey(secret: string) {
+async function boxKey(secret: string) {
   const material = await crypto.subtle.importKey("raw", encoder.encode(secret.trim()), "HKDF", false, ["deriveKey"])
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", info: encoder.encode("vitehub-console project token v1"), salt: new Uint8Array(32) },
+    { name: "HKDF", hash: "SHA-256", info: encoder.encode("vitehub-console project key v1"), salt: new Uint8Array(32) },
     material,
     { name: "AES-GCM", length: 256 },
     false,
@@ -42,36 +42,25 @@ async function tokenKey(secret: string) {
   )
 }
 
-/** A new project token: 32 random bytes as 64 hex characters. */
-export function createProjectToken(): string {
-  return [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
-/** The SHA-256 of a token as 64 hex characters, the value that the project keeps in `VITEHUB_CONSOLE_TOKEN_SHA256`. */
-export async function tokenSha256(token: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(token)))
-  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
-/** Encrypt the token of one project. The result is `v1.<iv>.<ciphertext>`, both in base64url. */
-export async function sealProjectToken(secret: string, projectId: string, token: string): Promise<string> {
+/** Encrypt the private key of one project. The result is `v1.<iv>.<ciphertext>`, both in base64url. */
+export async function sealProjectKey(secret: string, projectId: string, privateKey: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(projectId) }, await tokenKey(secret), encoder.encode(token))
+  const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(projectId) }, await boxKey(secret), encoder.encode(privateKey))
   return `${sealedPrefix}${base64url(iv)}.${base64url(new Uint8Array(sealed))}`
 }
 
 /**
- * Decrypt the token of one project. Returns `undefined` when the value was sealed with another secret, for another
+ * Decrypt the private key of one project. Returns `undefined` when the value was sealed with another secret, for another
  * project, or was changed.
  */
-export async function openProjectToken(secret: string, projectId: string, sealed: string): Promise<string | undefined> {
+export async function openProjectKey(secret: string, projectId: string, sealed: string): Promise<string | undefined> {
   if (!sealed.startsWith(sealedPrefix)) return undefined
   const [ivText, dataText, extra] = sealed.slice(sealedPrefix.length).split(".")
   const iv = ivText === undefined ? undefined : fromBase64url(ivText)
   const data = dataText === undefined ? undefined : fromBase64url(dataText)
   if (extra !== undefined || iv?.length !== 12 || !data) return undefined
   try {
-    const opened = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(projectId) }, await tokenKey(secret), data)
+    const opened = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(projectId) }, await boxKey(secret), data)
     return decoder.decode(opened)
   }
   catch {

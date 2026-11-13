@@ -22,7 +22,7 @@ afterEach(async () => {
 function setup(url = ":memory:") {
   const client = createClient({ url });
   cleanup.push(() => client.close());
-  const db = drizzle(client);
+  const db = drizzle({ client: client });
   const store = createDatabaseEnvStore({
     db,
     encryptionKey: new Uint8Array(32).fill(7),

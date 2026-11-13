@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { comarkContent } from "comark-content"
-import type { ContentGetOptions, ContentOptions, JsonSchema, Source as ComarkContentSource } from "comark-content"
+import { comarkContent, memory } from "comark-content"
+import type { ContentGetOptions, ContentOptions, JsonSchema, ParsedSource, Source as ComarkContentSource } from "comark-content"
 import { createSource, useSource } from "@vite-hub/source"
-import type { Source, SourceItem, SourceName } from "@vite-hub/source"
+import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { withContentSnapshot } from "./snapshots.ts"
@@ -24,8 +24,18 @@ export interface ContentSourceOptions {
 
 type ContentSourceItem = SourceItem<string, unknown, object>
 type RuntimeObject = Record<string, unknown>
+/** How each load of a Source definition reads one commit, such as the head commit of a `github()` Source. */
+export interface ContentSourceCommits {
+  /** The commit that the next load reads, or undefined to read the Source as it is. A read outside a load first syncs the head. */
+  revision(): Promise<SourceRevision | undefined>
+  /** The files of a commit, from the commit cache. */
+  files(revision: SourceRevision): Promise<ContentSourceItem[]>
+  /** The parsed documents of the commit that the instance serves, as a Comark parsed Source over `origin`. */
+  documents(origin: ComarkContentSource): ParsedSource
+}
+type ContentSourceFactoryOptions = Omit<ContentSourceOptions, "url"> & { commits?: ContentSourceCommits }
 type ContentSourceFactory = {
-  create(options?: ContentSourceOptions): ComarkContentSource
+  create(options?: ContentSourceFactoryOptions): ComarkContentSource
 }
 type ContentSourceState = {
   latestItems?: Map<string, ContentSourceItem>
@@ -174,18 +184,19 @@ function getContentSourceFactory(source: ComarkContentSource): ContentSourceFact
 }
 
 function contentSourceOptions(
-  defaults: ContentSourceOptions,
-  overrides: ContentSourceOptions,
-): ContentSourceOptions {
+  defaults: ContentSourceFactoryOptions,
+  overrides: ContentSourceFactoryOptions,
+): ContentSourceFactoryOptions {
   return {
     prefix: overrides.prefix ?? defaults.prefix,
     schema: overrides.schema ?? defaults.schema,
+    commits: overrides.commits ?? defaults.commits,
   }
 }
 
 function createContentSourceFactory(
   sourceInput: Source<string, unknown, object> | SourceName | ContentSourceReader | (() => ContentSourceReader),
-  defaults: ContentSourceOptions,
+  defaults: ContentSourceFactoryOptions,
 ): ContentSourceFactory {
   const state: ContentSourceState = { latestSequence: 0, nextSequence: 0 }
   const factory: ContentSourceFactory = {
@@ -198,14 +209,15 @@ function createContentSourceFactory(
           const sequence = ++state.nextSequence
           itemsPromise = (async () => {
             const nextItems = new Map<string, ContentSourceItem>()
-            const currentReader = isSourceName(sourceInput)
+            const revision = await options.commits?.revision()
+            const currentReader = () => isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
                 ? createSource(sourceInput)
                 : isRuntimeFunction(sourceInput)
                   ? sourceInput()
                   : sourceInput
-            for (const item of await currentReader.items()) {
+            for (const item of revision ? await options.commits!.files(revision) : await currentReader().items()) {
               const path = contentPath(item)
               if (nextItems.has(path)) {
                 throw contentErrorDiagnostics.CONTENT_R0003({ message: `[vitehub] contentSource() received duplicate content path ${JSON.stringify(path)}.` })
@@ -222,6 +234,25 @@ function createContentSourceFactory(
         return itemsPromise
       }
 
+      let knownReader: { get(key: string): Promise<ContentSourceItem> } | undefined
+      // A path that the last full load saw is read alone. Other paths, such as a new file, load every item.
+      async function readKnownItem(path: string) {
+        const known = state.latestItems?.get(path)
+        if (!known || itemsPromise || options.commits) return
+        // One reader per load keeps every read of a load on one revision.
+        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? createSource(sourceInput) : undefined
+        if (!knownReader) return
+        // A failed read, such as a deleted file, falls back to the full load, which reports real errors.
+        try {
+          const item = await knownReader.get(known.key)
+          if (contentPath(item) !== path) return
+          state.latestItems?.set(path, item)
+          return item
+        } catch {
+          return undefined
+        }
+      }
+
       const source: ComarkContentSource = {
         async keys() {
           itemsPromise = undefined
@@ -229,7 +260,7 @@ function createContentSourceFactory(
         },
         async getItem(key) {
           const path = normalizeContentSourcePath(key)
-          const item = (await loadItems()).get(path)
+          const item = await readKnownItem(path) ?? (await loadItems()).get(path)
           if (!item) throw contentErrorDiagnostics.CONTENT_R0004({ message: `[vitehub] contentSource() could not find ${JSON.stringify(key)}.` })
           return textContent(item)
         },
@@ -269,7 +300,8 @@ export function contentSourceUrl(input: ContentSourceInput | undefined): Content
   return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
 }
 
-function contentSourceDefinition(input: ContentSourceInput): Source<string, unknown, object> | undefined {
+/** The `@vite-hub/source` Source definition behind an input, if any. */
+export function contentSourceDefinition(input: ContentSourceInput): Source<string, unknown, object> | undefined {
   if (isSourceDefinition(input)) return input
   return isComarkContentSource(input) ? contentSourceDefinitions.get(input) : undefined
 }
@@ -290,7 +322,8 @@ export async function contentSourceKeys(input: ContentSourceInput): Promise<stri
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  const { url = contentSourceUrl(input), ...comarkOptions } = options
+  const { url = contentSourceUrl(input), prefix, schema } = options
+  const comarkOptions = { prefix, schema }
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
   }
@@ -310,12 +343,16 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
 
 /**
  * Create the Comark instance of one Source. With `snapshot`, the instance hydrates from the build-time snapshot on its
- * first read and keeps the Source as its origin.
+ * first read and keeps the Source as its origin. With `commits`, the instance serves one commit of a Source definition
+ * from the commit cache.
  */
-export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader): ReturnType<typeof comarkContent> {
-  const source = contentSource(input)
+export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions, snapshot?: ContentSnapshotLoader, commits?: ContentSourceCommits): ReturnType<typeof comarkContent> {
+  const adapted = contentSource(input)
+  const source = commits ? getContentSourceFactory(adapted)?.create({ commits }) ?? adapted : adapted
   options = {
     ...options,
+    // A persistent Comark cache has no commit identity. Keep managed GitHub caches local to this instance.
+    ...(commits && options.cache !== false ? { cache: { ...options.cache, driver: memory() } } : {}),
     plugins: options.plugins?.map(plugin => plugin && ({
       ...plugin,
       setup(context) {
@@ -330,19 +367,39 @@ export function createContentInstance(name: string, input: ContentSourceInput, o
 
   // Each async load retains its own Source reader, including parsers that outlive a failed load.
   const loads = new AsyncLocalStorage<ComarkContentSource>()
+  const loaded = new WeakSet<ComarkContentSource>()
+  let currentSource = source
+  let nextSequence = 0
+  let currentSequence = 0
+  async function load<T>(run: () => Promise<T>): Promise<T> {
+    const reader = factory!.create()
+    const sequence = ++nextSequence
+    const result = await loads.run(reader, run)
+    // Cached reads do not load a reader. Only a successful load can replace this instance's raw Source.
+    if (loaded.has(reader) && sequence >= currentSequence) {
+      currentSource = reader
+      currentSequence = sequence
+    }
+    return result
+  }
   const scopedSource: ComarkContentSource = {
     ...source,
-    keys: () => (loads.getStore() ?? source).keys(),
-    getItem: key => (loads.getStore() ?? source).getItem(key),
-    getItemRaw: key => (loads.getStore() ?? source).getItemRaw(key),
+    async keys() {
+      const reader = loads.getStore() ?? currentSource
+      const keys = await reader.keys()
+      loaded.add(reader)
+      return keys
+    },
+    getItem: key => (loads.getStore() ?? currentSource).getItem(key),
+    getItemRaw: key => (loads.getStore() ?? currentSource).getItemRaw(key),
   }
-  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot, keys) : scopedSource })
+  const instance = comarkContent(name, { ...options, source: snapshot ? withContentSnapshot(scopedSource, snapshot, keys) : commits ? commits.documents(scopedSource) : scopedSource })
   const init = instance.init.bind(instance)
   const refresh = instance.refresh.bind(instance)
   const get = instance.get.bind(instance)
-  instance.init = opts => loads.getStore() ? init(opts) : loads.run(factory.create(), () => init(opts))
-  instance.refresh = () => loads.run(factory.create(), refresh)
+  instance.init = opts => loads.getStore() ? init(opts) : load(() => init(opts))
+  instance.refresh = () => load(refresh)
   // SAFETY: The wrapper forwards the key and options without changing the generic document result.
-  instance.get = ((key: string, opts?: ContentGetOptions) => loads.run(factory.create(), () => get(key, opts))) as typeof instance.get
+  instance.get = ((key: string, opts?: ContentGetOptions) => load(() => get(key, opts))) as typeof instance.get
   return instance
 }

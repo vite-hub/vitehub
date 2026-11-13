@@ -9,10 +9,9 @@ export default function authorizeConsole(): boolean {
 export const hostManagedAuthorize: string = fileURLToPath(import.meta.url)
 
 /**
- * Console options for production build tests. A production build refuses `auth: false`. Cloudflare Access needs no app
- * Auth and no files, and `authorize` allows every request.
+ * Console options for production build tests. A production build refuses `auth: false`, so the app takes only signed
+ * calls, and `authorize` allows every request.
  */
-export const productionConsole: { auth: { provider: "cloudflare-access" }, authorize: string } = {
-  auth: { provider: "cloudflare-access" },
+export const productionConsole: { authorize: string } = {
   authorize: hostManagedAuthorize,
 }

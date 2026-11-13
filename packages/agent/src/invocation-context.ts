@@ -6,8 +6,7 @@ export const agentInvocationRunId = Symbol.for("vitehub.agent.invocationRunId")
 export const agentInvocationConfigurationUpdatedContextKey = "agent.inspection.configurationUpdated"
 
 function isCallbackContextValue(id: string): boolean {
-  return id !== "actor"
-    && id !== "invoker"
+  return id !== "invoker"
     && id !== "chat"
     && !id.startsWith("agent.")
     && !id.startsWith("channel.delivery.")

@@ -29,7 +29,7 @@ export async function createDatabase(): Promise<CommentsDatabase> {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(commentsMigration)
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  return drizzle(client) as unknown as CommentsDatabase
+  return drizzle({ client }) as unknown as CommentsDatabase
 }
 
 /** Comments on an in-memory Database. Tests name their own policy; `{ authorize: undefined }` tests the default one. */

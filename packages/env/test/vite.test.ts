@@ -435,7 +435,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
     expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): ServerEnv")
-    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): Promise<string>")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, options?: { event?: import(\"@vite-hub/env/internal/server\").ViteHubContext; root?: string }): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = hookHandler<(id: string) => string | undefined>(plugin.load)
@@ -536,7 +536,6 @@ describe("Vite plugin", () => {
     expect(serverModule).not.toContain('from "@vite-hub/env/internal/server"')
     const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)
     expect(await generated.loadServerEnv()).toEqual({ token: "ok" })
-    expect((await generated.manageServerEnv(new Request("http://localhost"))).status).toBe(503)
     vi.stubEnv("VITEHUB_SECRET", "facade-root-secret-at-least-32-characters")
     const sealed = await generated.seal("app:facade", { token: "ok" })
     expect(await generated.unseal("app:facade", sealed)).toEqual([undefined, { token: "ok" }])
@@ -577,7 +576,7 @@ describe("Vite plugin", () => {
     ].join("\n"), "utf8")
     const runtimeFacadePath = join(root, "env-runtime.mjs")
     await writeFile(runtimeFacadePath, [
-      `export { createServerEnvManagement, describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/internal/server.js", import.meta.url).href)}`,
+      `export { describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from ${JSON.stringify(new URL("../dist/internal/server.js", import.meta.url).href)}`,
       ``,
     ].join("\n"), "utf8")
 

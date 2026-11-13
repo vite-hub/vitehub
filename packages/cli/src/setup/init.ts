@@ -11,25 +11,24 @@ import { minVersion, Range, subset, validRange } from "semver"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { consolePendingIdPattern, formatSetupLinkFile, gitignoreWithViteHub, readSetupConsoleLink, readSetupLink, SETUP_LINK_FILE } from "./link.ts"
+import { gitignoreWithViteHub } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
 import { installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { JsonValue } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddArgs, SetupChange, SetupOptions, SetupRerun } from "./add.ts"
 import type { SetupMissing } from "./envelope.ts"
-import type { SetupConsoleLink } from "./link.ts"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
 
-const usage = "vitehub init <dir> --host <preset> --features <id,id,...> [--option <feature.key=value>]... [--console <pendingId>:sha256:<hex>] [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
+const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
 /** The command that starts a project. It runs from the `vite-hub` package, so it needs no install. */
 const initCommandPrefix = "pnpm dlx vite-hub init"
 
-const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly DeploymentPreset[]
+const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly ViteHubHost[]
 type InitHost = typeof initHosts[number]
 type InitFramework = "vite" | "nuxt"
 const frameworks: readonly InitFramework[] = ["vite", "nuxt"]
@@ -62,7 +61,6 @@ export interface SetupInitArgs {
   features?: FeatureId[]
   /** Raw `--option` values, such as `email.driver=resend`. */
   options: string[]
-  console?: SetupConsoleLink
   framework?: InitFramework
   pm?: SetupPackageManager
   install: boolean
@@ -87,10 +85,8 @@ export interface SetupInitPlan {
   scaffold?: { command: string }
   changes: readonly SetupChange[]
   install: { packages: readonly string[], devPackages: readonly string[], command?: string }
-  /** The command that creates the same stack. README.md keeps it. It never includes the `--console` value. */
+  /** The command that creates the same stack. README.md keeps it. */
   stack: { command: string }
-  /** The pending Console link, without the hash. */
-  console: { pendingId: string } | null
   nextSteps: readonly string[]
 }
 
@@ -108,14 +104,7 @@ function oneOf<T extends string>(flag: string, value: string, choices: readonly 
   return found
 }
 
-/** Reads `<pendingId>:sha256:<hex>`. The error never repeats the value, because a person can paste a secret by mistake. */
-function readConsole(value: string): SetupConsoleLink {
-  const match = /^([^:]+):sha256:([0-9a-f]{64})$/iu.exec(value)
-  if (!match || !consolePendingIdPattern.test(match[1]!)) throw new SetupFailure(cliErrorDiagnostics.SETUP_CONSOLE_INVALID(), setupExitCodes.error)
-  return { pendingId: match[1]!, tokenSha256: match[2]!.toLowerCase() }
-}
-
-/** Reads the arguments. Throws `CLI_R0003` for an unknown flag or value, and `SETUP_CONSOLE_INVALID` for a bad `--console`. */
+/** Reads the arguments. Throws `CLI_R0003` for an unknown flag or value. */
 export function readInitArgs(args: readonly string[]): SetupInitArgs {
   const parsed: SetupInitArgs = { dryRun: false, help: false, install: true, json: false, options: [], yes: false }
   let features: string | undefined
@@ -135,7 +124,6 @@ export function readInitArgs(args: readonly string[]): SetupInitArgs {
     else if (flag === "--host") parsed.host = oneOf("--host", value(), initHosts)
     else if (flag === "--features") features = value()
     else if (flag === "--option") parsed.options.push(value())
-    else if (flag === "--console") parsed.console = readConsole(value())
     else if (flag === "--framework") parsed.framework = oneOf("--framework", value(), frameworks)
     else if (flag === "--pm") parsed.pm = oneOf("--pm", value(), packageManagers)
     else if (arg.startsWith("-")) throw invalid(`Unknown argument ${JSON.stringify(arg)}.`)
@@ -177,15 +165,14 @@ function initCommand(parts: InitCommandParts, extra: readonly string[]): string 
   ].join(" ")
 }
 
-/** The command that creates the same stack, for README.md and `vitehub status`. It never includes `--console`. */
+/** The command that creates the same stack, for README.md and `vitehub status`. */
 function stackCommand(parts: InitCommandParts): string {
   return initCommand(parts, ["--yes"])
 }
 
-/** The `rerun` command: the same request with `--yes`, including the `--console` value, which is a hash and not a secret. */
+/** The `rerun` command: the same request with `--yes`. */
 function rerunInit(args: SetupInitArgs, parts: InitCommandParts): string {
   return initCommand(parts, [
-    ...(args.console ? ["--console", `${args.console.pendingId}:sha256:${args.console.tokenSha256}`] : []),
     ...(args.install ? [] : ["--no-install"]),
     "--yes",
     ...(args.json ? ["--json"] : []),
@@ -251,14 +238,14 @@ function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   "include": ["server/**/*.ts", "vite.config.ts"]
 }
 `,
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: "${host}" })],\n})\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ host: "${host}" })],\n})\n`,
   }
 }
 
 /** The config that `nuxi init` and the adoption would give, to plan a new Nuxt app before `nuxi init` runs. */
 function nuxtAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { preset: "${host}" }],\n  ],\n})\n`,
+    "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { host: "${host}" }],\n  ],\n})\n`,
     "package.json": `${JSON.stringify({ name, private: true, type: "module" }, null, 2)}\n`,
   }
 }
@@ -317,7 +304,7 @@ async function readOptional(file: string): Promise<string | undefined> {
 }
 
 function manualConfig(file: string, reason: string, host: InitHost, framework: InitFramework): SetupFailure {
-  const snippet = framework === "nuxt" ? `[viteHubNuxt, { preset: "${host}" }],` : `vitehub({ preset: "${host}" }),`
+  const snippet = framework === "nuxt" ? `[viteHubNuxt, { host: "${host}" }],` : `vitehub({ host: "${host}" }),`
   return new SetupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
 }
 
@@ -335,13 +322,13 @@ function adoptConfig(project: SetupProject, host: InitHost, framework: InitFrame
   if (before === undefined) throw manualConfig(file, "no-vitehub", host, framework)
   if (!config?.ok) {
     if (config?.reason !== "no-vitehub") throw manualConfig(file, config?.reason ?? "no-vitehub", host, framework)
-    const inserted = insertViteHubConfig(file, before, { preset: host })
+    const inserted = insertViteHubConfig(file, before, { host })
     if (!inserted.ok) throw manualConfig(file, inserted.reason, host, framework)
     return { after: inserted.code, before, file }
   }
-  const preset = config.site.keys.preset
-  if (preset?.kind === "literal" && preset.value === host) return { after: before, before, file }
-  const edited = editViteHubConfig(file, before, [{ key: "preset", op: "set", value: host }])
+  const configuredHost = config.site.keys.host
+  if (configuredHost?.kind === "literal" && configuredHost.value === host) return { after: before, before, file }
+  const edited = editViteHubConfig(file, before, [{ key: "host", op: "set", value: host }])
   if (!edited.ok) throw manualConfig(file, edited.reason, host, framework)
   return { after: edited.code, before, file }
 }
@@ -427,22 +414,13 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   for (const file of added.files) base.set(file.path, { after: file.content })
   if (added.configFile) base.set(configFile, { ...base.get(configFile), after: added.configFile.after })
 
-  // README.md, .gitignore, and the Console link.
+  // README.md and .gitignore.
   const stack = stackCommand(parts())
   const readme = state.kind === "create" ? undefined : await readOptional(join(root, "README.md"))
   base.set("README.md", { ...(readme === undefined ? {} : { before: readme }), after: readmeWithStack(readme, name, stack) })
   if (state.kind === "adopt") {
     const gitignore = await readOptional(join(root, ".gitignore"))
     base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
-  }
-  if (args.console) {
-    const linkFile = join(root, SETUP_LINK_FILE)
-    const before = state.kind === "adopt" ? await readOptional(linkFile) : undefined
-    const link = state.kind === "adopt" ? await readSetupLink(root) : undefined
-    const after = formatSetupLinkFile({ schemaVersion: 1, ...link, console: args.console })
-    const current = state.kind === "adopt" ? await readSetupConsoleLink(root) : undefined
-    const same = current?.pendingId === args.console.pendingId && current.tokenSha256 === args.console.tokenSha256
-    base.set(SETUP_LINK_FILE, { ...(before === undefined ? {} : { before }), after: same && before !== undefined ? before : after })
   }
 
   // Config last, so the app turns ViteHub on only after the other files are written.
@@ -461,12 +439,10 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     ...(root === resolve(context.rootDir) ? [] : [`cd ${shellQuote(args.dir)}`]),
     ...(command && !args.install ? [`Install the packages: ${command}`] : []),
     `Start the dev server: ${runScript(packageManager, "dev")}`,
-    ...(args.console ? ["The Console link waits for the first deploy of this app."] : []),
     ...added.plan.nextSteps,
   ]
   const plan: SetupInitPlan = {
     changes: writes.map(write => changeOf(write.path, write.before, write.after)),
-    console: args.console ? { pendingId: args.console.pendingId } : null,
     features: added.plan.features,
     framework,
     host: args.host,

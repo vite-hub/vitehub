@@ -1,39 +1,58 @@
 # @vite-hub/console
 
-The ViteHub Console as its own app. You deploy it once, sign in, and link your apps. The Console server calls each app's Operations endpoint with that app's token. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console.
+The ViteHub Console as its own app. You deploy it once, people sign in, and each team links its apps. The Console server signs each call to an app's Operations endpoint with the key of that app's link. Apps do not serve Console pages, need no CORS, and run no OAuth server for the Console. console.vitehub.dev runs this app.
 
-This package is private and in progress. It has the server part: sign-in, the list of linked projects, and the forward to their Operations endpoint. The Console page and the `vitehub console deploy` command come next.
+This package is private and in progress. `vitehub console deploy` comes next.
 
 ## How it works
 
-1. An admin links a project with its URL. The Console makes a token for the project. It keeps the token encrypted and shows only its SHA-256.
-2. You add that hash to the project's `VITEHUB_CONSOLE_TOKEN_SHA256`. The project needs `console: { auth: "token" }`.
-3. The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server sends the call to the project with `Authorization: Bearer <token>`.
+1. A person signs in with GitHub or a passkey. A new account gets a personal team. People can make more teams and invite others.
+2. An owner or admin of a team links an app with its URL. The Console makes an Ed25519 key pair for the link. It keeps the private key encrypted and shows the public key and the variable that holds it, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`.
+3. You set that variable on the app and deploy. The app needs `console: true`.
+4. The Console page calls `/p/<project>/_vitehub/rpc` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then signs the call and sends it to the app. The signature covers the exact body bytes and the person who calls: their user id, name, email, team id, and role. The app's `console.authorize` receives them with `via: "console"`. See [Sign Console requests](https://vitehub.dev/docs/development/console#sign-console-requests).
 
-The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the token or the project's cookies. The forward sends only the data routes: `/_vitehub/rpc/**`, `/_vitehub/api/**`, and `/_vitehub/page/session`. It stops at a redirect and refuses a body over 9 MiB.
+Each link has its own variable, so two teams can link the same app, and unlinking one leaves the other.
+
+The migration `0002_sign_project_calls` removes the links that an older Console made with bearer tokens, because they cannot sign. Link those apps again and set the new line.
+
+The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the one Console route of a project, `POST /_vitehub/rpc`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
 
 Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
+
+## Accounts and teams
+
+Sign-in uses Better Auth with `authDatabase()`, `organization()`, and `passkey()` from `@better-auth/passkey`. A team is a Better Auth organization.
+
+- **GitHub**: set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. The callback URL of the GitHub OAuth app is `<console origin>/api/auth/callback/github`. Without them, the sign-in page offers passkeys only.
+- **Passkeys**: the first passkey makes the account, with the name the person types. Such an account has no email address. Its email is a placeholder on the reserved `passkey.invalid` domain, so it cannot accept an invitation until the person signs in with GitHub. A signed-in person adds passkeys and GitHub from the account menu.
+- **Teams**: every session opens a team. The first sign-in makes a personal team with the person as `owner`. Owners and admins link and unlink projects and invite people. Members open the projects. An invitation is a link to `/invite/<id>` for the email of a GitHub account, valid for 48 hours. The Console sends no email.
+
+The server keeps at least one passkey or linked GitHub account when a sign-in method is removed, including concurrent requests from other tabs. Apply the database migrations on each host: they enforce this rule in the same statement as the deletion.
 
 ## Configure
 
 | Variable | Use |
 | --- | --- |
-| `VITEHUB_CONSOLE_SECRET` | The key that encrypts project tokens, at least 32 characters. Create it with `openssl rand -hex 32`. If it changes, the Console cannot open the tokens, and you must link the projects again. |
+| `BETTER_AUTH_SECRET` | The key that signs sessions, at least 32 characters. |
+| `VITEHUB_CONSOLE_SECRET` | The key that encrypts the private keys of the project links, at least 32 characters. Create it with `openssl rand -hex 32`. If it changes, the Console cannot open the keys, and teams must link their projects again. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional. GitHub sign-in. |
 | `VITEHUB_CONSOLE_ALLOW_PRIVATE` | `true` lets the Console link private addresses, such as `localhost`, `10.0.0.8`, or `*.internal`. Off by default, so a person who links a project cannot make the Console fetch an address in its own network. The check reads the host name: a public name that resolves to a private address passes it. |
-| `VITEHUB_ADMINS` | GitHub accounts that get the admin role, such as `github:22072217`. See [Give the first admin role](https://vitehub.dev/docs/auth/configure#give-the-first-admin-role). |
-| `VITEHUB_ADMIN_CLAIM` | A one-time claim code from `vitehub auth claim` for the first admin of an email and password account. |
-
-Only users with the `admin` role can use the routes below. Others get `401` or `403`.
 
 ## Routes
 
+Every route needs a session. Routes act on the session's active team, and a person who is not a member gets `403`.
+
 | Route | Use |
 | --- | --- |
-| `GET /api/projects` | The linked projects, with the SHA-256 of each token. |
-| `POST /api/projects` | Link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the URL is already linked. |
-| `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the hash. |
-| `DELETE /api/projects/<id>` | Unlink a project. Remove its hash from the project's `VITEHUB_CONSOLE_TOKEN_SHA256` as well. |
+| `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
+| `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
+| `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
+| `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
+| `GET /api/sign-in-methods` | `{ "github": true }` when GitHub sign-in is configured. |
+| `/api/auth/**` | Better Auth: sign-in, passkeys, and teams (`/api/auth/organization/*`). |
+
+Other paths answer with the Console page, built by `pnpm --filter vite-hub build:console-account`. Build it before the app.
 
 ## Deploy
 
@@ -52,19 +71,18 @@ Build on Linux with glibc and Node.js 24, matching the CPU architecture (x64 or 
 ```sh
 VITEHUB_DATA_DIR=/data vp build
 export BETTER_AUTH_URL=https://console.example.com BETTER_AUTH_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32)
-pnpm exec vitehub auth claim    # prints the code once, and the VITEHUB_ADMIN_CLAIM value to export
 docker compose up -d --build
 ```
 
-Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the project tokens. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
+Keep `VITEHUB_CONSOLE_SECRET` in a password manager: without it, the Console cannot open the private keys of the project links. The `console-data` volume holds the database. Without Docker, run `node .output/server/index.mjs` with the same variables. The build writes the database path, so build with the `VITEHUB_DATA_DIR` that the server uses.
 
 ### Cloudflare
 
 ```sh
 wrangler d1 create vitehub-console    # note the database id
-VITEHUB_HOSTING=cloudflare VITEHUB_CONSOLE_D1_ID=<id> vp build
+VITEHUB_HOST=cloudflare VITEHUB_CONSOLE_D1_ID=<id> vp build
 wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json
-wrangler secret put VITEHUB_CONSOLE_SECRET --config .output/server/wrangler.json   # and BETTER_AUTH_SECRET, VITEHUB_ADMIN_CLAIM
+wrangler secret put VITEHUB_CONSOLE_SECRET --config .output/server/wrangler.json   # and BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET
 wrangler deploy --config .output/server/wrangler.json
 ```
 
@@ -73,9 +91,9 @@ wrangler deploy --config .output/server/wrangler.json
 Add a Turso database from the Vercel Marketplace to the project, so the project has `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Then:
 
 ```sh
-VITEHUB_HOSTING=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub database migrate
-VITEHUB_HOSTING=vercel vp build
-vercel env add VITEHUB_CONSOLE_SECRET    # and BETTER_AUTH_SECRET, BETTER_AUTH_URL, VITEHUB_ADMIN_CLAIM
+VITEHUB_HOST=vercel TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... vitehub database migrate
+VITEHUB_HOST=vercel vp build
+vercel env add VITEHUB_CONSOLE_SECRET    # and BETTER_AUTH_SECRET, BETTER_AUTH_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 vercel deploy --prebuilt --prod
 ```
 

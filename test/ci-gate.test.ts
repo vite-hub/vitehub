@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { array, object, optional, parse, pipe, record, string, transform, union } from "valibot"
+import { array, object, optional, parse, pipe, record, string, transform, union, unknown } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
@@ -75,11 +75,11 @@ describe("CI merge gate", () => {
     expect(runGate({ ...successfulJobs, [deploy]: { result: "skipped" } }).status).toBe(0)
   })
 
-  it("rejects a stale hosted Console with the same entry script, including workflow reruns", () => {
+  it("rejects a stale Console with the same entry script, including workflow reruns", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-"))
-    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const output = join(directory, "packages/vite-hub/.vitehub/console-account")
     const live = join(directory, "live.html")
-    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify Console build")?.run
     const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
     if (!check) throw new Error("The Console deployment must check the live site")
     const html = '<html><head><script type="module" src="/assets/console-unchanged.js"></script></head></html>'
@@ -96,7 +96,7 @@ describe("CI merge gate", () => {
         chmodSync(path, 0o755)
       }
       for (const attempt of ["1", "2"]) {
-        for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), html)
+        writeFileSync(join(output, "index.html"), html)
         if (identify) {
           const result = run(identify, attempt)
           expect(result.status, result.stderr).toBe(0)
@@ -107,7 +107,6 @@ describe("CI merge gate", () => {
       const stale = run(check, "2")
       expect(stale.status, "An older deployment with an unchanged entry must fail").not.toBe(0)
       expect(stale.stderr).toContain("does not serve this build")
-      expect(readFileSync(join(output, "404.html"), "utf8")).toBe(readFileSync(join(output, "index.html"), "utf8"))
 
       writeFileSync(live, readFileSync(join(output, "index.html")))
       const current = run(check, "2")
@@ -121,9 +120,9 @@ describe("CI merge gate", () => {
 
   it("accepts the reused build when only the Console deploy job is rerun, and rejects a build of another run", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-rerun-"))
-    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const output = join(directory, "packages/vite-hub/.vitehub/console-account")
     const live = join(directory, "live.html")
-    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify Console build")?.run
     const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
     if (!identify || !check) throw new Error("The Console build must mark its output and the deployment must check the live site")
     const run = (command: string, runId: string, attempt: string) => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
@@ -138,7 +137,7 @@ describe("CI merge gate", () => {
         writeFileSync(path, contents)
         chmodSync(path, 0o755)
       }
-      for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), "<html><head></head></html>")
+      writeFileSync(join(output, "index.html"), "<html><head></head></html>")
       // Attempt 1 builds and deploys. Only console-deploy is rerun as attempt 2, with the artifact of attempt 1.
       expect(run(identify, "123", "1").status).toBe(0)
       writeFileSync(live, readFileSync(join(output, "index.html")))
@@ -187,7 +186,7 @@ describe("CI merge gate", () => {
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "service-tests", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
@@ -236,53 +235,85 @@ describe("CI merge gate", () => {
 })
 
 describe("live smoke deployment gate", () => {
-  const liveSmoke = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/live-smoke.yml", import.meta.url), "utf8")))
+  const liveSmokeSource = parseYaml(readFileSync(new URL("../.github/workflows/live-smoke.yml", import.meta.url), "utf8"))
+  const liveSmoke = parse(workflowSchema, liveSmokeSource)
+  const liveSmokeCheckouts = parse(object({ jobs: record(string(), object({ steps: array(object({
+    uses: optional(string()),
+    with: optional(record(string(), unknown())),
+  })) })) }), liveSmokeSource)
 
-  it("checks CI for the exact main commit before building and deploying", () => {
+  it("tests the newest main commit with successful CI before building and deploying", () => {
     const setup = liveSmoke.jobs["setup-cloudflare"]
     expect(setup?.permissions).toEqual({ actions: "read", contents: "read" })
     expect(liveSmoke.jobs["live-smoke"]?.needs).toEqual(["setup-cloudflare"])
-    const commands = setup?.steps.flatMap(step => step.run ? [step.run] : []) ?? []
-    const command = commands[0]
-    if (!command) throw new Error("Live smoke must check CI before building")
-    expect(command).toContain('actions/workflows/ci.yml/runs')
-    expect(command).toContain('-f head_sha="$GITHUB_SHA" -f branch=main -f event=push')
+    const command = setup?.steps[0]?.run
+    if (!command) throw new Error("Live smoke must pick a green main commit before it checks out code")
+    expect(command).toContain("actions/workflows/ci.yml/runs")
+    expect(command).toContain("-f branch=main -f event=push -f status=success")
+    expect(setup?.steps[0]?.env?.MAX_CI_AGE_HOURS).toBe("48")
     const directory = mkdtempSync(join(tmpdir(), "vitehub-live-ci-gate-"))
-    try {
-      writeFileSync(join(directory, "gh"), `#!/bin/sh
+    writeFileSync(join(directory, "gh"), `#!/bin/sh
+printf "%s\\n" "$*" >> "$GH_CALLS"
 case "$2" in
-  */git/ref/heads/main) printf "%s\\n" "$MAIN_SHA"; exit "$MAIN_API_STATUS" ;;
-  */actions/workflows/ci.yml/runs) printf "%s\\n" "$CI_CONCLUSION"; exit "$API_STATUS" ;;
+  */actions/workflows/ci.yml/runs) printf "%s" "$GREEN_RUN"; exit "$RUNS_API_STATUS" ;;
+  */compare/*) printf "%s\\n" "$COMPARE_STATUS"; exit "$COMPARE_API_STATUS" ;;
   *) exit 1 ;;
 esac
 `, { mode: 0o755 })
-      for (const conclusion of ["success", "failure", "cancelled", "missing"]) {
-        const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
-          encoding: "utf8",
-          env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: conclusion, API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
-        })
-        expect(result.status === 0, result.stdout + result.stderr).toBe(conclusion === "success")
+    const run = (overrides: Record<string, string>) => {
+      const env = {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        GH_CALLS: join(directory, "calls"),
+        GITHUB_OUTPUT: join(directory, "output"),
+        GITHUB_STEP_SUMMARY: join(directory, "summary"),
+        GITHUB_REF: "refs/heads/main",
+        GITHUB_REPOSITORY: "vite-hub/vitehub",
+        MAX_CI_AGE_HOURS: "48",
+        GREEN_RUN: "green-sha https://github.com/vite-hub/vitehub/actions/runs/1\n",
+        RUNS_API_STATUS: "0",
+        COMPARE_STATUS: "ahead",
+        COMPARE_API_STATUS: "0",
+        ...overrides,
       }
-      const unavailable = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
-        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: "success", API_STATUS: "1", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
-      })
-      expect(unavailable.status).not.toBe(0)
-      for (const event of ["schedule", "workflow_dispatch"]) {
-        for (const sha of ["verified-main", "stale-main", "feature-commit"]) {
-          const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
-            encoding: "utf8",
-            env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: "success", API_STATUS: "0", GITHUB_SHA: sha, GITHUB_REPOSITORY: "vite-hub/vitehub", GITHUB_EVENT_NAME: event },
-          })
-          expect(result.status === 0, `${event} at ${sha}: ${result.stdout}${result.stderr}`).toBe(sha === "verified-main")
-        }
+      for (const file of [env.GH_CALLS, env.GITHUB_OUTPUT]) writeFileSync(file, "")
+      const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], { encoding: "utf8", env })
+      return { ...result, calls: readFileSync(env.GH_CALLS, "utf8"), output: readFileSync(env.GITHUB_OUTPUT, "utf8") }
+    }
+    try {
+      for (const position of ["ahead", "identical"]) {
+        const result = run({ COMPARE_STATUS: position })
+        expect(result.status, result.stdout + result.stderr).toBe(0)
+        expect(result.output).toBe("sha=green-sha\n")
+        expect(result.calls).toContain("repos/vite-hub/vitehub/compare/green-sha...main")
       }
-      const mainUnavailable = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
-        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "1", CI_CONCLUSION: "success", API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
-      })
-      expect(mainUnavailable.status).not.toBe(0)
+      const since = /created=>=(\S+)/.exec(run({}).calls)?.[1]
+      const age = Date.now() - Date.parse(since ?? "")
+      expect(age).toBeGreaterThan(47.9 * 3_600_000)
+      expect(age).toBeLessThan(48.1 * 3_600_000)
+
+      const failures = {
+        "a ref other than main": { GITHUB_REF: "refs/heads/feature" },
+        "no green run in the window": { GREEN_RUN: "" },
+        "an unavailable runs API": { RUNS_API_STATUS: "1" },
+        "a green commit that main no longer contains": { COMPARE_STATUS: "diverged" },
+        "an unavailable compare API": { COMPARE_API_STATUS: "1" },
+      }
+      for (const [name, overrides] of Object.entries(failures)) {
+        const result = run(overrides)
+        expect(result.status, name).not.toBe(0)
+        expect(result.output, name).toBe("")
+      }
     }
     finally {
       rmSync(directory, { recursive: true, force: true })
     }
+  })
+
+  it("checks out the picked commit in every job that runs repository code", () => {
+    const checkoutRef = (job: string) => liveSmokeCheckouts.jobs[job]?.steps.find(step => step.uses?.startsWith("actions/checkout@"))?.with?.ref
+    expect(checkoutRef("setup-cloudflare")).toBe("${{ steps.green.outputs.sha }}")
+    expect(checkoutRef("live-smoke")).toBe("${{ needs.setup-cloudflare.outputs.sha }}")
+    expect(checkoutRef("report-live-smoke")).toBe("${{ needs.setup-cloudflare.outputs.sha }}")
   })
 })

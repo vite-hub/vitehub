@@ -31,10 +31,10 @@ const blob = {
   async get(pathname) { const bytes = objects.get(pathname); return [undefined, bytes ? new Blob([bytes]) : null] },
   async head(pathname) { const bytes = objects.get(pathname); return [undefined, bytes ? object(pathname, bytes) : null] },
   async put(pathname, body) { const bytes = new Uint8Array(await new Response(body).arrayBuffer()); objects.set(pathname, bytes); return [undefined, object(pathname, bytes)] },
-  async del(pathnames) { for (const pathname of [pathnames].flat()) objects.delete(pathname); return [undefined, undefined] },
+  async delete(pathnames) { for (const pathname of [pathnames].flat()) objects.delete(pathname); return [undefined, undefined] },
   async list({ prefix = "" } = {}) { return [undefined, { blobs: [...objects].filter(([key]) => key.startsWith(prefix)).map(([key, bytes]) => object(key, bytes)), hasMore: false }] },
 }
-const database = drizzle(createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }), { schema: workspaceHistorySchema })
+const database = drizzle({ client: createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }) })
 registerWorkspace("site", { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "site" }) })
 
 export default defineContent({
@@ -44,20 +44,17 @@ export default defineContent({
 })
 `
 
-/**
- * Server routes, as `[path, source]`, relative to the server directory. `handler` wraps each handler expression:
- * Nitro 3 takes a plain function, and Nuxt's Nitro 2 takes `defineEventHandler()`.
- */
-export function contentRoutes(contentImport: string, handler = (code: string) => code): Array<[string, string]> {
+/** Server routes, as `[path, source]`, relative to the server directory. */
+export function contentRoutes(contentImport: string): Array<[string, string]> {
   const page = (delay: number) => `
 import content from ${JSON.stringify(contentImport)}
 
 let renders = 0
-export default ${handler(`async () => {
+export default async () => {
   ${delay ? `await new Promise(resolve => setTimeout(resolve, ${delay}))` : ""}
   const post = await content.collection("posts").get("hello")
   return { title: post?.data.title, render: ++renders }
-}`)}
+}
 `
   return [
     ["routes/page.ts", page(0)],
@@ -65,7 +62,7 @@ export default ${handler(`async () => {
     ["routes/seed.post.ts", `
 import content from ${JSON.stringify(contentImport)}
 
-export default ${handler(`async () => {
+export default async () => {
   const posts = content.collection("posts")
   await posts.save("hello", { data: { title: "Published" }, body: "# Hello" })
   await posts.save("other", { data: { title: "Other published" }, body: "# Other" })
@@ -73,12 +70,12 @@ export default ${handler(`async () => {
   await posts.save("hello", { data: { title: "Draft" }, body: "# Hello" })
   await posts.save("other", { data: { title: "Other draft" }, body: "# Other draft" })
   return { ok: true }
-}`)}
+}
 `],
     ["routes/preview.post.ts", `
 import content from ${JSON.stringify(contentImport)}
 
-export default ${handler(`async event => await content.preview.enable(event)`)}
+export default async event => await content.preview.enable(event)
 `],
   ]
 }
@@ -111,7 +108,7 @@ export async function createHistoryDatabase(path: string): Promise<void> {
   }
 }
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   const server = createServer()
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
   const address = server.address()
@@ -128,8 +125,8 @@ export interface BuiltServer {
 }
 
 /** Start `.output/server/index.mjs` and wait until it answers. */
-export async function startBuiltServer(root: string, env: Record<string, string>): Promise<BuiltServer> {
-  const port = await freePort()
+export async function startBuiltServer(root: string, env: Record<string, string>, options: { port?: number } = {}): Promise<BuiltServer> {
+  const port = options.port ?? await freePort()
   let output = ""
   const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
     env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },
@@ -251,19 +248,15 @@ const frameHops: FrameHop[] = [
   { path: "invalid", status: 302, location: `"http://["` },
 ]
 
-/** The page and redirect routes of the browser cookie checks, on Nitro 3 or Nitro 2. */
-function cookieRoutes(host: "nitro3" | "nitro2"): Array<[string, string]> {
+/** The page and redirect routes of the browser cookie checks. */
+function cookieRoutes(): Array<[string, string]> {
   const from = (path: string) => "../".repeat(path.split("/").length)
-  const page = (path: string) => host === "nitro3"
-    ? `import { page } from "${from(path)}frame-page.ts"\n\nexport default async event => new Response(await page(event.req.headers.get("cookie"), event.req.method, event.req.headers.get("content-type")), { headers: { "content-type": "text/html; charset=utf-8" } })\n`
-    : `import { page } from "${from(path)}frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  setResponseHeader(event, "content-type", "text/html; charset=utf-8")\n  return await page(getHeader(event, "cookie"), event.method, getHeader(event, "content-type") ?? null)\n})\n`
-  const setter = (cookies: string[]) => host === "nitro3"
-    ? `export default () => {\n  const headers = new Headers()\n  for (const cookie of ${JSON.stringify(cookies)}) headers.append("set-cookie", cookie)\n  return new Response("ok", { headers })\n}\n`
-    : `export default defineEventHandler((event) => {\n  for (const cookie of ${JSON.stringify(cookies)}) appendResponseHeader(event, "set-cookie", cookie)\n  return "ok"\n})\n`
-  const hop = ({ path, status, location, cookies = [] }: FrameHop) => host === "nitro3"
-    ? `import { hopHeaders } from "${from(path)}frame-page.ts"\n\nexport default async (event) => {\n  const url = new URL(event.req.url)\n  const headers = new Headers(await hopHeaders(event.req.headers.get("cookie")))\n  headers.set("location", ${location})\n  for (const cookie of ${JSON.stringify(cookies)}) headers.append("set-cookie", cookie)\n  return new Response(null, { status: ${status}, headers })\n}\n`
-    // h3 v1 sendRedirect() writes the head and an HTML body on the Node response.
-    : `import { hopHeaders } from "${from(path)}frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  const url = getRequestURL(event)\n  for (const [name, value] of Object.entries(await hopHeaders(getHeader(event, "cookie")))) setResponseHeader(event, name, value)\n  for (const cookie of ${JSON.stringify(cookies)}) appendResponseHeader(event, "set-cookie", cookie)\n  return sendRedirect(event, ${location}, ${status})\n})\n`
+  const page = (path: string) =>
+    `import { page } from "${from(path)}frame-page.ts"\n\nexport default async event => new Response(await page(event.req.headers.get("cookie"), event.req.method, event.req.headers.get("content-type")), { headers: { "content-type": "text/html; charset=utf-8" } })\n`
+  const setter = (cookies: string[]) =>
+    `export default () => {\n  const headers = new Headers()\n  for (const cookie of ${JSON.stringify(cookies)}) headers.append("set-cookie", cookie)\n  return new Response("ok", { headers })\n}\n`
+  const hop = ({ path, status, location, cookies = [] }: FrameHop) =>
+    `import { hopHeaders } from "${from(path)}frame-page.ts"\n\nexport default async (event) => {\n  const url = new URL(event.req.url)\n  const headers = new Headers(await hopHeaders(event.req.headers.get("cookie")))\n  headers.set("location", ${location})\n  for (const cookie of ${JSON.stringify(cookies)}) headers.append("set-cookie", cookie)\n  return new Response(null, { status: ${status}, headers })\n}\n`
   return [
     ...["echo", "deep/echo", "admin/echo"].map((path): [string, string] => [`routes/${path}.ts`, page(path)]),
     ...cookieSetters.map(([path, cookies]): [string, string] => [`routes/${path}.ts`, setter(cookies)]),
@@ -290,27 +283,7 @@ export function nitro3FrameRoutes(contentImport: string): Array<[string, string]
     ["routes/login.ts", `export default () => {\n  const headers = new Headers({ location: "/account" })\n  headers.append("set-cookie", "session=abc123; Path=/; HttpOnly; SameSite=Lax")\n  headers.append("set-cookie", "theme=dark; Path=/; Max-Age=3600")\n  return new Response(null, { status: 302, headers })\n}\n`],
     ["routes/away.ts", redirect("https://example.invalid/blog/hello")],
     ["routes/loop.ts", redirect("/loop")],
-    ...cookieRoutes("nitro3"),
-  ]
-}
-
-/** The same routes on Nitro 2, with the h3 v1 helpers that write the Node response directly. */
-export function nitro2FrameRoutes(contentImport: string): Array<[string, string]> {
-  const redirect = (location: string) => `export default defineEventHandler(event => sendRedirect(event, ${JSON.stringify(location)}, 302))\n`
-  const html = `setResponseHeader(event, "content-type", "text/html; charset=utf-8")`
-  return [
-    ["frame-page.ts", framePage],
-    ["routes/sign.post.ts", `import content from ${JSON.stringify(contentImport)}\n\nexport default defineEventHandler(async () => await content.preview.sign({ collection: "posts", id: "hello" }))\n`],
-    ["routes/frame-page.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  ${html}\n  return await page(getHeader(event, "cookie"))\n})\n`],
-    ["routes/account.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  if (!getCookie(event, "session")) throw createError({ statusCode: 401, statusMessage: "Sign in first" })\n  ${html}\n  return await page(getHeader(event, "cookie"))\n})\n`],
-    ["routes/go.ts", redirect("/frame-page?from=go#intro")],
-    // A handler that returns a Web Response: h3 v1 sends its body as a stream.
-    ["routes/web-page.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async event => new Response(await page(getHeader(event, "cookie")), { headers: { "content-type": "text/html; charset=utf-8" } }))\n`],
-    ["routes/go-web.ts", redirect("/web-page")],
-    ["routes/login.ts", `export default defineEventHandler((event) => {\n  setCookie(event, "session", "abc123", { path: "/", httpOnly: true, sameSite: "lax" })\n  setCookie(event, "theme", "dark", { path: "/", maxAge: 3600 })\n  return sendRedirect(event, "/account", 302)\n})\n`],
-    ["routes/away.ts", redirect("https://example.invalid/blog/hello")],
-    ["routes/loop.ts", redirect("/loop")],
-    ...cookieRoutes("nitro2"),
+    ...cookieRoutes(),
   ]
 }
 

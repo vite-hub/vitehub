@@ -15,6 +15,7 @@ import { createCommentsStore } from "../src/operations-core/store.ts"
 import { createRpcTransport } from "../src/rpc.ts"
 import { createMemoryTransport } from "../src/testing.ts"
 import { commentsTables } from "../src/tables.ts"
+import { operationRpcBody, operationRpcRequest, operationRpcResponse, operationRpcResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { Comments } from "../src/index.ts"
@@ -57,8 +58,8 @@ it.each(["rpc", "memory"])("filters subject kinds before limiting through the %s
   const transport = kind === "memory"
     ? createMemoryTransport({ user: member, threads: [visible, content] })
     : createRpcTransport({ fetch: async (_url, init) => {
-        const { operation, input } = JSON.parse(String(init?.body))
-        return Response.json(await call(operation, input))
+        const { operation, input } = operationRpcRequest(init?.body)
+        return operationRpcResponse(init?.body, await call(operation, input))
       } })
   expect(await transport.list({ subjectKind: "page", limit: 1 })).toEqual([visible])
   expect(await transport.list({ subjectKind: "content" })).toEqual([content])
@@ -69,8 +70,8 @@ it.each(["rpc", "memory"])("filters subject kinds before limiting through the %s
 it("accepts attachment keys through the RPC transport for new comments and replies", async () => {
   setup(defineComments({ authorize: () => true }))
   const transport = createRpcTransport({ fetch: async (_url, init) => {
-    const { operation, input } = JSON.parse(String(init?.body))
-    return Response.json(await call(operation, input))
+    const { operation, input } = operationRpcRequest(init?.body)
+    return operationRpcResponse(init?.body, await call(operation, input))
   } })
   const thread = await transport.create({ ...input, attachments: ["uploads/first.png"] })
   expect(thread.messages[0]!.attachments).toEqual(["uploads/first.png"])
@@ -146,7 +147,7 @@ it.each([1, 10])("acknowledges every reply when resolving again in the same mill
 })
 
 function setup(comments: Comments, users?: CommentsPeople) {
-  const store = createCommentsStore(drizzle(client))
+  const store = createCommentsStore(drizzle({ client }))
   installCommentsRuntime({ definition: comments.options, store, ...(users ? { users } : {}) })
   return store
 }
@@ -166,6 +167,29 @@ async function create(user = member, value: CommentCreateInput = input): Promise
   if (!result.ok) throw new Error(result.message)
   return result.value as CommentThread
 }
+
+it("lists page threads with comments.threads, with search, a page filter, and a text line per thread for MCP", async () => {
+  setup(defineComments({
+    authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body !== "hidden",
+    subjects: [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })],
+  }))
+  const pricing = await create(member, { ...input, body: "The price is wrong." })
+  await create(member, { ...input, body: "hidden" })
+  const home = await create(member, { ...input, body: "Fix the logo.", subject: { id: "/", kind: "page" } })
+  await create(member, { ...input, body: "Not a page.", subject: { id: "guide", kind: "doc" } })
+
+  const all = await call("comments.threads", {})
+  expect(all).toMatchObject({ ok: true, value: { status: "open", threads: [{ id: home.id }, { id: pricing.id }] } })
+  expect(await call("comments.threads", { search: "PRICE" })).toMatchObject({ ok: true, value: { threads: [{ comment: "The price is wrong.", id: pricing.id, page: "/pricing" }] } })
+  expect(await call("comments.threads", { page: "/" })).toMatchObject({ ok: true, value: { threads: [{ id: home.id }] } })
+  expect(await call("comments.threads", { limit: 1 })).toMatchObject({ ok: true, value: { threads: [{ id: home.id }] } })
+  expect(await call("comments.threads", { status: "resolved" })).toEqual({ ok: true, value: { status: "resolved", threads: [] } })
+
+  const format = registry.get("comments.threads")?.mcp
+  if (!format || !format.format) throw new TypeError("Expected the MCP format of comments.threads.")
+  const text = (format.format as (output: unknown) => string)(all.ok ? all.value : undefined)
+  expect(text).toBe(`- ${home.id} /: Fix the logo. (Ana, 0 replies)\n- ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
+})
 
 it("passes custom user fields to policies without storing them in comments", async () => {
   const store = setup(defineComments({ authorize: ({ user, action }) => Boolean(user) && (action !== "delete" || user?.role === "admin") }))
@@ -265,6 +289,14 @@ it("checks read access before searching mention suggestions", async () => {
   setup(defineComments({ authorize: ({ action }) => action !== "read" }), { byIds: async () => [], search })
   expect(await call("comments.users", { query: "an" })).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
   expect(search).not.toHaveBeenCalled()
+})
+
+it("keeps the people that the app's search finds without accents or case", async () => {
+  const zoe = { id: "zoe", name: "Zoë Ávila" }
+  setup(defineComments({ authorize: () => true }), { byIds: async () => [], search: async () => [member, zoe, admin] })
+  expect(await call("comments.users", { query: "zoe" })).toEqual({ ok: true, value: [zoe] })
+  expect(await call("comments.users", { query: "AVILA" })).toEqual({ ok: true, value: [zoe] })
+  expect(await call("comments.users", { query: "zoé" })).toEqual({ ok: true, value: [zoe] })
 })
 
 it("returns no threads for an anonymous mine query", async () => {
@@ -390,17 +422,17 @@ it.each(["admin", "stranger"])("identifies %s through the standalone CLI operati
   const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "admin" ? identified : null)
   const comments = defineComments({ identify, authorize })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
   const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
   // `ip` is the loopback peer address that srvx reports for `vite dev`.
-  const request = Object.assign(new Request("http://localhost/_vitehub/rpc/__call", {
+  const request = Object.assign(new Request("http://localhost/_vitehub/rpc", {
     method: "POST",
     headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
-    body: JSON.stringify({ operation: "comments.create", input }),
+    body: operationRpcBody("comments.create", input),
   }), { ip: "127.0.0.1" })
   const response = await handler.fetch(request)
   expect(response.status).toBe(person === "admin" ? 200 : 403)
-  expect(await response.json()).toMatchObject(person === "admin"
+  expect(operationRpcResult(await response.json())).toMatchObject(person === "admin"
     ? { ok: true, value: { author: { id: "admin", name: "Admin" } } }
     : { ok: false, status: 403 })
   // The RPC passes the Request as the event of the call, and `identify` reads its Standard Context.
@@ -420,8 +452,8 @@ it("gives authorize the user that identify builds for the request, not the Conso
     },
   })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
-  const request = new Request("http://site.test/_vitehub/rpc/__call", { headers: { "x-person": "admin" } })
+  installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
+  const request = new Request("http://site.test/_vitehub/rpc", { headers: { "x-person": "admin" } })
   const context = { access: { mode: "auth", sections: "all" }, surface: "console", user: { id: "admin", name: "Admin" }, request, event: new H3Event(request) } satisfies OperationContext
   const created = await runOperation(registry, "comments.create", input, context)
   expect(created).toMatchObject({ ok: true, value: { author: { id: "admin", name: "Admin" } } })

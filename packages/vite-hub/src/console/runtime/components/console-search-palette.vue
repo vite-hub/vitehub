@@ -12,7 +12,7 @@ import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
-import { openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session"
+import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
 import { consoleProjectHost, consoleProjectName } from "../client/projects"
 import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
@@ -340,9 +340,9 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
     ]
   : [])
 
-// A hosted Console switches between the projects that this browser linked.
+// An `account` Console switches between the projects of the team.
 const projects = useConsoleProjects()
-const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "hosted"
+const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "embedded"
   ? [{
       children: [
         ...projects.projects.value.map(project => ({
@@ -354,18 +354,12 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "h
             if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
           },
         })),
-        { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
         { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
       ],
       icon: "i-lucide-arrow-left-right",
       keywords: ["project", "projects", "app", "link", "change"],
       label: "Switch project…",
       placeholder: "Choose a project…",
-    }, {
-      icon: "i-lucide-plus",
-      keywords: ["create", "init", "start", "stack", "app"],
-      label: "New project",
-      onSelect: openConsoleNewProject,
     }]
   : [])
 
@@ -600,7 +594,7 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   const definitionSections = installed.flatMap((section) => {
     const details = resolveConsoleSectionDetails(installedNavigation.value, section)
     const catalog = section === "databases"
-      || installedNavigation.value?.contributions[section]?.view.kind === "definition-catalog"
+      || ["definition-catalog", "workspace-browser"].includes(installedNavigation.value?.contributions[section]?.view.kind ?? "")
     return details && catalog ? [{ details, section }] : []
   })
   const catalogs = await Promise.all(definitionSections.map(async ({ details, section }) => ({

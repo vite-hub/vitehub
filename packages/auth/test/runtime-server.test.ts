@@ -15,7 +15,7 @@ vi.mock("better-auth/cookies", () => {
   return {}
 })
 
-const { createLazyAuthAccessHandler } = await import("../src/runtime/server.ts")
+const { authAccessHandlerMeta, createLazyAuthAccessHandler } = await import("../src/runtime/server.ts")
 
 describe("Auth startup runtime", () => {
   it("loads the Auth server only for a request that an access route matches", async () => {
@@ -42,5 +42,24 @@ describe("Auth startup runtime", () => {
     await expect(handler(new Request("https://app.example/private"))).rejects.toThrow("load failed")
     await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
     expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it("leaves a request to the handler that Nitro routed it to only when that handler checks its own access", async () => {
+    const check = vi.fn(async () => new Response(null, { status: 401 }))
+    const handler = createLazyAuthAccessHandler([{ route: "/**" }], async () => ({ createAuthAccessHandler: () => check }))
+    // A request event as Nitro passes it to middleware: the route that it matched is on its context.
+    const event = (matchedRoute?: { route: string, method?: string, meta?: Record<string, unknown> }) => ({
+      "~standard": { vendor: "test", req: new Request("https://app.example/_vitehub/rpc", { method: "POST" }), res: { headers: new Headers() } },
+      context: { matchedRoute },
+    })
+
+    await expect(handler(event({ route: "/_vitehub/rpc", meta: { ...authAccessHandlerMeta } }))).resolves.toBeUndefined()
+    expect(check).not.toHaveBeenCalled()
+    // An app route file on the same path, a route without the meta, and a plain Request keep the access routes.
+    await expect(handler(event({ route: "/_vitehub/rpc", method: "post" }))).resolves.toMatchObject({ status: 401 })
+    await expect(handler(event({ route: "/_vitehub/rpc", meta: { vitehubAuthAccess: "app" } }))).resolves.toMatchObject({ status: 401 })
+    await expect(handler(event())).resolves.toMatchObject({ status: 401 })
+    await expect(handler(new Request("https://app.example/_vitehub/rpc", { method: "POST" }))).resolves.toMatchObject({ status: 401 })
+    expect(check).toHaveBeenCalledTimes(4)
   })
 })

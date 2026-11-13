@@ -2,7 +2,7 @@
 title: Docs site server API
 description: The imports of @vite-hub/docs, every module option and frontmatter field, the routes and files that the module adds, and how to inspect them.
 navigation.title: Server API
-navigation.order: 5
+navigation.order: 6
 icon: i-lucide-code-2
 ---
 
@@ -25,7 +25,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `dir` | `string` | `'content'` | Folder of Markdown pages, relative to the app root. |
-| `base` | `string` | `'/docs'` | URL prefix whose folders are sections. |
+| `base` | `string` | `'/docs'`, or `'/'` without a `docs/` folder in `dir` | URL prefix whose folders are sections. |
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`, for canonical links, raw Markdown links, llms.txt, and the sitemap. |
 | `site.description` | `string` | `''` | llms.txt description. |
@@ -126,12 +126,12 @@ The module writes its output to the Nuxt build folder:
 | `.nuxt/docs/raw/` | The agent copy of each page, as `/raw` serves it. |
 | `.nuxt/docs/components.mjs` | The Markdown blocks that pages can use, and their files. |
 
-To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it throws `DocsContentError` on the first invalid file:
+To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DocsContentError` on the first invalid file:
 
 ```ts [scripts/docs-pages.ts]
 import { createDocsManifest } from '@vite-hub/docs/server'
 
-const manifest = createDocsManifest({ dir: 'content', base: '/docs' })
+const manifest = await createDocsManifest({ dir: 'content', base: '/docs' })
 for (const section of manifest.sections) {
   console.log(section.id, section.pages.map(page => page.path))
 }

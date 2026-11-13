@@ -7,14 +7,16 @@ icon: i-lucide-play-circle
 navigation.kind: Guides
 ---
 
-An Invocation is one run of an [Agent Definition](/docs/agents/agent-definitions), the reusable file that describes an Agent. ViteHub prepares the request, runs it, and returns or streams the result. [Build a chat app](/docs/agents/build-a-chat-app) shows a full example.
+An Agent Invocation is one request to an Agent. ViteHub prepares its input, Invoker, Capabilities, Workspace, and Driver, then returns or streams the result.
+
+Start with [Agent Definitions](/docs/agents/agent-definitions). For a complete browser-to-model example, follow [Build a chat app](/docs/agents/build-a-chat-app).
 
 ## What happens during an Invocation
 
 | Stage | What happens |
 | --- | --- |
 | Entry | A route, Channel, schedule, webhook, CLI command, or another caller provides input. |
-| Actor | ViteHub resolves the trusted [Agent Actor](/docs/agents/actors). |
+| Invoker | ViteHub resolves the trusted [Agent Invoker](/docs/agents/trusted-invokers). |
 | Capabilities | The Definition and invocation context select the abilities for this request. |
 | Context | ViteHub prepares tools, policy, context values, and the Workspace Scope. |
 | Execution | The Agent Driver runs the prepared request. |
@@ -112,7 +114,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`requireAuthenticatedUser` is your own helper in `server/utils/auth.ts`, not a ViteHub export. It must reject requests without a signed-in user and return the trusted `id` and `email`. Always authenticate before you pass identity or access facts to the Agent. `context.invoker` sets the [Agent Actor](/docs/agents/actors), the caller's trusted identity.
+`requireAuthenticatedUser` is an application helper from `server/utils/auth.ts`, omitted here. Implement it with your authentication provider so it rejects unauthenticated requests and returns the trusted user's `id` and `email`. It is not a ViteHub export. Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Invoker](/docs/agents/trusted-invokers).
 
 The option is `runtimeContext`, not `context`, because `input.context` already holds the Invocation context values that instructions and hooks read, such as `context.customInstructions`.
 
@@ -342,6 +344,23 @@ Use `createD1AgentInvocationStore()` with a host D1 binding. See [D1 schema, ret
 ## Append delivery evidence
 
 `invocations.appendObservation()` records proof of an external delivery, such as a delivered report. Its idempotent observation ID stops retries from adding a second record. It does not change the run status. See the [append contract](/docs/agents/invocation-storage#append-delivery-evidence) for capacity limits and retries.
+
+## Import a session that ran elsewhere
+
+Codex and Claude Code often run outside the app: on a laptop, in CI, or on an eval runner. Each CLI writes a session file. `@vite-hub/agent/sessions` reads that file and writes it to a journal store as a finished Invocation with the session's own timestamps. The Console then shows its messages, thinking, commands, file changes, and usage like a run of the app.
+
+```ts
+import { readFile } from 'node:fs/promises'
+import { importAgentSession, readCodexSession } from '@vite-hub/agent/sessions'
+import { createLibsqlAgentInvocationStore } from '@vite-hub/agent/invocations'
+
+const rolloutPath = './rollout.jsonl'
+const store = createLibsqlAgentInvocationStore({ url: 'file:./agent-journal.sqlite' })
+const session = readCodexSession(await readFile(rolloutPath, 'utf8'))
+const { id } = await importAgentSession(store, session, { agentName: 'coder', runId: 'eval-42', title: 'Add a health route' })
+```
+
+`readClaudeCodeSession()` reads `$CLAUDE_CONFIG_DIR/projects/<project>/<session>.jsonl`, and `readCodexSession()` reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`. The record id is `agentInvocationId(runId, agentName)`. Importing the same `agentName` and `runId` again replaces the record, so the store must implement `delete()`. Pass `configuration` to record the skills, MCP servers, and Workspace the session had, and `cost` to record a price, because the CLIs report only tokens.
 
 ## Cancel an invocation
 

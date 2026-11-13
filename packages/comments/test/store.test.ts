@@ -31,7 +31,7 @@ async function countedStore() {
     },
   }) satisfies Client
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
-  const store = createCommentsStore(drizzle(counted) as unknown as CommentsDatabase)
+  const store = createCommentsStore(drizzle({ client: counted }) as unknown as CommentsDatabase)
   return { calls, store }
 }
 
@@ -77,7 +77,7 @@ it("removes threads before messages in transactions so an interleaved reply cann
   const client = createClient({ url: ":memory:" })
   try {
     await client.executeMultiple(commentsMigration)
-    const db = new Proxy(drizzle(client), { get: (target, key, receiver) => key === "batch" ? undefined : Reflect.get(target, key, receiver) })
+    const db = new Proxy(drizzle({ client }), { get: (target, key, receiver) => key === "batch" ? undefined : Reflect.get(target, key, receiver) })
     const store = createCommentsStore(db)
     const first = await store.createThread(thread("Delete this"))
     const other = await store.createThread({ ...thread("Keep this"), scope: "other" })

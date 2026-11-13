@@ -74,7 +74,6 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
   tempDirs.push(rootDir)
   const resolved = Object.fromEntries(Object.entries(databases).map(([name, database]) => [name, {
     dialect: "sqlite",
-    drizzle: {},
     migrationsDir: join(rootDir, "migrations"),
     name,
     ...database,
@@ -261,7 +260,7 @@ describe("vitehub database export", () => {
   })
 
   it("preserves an output file created while the export is running", async () => {
-    const project = await createProject({ default: { dialect: "postgresql" } })
+    const project = await createProject({ default: { connection: { url: "postgres://db.example.com/app" }, dialect: "postgresql" } })
     const output = join(project.rootDir, "backup.sql")
     const spawn = vi.fn(async (_command: string, args: string[]) => {
       await writeFile(args[args.indexOf("--file") + 1]!, "new dump")
@@ -275,7 +274,7 @@ describe("vitehub database export", () => {
   })
 
   it("keeps concurrent exporters' partial files separate and publishes only one dump", async () => {
-    const project = await createProject({ default: { dialect: "postgresql" } })
+    const project = await createProject({ default: { connection: { url: "postgres://db.example.com/app" }, dialect: "postgresql" } })
     let markStarted!: () => void
     let finishFirst!: () => void
     const firstStarted = new Promise<void>((resolve) => { markStarted = resolve })
@@ -468,5 +467,20 @@ describe("vitehub database export", () => {
     expect(failed.exitCode).toBe(1)
     expect(failed.stderr).toContain("ViteHub exports Postgres with `pg_dump`, which is not on PATH.")
     expect(existsSync(join(project.rootDir, "pg2.sql"))).toBe(false)
+  })
+
+  it.each([
+    ["without a URL and PG* variables", {}],
+    ["with `driver: \"pglite\"`", { connection: { url: "postgres://db.example.com/app" }, driver: "pglite" as const }],
+  ])("names the PGlite folder and the fix for a Postgres Database on PGlite %s", async (_, database) => {
+    const project = await createProject({ default: { dialect: "postgresql", ...database } })
+    const spawn = vi.fn()
+    for (const args of [["--output", "pg.sql"], ["--remote", "--output", "pg.sql"]]) {
+      const result = await project.run(args, { spawn })
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("DATABASE_EXPORT_FAILED")
+      expect(result.stderr).toContain("It uses PGlite .vitehub/data/database/pglite, which `vitehub database export` cannot read yet. To export a Postgres server, set `connection.url` or the PG* variables, and add `--remote`.")
+    }
+    expect(spawn).not.toHaveBeenCalled()
   })
 })

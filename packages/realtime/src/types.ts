@@ -34,8 +34,11 @@ export interface RealtimeUser {
 }
 
 export interface RealtimeDocumentContext {
-  /** Room authority holding the live document: one process (`memory`) or a Durable Object (`cloudflare`). */
-  authority: "cloudflare" | "memory"
+  /**
+   * Room authority holding the live document: one process (`memory`), a Durable Object (`cloudflare`), or rooms that
+   * several Node instances share through Postgres (`postgres`) or Redis (`redis`).
+   */
+  authority: "cloudflare" | "memory" | "postgres" | "redis"
   definition: string
   documentId: string
 }
@@ -156,6 +159,11 @@ export interface RealtimeRequestContext {
   request: Request
 }
 
+export interface RealtimeOriginContext extends RealtimeRequestContext {
+  /** The `Origin` header of a request from another origin than the app's. */
+  origin: string
+}
+
 export interface RealtimeAuthorizeContext extends RealtimeRequestContext {
   /** Requested document, or `null` for the definition's Workspace event channel. */
   documentId: string | null
@@ -175,6 +183,13 @@ export interface RealtimeDefinition {
   auth?: boolean
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
+  /**
+   * Let a page on another origin connect to a definition with `identify`, such as a script that sites load from the
+   * app. Return `true` to accept `origin`. Without it, only the app's own origin connects. The browser sends cookies
+   * with a cross-site handshake too, so `identify` must then trust only what the page sends on purpose, such as a
+   * ticket in `params`, never the session cookie.
+   */
+  origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
   /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
   authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
@@ -217,7 +232,19 @@ export interface DiscoveredRealtimeDefinition {
 }
 
 export interface RealtimeOptions {
-  authority?: "auto" | "cloudflare" | "memory"
+  /**
+   * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
+   * picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default Database when it
+   * is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require their connection.
+   * `memory` keeps rooms in one process.
+   */
+  authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
+  /**
+   * Keeps the rooms of this app apart from other apps on the same Redis or Postgres. Defaults to the `name` of
+   * `vitehub()`, else the `name` in the root `package.json`, else the root folder name. `REALTIME_NAMESPACE` replaces
+   * it when the server starts.
+   */
+  namespace?: string
   projectRoot?: string
 }
 
@@ -253,4 +280,4 @@ export type RealtimeRequestErrorCode =
  */
 export type RealtimeAvailability =
   | { available: true }
-  | { available: false, preset?: string, reason: string, fix: string }
+  | { available: false, host?: string, reason: string, fix: string }

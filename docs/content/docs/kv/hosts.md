@@ -14,7 +14,7 @@ KV picks the store and generates store-name types. Put namespaces, bindings, and
 
 ## Read and write keys during development
 
-`hubKv()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
+`hubKV()` adds `vitehub kv` commands. Start the Vite dev server, then use them from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users:
@@ -54,7 +54,7 @@ Read [Preview deployments share data](/docs/development/provisioning#preview-dep
 
 Key prefixes are not tables. Use Database for constraints, joins, migrations, history, or complex queries.
 
-Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads and writes (`setIfAbsent()`) and counters, not general compare-and-swap.
+Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 

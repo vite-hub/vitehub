@@ -8,95 +8,97 @@ icon: i-lucide-list-ordered
 ---
 
 ::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Node, Docker, Cloudflare, Vercel"}
-  :::code-tree{feature="queue"}
-  ```ts [server/api/signup.post.ts]
-  import { defineEventHandler, readValidatedBody } from 'h3'
-  import * as v from 'valibot'
-  import { sendQueue } from 'vite-hub/queue'
+  :hero-figure{name="queue"}
+::
 
-  // Returns when the queue accepts the job, before it runs
-  export default defineEventHandler(async (event) => {
-    const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
-    const [error, result] = await sendQueue('welcome-email', { email })
-    if (error) throw error
-    return result
-  })
-  ```
+::code-tree{feature="queue"}
+```ts [server/api/signup.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { sendQueue } from 'vite-hub/queue'
 
-  ```ts [server/queues/welcome-email.ts]
-  import { defineQueue } from 'vite-hub/queue'
+// Returns when the queue accepts the job, before it runs
+export default defineEventHandler(async (event) => {
+  const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
+  const [error, result] = await sendQueue('welcome-email', { email })
+  if (error) throw error
+  return result
+})
+```
 
-  // The file name is the queue name.
-  // This runs later, after the route replies.
-  export default defineQueue<{ email: string }>(
-    async ({ payload, attempts }) => {
-      // Send the email here
-      console.log(payload.email, attempts)
-    },
-  )
-  ```
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from 'vite-hub/queue'
 
-  ```ts [server/api/reminder.post.ts]
-  import { defineEventHandler, readValidatedBody } from 'h3'
-  import * as v from 'valibot'
-  import { sendQueue } from 'vite-hub/queue'
+// The file name is the queue name.
+// This runs later, after the route replies.
+export default defineQueue<{ email: string }>(
+  async ({ payload, attempts }) => {
+    // Send the email here
+    console.log(payload.email, attempts)
+  },
+)
+```
 
-  // Run the same job in 10 minutes
-  export default defineEventHandler(async (event) => {
-    const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
-    const [error, result] = await sendQueue('welcome-email', { email }, { delaySeconds: 600 })
-    if (error) throw error
-    return result
-  })
-  ```
+```ts [server/api/reminder.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { sendQueue } from 'vite-hub/queue'
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
-      preset: 'cloudflare',
+// Run the same job in 10 minutes
+export default defineEventHandler(async (event) => {
+  const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
+  const [error, result] = await sendQueue('welcome-email', { email }, { delaySeconds: 600 })
+  if (error) throw error
+  return result
+})
+```
+
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'cloudflare',
+    // On Cloudflare, jobs go to Cloudflare Queues
+    queue: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
       // On Cloudflare, jobs go to Cloudflare Queues
       queue: true,
-    },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { nitro } from 'nitro/vite'
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        preset: 'cloudflare',
-        // On Cloudflare, jobs go to Cloudflare Queues
-        queue: true,
-      }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
-
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        preset: 'cloudflare',
-        // On Cloudflare, jobs go to Cloudflare Queues
-        queue: true,
-      }),
-    ],
-  })
-  ```
-  ::::
-  :::
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      // On Cloudflare, jobs go to Cloudflare Queues
+      queue: true,
+    }),
+  ],
+})
+```
+:::
 ::
 
 ::product-features
@@ -121,7 +123,7 @@ icon: i-lucide-list-ordered
   :::
 
   :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  On Node, jobs run in the server process. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
+  On Node, jobs run in the server process, on one instance only. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
   :::
 ::
 

@@ -7,7 +7,7 @@
 
 `@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
-Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
+Applications that install the `vite-hub` framework distribution can use `vite-hub/email` and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
 
 ## Requirements
 
@@ -48,7 +48,7 @@ Set `RESEND_API_KEY` in the server runtime environment. Keep provider credential
 Server code can now use the configured Runtime Helper:
 
 ```ts
-import { email } from "@vite-hub/email/server"
+import { email } from "@vite-hub/email"
 
 const [error, sent] = await email.send({
   from: "hello@example.com",
@@ -70,7 +70,7 @@ The official [`email()` Agent Capability](https://vitehub.dev/docs/email/agent-c
 `renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, and fragments before Comark renders the HTML body.
 
 ```ts
-import { email } from "@vite-hub/email/server"
+import { email } from "@vite-hub/email"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
 const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour workspace is ready.", {
@@ -173,7 +173,7 @@ pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
 Application code can select its generated outbox identity through the public server export:
 
 ```ts
-import { emailOutboxRuntimeId } from "@vite-hub/email/server"
+import { emailOutboxRuntimeId } from "@vite-hub/email"
 import { listEmailOutbox, getEmailOutboxMessage, clearEmailOutbox } from "@vite-hub/email/runtime/console"
 
 const captured = listEmailOutbox(emailOutboxRuntimeId)

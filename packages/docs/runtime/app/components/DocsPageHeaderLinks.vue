@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Page actions: the Markdown twin of the page, chat tools that read it, and the docs MCP server.
-import { CopyButton, useCopy } from "@vite-hub/ui/copy-button"
+import { CopyButton, useCopy } from "@vite-hub/ui"
 import { docsMarkdownLinks, docsMcpInstallLinks, findDocsPage } from "#docs/navigation"
 
 const route = useRoute()
@@ -85,7 +85,7 @@ const items = computed(() => {
         size="sm"
         :items="items"
         :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
-        :ui="{ item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' }"
+        :ui="withDocsTheme('dropdownMenu', { item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' })"
         @hydrated="menuHydrated = true"
       >
         <UButton

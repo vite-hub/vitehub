@@ -24,6 +24,8 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { signedConsoleAccess } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { Comments, CommentsPeople, CommentUser, DefineCommentsOptions } from "@vite-hub/comments"
 import type { CommentsStore } from "@vite-hub/comments/server"
@@ -33,6 +35,7 @@ const ana: CommentUser = { id: "ana", name: "Ana" }
 const ben: CommentUser = { id: "ben", name: "Ben" }
 let signedIn: CommentUser | undefined = ana
 const mentions: unknown[] = []
+let signer: Awaited<ReturnType<typeof signedConsoleAccess>>
 const pending: Promise<unknown>[] = []
 
 /** Installs the runtime of the comment operations with a definition, on a store. */
@@ -44,22 +47,27 @@ async function setup(definition: Comments = defineComments({ authorize: () => tr
   const client = createClient({ url: ":memory:" })
   for (const statement of commentsTables) await client.execute(statement)
   // SAFETY: The test database has the tables of the comments schema.
-  const store = createCommentsStore(drizzle(client) as never)
+  const store = createCommentsStore(drizzle({ client: client }) as never)
   install(definition, store)
   return { client, store }
 }
 
-function call(operation: string, input: unknown = {}) {
-  return handleConsoleRpcRequest(new Request("http://localhost/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input, operation }),
+/** Sign a request as the ViteHub Console does for the person in `signedIn`, or as the CLI for nobody. */
+function signed(request: Request): Promise<Request> {
+  return signer.sign(request, signedIn)
+}
+
+async function call(operation: string, input: unknown = {}) {
+  return handleConsoleRpcRequest(await signed(new Request("http://localhost/_vitehub/rpc", {
+    body: operationRpcBody(operation, input),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
-  }), { waitUntil: task => void pending.push(task) })
+  })), { waitUntil: task => void pending.push(task) })
 }
 
 async function value<T>(operation: string, input?: unknown): Promise<T> {
   const response = await call(operation, input)
-  const body = await response.json() as { ok: boolean, value: T, code?: string, message?: string }
+  const body = await operationRpcResponseResult(response) as { ok: boolean, value: T, code?: string, message?: string }
   if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
   return body.value
 }
@@ -67,20 +75,21 @@ async function value<T>(operation: string, input?: unknown): Promise<T> {
 async function failure(operation: string, input?: unknown) {
   const response = await call(operation, input)
   expect(response.ok).toBe(false)
-  return await response.json() as { code: string, fix?: string, message: string, status: number }
+  return await operationRpcResponseResult(response) as { code: string, fix?: string, message: string, status: number }
 }
 
 const page = { id: "/pricing", kind: "page" }
 const create = (body = "Too small.", extra: Record<string, unknown> = {}) => value<CommentThread>("comments.create", { anchor: { kind: "page" }, body, subject: page, ...extra })
 
-beforeEach(() => {
+beforeEach(async () => {
   signedIn = ana
   mentions.length = 0
   installConsoleOperations([{ operations: commentsOperations, plugin: "@vite-hub/comments" }])
-  installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => signedIn as never })
+  signer = await signedConsoleAccess()
 })
 
 afterEach(async () => {
+  signer.restore()
   installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   await Promise.all(pending.splice(0))
@@ -260,7 +269,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       args: ["comments", "list", "--json"],
       cwd: "/app",
       env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" },
-      fetch: ((url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(new Request(String(url), init))) as typeof fetch,
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(await signed(new Request(String(url), init)))) as typeof fetch,
       loadConfig: async () => ({ plugins: [{ name: "comments", vitehub: { operations: [{ export: "commentsOperations", load: async () => commentsOperations, module: "/comments/dist/operations.js" }] } }], root: "/app" }),
       loadNuxtViteConfig: async () => undefined,
       stderr: { write: (chunk: string | Uint8Array) => { errors += String(chunk); return true } },
@@ -308,12 +317,12 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     installConsoleDevelopment("/test/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
-      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }, operation: "comments.create" }),
+      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc", {
+        body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       }), { remoteAddress: "127.0.0.1" })
-      const body = await response.json() as { ok: boolean, value: CommentThread }
+      const body = await operationRpcResponseResult(response) as { ok: boolean, value: CommentThread }
       expect(body.ok).toBe(true)
       expect(body.value.author).toEqual({ id: "local", name: "You" })
     }
@@ -328,14 +337,14 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     const seen: string[] = []
     const transport = createRpcTransport({
       base: "/portal",
-      fetch: ((url: string | URL | Request, init?: RequestInit) => {
+      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
         seen.push(String(url))
         expect(init?.credentials).toBe("same-origin")
-        return handleConsoleRpcRequest(new Request(new URL(String(url), "http://localhost"), init))
+        return handleConsoleRpcRequest(await signed(new Request(new URL(String(url), "http://localhost"), init)))
       }) as typeof fetch,
     })
     const thread = await transport.create({ anchor: { kind: "page" }, body: "Hi", subject: page })
-    expect(seen[0]).toBe("/portal/_vitehub/rpc/__call")
+    expect(seen[0]).toBe("/portal/_vitehub/rpc")
     expect(await transport.list({ page: "/pricing" })).toEqual([thread])
     expect(await transport.get({ n: 1, scope: "site" })).toEqual(thread)
     expect((await transport.reply({ body: "Again", threadId: thread.id })).messages).toHaveLength(2)
@@ -380,7 +389,7 @@ async function asAgent<T>(name: string, input: unknown, user: CommentUser | null
 
 function database() {
   const client = createClient({ url: ":memory:" })
-  return { client, db: drizzle(client) }
+  return { client, db: drizzle({ client: client }) }
 }
 
 async function ready() {

@@ -120,8 +120,6 @@ export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta>
   meta?: TMeta
 }
 
-export type AgentActor<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
-export type AgentInvokerProfile<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 
 export interface AgentAccessWorkspaceScopeContext<TScopeName extends string = string> {
   all: boolean
@@ -155,7 +153,6 @@ declare global {
 
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
-  actor: AgentActor
   "agent.errorHook": boolean
   "agent.finishHook": boolean
   "agent.inspection.configurationUpdated": () => Promise<void>
@@ -169,7 +166,7 @@ export interface AgentInvocationContextValues extends ViteHubAgentInvocationCont
 
 type AgentInvocationCallbackContextKey = {
   [Key in keyof ViteHubAgentInvocationContextValues]: Key extends string
-    ? Key extends "actor" | "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
+    ? Key extends "chat" | "invoker" | `agent.${string}` | `channel.delivery.${string}` | `chat.${string}` | `workspace.${string}`
       ? never
       : Key
     : never
@@ -198,7 +195,7 @@ export interface AgentInvocationContextStore<TValues extends object = AgentInvoc
 export interface AgentInvokerResolveContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore<TContextValues>
@@ -212,7 +209,7 @@ export interface AgentInvokerResolveContext<
 export interface AgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
 > {
   profiles?: readonly TProfile[]
@@ -413,6 +410,9 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
+    /** Retained Workspace head resolved before the Driver starts. */
+    revision?: string
+    ref?: string
     sources?: Array<string | { id: string, repository?: string }>
   }
 }
@@ -750,7 +750,7 @@ export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor?: AgentActor
+  invoker?: AgentInvoker
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   trigger: {
     capabilityId: string
@@ -892,9 +892,12 @@ export interface AgentChannelPullResult<TCursor extends string | number = string
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  /** The accepted Invocation when a durable webhook delivery is replayed for rehydration. */
-  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { agentName?: string }
-  actor?: AgentActor
+  /**
+   * The accepted Invocation when a durable webhook delivery is replayed for rehydration.
+   * `acceptedAt` is when the queue accepted the delivery, in milliseconds since the epoch.
+   */
+  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { acceptedAt?: number, agentName?: string }
+  invoker?: AgentInvoker
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
@@ -1083,7 +1086,6 @@ export interface AgentRunCallbackContext<
   TContextValues extends object = AgentInvocationContextValues,
   TData = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, TData>
   invoker: AgentInvoker
@@ -1156,7 +1158,6 @@ export interface AgentFinishEvent<
   TOutput = unknown,
   TData = unknown,
 > {
-  actor: AgentActor
   error?: unknown
   errorMessage?: string
   extensions: AgentFinishExtensions
@@ -1276,7 +1277,6 @@ export interface AgentRunContext<
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
-  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
@@ -1650,6 +1650,13 @@ export type AgentAdapterInstructions<
     mode: "replace"
     value: AgentInstructionsContent<TRuntimeConfig, Name>
   }
+  | {
+    /**
+     * Receive the inherited instructions as one document and return the new document.
+     * Without a parent, `inherited` is an empty string.
+     */
+    extend: (inherited: string) => string
+  }
 
 export type AgentInstructionsContent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1689,7 +1696,6 @@ export type AgentModelResolver<
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   context: AgentInvocationContextStore
   invoker: AgentInvoker
   model: unknown
@@ -1703,7 +1709,6 @@ export interface AgentCallSettingsInstrumentationContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  actor: AgentActor
   callSettings: Readonly<Record<string, unknown>>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
@@ -1877,10 +1882,9 @@ export type AgentProviderCredentialValue = string | AgentProviderSealedCredentia
 
 export interface AgentProviderCredentialContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "actor" | "invoker" | "workspace" | "fs"> {
-  /** Inspection has no invocation, actor, or mounted Workspace. */
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig>, "invoker" | "workspace" | "fs"> {
+  /** Inspection has no invocation, Invoker, or mounted Workspace. */
   purpose?: "invocation" | "inspection"
-  actor?: AgentAdapterMetadataContext<TRuntimeConfig>["actor"]
   invoker?: AgentAdapterMetadataContext<TRuntimeConfig>["invoker"]
   workspace?: AgentAdapterMetadataContext<TRuntimeConfig>["workspace"]
   fs?: AgentAdapterMetadataContext<TRuntimeConfig>["fs"]
@@ -1935,6 +1939,21 @@ type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" 
 export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
 export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 
+/**
+ * Access that Codex's `workspace-write` sandbox adds for `permissions: "allow-edits"` and `"allow-edits-unattended"`.
+ * Without it, sandboxed commands have no network and can write only inside the working directory.
+ */
+export interface CodexWorkspaceWriteAccess {
+  /** Let sandboxed commands use the network, for example to download packages. Defaults to `false`. */
+  network?: boolean
+  /**
+   * Let sandboxed commands write the package manager store and caches where the provider runs:
+   * `npm_config_store_dir`, `npm_config_cache_dir`, `~/.local/share/pnpm`, `~/.cache/pnpm`,
+   * `~/.cache/node/corepack`, and `~/.npm`. ViteHub creates missing directories. Defaults to `false`.
+   */
+  packageCaches?: boolean
+}
+
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
@@ -1944,6 +1963,8 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /** Network and package cache access for Codex's `workspace-write` sandbox. Other permissions ignore it. */
+  workspaceWrite?: CodexWorkspaceWriteAccess
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -2005,6 +2026,7 @@ export interface AgentModelDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -2035,6 +2057,7 @@ export interface AgentRunDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -2098,6 +2121,7 @@ export interface AgentAskDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -2161,7 +2185,7 @@ export type AgentDefinitionHooks<
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -2201,7 +2225,7 @@ type AgentSharedSettings<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -2240,7 +2264,7 @@ export interface AgentInterceptOutputCarrier<TOutput = unknown> {
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
   TDataInput = unknown,
@@ -2282,7 +2306,7 @@ export type AgentInput<
   TContext extends AgentRuntimeContext<any> = AgentRuntimeContext,
   TOutput = unknown,
   CALL_OPTIONS = any,
-  TInvokerProfile extends AgentInvokerProfile = any,
+  TInvokerProfile extends AgentInvoker = any,
 > = AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, CALL_OPTIONS, TInvokerProfile, any, TOutput, unknown, TOutput, unknown, unknown>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
@@ -2296,13 +2320,13 @@ export interface AgentStateProviderOptions {
   authToken?: string
   /** Persistent file databases default to WAL. Select delete for network-backed volumes. */
   journalMode?: "wal" | "delete"
-  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
+  driver?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
   tablePrefix?: string
   url?: string
 }
 
 export type ResolvedAgentStateProviderOptions =
-  Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
+  Omit<AgentStateProviderOptions, "driver"> & { driver: NonNullable<AgentStateProviderOptions["driver"]> }
 
 export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions
@@ -3076,7 +3100,7 @@ export interface AgentInspectionMetadata {
   config?: AgentInspectionConfigMetadata
   files?: AgentInspectionFileTreeItem[]
   instructions?: string[]
-  invokerProfiles?: AgentInvokerProfile[]
+  invokerProfiles?: AgentInvoker[]
   name?: string
   tools?: AgentInspectionToolDefinition[]
   version?: string
@@ -3199,7 +3223,6 @@ export interface AgentAdapterMetadataContext<
 > extends AgentCallbackContext<TRuntimeConfig>, AgentInvocationCallbackContextValues {
   /** Present after a provider Workspace is prepared; omitted during static inspection. */
   sourceProvenance?: readonly AgentSourceProvenance[]
-  actor: AgentActor
   context: AgentInvocationContextStore
   driver?: {
     kind: AgentDriverKind
@@ -3214,7 +3237,6 @@ export interface AgentAdapterRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */

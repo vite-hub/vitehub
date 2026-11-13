@@ -14,6 +14,8 @@ function describeDevelopment(store: ResolvedKVStoreConfig): string {
       : `Remote. \`vite dev\` uses the real Cloudflare KV namespace through the \`${store.binding}\` binding, so writes change real data.`
     case "deno-kv": return "Local. Deno KV."
     case "fs-lite": return `Local. \`fs-lite\` in \`${store.base}\`.`
+    case "redis": return `The Redis server of \`${store.url.startsWith("env:") ? store.url.slice(4) : "url"}\`, the same as in production when it points there.`
+    case "database": return `The table \`vitehub_kv\` in the Database "${store.database}" of \`vite dev\`.`
   }
 }
 

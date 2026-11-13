@@ -2,26 +2,21 @@ import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy"
 
 import { assertD1Statement } from "./d1-limits.ts"
 import { trackDatabaseCall } from "./request-stats.ts"
+import { createSqlProxyExecutors, sqliteProxyCodecs, toSqlRow } from "./sqlite-proxy.ts"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
+import type { AnyRelations } from "drizzle-orm"
 import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
-
-interface D1HttpQuery {
-  params: unknown[]
-  sql: string
-}
-
-type D1HttpMethod = "run" | "all" | "values" | "get"
-type D1HttpExecutionQuery = D1HttpQuery & { method: D1HttpMethod }
+import type { SqlQuery, SqlResult } from "./sqlite-proxy.ts"
 
 interface D1HttpPayload {
   errors?: D1HttpErrorInfo[]
   result?: Array<{
     error?: string
     errors?: D1HttpErrorInfo[]
-    results?: { rows?: unknown[][] }
+    results?: { columns?: string[], rows?: unknown[][] }
     success?: boolean
   }>
   success?: boolean
@@ -100,12 +95,12 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
 
-function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
-  config: { casing?: "snake_case" | "camelCase", token: string, url: string },
-  schema: TSchema,
+function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+  config: { token: string, url: string },
+  relations: TRelations,
   request: typeof fetch,
 ) {
-  async function execute(queries: D1HttpExecutionQuery[]) {
+  async function execute(queries: SqlQuery[]): Promise<SqlResult[]> {
     for (const { params, sql } of queries) assertD1Statement(sql, params)
     const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     // One HTTP request per call, so a batch is one call.
@@ -150,31 +145,29 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
       if (!isRowMatrix(result.results.rows)) {
         throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
       }
-      return result.results.rows
+      if (query.method === "run") return result.results.rows
+      // The `/raw` endpoint returns rows as arrays, with the column names beside them for object rows.
+      const columns = result.results.columns
+      if (query.rowMode === "object" && !(Array.isArray(columns) && columns.every(column => typeof column === "string"))) {
+        throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
+      }
+      const rows = query.rowMode === "object" ? result.results.rows.map(row => toSqlRow(columns ?? [], row, "object")) : result.results.rows
+      return query.method === "get" ? rows[0] : rows
     })
   }
 
-  function formatResult(rows: unknown[][], method: "run" | "all" | "values" | "get") {
-    // SAFETY: sqlite-proxy returns one row with the get method, and its row type is unknown[].
-    return { rows: method === "get" ? rows[0] as unknown[] : rows }
-  }
-
-  // SAFETY: drizzleProxy returns the runtime database interface for the supplied schema.
-  return drizzleProxy(
-    async (sql, params, method) => formatResult((await execute([{ method, params, sql }]))[0]!, method),
-    async queries => (await execute(queries.map(({ method, params, sql }) => ({ method, params, sql }))))
-      .map((rows, index) => formatResult(rows, queries[index]!.method)),
-    { casing: config.casing, schema },
-  ) as RuntimeDrizzleDatabase<TSchema>
+  const executors = createSqlProxyExecutors(async query => (await execute([query]))[0], execute)
+  // SAFETY: drizzleProxy returns the runtime database interface for the relations of the schema.
+  return drizzleProxy(executors, { codecs: sqliteProxyCodecs, relations }) as RuntimeDrizzleDatabase<TSchema, TRelations>
 }
 
 /** Resolves current credentials and shares the matching D1 HTTP Drizzle database. */
-export function createCloudflareD1HttpResolver<TSchema extends Record<string, unknown>>(
+export function createCloudflareD1HttpResolver<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   config: RuntimeDrizzleDatabaseConfig,
-  schema: TSchema,
+  relations: TRelations,
   request: typeof fetch = (...args) => fetch(...args),
-): () => RuntimeDrizzleDatabase<TSchema> {
-  let cached: { database: RuntimeDrizzleDatabase<TSchema>, token: string, url: string } | undefined
+): () => RuntimeDrizzleDatabase<TSchema, TRelations> {
+  let cached: { database: RuntimeDrizzleDatabase<TSchema, TRelations>, token: string, url: string } | undefined
   return () => {
     const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
     if (!databaseId) {
@@ -182,7 +175,7 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
     }
     const connection = resolveCloudflareD1HttpConnection(config, databaseId)!
     if (cached?.url === connection.url && cached.token === connection.token) return cached.database
-    const database = createCloudflareD1HttpDb({ casing: config.drizzle.casing, ...connection }, schema, request)
+    const database = createCloudflareD1HttpDb<TSchema, TRelations>(connection, relations, request)
     cached = { database, ...connection }
     return database
   }

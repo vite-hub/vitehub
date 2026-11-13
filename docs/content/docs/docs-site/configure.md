@@ -2,7 +2,7 @@
 title: Configure a docs site
 description: Organize sections, pick a layout per page, turn the navigation and the outline on or off, change the design, replace components, and add Markdown blocks.
 navigation.title: Configure
-navigation.order: 3
+navigation.order: 4
 icon: i-lucide-sliders-horizontal
 ---
 
@@ -27,7 +27,9 @@ content/
 - Each folder in `content/docs/` is a section: one rail entry and one sidebar page list. A site with three sections or fewer, or no section icons, has no rail; its sidebar lists every section with its pages.
 - `index.md` is its folder's page. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found and the Docs links open the first section.
 - Files outside `content/docs/`, such as `about.md`, are plain articles under the site header, with no sidebar.
-- `dir` changes the content folder, and `base` changes the `/docs` prefix.
+- A page's URL is its path in the folder. Without a `content/docs/` folder, the docs are the whole site: `content/index.md` is `/`, and each folder in `content/` is a section.
+- `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit.
+- In an app with its own pages, put the docs in `content/docs/` only. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app).
 
 ### Sections and categories
 
@@ -302,6 +304,8 @@ The design follows the comark-ui site: Geist, neutral grays, hairline rings, sma
 
 `--vh-panel-width` sets the page sidebar width, `--vh-grain: none` turns off the grain, and the Nuxt UI `--ui-*` variables set colors.
 
+In an app with its own `app.vue`, the design applies to the docs pages only, and the app's `app.config.ts` stays as written. The docs pages then use the app's Nuxt UI colors. To set a variable on the docs pages only, use the `:root.vh-docs` selector. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app#what-the-module-changes-in-your-app).
+
 ### Icons
 
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
@@ -389,7 +393,7 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, annotated screenshots, diffs, quizzes, and comments.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, Mermaid diagrams, file trees, cards, annotated screenshots, diffs, quizzes, and comments.
 
 An example shows the first fenced block inside it, rendered with the page's plugins, and its source behind a Code switch:
 
@@ -403,6 +407,28 @@ An example shows the first fenced block inside it, rendered with the page's plug
 :::
 ::
 ````
+
+### Diagrams
+
+A `mermaid` fence becomes a diagram. The server draws it as an SVG with [Pele](https://pele.run), so the page shows the diagram before any script runs, and the source does not leave your server:
+
+````md [content/docs/guide/requests.md]
+```mermaid
+graph LR
+  Browser --> Router
+  Router --> Handler
+  Handler --> Database
+```
+````
+
+```mermaid
+graph LR
+  Browser --> Router
+  Router --> Handler
+  Handler --> Database
+```
+
+D2, PlantUML, and Graphviz fences stay code blocks. comark-ui draws them through a [Kroki](https://kroki.io) server, which receives the source of each diagram. To accept that, set `comarkUi: { diagrams: true }` in the [parser options](#configure-the-parser) for kroki.io, or `comarkUi: { diagrams: { server: 'https://kroki.example.com' } }` for your own Kroki server.
 
 ### Configure the parser
 
@@ -428,7 +454,7 @@ export default defineNuxtConfig({
 
 The page route, search, and Console drafts parse with these options:
 
-- `comarkUi` sets comark-ui's options, merged over the built-in ones: typeset, chips, and badge downloads are off. `{ chips: true }` turns every web link into a chip with its favicon. With `docs.github` set, `#123` in a page links to an issue in that repository.
+- `comarkUi` sets comark-ui's options, merged over the built-in ones: typeset, chips, Kroki diagrams, and badge downloads are off. `{ chips: true }` turns every web link into a chip with its favicon. With `docs.github` set, `#123` in a page links to an issue in that repository.
 - `examples.tags` names the blocks that get a preview, `['example', 'correct', 'incorrect']` by default. `examples.play(source, tag)` returns a playground URL for an example's Markdown, and the example links to it. Return `undefined` for no link.
 - `plugins` adds more Comark plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert` or `comark-tabs`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
 
@@ -485,7 +511,7 @@ pnpm add @vite-hub/comments
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { preset: 'node', console: { auth: false } }],
+    ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],
     '@vite-hub/docs/nuxt',
   ],
 })

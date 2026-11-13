@@ -1,8 +1,9 @@
 import * as v from "valibot"
 
-import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
+import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy, passAllows } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
+import { foldName } from "../fold-name.ts"
 import { guestIdPrefix } from "../identity.ts"
 
 import type {
@@ -128,6 +129,8 @@ export async function can(runtime: Pick<CommentsRuntime, "definition" | "develop
   const subject = context.subject ?? context.thread?.subject
   const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}) }
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
+  // A page pass carries the decision of the Console member who made it.
+  if (checked.pass) return passAllows(checked.pass.grants, full.action)
   if (authorize) return await authorize(full) === true
   if (defaultPolicy(full.user, checked)) return true
   if (deniedForMissingPolicy(runtime.definition, full.user, checked)) warnMissingPolicy()
@@ -147,7 +150,7 @@ function warnMissingPolicy(): void {
 /** The diagnostic of a denied action: `COMMENTS_R0006` when only the missing `authorize` denied it, else `COMMENTS_R0009`. */
 export function deniedError(runtime: Pick<CommentsRuntime, "definition" | "development">, action: string, user: CommentsUser | null, gate: CommentsPolicyGate = {}): Error {
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
-  if (deniedForMissingPolicy(runtime.definition, user, checked)) return fail(commentsErrorDiagnostics.COMMENTS_R0006(), 403)
+  if (!checked.pass && deniedForMissingPolicy(runtime.definition, user, checked)) return fail(commentsErrorDiagnostics.COMMENTS_R0006(), 403)
   return fail(commentsErrorDiagnostics.COMMENTS_R0009({ action }), 403)
 }
 
@@ -180,11 +183,12 @@ function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: 
 /** People that `@` suggests to `user`, without the ones that may not be mentioned in the thread. */
 export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
   const found = await peopleOf(runtime, input.user, input.gate).search(input.query, input.limit * 2)
-  const needle = input.query.trim().toLowerCase()
+  // Accents and case do not count, as in the menu, so an app's `search` that finds "José" for "jose" keeps him.
+  const needle = foldName(input.query.trim())
   const people: CommentUser[] = []
   for (const person of found) {
     if (people.length >= input.limit) break
-    if (isGuestId(person.id) || (needle && !(person.name ?? person.id).toLowerCase().includes(needle))) continue
+    if (isGuestId(person.id) || (needle && !foldName(person.name ?? person.id).includes(needle))) continue
     if (await mayMention(runtime, input.user, person, input)) people.push(personOf(person))
   }
   return people

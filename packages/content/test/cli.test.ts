@@ -21,6 +21,7 @@ import { documents, singleton } from "../src/collections.ts"
 import { contentSource, defineContent } from "../src/index.ts"
 import { contentOperations } from "../src/operations.ts"
 import { hubContent } from "../src/vite.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ContentCliOptions } from "../src/cli.ts"
 
@@ -49,7 +50,7 @@ async function historyWorkspace(): Promise<string> {
   const root = await tempDir("vitehub-content-cli-")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
+  const database = drizzle({ client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const workspace = `site-cli-${++workspaces}`
@@ -98,9 +99,9 @@ function devServer(content: unknown) {
   Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), content === undefined ? {} : { content: async () => ({ default: content }) })
   cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
   return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+    const { input, operation } = operationRpcRequest(init?.body)
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
-    return Response.json(result, { status: result.ok ? 200 : result.status })
+    return operationRpcResponse(init?.body, result)
   })
 }
 
@@ -758,10 +759,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
     expect(help.stdout).toContain("With --url it calls a deployed app")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap\n")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap, previews, head, advance, pin, unpin, check\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap", "previews", "head", "advance", "pin", "unpin", "check"])
   })
 })
 

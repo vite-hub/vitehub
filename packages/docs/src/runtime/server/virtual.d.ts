@@ -22,10 +22,8 @@ declare module "#docs/example-sources" {
   export default examples
 }
 
-declare module "#imports" {
-  import type { H3Event } from "h3"
-
-  export { createError, defineEventHandler, getRequestURL, getRouterParam, setHeader } from "h3"
-  export function useStorage(base: string): { getItem<T>(key: string): Promise<T | null> }
-  export function useRuntimeConfig(event?: H3Event): { public: Record<string, unknown> }
+/** The docs Markdown files packed into one module in a production build, or null in development. */
+declare module "#docs/files" {
+  const files: import("../../files.ts").DocsPackedFiles | null
+  export default files
 }

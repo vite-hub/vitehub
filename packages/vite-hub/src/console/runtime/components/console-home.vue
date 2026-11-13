@@ -9,7 +9,7 @@ import type { ConsoleSectionId } from "../sections";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import type { ConsoleNavigation } from "../client/sections";
 import {
-  consoleGuides,
+  consoleGuide,
   consolePrimitives,
   consoleSectionDetails,
   consoleSectionGroupLabels,
@@ -20,7 +20,6 @@ import {
 } from "../sections";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
-import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/format";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -102,11 +101,22 @@ const sessionItems = computed(() =>
     time: recentTimestamp(item.updatedAt, sessionsLoadedAt.value),
   })),
 );
+// Plain words for the people who run the app, such as "This app uses Content and Comments."
 const summary = computed(() => {
-  const count = availableSections.value.length;
-  const groups = sectionGroups.value.length;
-  if (!count) return "No primitives enabled yet.";
-  return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
+  const labels = availableSections.value.map(section => section.label);
+  if (!labels.length) return "Nothing in this app has a Console page yet.";
+  const shown = labels.length > 4 ? [...labels.slice(0, 3), `${labels.length - 3} more`] : labels;
+  return `This app uses ${new Intl.ListFormat("en", { type: "conjunction" }).format(shown)}.`;
+});
+// Learn links the Console guide and the docs of the sections that the app uses. Sections that share a page link it once.
+const sectionGuides = computed(() => {
+  const seen = new Set<string>([consoleGuide.href]);
+  return availableSections.value.flatMap((section) => {
+    const primitive = consolePrimitives.find(entry => entry.id === section.id);
+    if (!primitive || seen.has(primitive.docs)) return [];
+    seen.add(primitive.docs);
+    return [{ description: primitive.pitch, href: primitive.docs, icon: section.icon, label: `${section.label} docs` }];
+  });
 });
 
 async function loadRecentSessions(): Promise<void> {
@@ -114,12 +124,10 @@ async function loadRecentSessions(): Promise<void> {
   await recentSessions.refresh();
 }
 
-// Without a session the Console has nothing to show, so the Overview is one centered state.
+// When the project refuses the call, the Console has nothing to show, so the Overview is one centered state.
 const signedOut = computed(() => !loading.value && !availableSections.value.length && isConsoleSignInRequired(error.value));
 const checking = ref(false);
 const stillSignedOut = ref(false);
-// With a sign-in page, the Console sends the person there and back. Without one, it asks them to sign in elsewhere.
-const signInURL = computed(() => (signedOut.value ? consoleSignInURL({ document, location: window.location }) : undefined));
 
 /** A quiet load keeps the current page on screen while it runs, so the signed-out state does not flash a skeleton. */
 async function loadSections(quiet = false): Promise<void> {
@@ -140,7 +148,7 @@ async function loadSections(quiet = false): Promise<void> {
   }
 }
 
-/** Asks again whether this browser has a session. Only a check that someone asked for reports "still not signed in". */
+/** Asks the project again. Only a check that someone asked for reports "still refused". */
 async function checkSession(asked: boolean): Promise<void> {
   if (checking.value) return;
   checking.value = true;
@@ -154,8 +162,8 @@ async function checkSession(asked: boolean): Promise<void> {
   checkIfReturned();
 }
 
-// People sign in in another tab, so the Console checks again when this tab is shown or focused again. A return while a
-// request is in flight waits for its answer, because that request may have left before the sign-in.
+// People fix access in another tab, such as the key of the app, so the Console checks again when this tab is shown or
+// focused again. A return while a request is in flight waits for its answer, because that request may have left first.
 let returnedDuringRequest = false;
 function checkOnReturn(): void {
   if (document.visibilityState !== "visible") return;
@@ -209,7 +217,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template #body>
-        <!-- With app sign-in, the Console page loads for anyone; its data needs a signed-in user. -->
+        <!-- The project refused the signed call, such as before it has the key of the link. -->
         <main
           v-if="signedOut"
           class="flex flex-1 flex-col items-center justify-center px-6 pb-24 pt-12 text-center"
@@ -218,20 +226,11 @@ onBeforeUnmount(() => {
           <span class="vitehub-console__overview-mark grid size-10 place-items-center rounded-full border border-default" aria-hidden="true">
             <ConsoleMark class="size-[1.125rem]" />
           </span>
-          <h2 id="console-home-signed-out" class="mt-4 text-base font-semibold text-balance text-highlighted">Sign in to use the Console</h2>
+          <h2 id="console-home-signed-out" class="mt-4 text-base font-semibold text-balance text-highlighted">The app refused this Console</h2>
           <p class="mt-1.5 max-w-sm text-sm text-pretty text-muted">
-            {{ signInURL ? "You are not signed in, or your session ended." : "You are not signed in, or your session ended. Sign in, then come back to this tab." }}
+            The app does not accept the signature of this Console. Set the key of the link on the app, then check again.
           </p>
           <UButton
-            v-if="signInURL"
-            class="mt-5"
-            icon="i-lucide-log-in"
-            label="Sign in"
-            :to="signInURL"
-            external
-          />
-          <UButton
-            v-else
             class="mt-5"
             variant="outline"
             icon="i-lucide-refresh-cw"
@@ -239,7 +238,7 @@ onBeforeUnmount(() => {
             :loading="checking"
             @click="checkSession(true)"
           />
-          <p class="mt-3 min-h-5 text-xs text-muted" role="status">{{ stillSignedOut ? "You are still not signed in." : "" }}</p>
+          <p class="mt-3 min-h-5 text-xs text-muted" role="status">{{ stillSignedOut ? "The app still refuses this Console." : "" }}</p>
         </main>
         <main v-else class="px-5 pb-24 pt-8 sm:px-8 lg:pt-12">
           <div class="mx-auto flex w-full max-w-3xl flex-col gap-10">
@@ -388,22 +387,6 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
-              <section class="vitehub-console__overview-block" aria-labelledby="console-home-connect">
-                <h2 id="console-home-connect" class="vitehub-console__overview-label">Connect</h2>
-                <ul class="vitehub-console__overview-list">
-                  <li>
-                    <button type="button" class="vitehub-console__overview-row" data-focus-inset @click="openSection('vitehub-console-connect')">
-                      <UIcon name="i-lucide-bot" class="vitehub-console__overview-icon" />
-                      <span class="vitehub-console__overview-name">Connect an agent</span>
-                      <span class="vitehub-console__overview-description">Use this Console from Claude Code, Codex, Cursor, or any MCP client.</span>
-                      <span class="vitehub-console__overview-meta">
-                        <UIcon name="i-lucide-arrow-right" class="size-3" />
-                      </span>
-                    </button>
-                  </li>
-                </ul>
-              </section>
-
               <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
                 <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
                 <ul class="vitehub-console__overview-list">
@@ -432,9 +415,19 @@ onBeforeUnmount(() => {
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>
                 <ul class="vitehub-console__overview-list">
-                  <li v-for="guide in consoleGuides" :key="guide.href">
+                  <li>
+                    <a class="vitehub-console__overview-row" data-focus-inset :href="consoleGuide.href" rel="noreferrer" target="_blank">
+                      <UIcon :name="consoleGuide.icon" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">{{ consoleGuide.label }}</span>
+                      <span class="vitehub-console__overview-description" :title="consoleGuide.description">{{ consoleGuide.description }}</span>
+                      <span class="vitehub-console__overview-meta">
+                        <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+                      </span>
+                    </a>
+                  </li>
+                  <li v-for="guide in sectionGuides" :key="guide.href">
                     <a class="vitehub-console__overview-row" data-focus-inset :href="guide.href" rel="noreferrer" target="_blank">
-                      <UIcon :name="guide.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="guide.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ guide.label }}</span>
                       <span class="vitehub-console__overview-description" :title="guide.description">{{ guide.description }}</span>
                       <span class="vitehub-console__overview-meta">

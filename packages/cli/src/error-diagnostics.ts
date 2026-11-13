@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -32,8 +33,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `ViteHub cannot edit the vitehub() options in ${String(file)} without running the config (${String(reason)}).`,
     },
     SETUP_FEATURE_UNSUPPORTED: {
-      fix: "Remove the feature from the command, or set `preset` to a host that supports it. Run `vitehub catalog` to compare hosts.",
-      why: ({ detail, feature, host }: { detail?: unknown, feature?: unknown, host?: unknown }) => `${String(feature)} is not supported on the ${String(host)} preset. ${String(detail)}`,
+      fix: "Remove the feature from the command, or set `host` to a host that supports it. Run `vitehub catalog` to compare hosts.",
+      why: ({ detail, feature, host }: { detail?: unknown, feature?: unknown, host?: unknown }) => `${String(feature)} is not supported on the ${String(host)} host. ${String(detail)}`,
     },
     SETUP_FILE_EXISTS: {
       fix: "Choose another --name, or edit the file by hand.",
@@ -63,20 +64,28 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or pass --force to write \`${String(feature)}: false\`.`,
       why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} stays on because ${String(by)} turns it on.`,
     },
+    SETUP_FEATURE_REQUIRED: {
+      fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or change its options before removing ${String(feature)}. --force cannot remove a required feature.`,
+      why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} is required by the configured options of ${String(by)}.`,
+    },
     SETUP_FEATURE_IN_USE: {
       fix: "Delete or move the files in `references`, then run the command again. Pass --force to turn the feature off and keep the files.",
       why: ({ features, references }: { features?: unknown, references?: unknown }) => `The app still uses ${String(features)}:\n${String(references)}`,
     },
     SETUP_UNINSTALL_FAILED: {
-      fix: "Run the uninstall command by hand to see the error. ViteHub already changed the config and deleted the starter files.",
+      fix: ({ configWritten }: { configWritten?: unknown }) => `Run the uninstall command by hand to see the error. ${configWritten === false ? "ViteHub kept the config unchanged; starter files may already be deleted. Plan the removal again after fixing the uninstall." : "ViteHub already changed the config and deleted the starter files."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
+    SETUP_PLAN_UNKNOWN: {
+      fix: "Plan the change again. A plan applies once, and only on the dev server that made it.",
+      why: () => "The dev server has no plan with this id. It was applied already, or the server restarted.",
     },
     SETUP_STALE_PLAN: {
       fix: "Run the command again to plan from the current file.",
       why: ({ file }: { file?: unknown }) => `${String(file)} changed after ViteHub planned the change.`,
     },
     SETUP_LINK_HOST_UNSUPPORTED: {
-      fix: "Pass --host cloudflare, vercel, netlify, or deno, or set `preset` in vitehub().",
+      fix: "Pass --host cloudflare, vercel, netlify, or deno, or set `host` in vitehub().",
       why: ({ host }: { host?: unknown }) => `The ${String(host)} host has no project to link. A self-hosted Node server needs no link.`,
     },
     SETUP_LINK_CREDENTIALS_MISSING: {
@@ -107,18 +116,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_INIT_HOST_MIGRATION: {
       fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
-      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} preset.`,
+      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} host.`,
     },
     SETUP_INIT_NUXT_VERSION: {
       fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
       why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
     },
-    SETUP_CONSOLE_INVALID: {
-      fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",
-      why: () => "--console must be `<pendingId>:sha256:<64 hex characters>`. The value is not printed, because it can hold a secret.",
-    },
     SETUP_DEPLOY_HOST_UNSUPPORTED: {
-      fix: "Set `preset` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
+      fix: "Set `host` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
       why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
     },
     SETUP_DEPLOY_CREDENTIALS_MISSING: {
@@ -158,14 +163,6 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_DEPLOY_FAILED: {
       fix: "Read the host output above, fix the cause, and run the command again.",
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
-    },
-    SETUP_DEPLOY_SECRET_UNVERIFIED: {
-      fix: "Check the project's environment variables on the host, then run the command again.",
-      why: ({ host, name }: { host?: unknown, name?: unknown }) => `${String(name)} was set on ${String(host)}, but the host does not list it. The app was not deployed with the Console link.`,
-    },
-    SETUP_DEPLOY_SECRET_UNSUPPORTED: {
-      fix: "Run the command on Linux or macOS, or set the variable in the host dashboard.",
-      why: ({ host, reason }: { host?: unknown, reason?: unknown }) => `ViteHub cannot set the Console secret on ${String(host)} without putting it in a command argument. ${String(reason)}`,
     },
     SETUP_DEPLOYMENTS_NOT_LINKED: {
       fix: "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",

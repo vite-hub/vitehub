@@ -25,14 +25,14 @@ Add the Sandbox package and the Vercel Sandbox SDK. Sandbox also uses the TypeSc
 pnpm add @vite-hub/sandbox @vercel/sandbox
 ```
 
-In the ViteHub options of your app, set `preset: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.
+In the ViteHub options of your app, set `host: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', sandboxTask: true },
+  vitehub: { host: 'vercel', sandboxTask: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', sandboxTask: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel', sandboxTask: true }), nitro()],
 })
 ```
 ::::
@@ -55,13 +55,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', sandboxTask: true })],
+  plugins: [vitehub({ host: 'vercel', sandboxTask: true })],
 })
 ```
 ::::
 :::
 
-- `preset: 'vercel'` runs the Sandbox on Vercel. The `node` preset has no Sandbox provider, so `sandboxTask: true` fails during configuration with that preset.
+- `host: 'vercel'` runs the Sandbox on Vercel. The `node` host has no Sandbox provider, so `sandboxTask: true` fails during configuration with that host.
 
 Set your Vercel keys in the terminal where you will start the server. Replace the values with the ones of your Vercel project:
 
@@ -71,7 +71,7 @@ export VERCEL_TEAM_ID='your-team-id'
 export VERCEL_PROJECT_ID='your-project-id'
 ```
 
-To use Cloudflare instead, you need more than `preset: 'cloudflare'`. Install `@cloudflare/sandbox` and follow the [Cloudflare host integration](/docs/frameworks-hosts/cloudflare). See [Hosts](/docs/sandbox/hosts) for the steps.
+To use Cloudflare instead, you need more than `host: 'cloudflare'`. Install `@cloudflare/sandbox` and follow the [Cloudflare host integration](/docs/frameworks-hosts/cloudflare). See [Hosts](/docs/sandbox/hosts) for the steps.
 
 ::
 
@@ -181,7 +181,7 @@ Sandbox Tasks (sandbox-task): 1
     Kind: Package entry
 ```
 
-The `vercel` preset writes the build to `.vercel/output`, not to `.output`, so `pnpm start` does not apply. Stop the dev server. In the terminal where you set the Vercel keys, preview the build on your computer:
+The `vercel` host writes the build to `.vercel/output`, not to `.output`, so `pnpm start` does not apply. Stop the dev server. In the terminal where you set the Vercel keys, preview the build on your computer:
 
 ```bash [commands/server]
 pnpm vite preview --port 4173

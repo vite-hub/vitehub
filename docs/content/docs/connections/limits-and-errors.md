@@ -10,9 +10,9 @@ icon: i-lucide-circle-alert
 
 - Grants are encrypted with AES-GCM and the encryption key. Each row stores the key id. With a different key, the status is `needs-reconnect`.
 - The connect flow uses PKCE (`S256`), a one-time ticket that expires after 10 minutes, and a `state` cookie. Tokens never go to the browser or the CLI.
-- Connect, callback, and management routes exist in dev, and in production only with `connections: { management: true }`. Each route checks Console access: Console Auth, app Auth, Cloudflare Access, or `auth: false`, then `console.authorize` if set. See [Management routes](/docs/connections/server-api#management-routes).
+- Connect, callback, and management routes exist in dev, and in production only with `connections: { management: { actor } }`. Each route checks the `actor` policy of the app. See [Management routes](/docs/connections/server-api#management-routes).
 - The OAuth callback accepts a `state` once, only from the browser and manager that started the flow.
-- The Console keeps the Vite `base` in management, connect, callback, and return URLs.
+- The routes keep the Vite `base` in management, connect, callback, and return URLs.
 - A database lease lets only one request refresh a rotating refresh token.
 
 ## Errors
@@ -25,7 +25,7 @@ The action needs approval.
 
 ### CONNECTIONS_AUTHORIZATION_EXPIRED
 
-The callback carried a `state` that the server does not know. Each link works once, for 10 minutes, so the sign-in took longer, the link was used, or the server lost the pending sign-in. `vitehub connections connect` waits 10 minutes and prints the expiry. Run it again, or connect from the Console, and finish in time.
+The callback carried a `state` that the server does not know. Each link works once, for 10 minutes, so the sign-in took longer, the link was used, or the server lost the pending sign-in. `vitehub connections connect` waits 10 minutes and prints the expiry. Run it again, and finish in time.
 
 ### CONNECTIONS_AUTHORIZATION_CANCELLED
 

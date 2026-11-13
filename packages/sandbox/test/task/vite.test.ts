@@ -367,7 +367,7 @@ describe("hubSandboxTask", () => {
     const resolveId = idHook(plugin.resolveId)
     const load = idHook(plugin.load)
 
-    await configHook({ root: rootDir, preset: "vercel" }, { command: "serve", mode: "development" })
+    await configHook({ root: rootDir, nitro: { preset: "vercel" } }, { command: "serve", mode: "development" })
 
     const resolvedId = await resolveId("#vitehub/sandbox-task")
     const code = await load(resolvedId as string)
@@ -1138,8 +1138,7 @@ describe("hubSandboxTask", () => {
     const userConfig = {
       root: rootDir,
       plugins: [{ name: "nitro:main" }],
-      preset,
-      nitro: {},
+      nitro: { preset },
     }
     await configHook(userConfig, { command: "build", mode: "production" })
     const runNitroBuildBefore = createSandboxTaskNitroLifecycle(plugin, [/existing/])
@@ -1165,7 +1164,7 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir, nitro: {}, preset: "vercel" }
+    const userConfig = { root: rootDir, nitro: {} }
     await configHook(userConfig, { command: "build", mode: "production" })
     const runNitroBuildBefore = createSandboxTaskNitroLifecycle(plugin, [/existing/])
 

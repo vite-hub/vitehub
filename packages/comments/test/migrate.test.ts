@@ -54,7 +54,7 @@ async function liveDatabase() {
   await client.execute("INSERT INTO vitehub_comment_scope_counters (scope, last_number) VALUES ('pages', 5), ('drop:42', 1)")
   await client.execute("INSERT INTO vitehub_comment_forge (id, thread_id, repository, pull_request, remote_id, updated_at) VALUES ('c1', 't1', 'acme/site', 7, '99', 100)")
   // SAFETY: libSQL implements the batch contract of the Database runtime.
-  return { client, db: drizzle(client) as unknown as CommentsDatabase }
+  return { client, db: drizzle({ client }) as unknown as CommentsDatabase }
 }
 
 const subjects = [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })]
@@ -111,8 +111,8 @@ describe("migrateComments", () => {
     await client.execute("INSERT INTO vitehub_comment_scope_counters (scope, last_number) VALUES ('site', 8)")
     if (migration === "runtime") await migrateComments(db)
     else {
-      for (const name of ["0007_comments_one_model.sql", "0009_comments_request_id.sql"]) {
-        await client.executeMultiple(readFileSync(new URL(`../../../playground/content/server/databases/content/migrations/${name}`, import.meta.url), "utf8").replaceAll("--> statement-breakpoint", ""))
+      for (const folder of ["20261103111846_comments_one_model", "20261109045320_comments_request_id"]) {
+        await client.executeMultiple(readFileSync(new URL(`../../../playground/content/server/databases/content/migrations/${folder}/migration.sql`, import.meta.url), "utf8").replaceAll("--> statement-breakpoint", ""))
       }
     }
     const comments = defineComments({ subjects })
@@ -172,7 +172,7 @@ describe("migrateComments", () => {
       "INSERT INTO vitehub_comment_threads VALUES ('t', 'site', 1, 'page', '/', '{\"kind\":\"page\"}', 'open', NULL, NULL, 'ada', 'Ada', NULL, NULL, 1, 1);",
     ].join("\n"))
     // SAFETY: libSQL implements the batch contract of the Database runtime.
-    const db = drizzle(client) as unknown as CommentsDatabase
+    const db = drizzle({ client }) as unknown as CommentsDatabase
     expect(await commentsSchemaState(db)).toEqual({ state: "outdated", missing: ["metadata", "context", "revision", "request_id"] })
     expect((await migrateComments(db)).from).toBe("outdated")
     expect(await commentsSchemaState(db)).toEqual({ state: "current", missing: [] })
@@ -187,7 +187,7 @@ describe("migrateComments", () => {
     const client = createClient({ url: ":memory:" })
     clients.push(client)
     // SAFETY: libSQL implements the batch contract of the Database runtime.
-    const db = drizzle(client) as unknown as CommentsDatabase
+    const db = drizzle({ client }) as unknown as CommentsDatabase
     expect(await migrateComments(db)).toEqual({ from: "empty", statements: [] })
     expect((await client.execute("SELECT name FROM sqlite_master")).rows).toEqual([])
   })
@@ -226,21 +226,21 @@ describe("migrateComments", () => {
 
 describe("the custom migration of a ViteHub Database", () => {
   const migrations = new URL("../../../playground/content/server/databases/content/migrations/", import.meta.url)
-  const migration = (name: string) => readFileSync(new URL(name, migrations), "utf8")
+  const migration = (folder: string) => readFileSync(new URL(`${folder}/migration.sql`, migrations), "utf8")
 
   it.each([ada, guest, legacyGuest])("moves authors %j from the playground's live-site migrations", async (author) => {
     const client = createClient({ url: ":memory:" })
     clients.push(client)
-    for (const name of ["0002_comments.sql", "0003_comments_context.sql", "0004_comments_scope.sql", "0005_comments_scope_counters.sql"]) {
+    for (const name of ["20261023103000_comments", "20261026080000_comments_context", "20261027080000_comments_scope", "20261027200000_comments_scope_counters"]) {
       await client.executeMultiple(migration(name).replaceAll("--> statement-breakpoint", ""))
     }
     await client.execute({ sql: "INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('t', 'pages', 2, '/', ?, 'open', ?, 1, 1)", args: [JSON.stringify(anchor), JSON.stringify(author)] })
     await client.execute({ sql: "INSERT INTO vitehub_comments (id, thread_id, body, mentions, author, created_at) VALUES ('c', 't', 'Hello', '[]', ?, 1)", args: [JSON.stringify(author)] })
-    for (const name of ["0007_comments_one_model.sql", "0009_comments_request_id.sql"]) {
-      await client.executeMultiple(migration(name).replaceAll("--> statement-breakpoint", ""))
+    for (const folder of ["20261103111846_comments_one_model", "20261109045320_comments_request_id"]) {
+      await client.executeMultiple(migration(folder).replaceAll("--> statement-breakpoint", ""))
     }
     // SAFETY: libSQL implements the batch contract of the Database runtime.
-    const db = drizzle(client) as unknown as CommentsDatabase
+    const db = drizzle({ client }) as unknown as CommentsDatabase
     expect((await commentsSchemaState(db)).state).toBe("current")
     const comments = defineComments()
     installComments(comments, { database: db })

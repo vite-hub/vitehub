@@ -23,6 +23,11 @@
       "import": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
+    "./console-signature": {
+      "types": "./dist/console-signature.d.ts",
+      "import": "./dist/console-signature.js",
+      "default": "./dist/console-signature.js"
+    },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
@@ -32,6 +37,11 @@
       "types": "./dist/contributions.d.ts",
       "import": "./dist/contributions.js",
       "default": "./dist/contributions.js"
+    },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./env": {
       "types": "./dist/env.d.ts",
@@ -83,6 +93,11 @@
       "import": "./dist/dev-peer.js",
       "default": "./dist/dev-peer.js"
     },
+    "./dev-token": {
+      "types": "./dist/dev-token.d.ts",
+      "import": "./dist/dev-token.js",
+      "default": "./dist/dev-token.js"
+    },
     "./hosting": {
       "types": "./dist/hosting.d.ts",
       "import": "./dist/hosting.js",
@@ -102,6 +117,11 @@
       "types": "./dist/operation-registry.d.ts",
       "import": "./dist/operation-registry.js",
       "default": "./dist/operation-registry.js"
+    },
+    "./operation-rpc": {
+      "types": "./dist/operation-rpc.d.ts",
+      "import": "./dist/operation-rpc.js",
+      "default": "./dist/operation-rpc.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
@@ -152,11 +172,6 @@
       "types": "./dist/runtime/cloudflare-hosted.d.ts",
       "import": "./dist/runtime/cloudflare-hosted.js",
       "default": "./dist/runtime/cloudflare-hosted.js"
-    },
-    "./runtime/h3-v1-request": {
-      "types": "./dist/runtime/h3-v1-request.d.ts",
-      "import": "./dist/runtime/h3-v1-request.js",
-      "default": "./dist/runtime/h3-v1-request.js"
     },
     "./runtime/vercel-hosted": {
       "types": "./dist/runtime/vercel-hosted.d.ts",
@@ -364,11 +379,6 @@
       "import": "./dist/presets.js",
       "default": "./dist/presets.js"
     },
-    "./dispatch": {
-      "types": "./dist/dispatch.d.ts",
-      "import": "./dist/dispatch.js",
-      "default": "./dist/dispatch.js"
-    },
     "./operations-vite": {
       "types": "./dist/operations-vite.d.ts",
       "import": "./dist/operations-vite.js",
@@ -391,6 +401,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",
@@ -407,6 +418,7 @@
     "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
     "sharp": "0.35.5",
+    "srvx": "catalog:unjs",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",

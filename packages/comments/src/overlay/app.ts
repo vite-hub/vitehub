@@ -328,10 +328,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (next !== "mark") stopMarking()
-    if (resolving.value && next !== "edit") {
-      paused.value = next === "comment" && canComment.value
-      return
-    }
+    // While the new page loads, the last choice wins: any mode but comment ends the paused comment mode. Edit and view
+    // need no subject, so they apply now.
+    if (resolving.value) paused.value = next === "comment" && canComment.value
+    if (resolving.value && next !== "edit" && next !== "view") return
     if (next === "mark") {
       if (!canComment.value || marking.value) return
       if (needsName.value) {
@@ -677,15 +677,18 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           const bar = selected.value
           if (bar && !state.draft.value) {
             // Near the top of the screen there is no room above. On a touch screen the system's own menu takes that place,
-            // and the selection handles hang under the text.
+            // and the selection handles hang under the text, so the bar goes above only when its 38px do not fit below.
+            // Above the text on a touch screen, it leaves 64px for the system's menu, which on Android is about 48px tall and 8px above the text.
             const touch = matchMedia("(pointer: coarse)").matches
-            const below = bar.top < 56 || touch
+            const under = bar.bottom + (touch ? 20 : 8)
+            const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
+            const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 64 : 8)
             nodes.push(h("div", {
               class: "selection-bar",
               "data-below": below ? "true" : undefined,
               role: "group",
               "aria-label": "Selected text",
-              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${below ? bar.bottom + (touch ? 20 : 8) : bar.top - 8}px` },
+              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${top}px` },
               // A press here must not take the selection away from the page, nor hide the bar before the click.
               onPointerdown: (event: PointerEvent) => {
                 event.preventDefault()
@@ -779,15 +782,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function toolbar(): VNode {
     void tick.value
     if (marking.value || finishing.value) return markerToolbar()
-    const people = room?.people() ?? []
-    const seen = new Set<string>()
-    const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
+    const signOutUrl = session?.signOut
+    const github = signOutUrl ? session?.github : undefined
+    // Each person shows once, however many tabs they have open. The sign-out button shows the person themselves, so
+    // presence then lists only the others.
+    const seen = new Set(github && session?.user ? [session.user.id] : [])
+    const people = (room?.people() ?? []).filter(person => !seen.has(person.id) && seen.add(person.id))
+    const avatars = people.slice(0, 5).map(person =>
       h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
+    const peopleLabel = `${people.length} ${github ? "other " : ""}${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
-    const signOutUrl = session?.signOut
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value
         ? h("button", {
@@ -816,10 +823,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         : null,
       canComment.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
-      avatars.length > 0 ? h("span", { "aria-label": `${people.length} on this page`, class: "people" }, avatars) : null,
-      signOutUrl && session?.github
-        ? h("button", { "aria-label": `Sign out @${session.github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${session.github.login}. Sign out`, type: "button" },
-            session.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session.user?.name ?? session.github.login))
+      avatars.length > 0 ? h("span", { "aria-label": peopleLabel, class: "people" }, avatars) : null,
+      signOutUrl && github
+        ? h("button", { "aria-label": `Sign out @${github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${github.login}. Sign out`, type: "button" },
+            session?.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session?.user?.name ?? github.login))
         : null,
     ])
   }
@@ -894,30 +901,41 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
   let retryToast: Toast | undefined
+  function clearRetry() {
+    if (toast.value === retryToast) toast.value = undefined
+    retryToast = undefined
+  }
   /**
    * Asks `/session` for the subject and the permissions of a new page. Until it answers, comments stay paused. A failed
    * answer keeps them paused, because the subject is not known, and offers Retry.
    */
   function resolvePage(next: string) {
     const current = ++navigations
-    void api.session(next).then(([error, answer]) => {
+    void api.session(next).then(async ([error, answer]) => {
       if (current !== navigations || page.value !== next) return
       if (error) {
-        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => resolvePage(next)] }
+        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => {
+          // The Retry of a page that the person left must not cancel the request for the page they are on now.
+          if (page.value === next) resolvePage(next)
+        }] }
         showToast(retryToast, true)
         return
       }
-      if (toast.value === retryToast) toast.value = undefined
-      retryToast = undefined
+      clearRetry()
       pageCan.value = answer.can
       revision = answer.revision
       const mapped = answer.subject ?? { kind: "page", id: next }
       if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
       // The same subject lists no threads again, so the new page joins its room here.
       else if (!room && state.status.value === "ready") void joinRoom()
+      // A new subject cancels the draft of the old one. Comment mode turns a selected text into a draft, so it waits.
+      await nextTick()
+      if (current !== navigations) return
       resolving.value = false
-      state.active.value = paused.value && canComment.value
+      const resume = paused.value
       paused.value = false
+      // Through setMode, so comment mode ends edit mode, and a guest without a name gets the name card first.
+      if (resume) setMode("comment")
     })
   }
 
@@ -949,6 +967,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // Strokes mark the screen of the old page.
       if (marking.value) setMode("view")
       dropInk()
+      // The Retry of the previous page does not apply here.
+      clearRetry()
       // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
       paused.value = paused.value || state.active.value
       state.active.value = false

@@ -9,7 +9,7 @@ import ConsoleAuthEventSetup from "./console-auth-event-setup.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 
-const props = defineProps<{ base: string; enabled: boolean; revision: number }>();
+const props = defineProps<{ enabled: boolean; revision: number }>();
 const route = useRoute();
 const router = useRouter();
 const groups = [
@@ -43,7 +43,6 @@ async function load() {
   error.value = undefined;
   try {
     const result = await readAuthConsole(
-      props.base,
       "activity",
       {
         activity: {

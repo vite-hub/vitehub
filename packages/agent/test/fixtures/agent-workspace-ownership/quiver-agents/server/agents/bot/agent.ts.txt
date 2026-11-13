@@ -6,7 +6,7 @@ import { cliproxy, cloudflareAccess } from 'vite-hub/gateways'
 import { useServerEnv } from '#vitehub/env/server'
 import { sshLaunch } from '@vite-hub/sandbox/ssh'
 import packageJson from '../../../package.json' with { type: 'json' }
-import { createLibsqlAgentState } from 'vite-hub/agent/state/sqlite'
+import { createLibsqlAgentState } from 'vite-hub/agent/state'
 import productlaneChannel from '../../channels/productlane'
 import { airtableChatAttachments } from '../../channels/airtable/attachments'
 import { teamsMessageLinks } from '../../channels/teams/links'

@@ -10,7 +10,7 @@ navigation.kind: Guides
 
 A Channel connects your Agent to a place where people send messages, such as a web chat, Slack, or GitHub. When a message arrives, the Channel starts an Invocation (one run of the Agent) and sends the reply back to the same place.
 
-A Channel knows the transport, event, thread, message, and reply delivery. It does not prove who the caller is: use [Agent Actors](/docs/agents/actors) for that, and [Input Commands](/docs/agents/capabilities/input-commands) for typed commands.
+Use [Trusted Invokers](/docs/agents/trusted-invokers) for trusted identity and [Input Commands](/docs/agents/capabilities/input-commands) for explicit command handling.
 
 ## Supported channels
 
@@ -67,7 +67,7 @@ Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, T
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+  vitehub: { host: 'node', agent: { channels: { simulate: true } } },
 })
 ```
 :::
@@ -79,7 +79,7 @@ import { vitehub } from 'vite-hub'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } }), nitro()],
 })
 ```
 :::
@@ -90,7 +90,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } })],
 })
 ```
 :::
@@ -332,7 +332,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -352,7 +352,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -371,7 +371,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -385,7 +385,7 @@ export default defineConfig({
 
 ```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export default defineChannel({
   adapter: webhook({
@@ -480,17 +480,13 @@ export default defineAgent({
 
 Conversations are private. Every surface answers `CHANNELS_THREAD_UNKNOWN` (404) for a thread with no Invocation of this Channel and no transcript. The check runs before the provider is asked, so nobody can use the bot token to read another chat. A group thread with a transcript but no Invocation is not found. Admitted-Invocation evidence is kept in State, so group transcripts stay readable without the journal. Rejected messages do not make a group known.
 
-On the Console, CLI, and [MCP](/docs/development/mcp) (where the app serves `/_vitehub/mcp`), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
+On the Console, the CLI, and the [ViteHub MCP](/docs/development/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
 
 ```ts [server/agents/support.ts] fragment
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
 ```
 
-`channels.*` does not match `conversations.export`, so list it too.
-
-- `participant` reads threads where the Actor (the trusted caller) takes part: the Actor id, `actor.meta.authUserId`, or the call's user id must match an author, a transcript user key, or an Invocation starter. Otherwise `CHANNELS_FORBIDDEN`.
-- `all` reads every known thread.
-- An Agent's `conversations.export` waits for approval unless `approve` is `'never'`, and never includes media.
+`channels.*` does not match `conversations.export`, so list it as well. `participant` lets the Agent read the threads where its Invoker takes part. That means the Invoker id, its Auth user id (`invoker.meta.authUserId`), or the user id of the call equals the id of a person in the thread: an author, the user key of a transcript, or the person who started an Invocation. An Invoker without an identity that matches is refused with `CHANNELS_FORBIDDEN`. `all` lets it read every thread that the Channel knows. An Agent's `conversations.export` always waits for approval, unless `approve` is `'never'`, and never includes media.
 
 ### Operations and commands
 
@@ -523,7 +519,7 @@ Errors: `CHANNELS_EXPORT_TOO_LARGE` (413) over 35 MiB, `CHANNELS_ADAPTER_MISSING
 
 ### State
 
-The Console reads conversations with the webhook routes' State and adapters. The generated webhook route module installs the reader at startup for libSQL State (the `vite dev` default, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and Cloudflare Durable Object State (`agent.providers.state: 'cloudflare'`, read in a Worker that starts the route module). With another custom State, the operations answer `CHANNELS_HOST_UNAVAILABLE` and name the State options to use. A Channel with its own `history` collection has no per-thread conversation: use `channels history` and `channels replay`.
+The Console reads conversations with the State and the adapters that the webhook routes use. The generated webhook route module installs the reader when the server starts, for a libSQL State (the default in `vite dev`, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and for a Cloudflare Durable Object State (`agent.providers.state.driver: 'cloudflare'`). On Cloudflare, the reader runs in a Worker that starts the webhook route module. A custom State that the generated code does not install makes the operations answer `CHANNELS_HOST_UNAVAILABLE` with the State options to use. A Channel with its own `history` collection has no per-thread conversation; use `channels history` and `channels replay` for it.
 
 ## Replay Channel history
 
@@ -867,6 +863,45 @@ export default defineAgent({
 - Queued reconciliation reloads the PR head, comments, and files before the Driver starts.
 - Eligibility is decided on acceptance and kept while the delivery waits.
 
+### When the branch moves or the pull request closes
+
+`concurrencyLimit: 1` stops two Agent runs from writing one branch, but a person can still push to it. ViteHub watches `pull_request` events for this even when `reconcile.events` leaves them out, such as `events: []`. `pullRequest.reconcile.headMoves` sets what happens after a push by an account that is not a bot:
+
+| Run state | `headMoves: 'notify'` (default) | `headMoves: 'cancel'` |
+| --- | --- | --- |
+| Queued | Starts on the new head. Its prompt names the commit and the person who pushed it, and tells the Agent to check that the request still applies before it edits or pushes. | Is dropped and does not start. |
+| Running | Continues. | Is cancelled. |
+
+```ts fragment
+reconcile: {
+  concurrencyLimit: 1,
+  events: [],
+  headMoves: 'cancel',
+  mentions: ['@agent'],
+}
+```
+
+A `closed` event, including a merge, always drops the queued runs of the pull request and cancels its running runs. `reopened` lets new runs start again.
+
+- Pushes from bot accounts, such as the Agent's own GitHub App, are ignored, the same as for `synchronize` runs.
+- A cancelled run is final. The queue does not retry it, and the Invocation shows as cancelled.
+- Cancellation reaches runs in the server process that receives the webhook. With one server process, that is every run. With more than one, a run on another process continues until it ends.
+- Queued runs need the Channel State of a durable webhook State, such as SQLite or libSQL, to see a push that came while they waited.
+- A run that is already running gets no notice with `notify`. Use `cancel` when a person and the Agent often push to the same branch.
+
+### Hosted CI
+
+`pullRequest.ci` tells the run what to do with hosted CI after it pushes:
+
+- `'report'` (default): the Agent runs the project's local checks before it pushes, then reports the hosted checks that are still pending and finishes. The run does not wait for CI.
+- `'wait'`: the Agent waits for hosted CI after it pushes and fixes failures until all checks pass. The run stays open, and its tokens and time are spent, until CI finishes. Use it only when the Agent must see green checks before it finishes, and set a [deadline](#deadline) that covers your CI time.
+
+```ts [server/agents/reviewer.ts] fragment
+github({ app: true, pullRequest: { ci: 'wait', reconcile: { mentions: ['@agent'] } } })
+```
+
+Reconcile does not start a run on a failed check. To fix CI failures, ask the Agent in a comment, or let a workflow post a comment on failure that `reconcile.comments` accepts. Mention triggers skip bot comments.
+
 ### Deadline
 
 Persisted inline webhook runs time out after 15 minutes by default. Set `messages.timeout` in milliseconds, such as `30 * 60_000`. A timeout on the persisted input wins. Values must be positive, finite, and at most `2_147_483_647`, or the default applies. Replayed or rehydrated input can change the deadline after setup, minus setup time already spent, but setup keeps the first deadline. The deadline includes Workspace preparation, and expiry cancels the Invocation.
@@ -878,6 +913,8 @@ Review bots often post on every push, even with no findings. List those body pre
 ### Pull request Workspace
 
 The Workspace (the Agent's files) gets the PR checkout at `pullRequest.workspace.mount`. Without `workspace`, the mount is `portal`. `workspace: true` and `workspace: {}` mount at the root. `workspace: false` turns it off.
+
+With the Workspace, the Channel also adds the `vitehub-resolving-merge-conflicts` Skill at `.agents/skills/vitehub-resolving-merge-conflicts/SKILL.md`, and the prompt tells the Agent to use it for merge and rebase conflicts. Without the Workspace, the prompt gives the same steps in one line.
 
 The checkout uses the exact head SHA, so the PR loads before the Invocation starts. If that fails, the delivery fails with `AGENT_R0370` and the GitHub error, such as a connection reset, 401, or 404. With `workspace: false`, PR details are best effort: a failure leaves them out and sets `pullRequest.metadata.unavailable`.
 
@@ -893,7 +930,7 @@ A github() Channel with `app` gives its Agent forge access (GitHub repository ac
 
 Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`, in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -920,7 +957,7 @@ export default defineAgent({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 :::
@@ -933,7 +970,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
     nitro(),
   ],
 })
@@ -947,7 +984,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
   ],
 })
 ```
@@ -965,7 +1002,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the hosted Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the hosted Console](/docs/development/console#links-to-the-hosted-console).
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/development/console#links-to-the-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 
@@ -1189,7 +1226,7 @@ export default defineAgent({
 })
 ```
 
-They select abilities, not identity. Resolve the Actor at the route, the trigger, or `access()`.
+Channel-scoped Capabilities select abilities, not identity. Authenticate and resolve the Invoker at the route, trigger, or `access()` boundary.
 
 ## Add instructions to one Channel
 
@@ -1240,7 +1277,7 @@ History export archives inline data, sized adapter-owned `fetchData`, and Blob d
 | Concern | Owner |
 | --- | --- |
 | Origin, event, thread, message, custody, and reply delivery | Channel |
-| Trusted caller identity | Agent Actor |
+| Trusted caller identity | Agent Invoker |
 | User-authored command parsing | Input Commands Capability |
 | Prior conversational messages | Chat History and sessions |
 | Product event to Agent input | Trigger |
@@ -1251,11 +1288,13 @@ A Channel and an Invocation are separate records, so one Agent can run behind se
 
 | | Channel | Agent Invocation |
 | --- | --- | --- |
-| Describes | Message origin and delivery | Actor, Capabilities, execution, and result |
+| Describes | Message origin and delivery | Invoker, Capabilities, execution, and result |
 | Lifetime | Can contain many messages and Invocations | One request |
 | Can exist alone | Yes. A Channel can receive a message without starting an Agent. | Yes. A route or schedule can start an Invocation without a Channel. |
 
-Use verified Channel metadata to identify the Actor, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, has the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together. To send app messages without an Agent, use the [Channels Server Primitive](/docs/channels).
+Use verified Channel metadata to identify the Agent Invoker, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
+
+To send an application message without an Agent, use the [Channels Server Primitive](/docs/channels).
 
 ## Next steps
 

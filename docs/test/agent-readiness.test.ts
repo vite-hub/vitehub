@@ -12,7 +12,7 @@ const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", () => {
+  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", async () => {
     const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const docsPackage = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
@@ -28,7 +28,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(workspace).not.toContain("docus");
     // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
     expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
-    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");
     expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
@@ -61,9 +61,9 @@ describe("agent-ready HTTP contracts", () => {
     expect(references["gmail.draft"]?.tools.map(tool => tool.name)).toEqual(["gmail_draft", "gmail_read", "gmail_search"]);
   });
 
-  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", () => {
+  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", async () => {
     const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     const links = [...source.matchAll(/href: "https:\/\/vitehub\.dev(\/[^"]*)"/g)].map(match => match[1]!);
     const machineResources = ["/openapi.json", "/.well-known/skills/vitehub/SKILL.md", "/mcp"];
 
@@ -80,6 +80,22 @@ describe("agent-ready HTTP contracts", () => {
     const documented = [...new Set([...resources.matchAll(/https:\/\/vitehub\.dev(\/llms[^\s)`]*\.txt)/g)].map(match => match[1]))];
 
     expect(documented.sort()).toEqual(["/llms-full.txt", "/llms.txt"]);
+  });
+
+  it("pins the Nuxt 5 toolchain and disables DevTools", () => {
+    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
+    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
+    const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
+
+    expect(workspace).toContain("nuxt: npm:nuxt-nightly@5.0.0-2611052317-a04317f");
+    expect(workspace).toContain('nuxt: ">=5.0.0-0"');
+    expect(lockfile).toContain("nuxt-nightly@5.0.0-2611052317-a04317f:");
+    expect(lockfile).toContain("nitro@3.0.261103-rc:");
+    expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
+    expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
+    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
+    expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
   });
 });
 

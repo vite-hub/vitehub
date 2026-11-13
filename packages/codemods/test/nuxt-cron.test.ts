@@ -111,10 +111,10 @@ describe("nuxt-cron migration safety", () => {
     'modules: [[vitehub as NuxtModule, options], "nuxt-cron"] as const',
     'modules: [["vite-hub/nuxt", getOptions()], "nuxt-cron"]',
     'modules: [["vite-hub/nuxt", { ...options }], "nuxt-cron"]',
-    'modules: [["vite-hub/nuxt", { preset: "node", ...options }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { host: "node", ...options }], "nuxt-cron"]',
     'modules: [["vite-hub/nuxt", { [optionName]: false }], "nuxt-cron"]',
     'modules: [["vite-hub/nuxt", { get schedule() { return false } }], "nuxt-cron"]',
-    'modules: [["vite-hub/nuxt", { preset: "node", preset: "cloudflare" }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { host: "node", host: "cloudflare" }], "nuxt-cron"]',
     'modules: ["nuxt-cron"], vitehub: { ...options }',
     'modules: ["nuxt-cron"], cron: getCronOptions()',
     'modules: [["nuxt-cron", getCronOptions()]]',
@@ -153,14 +153,14 @@ describe("nuxt-cron migration safety", () => {
     expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).dependencies).toHaveProperty("nuxt-cron")
   })
 
-  it.each(["cloudflare", "netlify", "vercel", "node"])("uses the inline %s preset before the root preset", async (preset) => {
-    const config = `export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "${preset}" }], "nuxt-cron"], vitehub: { preset: "${preset === "node" ? "cloudflare" : "node"}" } })`
+  it.each(["cloudflare", "netlify", "vercel", "node"])("uses the inline %s host before the root host", async (host) => {
+    const config = `export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { host: "${host}" }], "nuxt-cron"], vitehub: { host: "${host === "node" ? "cloudflare" : "node"}" } })`
     const cwd = await createApp(config, { "daily.ts": 'export default defineCronHandler("daily", () => {}, { timeZone: "America/New_York" })' })
     const run = await runCodemod("nuxt-cron", { cwd, dryRun: true })
     const output = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
     const job = run.result.edits.find(edit => edit.path === "server/schedules/daily.ts")?.after
-    expect(output).toContain(preset === "node" ? 'schedule: { runtime: { driver: "process" } }' : "schedule: true")
-    if (preset === "node") {
+    expect(output).toContain(host === "node" ? 'schedule: { runtime: { driver: "process" } }' : "schedule: true")
+    if (host === "node") {
       expect(output).toContain("kv: true")
       expect(job).toContain('timeZone: "America/New_York"')
     }
@@ -170,8 +170,8 @@ describe("nuxt-cron migration safety", () => {
     }
   })
 
-  it("reads the inline preset on an imported ViteHub module", async () => {
-    const cwd = await createApp('import vitehub from "vite-hub/nuxt"\nexport default defineNuxtConfig({ modules: [[vitehub, { preset: "cloudflare" }], "nuxt-cron"] })')
+  it("reads the inline host on an imported ViteHub module", async () => {
+    const cwd = await createApp('import vitehub from "vite-hub/nuxt"\nexport default defineNuxtConfig({ modules: [[vitehub, { host: "cloudflare" }], "nuxt-cron"] })')
     const run = await runCodemod("nuxt-cron", { cwd, dryRun: true })
     expect(run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after).toContain("schedule: true")
   })
@@ -179,7 +179,7 @@ describe("nuxt-cron migration safety", () => {
   it.each([
     'modules: [["vite-hub/nuxt", { schedule: false }], "nuxt-cron"]',
     'modules: [["vite-hub/nuxt", { schedule: true }], "nuxt-cron"]',
-    'modules: [["vite-hub/nuxt", { preset: "cloudflare", schedule: false }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { host: "cloudflare", schedule: false }], "nuxt-cron"]',
     'modules: [["vite-hub/nuxt", { schedule: { runtime: { driver: "process" } } }], "nuxt-cron"]',
     'modules: [["vite-hub/nuxt", { schedule: getSchedule() }], "nuxt-cron"]',
     'modules: [[vitehub, { schedule: false }], "nuxt-cron"]',
@@ -195,8 +195,8 @@ describe("nuxt-cron migration safety", () => {
     await expect(readFile(join(cwd, "server/schedules/daily.ts"), "utf8")).rejects.toThrow()
   })
 
-  it.each(["node", "cloudflare"])("keeps computed per-job time zones on %s", async (preset) => {
-    const config = `export default defineNuxtConfig({ modules: ["nuxt-cron"], cron: { timeZone: "America/New_York" }, vitehub: { preset: "${preset}" } })`
+  it.each(["node", "cloudflare"])("keeps computed per-job time zones on %s", async (host) => {
+    const config = `export default defineNuxtConfig({ modules: ["nuxt-cron"], cron: { timeZone: "America/New_York" }, vitehub: { host: "${host}" } })`
     const computedJob = 'export default defineCronHandler("daily", () => {}, { timeZone: getZone() })\n'
     const cwd = await createApp(config, { "computed.ts": computedJob, "daily.ts": dailyJob })
     const run = await runCodemod("nuxt-cron", { cwd })
@@ -223,17 +223,17 @@ describe("nuxt-cron migration safety", () => {
   })
 
   it.each([
-    'modules: [["vite-hub/nuxt", { preset: getPreset() }], "nuxt-cron"], vitehub: { preset: "node" }',
-    'modules: ["nuxt-cron"], vitehub: { preset: getPreset() }',
-  ])("stops for a computed effective preset: %s", async (options) => {
+    'modules: [["vite-hub/nuxt", { host: getHost() }], "nuxt-cron"], vitehub: { host: "node" }',
+    'modules: ["nuxt-cron"], vitehub: { host: getHost() }',
+  ])("stops for a computed effective host: %s", async (options) => {
     const cwd = await createApp(`export default defineNuxtConfig({ ${options} })`)
-    await expect(runCodemod("nuxt-cron", { cwd })).rejects.toThrow("preset")
+    await expect(runCodemod("nuxt-cron", { cwd })).rejects.toThrow("host")
     expect(await readFile(join(cwd, "server/cron/daily.ts"), "utf8")).toBe(dailyJob)
   })
 
   it.each([
-    'modules: ["nuxt-cron"], vitehub: { preset: "deno" }',
-    'modules: [["vite-hub/nuxt", { preset: "deno" }], "nuxt-cron"]',
+    'modules: ["nuxt-cron"], vitehub: { host: "deno" }',
+    'modules: [["vite-hub/nuxt", { host: "deno" }], "nuxt-cron"]',
     'modules: ["nuxt-cron"], nitro: { preset: "deno-deploy" }',
   ])("keeps Deno jobs unchanged: %s", async (options) => {
     const config = `export default defineNuxtConfig({ ${options} })`
@@ -244,9 +244,9 @@ describe("nuxt-cron migration safety", () => {
   })
 
   it.each([
-    'modules: ["nuxt-cron"], vitehub: { preset: "node", kv: false }',
-    'modules: [["vite-hub/nuxt", { preset: "node", kv: false }], "nuxt-cron"]',
-    'modules: [["vite-hub/nuxt", { kv: false }], "nuxt-cron"], vitehub: { preset: "node", kv: true }',
+    'modules: ["nuxt-cron"], vitehub: { host: "node", kv: false }',
+    'modules: [["vite-hub/nuxt", { host: "node", kv: false }], "nuxt-cron"]',
+    'modules: [["vite-hub/nuxt", { kv: false }], "nuxt-cron"], vitehub: { host: "node", kv: true }',
   ])("stops when Node explicitly disables KV: %s", async (options) => {
     const config = `export default defineNuxtConfig({ ${options} })`
     const cwd = await createApp(config)

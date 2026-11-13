@@ -17,7 +17,7 @@ it("keeps pending nonce, registration, host identity and encrypted tokens across
   let client = createClient({ url: `file:${path}` })
   const runtime = () => createConnectionsRuntime({
     definitions: { chatgpt: defineConnection({ provider: chatgpt({ appName: "Persistent app" }), access: { "agent:assistant": { read: true } } }) },
-    store: createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) }),
+    store: createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) }),
     fetch: fake.fetch,
   })
   try {

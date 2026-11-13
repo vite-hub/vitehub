@@ -29,7 +29,7 @@ export function createAuthCliContributor(options: { fetch?: typeof fetch } = {})
           "Set this variable on the host, for example as a Worker secret:",
           `${adminClaimVariable}=${value}`,
           "",
-          "Then open /_vitehub/sign-in on the app and sign in. The first signed-in user who enters the code gets the admin role, and the code stops working.",
+          "Then sign in to the app and send the code to POST <auth base>/vitehub/admin-claim as { \"code\": \"...\" }. The first signed-in user who sends it gets the admin role, and the code stops working.",
           "",
         ].join("\n"))
         return 0

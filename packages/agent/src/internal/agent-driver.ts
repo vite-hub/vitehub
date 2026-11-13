@@ -17,7 +17,7 @@ import type {
   AgentDriverAdaptiveCapacityOptions,
   AiGateway,
   AgentDriverCapacityOptions,
-  AgentInvokerProfile,
+  AgentInvoker,
   AgentModelExecutionOptions,
   AgentModelResolver,
   AgentOutputDefinition,
@@ -32,6 +32,7 @@ import type {
   AgentSettings,
   CodexReasoningEffort,
   CodexReasoningSummary,
+  CodexWorkspaceWriteAccess,
 } from "../types.ts"
 import type { SandboxToolchain } from "@vite-hub/sandbox"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -72,6 +73,7 @@ export type NormalizedAgentDriver<
     runtime: ProviderAgentRuntimeLoader
     sessionStorePath?: string
     toolchain?: SandboxToolchain
+    workspaceWrite?: CodexWorkspaceWriteAccess
   }
   | {
     kind: "run"
@@ -171,7 +173,7 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "gateway", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath", "toolchain"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath", "toolchain", "workspaceWrite"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity", "gateway"])
 
@@ -290,7 +292,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) requires a launch resolver when driver.launch is set." })
   }
   validateProviderToolchain(value.toolchain)
-  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
+  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary", "workspaceWrite"].filter(key => value[key] !== undefined)
   if (provider !== "codex" && codexOptions.length) {
     throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
   }
@@ -332,6 +334,10 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   if (value.reasoningSummary !== undefined
     && (typeof value.reasoningSummary !== "string" || !["auto", "concise", "detailed", "none"].includes(value.reasoningSummary))) {
     throw agentDiagnostics.AGENT_R0485({ message: '[vitehub] defineAgent({ driver.reasoningSummary }) must be "auto", "concise", "detailed", or "none".' })
+  }
+  if (value.workspaceWrite !== undefined && (!isConfigurationObject(value.workspaceWrite)
+    || !Object.entries(value.workspaceWrite).every(([key, enabled]) => (key === "network" || key === "packageCaches") && (enabled === undefined || typeof enabled === "boolean")))) {
+    throw agentDiagnostics.AGENT_R1038({ message: "[vitehub] defineAgent({ driver.workspaceWrite }) must be an object with boolean network or packageCaches, such as { network: true, packageCaches: true }." })
   }
   if ((value.reasoningEffort !== undefined || value.reasoningSummary !== undefined) && value.model === undefined) {
     throw agentDiagnostics.AGENT_R0486({ message: "[vitehub] defineAgent({ driver.reasoningEffort, driver.reasoningSummary }) requires driver.model." })
@@ -390,6 +396,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     sessionStorePath: typeof value.sessionStorePath === "string" ? value.sessionStorePath.trim() : undefined,
     // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/sandbox validates versions at invocation time.
     toolchain: value.toolchain as SandboxToolchain | undefined,
+    workspaceWrite: isConfigurationObject(value.workspaceWrite) ? { ...value.workspaceWrite } : undefined,
   }
 }
 
@@ -499,7 +506,7 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
 export function normalizeAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   // SAFETY: AgentSettings is an object contract; normalization validates its driver member before returning it.
   const record = options as Record<string, unknown>

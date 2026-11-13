@@ -147,6 +147,24 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
+  await t.test("every item of the Comments segment centers on the pill's line, in comment mode too", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
+    try {
+      // Avatars and dividers do not fill the row's height, so they show it first when the alignment is lost.
+      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .divider, .toolbar .people")]
+        .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
+      assert.ok(centers.some(([name]) => name === "divider"), "comment mode shows its dividers")
+      const line = centers[0][1]
+      for (const [name, center] of centers) assert.ok(Math.abs(center - line) <= 0.5, `${name} centers at ${center}, the pill at ${line}`)
+    }
+    finally {
+      await page.keyboard.press("Escape")
+    }
+  })
+
   await t.test("in comment mode a drag comments on an area", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
@@ -212,18 +230,34 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   })
 
   await t.test("on a narrow screen a new comment stays on screen", async () => {
-    await page.setViewportSize({ width: 390, height: 720 })
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
     await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
-    // In the middle and near the right edge, where the card opens on the left of the spot.
-    for (const x of [200, 380]) {
-      await page.mouse.click(x, 30)
-      await composer.waitFor({ timeout: 5000 })
-      const card = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").boundingBox()
-      assert.ok(card.x >= 0 && card.x + card.width <= 390, `at x ${x} the card is at ${card.x}..${card.x + card.width}`)
-      await page.keyboard.press("Escape")
-      await composer.waitFor({ state: "detached", timeout: 5000 })
+    for (const rootSize of [16, 10]) {
+      await page.evaluate(size => { document.documentElement.style.fontSize = `${size}px` }, rootSize)
+      for (const width of [375, 390]) {
+        await page.setViewportSize({ width, height: 720 })
+        // Include a spot with too little room on either side, plus the middle and right edge.
+        for (const x of [100, 180, 200, width - 10]) {
+          await page.mouse.click(x, 30)
+          await composer.waitFor({ timeout: 5000 })
+          const bubble = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
+          await bubble.evaluate(card => Promise.all(card.getAnimations().map(animation => animation.finished)))
+          await composer.fill("A visible Send button")
+          const card = await bubble.boundingBox()
+          assert.ok(card.x >= 0 && card.x + card.width <= width, `at x ${x} in ${width}px (${rootSize}px root) the card is at ${card.x}..${card.x + card.width}`)
+          const send = bubble.locator("button[aria-label='Comment']")
+          assert.equal(await send.isEnabled(), true)
+          const button = await send.boundingBox()
+          assert.ok(button.x >= 0 && button.x + button.width <= width, `Send is at ${button.x}..${button.x + button.width}`)
+          const anchor = await bubble.evaluate(card => Number.parseFloat(card.parentElement.style.left))
+          assert.ok(Math.abs(anchor - x) < 1, `the pin stays on its anchor at ${x} (got ${anchor})`)
+          await composer.fill("")
+          await page.keyboard.press("Escape")
+          await composer.waitFor({ state: "detached", timeout: 5000 })
+        }
+      }
     }
+    await page.evaluate(() => { document.documentElement.style.fontSize = "" })
     await page.setViewportSize({ width: 1024, height: 720 })
   })
 
@@ -379,6 +413,52 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await button.tap()
       await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
       assert.equal((await highlights(touch))["vitehub-comment-active"], 1)
+    }
+    finally {
+      await touch.close()
+    }
+  })
+
+  await t.test("on a touch screen the Comment bar goes above text that ends near the bottom edge, clear of the system menu", async () => {
+    const touch = await browser.newPage({ viewport: { width: 390, height: 720 }, hasTouch: true })
+    try {
+      await touch.goto(`http://127.0.0.1:${port}/`)
+      await touch.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      const end = await touch.evaluate(() => {
+        // Moves the paragraph down until its text ends at 700px, 20px above the bottom edge.
+        const second = document.querySelector("#second")
+        const range = document.createRange()
+        range.selectNodeContents(second)
+        second.style.marginTop = `${parseFloat(getComputedStyle(second).marginTop) + 700 - range.getBoundingClientRect().bottom}px`
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+        return range.getBoundingClientRect().bottom
+      })
+      assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
+      const button = touch.locator("vitehub-comments .selection-bar button")
+      await button.waitFor({ timeout: 5000 })
+      const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
+      assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
+      const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
+      // The system's text menu opens just above the selection, so the bar leaves it 64px.
+      assert.ok(start - (box.y + box.height) >= 63, `bar ends at ${box.y + box.height}, text starts at ${start}`)
+      // The stand-in pill has the type of the real one, so screenshots show the toolbar as people see it.
+      const cdp = await touch.context().newCDPSession(touch)
+      await cdp.send("DOM.getDocument", { depth: -1, pierce: true })
+      await cdp.send("CSS.enable")
+      const { result } = await cdp.send("Runtime.evaluate", { expression: `(() => {
+        const tool = document.querySelector("vitehub-tool")
+        for (const root of [tool.shadowRoot, tool].filter(Boolean)) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent.trim() === "Comments") return node.parentElement
+        }
+      })()` })
+      const { nodeId } = await cdp.send("DOM.requestNode", { objectId: result.objectId })
+      const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId })
+      assert.ok(fonts.length > 0 && fonts.every(font => !/serif/i.test(font.familyName) || /sans/i.test(font.familyName)), `toolbar fonts ${fonts.map(font => font.familyName)}`)
+      if (evidence) await touch.screenshot({ path: `${evidence}/touch-bar-near-bottom.png` })
+      await button.tap()
+      await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
     }
     finally {
       await touch.close()

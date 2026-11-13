@@ -10,7 +10,7 @@ import { resolveDBViteConfig } from "../src/config.ts"
 import { collectDatabaseContributions, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "../src/contributions.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 import type { CollectedDatabaseContribution, DatabaseContribution } from "../src/contributions.ts"
 
@@ -237,8 +237,8 @@ describe("contribution targets", () => {
       config!.generatedDrizzleConfigFile,
     ], { cwd: rootDir })
     const migrationsDir = join(rootDir, "server/databases/default/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const [migration] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `history_refs`", "CREATE TABLE `history_revisions`"])
   }, 60_000)
 })
@@ -324,7 +324,7 @@ describe("contributed Database Definitions", () => {
     await writeGeneratedDatabaseArtifacts(config)
     await execFileAsync(process.execPath, [join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"), "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
     const migrations = join(rootDir, "server/databases/default/migrations")
-    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    const sql = await readFile(join(migrations, (await readdir(migrations))[0]!, "migration.sql"), "utf8")
     expect(sql).toContain("CREATE TABLE `history_refs`")
   }, 60_000)
 
@@ -408,8 +408,8 @@ describe("contributed tables in generated artifacts", () => {
       config.generatedDrizzleConfigFile,
     ], { cwd: rootDir })
     const migrationsDir = join(rootDir, "server/databases/default/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const [migration] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
       "CREATE TABLE `audit_log`",
       "CREATE TABLE `history_refs`",
@@ -485,7 +485,7 @@ describe("contributed tables at runtime", () => {
     ].join("\n"))
     const queryFile = await writeProjectFile(rootDir, "server/query.ts", [
       "import { sql } from 'drizzle-orm'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "export async function query() {",
       "  const { db, schema } = useDatabase('default')",
       "  await db.run(sql`create table if not exists history_refs (workspace text primary key, head text)`)",
@@ -495,7 +495,7 @@ describe("contributed tables at runtime", () => {
       "",
     ].join("\n"))
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
-    const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDb(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
+    const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDatabase(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
     try {
       // SAFETY: This fixture writes the queried module before Vite loads it.
       const module = await server.ssrLoadModule(queryFile) as { query: () => Promise<{ keys: string[], refs: unknown[] }> }

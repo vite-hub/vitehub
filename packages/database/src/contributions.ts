@@ -28,6 +28,12 @@ interface DatabaseTableContributionFields extends DatabaseContributionFields {
    * schema still imports the module. A key that is missing here is missing from the generated schema.
    */
   tables?: Readonly<Record<string, string>>
+  /**
+   * Named export of `definition.module` that holds the relations of the contributed tables, from Drizzle's
+   * `defineRelationsPart(schema, r => ({ ... }))`. The target Database merges them with the relations of its
+   * Definition, so `db.query.<table>.findMany({ with })` follows them.
+   */
+  relations?: string
 }
 
 /**
@@ -131,7 +137,7 @@ function isDatabaseDialect(value: unknown): value is DatabaseDialect {
 }
 
 function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseTableContributionFields {
-  const { database, dialect, tables } = entry
+  const { database, dialect, relations, tables } = entry
   const fields: DatabaseTableContributionFields = {}
   if (tables !== undefined) {
     if (!isPlainObject(tables) || !Object.keys(tables).length || Object.values(tables).some(name => String(name) !== name || !name)) {
@@ -139,6 +145,10 @@ function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (rea
     }
     // SAFETY: the check above makes every value a non-empty string.
     fields.tables = { ...tables as Record<string, string> }
+  }
+  if (relations !== undefined) {
+    if (String(relations) !== relations || !relations) fail(`\`relations\` of ${JSON.stringify(entry.name)} must name an export of \`definition.module\`.`)
+    fields.relations = String(relations)
   }
   if (database !== undefined) {
     if (String(database) !== database || !database || database.trim() !== database) {

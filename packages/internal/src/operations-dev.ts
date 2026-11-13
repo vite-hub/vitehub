@@ -1,6 +1,10 @@
 import { validateViteHubNitroDevRequest } from "./dev-endpoint.ts"
 import { isViteHubLoopbackPeer } from "./dev-peer.ts"
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "./operation-rpc.ts"
 import { assertOperationProject, createOperationRegistry, operationRootHeader, operationRpcHeader, operationsOf, projectRootHash, runOperation, toOperationFailure } from "./operations.ts"
+
+import type { OperationContext } from "./operations.ts"
 
 function readPath(value: unknown, ...path: string[]): unknown {
   for (const key of path) value = value !== null && typeof value === "object" ? Reflect.get(value, key) : undefined
@@ -44,6 +48,7 @@ export function createStandaloneOperationHandler(sources: { operations: unknown,
   const registry = createOperationRegistry(sources.map(source => ({ ...source, operations: operationsOf(source.operations) })))
   const defaultLimit = 64 * 1_024
   const maximum = Math.max(defaultLimit, ...registry.list().map(operation => operation.maxRequestBytes ?? defaultLimit))
+  const operations = Object.fromEntries(registry.list().map(operation => [operation.name, operation]))
   return {
     async fetch(request) {
       const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", [operationRootHeader]: projectRootHash(root) }
@@ -78,18 +83,29 @@ export function createStandaloneOperationHandler(sources: { operations: unknown,
         let payload: unknown
         try { payload = JSON.parse(text) }
         catch { reject(400, "Malformed operation request.") }
-        if (!payload || typeof payload !== "object" || !("operation" in payload) || typeof payload.operation !== "string") reject(400, "Invalid operation request.")
-        if (bytes > (registry.get(payload.operation)?.maxRequestBytes ?? defaultLimit)) reject(413, "Operation request exceeds the byte limit.")
+        const call = readOperationRpcCall(payload)
+        if (!call) reject(400, "Invalid operation request.")
+        if (bytes > (registry.get(call.m)?.maxRequestBytes ?? defaultLimit)) reject(413, "Operation request exceeds the byte limit.")
         const response: { status?: number } = {}
-        const result = await runOperation(registry, payload.operation, "input" in payload ? payload.input : undefined, {
+        const context: OperationContext = {
           access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null, request, event: request, response,
           env: requestEnv(request), waitUntil: requestWaitUntil(request),
+        }
+        const reply = await answerOperationRpc(call, {
+          failure: toOperationFailure,
+          operations,
+          run: async (operation, input) => {
+            const result = await runOperation(registry, operation.name, input, context)
+            if (!result.ok) throw Object.assign(new Error(result.message), result)
+            return result.value
+          },
+          unknown: name => Object.assign(internalErrorDiagnostics.INTERNAL_R0021({ message: `No operation is named ${JSON.stringify(name)}.` }), { status: 404 }),
         })
-        return Response.json(result, { headers, status: result.ok ? response.status ?? 200 : result.status })
+        return Response.json(reply, { headers, status: "e" in reply ? reply.e.status : response.status ?? 200 })
       }
       catch (error) {
         const failure = toOperationFailure(error)
-        return Response.json({ ok: false, ...failure }, { headers, status: failure.status })
+        return Response.json(operationRpcRefusal(failure), { headers, status: failure.status })
       }
     },
   }

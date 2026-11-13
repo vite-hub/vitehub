@@ -43,7 +43,7 @@ The Database stores threads. Realtime shows who is on each page, with rooms in t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     database: true,
     realtime: { authority: 'memory' },
   },
@@ -62,7 +62,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -82,7 +82,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -199,7 +199,7 @@ fetch('/api/about')
 <template>
   <main>
     <h1 v-if="title" v-bind="contentField('about', 'title')">{{ title }}</h1>
-    <p v-else>Publish the About title in the Console.</p>
+    <p v-else>Publish the About title with vitehub content.</p>
     <p>Pin comments anywhere on this page.</p>
   </main>
 </template>
@@ -212,7 +212,14 @@ pnpm vitehub database generate
 pnpm vitehub database migrate
 ```
 
-The singleton has no document yet. Open the link that the dev server prints, which opens the app in the [Console](/docs/development/console#in-development). Select **Content**, then **Settings**, then **About**. Type a title and select **Publish**.
+The singleton has no document yet. In a second terminal, save a title as its draft and publish it:
+
+```bash [commands/publish-about]
+echo '{ "title": "About us" }' | pnpm vitehub content edit about --file -
+pnpm vitehub content publish --collection about
+```
+
+`publish` lists the draft and asks you to confirm. In production, editors do this in the Content section of the [Console](/docs/development/console).
 
 Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 

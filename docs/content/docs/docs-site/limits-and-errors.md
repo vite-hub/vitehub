@@ -2,7 +2,7 @@
 title: Docs site limits and errors
 description: What @vite-hub/docs does not do yet, and the cause and fix of each error that it shows.
 navigation.title: Limits and errors
-navigation.order: 6
+navigation.order: 7
 icon: i-lucide-circle-alert
 ---
 

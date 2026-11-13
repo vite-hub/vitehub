@@ -357,11 +357,11 @@ describe("editor versions", () => {
     fresh.close()
   })
 
-  it("makes a connection with another editor version read-only and keeps the room as it is", async () => {
+  it.each([false, true])("makes another editor version read-only with awareness client ID %s", async (clientId) => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const server = createTestServer(liveDefinition(memory.adapter, { editor: versioned("2") }))
-    const current = await server.connect("page", { editor: "2" })
-    const old = await server.connect("page", { editor: "1" })
+    const current = await server.connect("page", { editor: "2", clientId })
+    const old = await server.connect("page", { editor: "1", clientId })
     const unversioned = await server.connect("page")
     await settle()
 
@@ -929,7 +929,7 @@ describe("room authorities", () => {
 
       await expect(response.text()).resolves.toBe("forwarded")
     }
-    // Nitro's cloudflare-durable entry sends every WebSocket upgrade to the instance named "server".
+    // Nitro's Cloudflare entry sends every WebSocket upgrade to the instance named "server".
     expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 

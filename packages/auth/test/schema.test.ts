@@ -3,7 +3,8 @@ import { getAuthTables } from "better-auth/db"
 import { getTableName } from "drizzle-orm"
 import { passkey } from "@better-auth/passkey"
 import { admin, jwt, organization } from "better-auth/plugins"
-import { getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
+import { PgDialect, getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
+import { postgresJsCodecs } from "drizzle-orm/postgres-js"
 import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
@@ -80,12 +81,13 @@ describe("Auth tables", () => {
   it("stores the full unsigned 32-bit passkey counter range as JavaScript numbers", () => {
     const postgres = authPostgresSchema.passkey.counter!
     const sqlite = authSqliteSchema.passkey.counter!
+    const dialect = new PgDialect({ codecs: postgresJsCodecs })
     expect(postgres.getSQLType()).toBe("bigint")
-    expect(postgres.dataType).toBe("number")
+    expect(postgres.dataType).toBe("number int53")
     expect(sqlite.getSQLType()).toBe("integer")
     for (const counter of [0, 2 ** 31 - 1, 2 ** 31, 2 ** 32 - 1]) {
       expect(postgres.mapToDriverValue(counter)).toBe(counter)
-      expect(postgres.mapFromDriverValue(String(counter))).toBe(counter)
+      expect(dialect.codecs.apply(postgres, "normalize", String(counter))).toBe(counter)
       expect(sqlite.mapFromDriverValue(counter)).toBe(counter)
     }
   })

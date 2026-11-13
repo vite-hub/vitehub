@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import { consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { consoleRealtimeAccess, installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { loadConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -29,22 +29,23 @@ const forgedLocal = { "host": "localhost:3000", "origin": "http://localhost:3000
 
 /**
  * Routes that answer a remote client without Console access, and why each one is safe.
- * - `schedule-run.ts`: takes only a dispatch signed with `VITEHUB_DISPATCH_KEY`, never Console access.
+ * - `page-session.ts`: the page tools session. It only says which page tools this visitor gets. The Console link asks
+ *   `consolePageToolAllowed()`, which `console-page-tool.test.ts` covers, and the link gives no access.
  */
-const outsideConsoleAccess = new Set(["schedule-run.ts"])
+const outsideConsoleAccess = new Set(["page-session.ts"])
 
 /** The Console routes that the Vite plugin and the Nuxt module register, with every section on and no sign-in. */
 async function registeredConsoleRoutes(): Promise<Registration[]> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-loopback-"))
   try {
     await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "console-loopback" })}\n`)
-    const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections })
+    const plugin = consoleVitePlugin({ console: { auth: false }, sections })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a Console config hook.")
     const config: { nitro?: { handlers: Registration[] }, root: string } = { root }
     await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "serve", mode: "development" }])
     const nuxt: { handlers?: Registration[] } = {}
-    addConsoleRpcHandler(nuxt, "/runtime", undefined, sections)
+    addConsoleRpcHandler(nuxt, "/runtime")
     const all = [...config.nitro?.handlers ?? [], ...nuxt.handlers ?? []].filter(entry => !entry.middleware && entry.route)
     return all.filter((entry, index) => all.findIndex(other => other.route === entry.route && other.handler.endsWith(basename(entry.handler))) === index)
   }
@@ -62,7 +63,7 @@ function sourceFile(handler: string): string {
 
 /** One request for a registered route: the concrete path for a `**` route, and its method. */
 function remoteRequest(entry: Registration, remoteAddress?: string): ConsoleRequestEvent {
-  const path = entry.route!.replace("/_vitehub/rpc/**", "/_vitehub/rpc/__call").replace("/**", "/agents")
+  const path = entry.route!.replace("/**", "/agents")
   const method = [entry.method ?? "post"].flat()[0]!.toUpperCase()
   return consoleEvent({
     url: `http://localhost:3000${path}`,
@@ -103,7 +104,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["auth-manage.ts", "channel-replay.ts", "env-manage.ts", "mcp.ts", "rpc.ts", "schedule-run.ts"])
+    expect([...files].sort()).toEqual(["page-session.ts", "rpc.ts"])
     const guarded = routes.filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
@@ -135,14 +136,14 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
 
   it("serves the same routes to this machine", { timeout: 30_000 }, async () => {
     useViteHubDevPeerKey()
-    const routes = (await registeredConsoleRoutes()).filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
+    const routes = await registeredConsoleRoutes()
     for (const entry of routes) {
       const request = remoteRequest(entry)
       const standard = request["~standard"]
       const url = new URL(standard.req.url)
       // The front process signs the request of a loopback socket before Nitro forwards it.
       const node = { headers: { host: "localhost:3000" } as Record<string, string>, method: standard.req.method, socket: { remoteAddress: "127.0.0.1" }, url: url.pathname }
-      await viteHubDevPeerDevHandler({ node: { req: node } })
+      await viteHubDevPeerDevHandler({ runtime: { node: { req: node } } })
       standard.req.headers.set("x-vitehub-dev-peer", node.headers["x-vitehub-dev-peer"]!)
       standard.req.headers.delete("x-forwarded-host")
       const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default
@@ -169,11 +170,5 @@ describe("Console access outside its routes", () => {
     expect(await access.authorize({ event: remote(), kind: "read" })).toBe(false)
     expect(await access.identify({ event: remote() })).toBeNull()
     expect(await access.user({ event: remote() })).toBeNull()
-  })
-
-  it("refuses a remote Connections manager", async () => {
-    const result = await consoleConnectionsActor(remote())
-    expect(result).toBeInstanceOf(Response)
-    await expect(codeOf(result as Response)).resolves.toBe("CONSOLE_LOOPBACK_ONLY")
   })
 })

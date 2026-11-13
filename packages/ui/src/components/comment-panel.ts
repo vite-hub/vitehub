@@ -279,6 +279,7 @@ export const CommentPanel = defineComponent({
                 error: failure.value,
                 files: files.value,
                 guard: false,
+                layout: "row",
                 mentions: mentions.value,
                 modelValue: body.value,
                 onSubmit: send,
@@ -291,6 +292,7 @@ export const CommentPanel = defineComponent({
               }, {
                 ...(slots.extra ? { extra: slots.extra } : {}),
                 ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+                ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
               }),
             ]),
       ];

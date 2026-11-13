@@ -7,7 +7,7 @@ import { agentRuntimeModule } from "../src/vite.ts"
 
 type Drain = (context: { signal: AbortSignal, timeoutMs: number }) => unknown
 
-async function generateQueuePlugin(options: { preset?: string, shutdown?: false | { drainMs?: number } }) {
+async function generateQueuePlugin(options: { host?: string, shutdown?: false | { drainMs?: number } }) {
   const { hubAgent } = await import("../src/vite.ts")
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-shutdown-drain-"))
   try {
@@ -15,12 +15,12 @@ async function generateQueuePlugin(options: { preset?: string, shutdown?: false 
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
     const plugin = hubAgent({
       // Ephemeral hosts need a remote state URL.
-      providers: { state: { provider: "libsql", url: options.preset ? "libsql://state.example.com" : "file:agent-state.sqlite" } },
+      providers: { state: { driver: "libsql", url: options.host ? "libsql://state.example.com" : "file:agent-state.sqlite" } },
       ...(options.shutdown === undefined ? {} : { shutdown: options.shutdown }),
     })
     if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
-    // SAFETY: The hook reads only command, preset, and root from this test config.
-    await plugin.configResolved.call({} as never, { command: "build", ...(options.preset ? { preset: options.preset } : {}), root } as never)
+    // SAFETY: The hook reads only command, vitehub.host, and root from this test config.
+    await plugin.configResolved.call({} as never, { command: "build", ...(options.host ? { vitehub: { host: options.host } } : {}), root } as never)
     return await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
   }
   finally {
@@ -99,7 +99,7 @@ describe("generated Agent shutdown drains", () => {
     expect(disabled).not.toContain("drainInlineChatInvocations")
     expect([...runQueuePlugin(disabled).drains.keys()]).toEqual(["agent.webhook-queues"])
 
-    const ephemeral = await generateQueuePlugin({ preset: "vercel" })
+    const ephemeral = await generateQueuePlugin({ host: "vercel" })
     expect(ephemeral).not.toContain("drainInlineChatInvocations")
     expect([...runQueuePlugin(ephemeral).drains.keys()]).toEqual(["agent.webhook-queues"])
   })

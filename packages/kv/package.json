@@ -6,6 +6,7 @@
     "cloudflare",
     "key-value",
     "kv",
+    "postgres",
     "redis",
     "typescript",
     "upstash",
@@ -40,6 +41,16 @@
       "import": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
+    "./runtime/redis-driver": {
+      "types": "./dist/runtime/redis-driver.d.ts",
+      "import": "./dist/runtime/redis-driver.js",
+      "default": "./dist/runtime/redis-driver.js"
+    },
     "./runtime/upstash-driver": {
       "types": "./dist/runtime/upstash-driver.d.ts",
       "import": "./dist/runtime/upstash-driver.js",
@@ -66,8 +77,10 @@
   "dependencies": {
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
     "destr": "^2.0.5",
+    "ioredis": "catalog:storage",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "unstorage": "catalog:storage",
@@ -75,9 +88,12 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@libsql/client": "catalog:database",
+    "@vite-hub/database": "workspace:*",
     "@types/proper-lockfile": "catalog:",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -86,10 +102,14 @@
   },
   "peerDependencies": {
     "@upstash/redis": "catalog:storage",
+    "@vite-hub/database": "workspace:*",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@upstash/redis": {
+      "optional": true
+    },
+    "@vite-hub/database": {
       "optional": true
     },
     "vite": {
