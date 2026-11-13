@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { createMemoryScheduleRunStore } from "./store.ts"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 
+import type { OccurrenceClaims } from "./claims.ts"
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
 
 /** The cron and time zone of a Schedule that the Process Runtime runs. */
@@ -14,6 +15,8 @@ export interface StartedScheduleRuntime {
   catchUpMs: number
   /** Last minute, in epoch milliseconds, that a tick of this process checked. */
   checkedThrough?: number
+  /** Occurrences that another process held at a tick, by run id. The next tick tries them again. */
+  held?: Map<string, { scheduledAt: Date, scheduleId: string }>
   /** Schedule Definitions without `cron`, by name. */
   registry: ScheduleDefinitionRegistry
   store: StartedScheduleStore
@@ -24,6 +27,7 @@ const processDefinitions = new Set<ReadonlyMap<string, ProcessScheduleTimingReco
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
 let startedRuntime: StartedScheduleRuntime | undefined
+let occurrenceClaims: OccurrenceClaims | undefined
 const loadedRegistryEntries = new Map<string, ScheduleRegistryDefinition | undefined>()
 const loadingRegistryEntries = new Map<string, {
   promise: Promise<ScheduleRegistryDefinition | undefined>
@@ -64,6 +68,15 @@ export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
 
 export function getScheduleRunStore(): ScheduleRunStore {
   return runStore ??= createMemoryScheduleRunStore()
+}
+
+/** Installs the claims that make each occurrence run in one process only. The Process Runtime installs them. */
+export function setScheduleOccurrenceClaims(claims: OccurrenceClaims | undefined): void {
+  occurrenceClaims = claims
+}
+
+export function getScheduleOccurrenceClaims(): OccurrenceClaims | undefined {
+  return occurrenceClaims
 }
 
 export function setStartedScheduleRuntime(runtime: StartedScheduleRuntime | undefined): void {
@@ -128,6 +141,7 @@ export function resetScheduleRuntime(): void {
   runtimeRegistryVersion++
   runStore = undefined
   startedRuntime = undefined
+  occurrenceClaims = undefined
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
 }

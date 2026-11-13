@@ -34,6 +34,7 @@ const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
+const contentLlmsEntry = ".vitehub/content/llms.mjs"
 const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentTypesPluginEntry = ".vitehub/content/types.mjs"
 // The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
@@ -52,6 +53,11 @@ export interface GeneratedSourceRoute {
   method?: "get"
   /** Runs for every request and passes through when it does not answer, as Content's `<url>.md` copies do. */
   middleware?: true
+  /**
+   * `false` loads the handler when the server starts. Middleware that reads the response of later handlers needs it,
+   * because a lazy handler does not receive `next`. Such a handler must load heavy modules itself, on demand.
+   */
+  lazy?: false
   plugin?: never
   route: string
 }
@@ -140,6 +146,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentLlmsEntry,
     contentSqliteEntry,
     contentTypesPluginEntry,
     contentTypesEntry,
@@ -176,6 +183,7 @@ async function restoreGeneratedSourceArtifacts(
     contentSitemapEntry,
     contentRobotsEntry,
     contentMarkdownEntry,
+    contentLlmsEntry,
     contentSqliteEntry,
     contentTypesPluginEntry,
     contentTypesEntry,
@@ -253,7 +261,7 @@ export function mergeGeneratedSourceNitroConfig(
     }
     // Content routes import the Markdown parser and the Sources. Loaded on their first request, they stay out of the
     // server's start.
-    kit.addHandler({ ...handler, lazy: true })
+    kit.addHandler({ ...handler, lazy: handler.lazy ?? true })
   }
 
   const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
@@ -391,8 +399,10 @@ export interface ContentEntryFeatures {
   sitemap: boolean
   /** `seo: { robots }` that is not literally false. */
   robots: boolean
-  /** `seo: { markdown }` that is not literally false. */
+  /** `seo: { markdown }` that is not literally false, or `seo: { llms }` on, whose links need the Markdown copies. */
   markdown: boolean
+  /** `seo: { llms }` that is not literally false. */
+  llms: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
   /** The module imports `sqlite` from `vite-hub/content/sqlite`, so SQLite WASM must load when a Worker starts. */
@@ -429,7 +439,7 @@ function unwrapAst(node: unknown): unknown {
 /**
  * Read the `defineContent()` call that the default export holds. Collections count as present unless the call
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
- * `sitemap`, `robots`, or `markdown` that is not `false`, or a `seo` value that discovery cannot follow.
+ * `sitemap`, `robots`, `markdown`, or `llms` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
   return { ...inspectContentOptions(program, contentImportBase), sqlite: importsContentSqlite(program, contentImportBase) }
@@ -443,7 +453,7 @@ function importsContentSqlite(program: unknown, contentImportBase?: string): boo
 }
 
 function inspectContentOptions(program: unknown, contentImportBase?: string): Omit<ContentEntryFeatures, "sqlite"> {
-  const maybe: Omit<ContentEntryFeatures, "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
+  const maybe: Omit<ContentEntryFeatures, "sqlite"> = { route: true, collections: true, sitemap: false, robots: false, markdown: false, llms: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -518,27 +528,29 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
     && astName(calleeNode.property) === "defineContent"
   if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
-  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, live: true }
+  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, llms: false, live: true }
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, live: true }
+  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, llms: true, live: true }
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: Omit<ContentEntryFeatures, "sqlite"> = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const features: Omit<ContentEntryFeatures, "sqlite"> = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, llms: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
   }
   if (options.has("seo")) {
     const seo = properties(resolveNode(options.get("seo")))
-    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true }
-    for (const key of ["sitemap", "robots", "markdown"] as const) {
+    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true, llms: true }
+    for (const key of ["sitemap", "robots", "markdown", "llms"] as const) {
       if (!seo.has(key)) continue
       const value = unwrapAst(seo.get(key))
       features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
     }
+    // The llms files link to the `.md` copies.
+    if (features.llms) features.markdown = true
   }
   return features
 }
@@ -552,7 +564,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true, sqlite: false }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, llms: false, live: true, sqlite: false }
   }
 }
 
@@ -565,11 +577,12 @@ async function writeContentArtifact(
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   const markdown = resolve(options.projectRoot, contentMarkdownEntry)
+  const llms = resolve(options.projectRoot, contentLlmsEntry)
   const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
   const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown, sqlite, typesPlugin, types].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, llms, sqlite, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -623,12 +636,11 @@ async function writeContentArtifact(
   // Until the first development server writes the types, an empty file keeps the reference in `.vitehub/types.d.ts`.
   if (!await readFile(types, "utf8").then(() => true, () => false)) await writeFileIfChanged(types, "export {}\n")
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
-  // `defineContent({ seo: { sitemap, robots, markdown } })` adds the site-wide SEO routes. Markdown copies sit at
-  // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.
-  for (const [enabled, path, helper, route] of [
-    [features.sitemap, sitemap, "defineContentSitemapHandler", "/sitemap.xml"],
-    [features.robots, robots, "defineContentRobotsHandler", "/robots.txt"],
-    [features.markdown, markdown, "defineContentMarkdownHandler", "/**"],
+  // `defineContent({ seo: { sitemap, robots, llms } })` adds the site-wide SEO routes. One llms entry serves three routes.
+  for (const [enabled, path, helper, routes] of [
+    [features.sitemap, sitemap, "defineContentSitemapHandler", ["/sitemap.xml"]],
+    [features.robots, robots, "defineContentRobotsHandler", ["/robots.txt"]],
+    [features.llms, llms, "defineContentLlmsHandler", ["/llms.txt", "/llms-full.txt", "/sitemap.md"]],
   ] as const) {
     if (!enabled) {
       await rm(path, { force: true })
@@ -641,8 +653,21 @@ async function writeContentArtifact(
       `export default ${helper}(content)`,
       "",
     ].join("\n"))
-    handlers.push(route === "/**" ? { handler: path, middleware: true, route } : { handler: path, method: "get", route })
+    for (const route of routes) handlers.push({ handler: path, method: "get", route })
   }
+  // `seo: { markdown }` serves copies at every page URL plus `.md`, which no Nitro route pattern matches, so they are
+  // middleware. It loads when the server starts, because it reads the response of later handlers for the Markdown 404.
+  // It imports only the Markdown negotiation entry and loads server/content.ts on the first request that asks for Markdown.
+  if (features.markdown) {
+    await writeFileIfChanged(markdown, [
+      `import { defineContentMarkdownHandler } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/markdown`)}`,
+      "",
+      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default))`,
+      "",
+    ].join("\n"))
+    handlers.push({ handler: markdown, middleware: true, lazy: false, route: "/**" })
+  }
+  else await rm(markdown, { force: true })
   return handlers
 }
 

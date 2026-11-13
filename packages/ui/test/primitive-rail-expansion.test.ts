@@ -91,6 +91,53 @@ describe("primitive rail expansion", () => {
     rail.unmount();
   });
 
+  it("closes after a click on an item until the pointer leaves the rail", async () => {
+    const rail = mountRail();
+    const items = rail.findAll("button");
+    for (const item of items) vi.spyOn(item.element, "matches").mockImplementation(selector => selector === ".vh-primitive-rail__item");
+    await rail.trigger("pointerenter", { pointerType: "mouse" });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(rail.attributes("data-expanded")).toBe("");
+    await items[0]!.trigger("click");
+    expect(rail.attributes("data-expanded")).toBeUndefined();
+    // The pointer rests on the rail and moves to another item: the rail stays closed.
+    await items[1]!.trigger("pointermove");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(rail.attributes("data-expanded")).toBeUndefined();
+    await rail.trigger("pointerleave");
+    await rail.trigger("pointerenter", { pointerType: "mouse" });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(rail.attributes("data-expanded")).toBe("");
+    rail.unmount();
+  });
+
+  it("closes after Enter on a focused item and opens again when keyboard focus moves on", async () => {
+    const rail = mountRail();
+    const items = rail.findAll("button");
+    // Keyboard focus is visible, and the items are no menu triggers.
+    for (const item of items) vi.spyOn(item.element, "matches").mockImplementation(selector => selector !== "[aria-haspopup]");
+    items[0]!.element.focus();
+    await nextTick();
+    expect(rail.attributes("data-expanded")).toBe("");
+    // A button activated with Enter dispatches a click.
+    await items[0]!.trigger("click");
+    expect(rail.attributes("data-expanded")).toBeUndefined();
+    items[1]!.element.focus();
+    await nextTick();
+    expect(rail.attributes("data-expanded")).toBe("");
+    rail.unmount();
+  });
+
+  it("waits 200 ms before a hover opens the rail", async () => {
+    const rail = mountRail();
+    await rail.trigger("pointerenter", { pointerType: "mouse" });
+    await vi.advanceTimersByTimeAsync(190);
+    expect(rail.attributes("data-expanded")).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(rail.attributes("data-expanded")).toBe("");
+    rail.unmount();
+  });
+
   it("lets Escape dismiss a hover overlay while focus remains outside the rail", async () => {
     const rail = mountRail();
     await rail.trigger("pointerenter", { pointerType: "mouse" });

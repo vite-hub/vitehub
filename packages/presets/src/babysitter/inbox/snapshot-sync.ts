@@ -1,7 +1,7 @@
 import * as v from 'valibot'
 import { parseEvidence, parsePullRequest, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
-import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
+import { type Claim, type PullRequestInbox, type Snapshot, type SnapshotPatch } from './store.ts'
 import { repoRef, type GitHubProvider } from '@vite-hub/forge'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
@@ -101,14 +101,24 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<boolean> {
   const { snapshot: current } = claim
-  if (current.hydrated && !current.refresh && current.pr?.mergeable !== null && current.pr?.mergeable_state !== 'unknown') {
-    if (!readThreads || current.threadsHydrated && !current.feedbackRefresh) return true
-    const threads = await readThreads(current.repository, current.number, signal)
-    return await inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
+  const readAll = async () => {
+    const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors, signal)
+    // CAS keeps an event received while REST requests ran from being overwritten.
+    return await inbox.hydrate(claim, { ...snapshot, refresh: false })
   }
-  const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors, signal)
-  // CAS keeps an event received while REST requests ran from being overwritten.
-  return await inbox.hydrate(claim, { ...snapshot, refresh: false })
+  if (!current.hydrated || current.refresh) return await readAll()
+  const patch: SnapshotPatch = {}
+  // Pull request webhooks carry no mergeability; GitHub computes it after the event. Webhooks keep
+  // the evidence lists current, so only the pull request itself needs another read.
+  if (current.pr?.mergeable === null || current.pr?.mergeable_state === 'unknown') {
+    const [raw] = await read(`repos/${current.repository}/pulls/${current.number}`, '.')
+    patch.pr = parsePullRequest(raw)
+    if (patch.pr.head?.sha !== current.pr?.head?.sha) return await readAll()
+  }
+  if (readThreads && (!current.threadsHydrated || current.feedbackRefresh)) {
+    Object.assign(patch, { threads: await readThreads(current.repository, current.number, signal), threadsHydrated: true, feedbackRefresh: false })
+  }
+  return Object.keys(patch).length ? await inbox.hydrate(claim, patch) : true
 }
 
 export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<void> {
@@ -136,7 +146,11 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads)
   const ingest = async (event: string, payload: GitHubDelivery) => {
     const full = { repository: { full_name: s.repository }, ...payload }
-    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, full])).digest('hex')}`
+    // Reviews and comments embed the whole PR, whose updated_at and mergeability change with any
+    // activity. Hash only its number and head so an unchanged review keeps its delivery ID.
+    const pr = full.pull_request as { number?: number, head?: { sha?: string } } | undefined
+    const identity = event === 'pull_request' || !pr ? full : { ...full, pull_request: { number: pr.number, head: pr.head?.sha } }
+    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, identity])).digest('hex')}`
     await inbox.ingest(id, event, full)
   }
   await ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })

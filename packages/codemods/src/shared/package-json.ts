@@ -2,6 +2,8 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { lt, minVersion, validRange } from "semver"
+
 import { CodemodError } from "../types.ts"
 
 import type { FileEdit } from "../types.ts"
@@ -42,6 +44,15 @@ export interface PackageJsonChange {
   remove: readonly string[]
   /** Packages to add at `^version` when no section lists them. */
   add: readonly string[]
+  /** Packages to add, or to raise, to at least `^<version>`, by name. A range the codemod cannot read stays as it is. */
+  atLeast?: Readonly<Record<string, string>>
+}
+
+/** True when the lowest version that `range` allows is below `minimum`. */
+function below(range: string, minimum: string): boolean | undefined {
+  if (!validRange(range)) return undefined
+  const current = minVersion(range)
+  return current ? lt(current, minimum) : undefined
 }
 
 /**
@@ -78,6 +89,16 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     return isDependencyMap(map) && name in map
   })
   for (const name of change.add) if (!installed(name)) dependencies[name] = range
+  for (const [name, minimum] of Object.entries(change.atLeast ?? {})) {
+    if (!installed(name)) {
+      dependencies[name] = `^${minimum}`
+      continue
+    }
+    for (const section of sections) {
+      const map = section === target ? dependencies : manifest[section]
+      if (isDependencyMap(map) && typeof map[name] === "string" && below(map[name], minimum)) map[name] = `^${minimum}`
+    }
+  }
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
