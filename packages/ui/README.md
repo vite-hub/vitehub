@@ -310,6 +310,7 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 - [UI overview and layer ownership](https://vitehub.dev/docs/ui)
 - [Installation and package defaults](https://vitehub.dev/docs/ui/installation)
+- [Icons](https://vitehub.dev/docs/ui/installation#icons): the parts read Nuxt UI's `appConfig.ui.icons` and, for names Nuxt UI does not have, `appConfig.viteHubUI.icons`
 - [Chat and transport boundary](https://vitehub.dev/docs/ui/chat)
 - [Prompt input](https://vitehub.dev/docs/ui/prompt-input) and [attachments](https://vitehub.dev/docs/ui/attachments)
 - [Headless message scroller](https://vitehub.dev/docs/ui/message-scroller)
