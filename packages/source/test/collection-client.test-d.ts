@@ -68,7 +68,7 @@ type ReservedUnionFilters = { author?: string } | { limit: string }
 function defineQueryFixture<TInput extends object>(querySchema: StandardSchemaV1<TInput, TInput>) {
   // SAFETY: This type-only fixture declares the rows returned by its synthetic loader.
   return defineCollection(async () => [] as Array<{ id: string }>, {
-    authorize: false,
+    access: "public",
     cursor: row => row.id,
     cursorSchema: v.string(),
     querySchema,
@@ -110,7 +110,7 @@ const reservedUnionQuery = defineQueryFixture(reservedUnionFilterSchema)
 
 // SAFETY: This type-only fixture declares the rows its loader would return.
 const articles = defineCollection(async () => [] as Article[], {
-  authorize: false,
+  access: "public",
   cursor: article => article.id,
   cursorSchema: v.number(),
   querySchema: v.object({ author: v.optional(v.string()) }),
@@ -118,7 +118,7 @@ const articles = defineCollection(async () => [] as Article[], {
 
 // SAFETY: This type-only fixture declares the rows its loader would return.
 const events = defineCollection(async () => [] as Array<{ at: Date; id: bigint }>, {
-  authorize: false,
+  access: "public",
   cursor: event => event.at.toISOString(),
   cursorSchema: v.string(),
 })
@@ -130,7 +130,7 @@ const jsonValues = defineCollection(
     return [] as JSONValueRow[]
   },
   {
-    authorize: false,
+    access: "public",
     cursor: () => "done",
     cursorSchema: v.string(),
   },
@@ -138,7 +138,7 @@ const jsonValues = defineCollection(
 
 // SAFETY: This type-only fixture covers item-level JSON array coercion.
 const toJSONOmittedItems = defineCollection(async () => [] as Array<{ toJSON(): undefined }>, {
-  authorize: false,
+  access: "public",
   cursor: () => "done",
   cursorSchema: v.string(),
 })
@@ -149,7 +149,7 @@ const toJSONValues = defineCollection(
     return [] as Array<{ custom: { toJSON(): { id: string } }; url: URL }>
   },
   {
-    authorize: false,
+    access: "public",
     cursor: () => "done",
     cursorSchema: v.string(),
   },
@@ -157,14 +157,14 @@ const toJSONValues = defineCollection(
 
 // SAFETY: This type-only fixture declares rows whose root serializer returns a known non-plain object.
 const toJSONDateItems = defineCollection(async () => [] as Array<{ toJSON(): Date }>, {
-  authorize: false,
+  access: "public",
   cursor: () => "done",
   cursorSchema: v.string(),
 })
 
 // SAFETY: This type-only fixture declares rows whose serialized child gets its own toJSON step.
 const toJSONNestedDateItems = defineCollection(async () => [] as Array<{ toJSON(): { nested: Date } }>, {
-  authorize: false,
+  access: "public",
   cursor: () => "done",
   cursorSchema: v.string(),
 })
@@ -187,14 +187,14 @@ const nonPlainItems = defineCollection(
     return [] as UnsupportedItem[]
   },
   {
-    authorize: false,
+    access: "public",
     cursor: () => "done",
     cursorSchema: v.string(),
   },
 )
 
 const transformedQuery = defineCollection(async ({ query }) => [{ id: query.search }], {
-  authorize: false,
+  access: "public",
   cursor: item => item.id,
   cursorSchema: v.string(),
   querySchema: v.pipe(
@@ -204,13 +204,13 @@ const transformedQuery = defineCollection(async ({ query }) => [{ id: query.sear
 })
 
 const nonWireQuery = defineCollection(async ({ query }) => [{ id: query.page }], {
-  authorize: false,
+  access: "public",
   cursor: item => item.id,
   cursorSchema: v.number(),
   querySchema: v.object({ page: v.number() }),
 })
 
-const rawProvider = defineCollection(async () => ({ items: [], nextCursor: null }), { authorize: false, pagination: "provider" })
+const rawProvider = defineCollection(async () => ({ items: [], nextCursor: null }), { access: "public", pagination: "provider" })
 
 declare global {
   interface ViteHubCollectionMap {

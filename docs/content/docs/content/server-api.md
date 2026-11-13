@@ -242,7 +242,7 @@ export async function compareRefs() {
 }
 ```
 
-A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. It has no `authorize`, so add one before you serve it: `defineCollectionHandler({ ...posts, authorize: false })` serves published lists with field filters to anyone. Export the same object from `server/collections/` to get the generated route. Without `authorize`, the handler throws `SOURCE_R0035`.
+A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. It has no access rule, so add one before you serve it: `defineCollectionHandler({ ...posts, access: 'public' })` serves published lists with field filters to anyone. Export the same object from `server/collections/` to get the generated route. Without `access` or `authorize`, the handler throws `SOURCE_R0035`.
 
 ### Save and remove
 

@@ -489,7 +489,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     await posts.save("draft-only", { data: { title: "Draft", date: "2026-01-04", tags: ["vue"] } })
     // A Content collection does not choose its route access. The caller must.
     expect(() => defineCollectionHandler(posts)).toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
-    const app = new H3().get("/posts", defineCollectionHandler({ ...posts, authorize: false }))
+    const app = new H3().get("/posts", defineCollectionHandler({ ...posts, access: "public" }))
     const response = await app.request("/posts?tags=vue")
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({

@@ -107,13 +107,13 @@ describe("@vite-hub/source/drizzle", () => {
 
     it("refuses a public table Collection without transform", () => {
       // @ts-expect-error A public Collection over table() must pick its fields with transform.
-      expect(() => defineCollection({ authorize: false, source: usersSource() }))
+      expect(() => defineCollection({ access: "public", source: usersSource() }))
         .toThrow(expect.objectContaining({ code: "SOURCE_R0036" }))
     })
 
     it("serves only the transformed fields of a public table Collection", async () => {
       const collection = defineCollection({
-        authorize: false,
+        access: "public",
         source: usersSource(),
         transform: ({ id, name }) => ({ id, name }),
       })

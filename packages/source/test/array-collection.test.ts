@@ -18,7 +18,7 @@ type Item = Record<string, unknown>
 
 function articles(items: readonly Item[] | (() => Item[] | { items: Item[], digest?: string }) = records, options: ArrayCollectionOptions<"category" | "authors.name"> = {}) {
   return defineCollection({
-    authorize: false,
+    access: "public",
     source: array<Item, "category" | "authors.name">(items, {
       facets: ["category", "authors.name"],
       filters: ["category", "authors.name"],

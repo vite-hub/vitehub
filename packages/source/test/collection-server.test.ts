@@ -16,7 +16,7 @@ function createApp() {
         .slice(0, limit)
     },
     {
-      authorize: false,
+      access: "public",
       cursor: (item: { id: number }) => item.id,
       cursorSchema: v.number(),
       defaultLimit: 1,
@@ -51,13 +51,33 @@ describe("defineCollectionHandler", () => {
       expect(() => defineCollectionHandler(routed)).toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
     })
 
-    it("serves authorize: false without Auth", async () => {
-      const collection = defineCollection(load, { authorize: false, cursor: item => item.id, cursorSchema: v.number() })
+    it("serves access: \"public\" without Auth", async () => {
+      const collection = defineCollection(load, { access: "public", cursor: item => item.id, cursorSchema: v.number() })
 
       const response = await defineCollectionHandler(collection).fetch(new Request("https://app.test/items"))
 
-      expect(collection.authorize).toBe(false)
+      expect(collection.access).toBe("public")
+      expect(collection).not.toHaveProperty("authorize")
       expect(await response.json()).toEqual({ items: [{ id: 1 }], nextCursor: null })
+    })
+
+    it("refuses authorize: false with a fix that names access: \"public\"", () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      expect(() => defineCollection(load, { authorize: false as never, cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0037", fix: expect.stringContaining('access: "public"') }))
+      const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
+      const { route: _route, ...routed } = collection
+      expect(() => defineCollectionHandler({ ...routed, authorize: false as never }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0037" }))
+    })
+
+    it("refuses access: \"public\" together with authorize", () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      expect(() => defineCollection(load, { access: "public", authorize: true as never, cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0038" }))
+      // SAFETY: Same as above.
+      expect(() => defineCollection(load, { access: "everyone" as never, cursor: item => item.id, cursorSchema: v.number() }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0024" }))
     })
 
     it("allows a server-only Collection without authorize", async () => {
@@ -126,7 +146,7 @@ describe("defineCollectionHandler", () => {
     })
 
     it("keeps public Collections public when an authorizer is present", async () => {
-      const collection = defineCollection(async () => [{ id: 1 }], { authorize: false, cursor: item => item.id, cursorSchema: v.number() })
+      const collection = defineCollection(async () => [{ id: 1 }], { access: "public", cursor: item => item.id, cursorSchema: v.number() })
       const authorizer = vi.fn()
       const guard: CollectionAuthorizationGuard = (authorize, handler) => {
         authorizer()
@@ -165,7 +185,7 @@ describe("defineCollectionHandler", () => {
 
   it("accepts Collection methods declared on a class prototype", () => {
     class CollectionLike {
-      readonly authorize = false
+      readonly access = "public"
 
       async page() {
         return { items: [], nextCursor: null }
@@ -206,7 +226,7 @@ describe("defineCollectionHandler", () => {
         return []
       },
       {
-        authorize: false,
+        access: "public",
         cursor: () => "done",
         cursorSchema: v.string(),
         querySchema: v.object({ tags: v.optional(v.union([v.string(), v.array(v.string())])) }),
@@ -229,7 +249,7 @@ describe("defineCollectionHandler", () => {
         },
       ],
       {
-        authorize: false,
+        access: "public",
         cursor: item => item.at.toISOString(),
         cursorSchema: v.string(),
       },
@@ -270,7 +290,7 @@ describe("defineCollectionHandler", () => {
         ]
       },
       {
-        authorize: false,
+        access: "public",
         cursor: () => "done",
         cursorSchema: v.string(),
       },
@@ -285,7 +305,7 @@ describe("defineCollectionHandler", () => {
 
   it("coerces an item whose toJSON returns undefined to null", async () => {
     const collection = defineCollection(async () => [{ toJSON: () => undefined }], {
-      authorize: false,
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -296,14 +316,14 @@ describe("defineCollectionHandler", () => {
 
   it("applies toJSON once to each serialized property", async () => {
     const rejected = defineCollection(async () => [{ toJSON: () => new Date("2026-08-22T00:00:00.000Z") }], {
-      authorize: false,
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
     const accepted = defineCollection(
       async () => [{ toJSON: () => ({ nested: new Date("2026-08-22T00:00:00.000Z") }) }],
       {
-        authorize: false,
+        access: "public",
         cursor: () => "done",
         cursorSchema: v.string(),
       },
@@ -322,7 +342,7 @@ describe("defineCollectionHandler", () => {
 
   it("rejects Collection pages containing bigint", async () => {
     const collection = defineCollection(async () => [{ id: 1n }], {
-      authorize: false,
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -335,7 +355,7 @@ describe("defineCollectionHandler", () => {
   it("serializes only the supported active branches of item unions", async () => {
     let value: bigint | string = "one"
     const collection = defineCollection(async () => [{ array: [value], nested: { value }, value }], {
-      authorize: false,
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -367,7 +387,7 @@ describe("defineCollectionHandler", () => {
     new NonPlainItem(),
   ])("rejects non-plain Collection item objects", async item => {
     const collection = defineCollection(async () => [item], {
-      authorize: false,
+      access: "public",
       cursor: () => "done",
       cursorSchema: v.string(),
     })
@@ -396,7 +416,7 @@ describe("defineCollectionHandler", () => {
   it("answers a Web Request as a Fetchable, with JSON error Responses", async () => {
     const collection = defineCollection(
       async ({ limit, query }) => [{ id: 3 }, { id: 2 }, { id: 1 }].filter(item => !query.minimum || item.id >= Number(query.minimum)).slice(0, limit),
-      { authorize: false, cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
+      { access: "public", cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
     )
     const handler = defineCollectionHandler(collection)
 

@@ -46,12 +46,20 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the Collection route and server logs for this HTTP status, correct the request or server error, then refresh the Collection.",
     },
     SOURCE_R0035: {
-      why: "[vitehub] A routed Collection must set authorize. Without it, the generated /api route would serve every item to anyone.",
-      fix: "Set `authorize: true` to require a signed-in session, a callback to decide each request, or `authorize: false` for a public route. Set `route: false` to keep the Collection server-only.",
+      why: "[vitehub] A routed Collection must set authorize or access. Without one, the generated /api route would serve every item to anyone.",
+      fix: "Set `authorize: true` to require a signed-in session, a callback to decide each request, or `access: \"public\"` for a public route. Set `route: false` to keep the Collection server-only.",
     },
     SOURCE_R0036: {
-      why: "[vitehub] A public Collection over table() would serve every column of each row, such as password hashes or emails.",
-      fix: "Add `transform` that returns only the public fields, or set `authorize: true` or a callback.",
+      why: "[vitehub] A Collection over table() with `access: \"public\"` would serve every column of each row, such as password hashes or emails.",
+      fix: "Add `transform` that returns only the public fields, or replace `access: \"public\"` with `authorize: true` or a callback.",
+    },
+    SOURCE_R0037: {
+      why: "[vitehub] Collection `authorize: false` does not make a route public.",
+      fix: "Replace `authorize: false` with `access: \"public\"` to let anyone read the route. Use `authorize: true` or a callback to require sign-in.",
+    },
+    SOURCE_R0038: {
+      why: "[vitehub] A Collection cannot set both `access: \"public\"` and `authorize`.",
+      fix: "Keep `access: \"public\"` to let anyone read the route, or keep `authorize` to check each request. Remove the other.",
     },
     SOURCE_B0001: dynamicError,
     SOURCE_B0002: dynamicError,

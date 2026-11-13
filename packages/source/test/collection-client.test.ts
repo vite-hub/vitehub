@@ -11,7 +11,7 @@ import type { CollectionRequester, UseCollectionReturn } from "../src/client.ts"
 
 // SAFETY: The fixture loader intentionally returns no rows while retaining its row contract.
 const definition = defineCollection(async () => [] as Array<{ id: number }>, {
-  authorize: false,
+  access: "public",
   cursor: (item: { id: number }) => item.id,
   cursorSchema: v.number(),
   querySchema: v.object({ search: v.optional(v.string()) }),

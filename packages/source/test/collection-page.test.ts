@@ -205,11 +205,11 @@ describe("Collections", () => {
     const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
     expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
     expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize: true }).authorize).toBe(true)
-    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize: false }).authorize).toBe(false)
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, access: "public" })).not.toHaveProperty("authorize")
     expect(defineCollection(async () => [{ id: 1 }], { ...options, route: false })).not.toHaveProperty("authorize")
     // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
     expect(() => defineCollection(async () => [{ id: 1 }], { ...options, authorize: "yes" as never }))
-      .toThrow("Collection authorize must be true, false, or a function.")
+      .toThrow("Collection authorize must be true or a function.")
   })
 
   it("accepts authorize callbacks created in another realm", () => {

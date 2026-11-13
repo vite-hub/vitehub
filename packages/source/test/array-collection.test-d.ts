@@ -16,15 +16,15 @@ interface Article {
 declare const loadArticles: () => Promise<Article[]>
 
 const articleIndex = defineCollection({
-  authorize: false,
+  access: "public",
   source: array(loadArticles, { facets: ["category"], filters: ["category", "author.name"], search: ["title"] }),
   transform: ({ category, slug, title }) => ({ category, slug, title }),
 })
 
-const plain = defineCollection({ authorize: false, source: array([{ id: 1 }]) })
+const plain = defineCollection({ access: "public", source: array([{ id: 1 }]) })
 
 const parsed = defineCollection({
-  authorize: false,
+  access: "public",
   source: array(async (): Promise<unknown[]> => [], { filters: ["kind"], schema: v.object({ kind: v.string(), rank: v.pipe(v.string(), v.transform(Number)) }) }),
 })
 

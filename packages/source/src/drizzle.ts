@@ -165,7 +165,7 @@ function cursorWhere(
 
 /**
  * Read a Drizzle SQLite table as a Collection source with keyset pagination. It selects every column, so a public
- * Collection (`authorize: false`) over it must pick the public fields with `transform`.
+ * Collection (`access: "public"`) over it must pick the public fields with `transform`.
  */
 export function table<TTable extends TableShape, TQuerySchema extends StandardSchemaV1<unknown, object>>(
   options: TableSourceOptions<TTable, TQuerySchema> & {

@@ -60,7 +60,7 @@ import {
 
 // ViteHub serves this list to anyone at /api/articles
 export const articles = defineCollection({
-  authorize: false,
+  access: 'public',
   source: array([
     { slug: 'hello', title: 'Hello', tag: 'news' },
     { slug: 'vite', title: 'Why Vite', tag: 'guide' },
