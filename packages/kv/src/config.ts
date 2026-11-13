@@ -84,11 +84,15 @@ export function redisStorePrefix(name: string): string {
   return `vitehub:kv:${segment}`
 }
 
+/** An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis or Upstash database. */
+function resolveStoreBase(base: string | undefined, name: string): string {
+  return normalizeKey(trimmed(base)) || redisStorePrefix(name)
+}
+
 export function resolveRedisStore(config: Partial<RedisKVStoreConfig>, name: string): ResolvedRedisKVStoreConfig {
-  // An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis database.
   return {
     driver: "redis",
-    base: normalizeKey(trimmed(config.base)) || redisStorePrefix(name),
+    base: resolveStoreBase(config.base, name),
     url: trimmed(config.url) ?? `env:${redisUrlEnvName}`,
   }
 }
@@ -133,7 +137,7 @@ function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | u
     case "deno-kv": return resolveDenoStore(store)
     case "fs-lite": return resolveFsLiteStore(store, name)
     case "redis": return resolveRedisStore(store, name)
-    case "upstash": return resolveUpstashStore(store)
+    case "upstash": return resolveUpstashStore(store, resolveStoreBase(store.base, name))
     // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
     default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
   }
@@ -186,8 +190,8 @@ export function normalizeKVOptions(
     if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "deno-kv", remote, store: "default" })
     return inferred(resolveDenoStore())
   }
-  if (hosted && hasUpstashEnv(env)) return inferred(resolveUpstashStore())
-  if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore())
+  if (hosted && hasUpstashEnv(env)) return inferred(resolveUpstashStore({}, redisStorePrefix("default")))
+  if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore({}, redisStorePrefix("default")))
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
   if (input.dev) return inferred(resolveFsLiteStore())

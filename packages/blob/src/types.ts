@@ -1,4 +1,4 @@
-import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -147,14 +147,17 @@ export interface BlobDriverAdapter<TOptions> {
   sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
-/** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
-export type BlobUploadEvent = ViteHubContext
+/**
+ * What `handleUpload()` reads: a web Request, or a request event such as the event of a Nitro 3, H3, or `nuxt/server`
+ * handler.
+ */
+export type BlobUploadEvent = Request | ViteHubContext | HostRequestEvent
 
 /**
- * A request event that `handleMultipartUpload()` reads: its Standard Context request, and the `action` and `pathname`
- * route params in `context.params`.
+ * A request event that `handleMultipartUpload()` reads: its request, and the `action` and `pathname` route params in
+ * `context.params`. The event of a Nitro 3, H3, or `nuxt/server` handler has both.
  */
-export type BlobMultipartEvent = ViteHubContext<{ context: { params?: Record<string, string | undefined> } }>
+export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context: { params?: Record<string, string | undefined> } }
 
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */

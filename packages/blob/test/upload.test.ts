@@ -120,6 +120,38 @@ describe("uploads from host Standard Context events", () => {
   })
 })
 
+describe("uploads from a Request and a nuxt/server event", () => {
+  // The shape of a `nuxt/server` RequestEvent: no `~standard` until ViteHub reads it.
+  const nuxtServerEvent = (req: Request, params?: Record<string, string>) => ({
+    context: { params },
+    req,
+    res: { headers: new Headers() },
+    url: new URL(req.url),
+  })
+
+  it("stores files from a plain Request", async () => {
+    const request = new Request("http://localhost/api/files", { body: formData([new File(["one"], "one.txt")]), method: "POST" })
+    expect(ok(await storage.handleUpload(request)).map(object => object.pathname)).toEqual(["one.txt"])
+  })
+
+  it("stores files from a nuxt/server event", async () => {
+    const event = nuxtServerEvent(new Request("http://localhost/api/files", { body: formData([new File(["one"], "one.txt")]), method: "POST" }))
+    expect(ok(await storage.handleUpload(event)).map(object => object.pathname)).toEqual(["one.txt"])
+  })
+
+  it("serves multipart actions from a nuxt/server event", async () => {
+    const event = (action: string, init: RequestInit & { query?: Record<string, string> }) =>
+      nuxtServerEvent(multipartRequest(action, "clip.bin", init), { action, pathname: "clip.bin" })
+    const created = ok(await storage.handleMultipartUpload(event("create", { body: "{}", method: "POST" })))
+    if (created.action !== "create") throw new Error("Expected a create result.")
+    const uploaded = ok(await storage.handleMultipartUpload(event("upload", { body: "part", method: "PUT", query: { partNumber: "1", uploadId: created.uploadId } })))
+    if (uploaded.action !== "upload") throw new Error("Expected an upload result.")
+    ok(await storage.handleMultipartUpload(event("complete", { body: JSON.stringify({ parts: [uploaded.part] }), method: "POST", query: { uploadId: created.uploadId } })))
+
+    expect(await (ok(await storage.get("clip.bin")))?.text()).toBe("part")
+  })
+})
+
 describe("fs multipart uploads", () => {
   it("joins parts in part-number order and removes the staging files", async () => {
     const upload = ok(await storage.createMultipartUpload("videos/clip.bin", { addRandomSuffix: true }))
