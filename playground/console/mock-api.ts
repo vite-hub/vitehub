@@ -57,6 +57,7 @@ const sections = [
   "queues",
   "schedules",
   "comments",
+  "site",
 ] as const;
 const definitions = {
   "rate-limits": [

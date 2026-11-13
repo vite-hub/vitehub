@@ -521,6 +521,79 @@ const statusGet = defineConsoleOperation({
   section: "agents",
 })
 
+const sitePagePath = v.optional(v.pipe(text, v.maxLength(2048)))
+const siteId = v.pipe(text, v.minLength(1), v.maxLength(64))
+const siteAccess = () => import("./site-access.ts")
+
+/** Site access: browsers that use the page tools without an app sign-in. See `site-access.ts`. */
+const siteOperations = [
+  defineConsoleOperation({
+    description: "Return a one-time link that gives the browser that opens it a member pass, then opens the page. With qr: true, it works for 10 minutes, for a phone.",
+    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()) }),
+    kind: "write",
+    mcp: false,
+    name: "site.link",
+    run: async (input, context) => (await siteAccess()).linkSite(context, input),
+    section: "site",
+  }),
+  defineConsoleOperation({
+    description: "List the browsers that hold a page pass: Console members and invited guests.",
+    input: v.strictObject({}),
+    kind: "read",
+    name: "site.passes",
+    run: async (_input, context) => (await siteAccess()).listPasses(context),
+    section: "site",
+  }),
+  defineConsoleOperation({
+    cli: { positional: ["id"] },
+    description: "Revoke the page pass of one browser.",
+    input: v.strictObject({ id: siteId }),
+    kind: "destructive",
+    name: "site.revoke-pass",
+    run: async ({ id }, context) => (await siteAccess()).revokePass(context, id),
+    section: "site",
+  }),
+  defineConsoleOperation({
+    description: "Invite a guest: a one-time link that gives one browser a pass with a name and grants, such as comments.write. Guests never get the Console.",
+    input: v.strictObject({
+      expiresInDays: v.optional(v.picklist([1, 7, 30])),
+      grants: v.pipe(v.array(v.pipe(text, v.maxLength(128))), v.maxLength(32)),
+      name: v.pipe(text, v.maxLength(64)),
+      path: sitePagePath,
+    }),
+    kind: "write",
+    mcp: false,
+    name: "site.invite",
+    run: async (input, context) => (await siteAccess()).inviteGuest(context, input),
+    section: "site",
+  }),
+  defineConsoleOperation({
+    description: "List the guest invites that nobody opened yet.",
+    input: v.strictObject({}),
+    kind: "read",
+    name: "site.invites",
+    run: async (_input, context) => (await siteAccess()).listInvites(context),
+    section: "site",
+  }),
+  defineConsoleOperation({
+    cli: { positional: ["id"] },
+    description: "Revoke a guest invite that nobody opened yet.",
+    input: v.strictObject({ id: siteId }),
+    kind: "destructive",
+    name: "site.revoke-invite",
+    run: async ({ id }, context) => (await siteAccess()).revokeInvite(context, id),
+    section: "site",
+  }),
+  defineConsoleOperation({
+    description: "List the grants that a page pass may hold. Console is for members only.",
+    input: v.strictObject({}),
+    kind: "read",
+    name: "site.grants",
+    run: async () => (await siteAccess()).listGrants(),
+    section: "site",
+  }),
+]
+
 const usageGet = defineConsoleOperation({
   cli: { command: "usage", namespace: "agent" },
   description: "Read token use and cost evidence of Agent Invocations.",
@@ -574,6 +647,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   projectGet,
   searchQuery,
   sectionsList,
+  ...siteOperations,
   skillsInspect,
   statusGet,
   usageGet,
