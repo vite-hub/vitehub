@@ -399,7 +399,7 @@ export default defineNuxtConfig({
   vitehub: {
     console: true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   },
   $development: {
     vitehub: { console: { auth: false } },
@@ -418,7 +418,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   }), nitro()],
 }))
 ```
@@ -433,7 +433,7 @@ export default defineConfig(({ command }) => ({
   plugins: [vitehub({
     console: command === 'serve' ? { auth: false } : true,
     kv: true,
-    preset: 'node',
+    host: 'node',
   })],
 }))
 ```
@@ -779,7 +779,7 @@ The panel reads the Invocation's snapshots. It does not run MCP discovery or tit
 | A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. |
 | KV or Blob inspection returns a provider error | Check that the deployed app has permission and credentials to read the configured store. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the default journal or the app-wide `agent.invocations` journal. |
-| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
+| Agent Console startup fails on a deployment host | Set `agent.invocations: 'database'`, or give every Agent Definition one durable journal. The default SQLite journal needs a writable, persistent filesystem. |
 | The Console cannot reach a deployed app | Link the app with the URL that serves it, and check that the server is public. The Console cannot reach a `vite dev` server on your machine. |
 | The build fails with `VITE_HUB_B0020` and names a `console` option | The option is removed. Follow the fix in the message, or see [Move from auth: "app" or Console Auth](#move-from-auth-app-or-console-auth). |
 | `console.impersonation` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition with Better Auth's `admin` plugin, such as `server/auth.ts`. |

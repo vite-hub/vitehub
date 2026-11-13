@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
-import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule } from "../src/runtime.ts"
+import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
@@ -455,28 +456,24 @@ describe("Schedule Run bookkeeping", () => {
 
 describe("Manual Schedule runs", () => {
   it("returns a failed run for an unprintable handler rejection", async () => {
-    const run = await runSchedule("sync", {
-      registry: {
-        sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
-          throw Object.create(null)
-        } }),
-      },
-    })
+    const run = await runScheduleFrom({
+      sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
+        throw Object.create(null)
+      } }),
+    }, "sync")
     expect(run).toMatchObject({ error: { message: "[unprintable thrown value]" }, status: "failed" })
   })
 
   it("runs a manual Static Schedule Definition with a run id that cron runs cannot use", async () => {
     const calls: unknown[] = []
-    const run = await runSchedule("sync", {
-      registry: {
-        sync: async () => ({
-          default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler: (context) => {
-            calls.push(context.id)
-            return { synced: 3 }
-          } }),
-        }),
-      },
-    })
+    const run = await runScheduleFrom({
+      sync: async () => ({
+        default: defineSchedule({ cron: "*/5 * * * *", manual: true, handler: (context) => {
+          calls.push(context.id)
+          return { synced: 3 }
+        } }),
+      }),
+    }, "sync")
 
     expect(run).toMatchObject({
       attemptCount: 1,
@@ -493,13 +490,13 @@ describe("Manual Schedule runs", () => {
     const seen: string[] = []
     const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler: ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) } }) }
 
-    const fromString = await runSchedule("close", { registry, scheduledAt: "2026-03-01T00:00:00-05:00" })
-    const fromDate = await runSchedule("close", { registry, scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
+    const fromString = await runScheduleFrom(registry, "close", { scheduledAt: "2026-03-01T00:00:00-05:00" })
+    const fromDate = await runScheduleFrom(registry, "close", { scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
 
     expect([fromString.scheduledAt.toISOString(), fromDate.scheduledAt.toISOString()]).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
     expect(seen).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
-    await expect(runSchedule("close", { registry, scheduledAt: "2027-02-29T00:00:00Z" })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", details: { field: "scheduledAt", valueType: "string" } })
-    await expect(runSchedule("close", { registry, scheduledAt: new Date("bad") })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    await expect(runScheduleFrom(registry, "close", { scheduledAt: "2027-02-29T00:00:00Z" })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", details: { field: "scheduledAt", valueType: "string" } })
+    await expect(runScheduleFrom(registry, "close", { scheduledAt: new Date("bad") })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
     expect(seen).toHaveLength(2)
   })
 
@@ -509,7 +506,7 @@ describe("Manual Schedule runs", () => {
   ])("normalizes fractional seconds in %s to milliseconds", async (scheduledAt, expected) => {
     const handler = vi.fn()
     const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
-    const run = await runSchedule("close", { registry, scheduledAt })
+    const run = await runScheduleFrom(registry, "close", { scheduledAt })
     expect(run.scheduledAt.toISOString()).toBe(expected)
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date(expected) }))
     expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
@@ -518,10 +515,10 @@ describe("Manual Schedule runs", () => {
   it("accepts a year-zero leap day and rejects invalid calendar days in early years", async () => {
     const handler = vi.fn()
     const registry = { close: async () => defineSchedule({ cron: "0 0 1 * *", manual: true, handler }) }
-    const run = await runSchedule("close", { registry, scheduledAt: "0000-02-29T00:00:00Z" })
+    const run = await runScheduleFrom(registry, "close", { scheduledAt: "0000-02-29T00:00:00Z" })
     expect(run.scheduledAt.toISOString()).toBe("0000-02-29T00:00:00.000Z")
     for (const scheduledAt of ["0000-02-30T00:00:00Z", "0001-02-29T00:00:00Z", "0100-02-29T00:00:00Z"]) {
-      await expect(runSchedule("close", { registry, scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+      await expect(runScheduleFrom(registry, "close", { scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
     }
     expect(handler).toHaveBeenCalledOnce()
   })
@@ -537,35 +534,25 @@ describe("Manual Schedule runs", () => {
       } }),
     }
 
-    const runs = await Promise.all([runSchedule("sync", { registry }), runSchedule("sync", { registry })])
+    const runs = await Promise.all([runScheduleFrom(registry, "sync"), runScheduleFrom(registry, "sync")])
 
     expect(new Set(runs.map(run => run.id)).size).toBe(2)
     expect(calls).toBe(2)
     expect(await getScheduleRunStore().listRuns()).toHaveLength(2)
   })
 
-  it("uses the installed runtime registry when no registry is passed", async () => {
-    setScheduleRuntimeRegistry({
-      sync: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {}, manual: true }),
-    })
-
-    await expect(runSchedule("sync")).resolves.toMatchObject({ status: "succeeded" })
-  })
-
-  it("runs cross-realm handlers from installed and supplied registries", async () => {
+  it("runs cross-realm handlers from a supplied registry", async () => {
     const calls: string[] = []
     const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void
     const definition = { cron: "0 9 * * *", handler, options: { manual: true } }
     const registry = { report: async () => ({ default: definition }) }
     expect(handler).not.toBeInstanceOf(Function)
-    setScheduleRuntimeRegistry(registry)
 
-    await runSchedule("report")
-    await runSchedule("report", { registry })
-    expect(calls).toEqual(["cross-realm", "cross-realm"])
+    await runScheduleFrom(registry, "report")
+    expect(calls).toEqual(["cross-realm"])
   })
 
-  it("rejects inherited definitions from the installed runtime registry", async () => {
+  it("does not load inherited definitions from the installed runtime registry", async () => {
     const inherited = {
       default: defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {} }),
     }
@@ -573,7 +560,7 @@ describe("Manual Schedule runs", () => {
       inherited: async () => Object.create(inherited),
     })
 
-    await expect(runSchedule("inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(loadScheduleDefinition("inherited")).resolves.toBeUndefined()
     expect(await getScheduleRunStore().listRuns()).toEqual([])
   })
 
@@ -585,7 +572,7 @@ describe("Manual Schedule runs", () => {
       inherited: async () => Object.create(inherited),
     }
 
-    await expect(runSchedule("inherited", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     expect(await getScheduleRunStore().listRuns()).toEqual([])
   })
 
@@ -596,23 +583,21 @@ describe("Manual Schedule runs", () => {
       cronless: async () => ({ handler: () => {} }) as unknown as ScheduleDefinition,
     }
 
-    await expect(runSchedule("cron", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
-    await expect(runSchedule("disabled", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
-    await expect(runSchedule("cronless", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    await expect(runSchedule("missing", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    await expect(runSchedule("toString", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    await expect(runSchedule("", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "cron")).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
+    await expect(runScheduleFrom(registry, "disabled")).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
+    await expect(runScheduleFrom(registry, "cronless")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "missing")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "toString")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runScheduleFrom(registry, "")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     expect(await getScheduleRunStore().listRuns()).toEqual([])
   })
 
   it("resolves with the failed run when the handler fails", async () => {
-    const run = await runSchedule("sync", {
-      registry: {
-        sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
-          throw new TypeError("mailbox unavailable")
-        } }),
-      },
-    })
+    const run = await runScheduleFrom({
+      sync: async () => defineSchedule({ cron: "0 9 * * *", manual: true, handler: () => {
+        throw new TypeError("mailbox unavailable")
+      } }),
+    }, "sync")
 
     expect(run).toMatchObject({
       error: { message: "mailbox unavailable", name: "TypeError" },

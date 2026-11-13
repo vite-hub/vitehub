@@ -19,7 +19,7 @@ ViteHub reads only `VITEHUB_SECRET`, not `NUXT_APP_SECRET`, so a Nuxt applicatio
 ## Derive a secret
 
 ```ts [server/utils/session.ts]
-import { deriveSecret } from '#vitehub/env/server'
+import { deriveSecret } from 'vite-hub/env'
 
 export async function sessionPassword() {
   return await deriveSecret('my-app:session')

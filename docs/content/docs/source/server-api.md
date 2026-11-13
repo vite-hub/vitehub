@@ -21,7 +21,7 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
 | `hubSource` from `vite-hub/source/vite` | Finds Collections and Content and generates their routes. `vitehub()` and the Nuxt module add it. |
-| `useDatabase` from `vite-hub/database/drizzle` | Get a database and its generated schema for `table()`. |
+| `useDatabase` from `vite-hub/database` | Get a database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read registry, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. Each `vite-hub/source/*` path re-exports the matching `@vite-hub/source/*` path unchanged.
@@ -167,7 +167,7 @@ export default defineDatabase({
 ```ts [server/collections/articles.ts] fragment
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineCollection } from 'vite-hub/source'
 import { table } from 'vite-hub/source/drizzle'
 
@@ -302,7 +302,7 @@ A Collection route is public unless it sets `authorize`.
 `authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
 
 ```ts [server/collections/drafts.ts]
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineCollection } from 'vite-hub/source'
 import { table } from 'vite-hub/source/drizzle'
 

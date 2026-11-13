@@ -46,7 +46,7 @@ function resolveBuildMode(viteMode: string): ViteHubMode {
 export default defineConfig(async ({ mode }) => {
   const buildMode = resolveBuildMode(mode)
   const input = inputByMode[buildMode]
-  const hosting = process.env.VITEHUB_HOSTING || ""
+  const hosting = process.env.VITEHUB_HOST || ""
   const baseConfig = {
     appType: "custom" as const,
     build: {

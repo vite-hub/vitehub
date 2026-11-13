@@ -1,4 +1,4 @@
-import { db, schema } from 'vite-hub/database/drizzle'
+import { db, schema } from 'vite-hub/database'
 import { desc } from 'drizzle-orm'
 
 export default eventHandler(async () => {

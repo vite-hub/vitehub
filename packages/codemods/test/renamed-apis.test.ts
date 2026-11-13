@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { detectCodemods, formatReport, runCodemod } from "../src/index.ts"
+import { detectCodemods, formatReport, runCodemod, upgradeCodemods } from "../src/index.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/renamed-apis-test/", import.meta.url))
@@ -23,6 +23,22 @@ async function migrate(files: Record<string, string>) {
 }
 
 describe("renamed-apis", () => {
+  it("composes root accessors and API renames in the release upgrade", async () => {
+    const { cwd } = await migrate({
+      "server/api/a.ts": "import { deriveSecret } from '#vitehub/env/server'\nimport { db } from 'vite-hub/database/drizzle'\nimport { kv } from 'vite-hub/kv'\nexport const secret = deriveSecret('app', event)\nexport const remove = () => kv.del('a')\nexport { db }\n",
+      "vite.config.ts": "import { hubDb } from '@vite-hub/database/vite'\nimport { hubKv } from '@vite-hub/kv/vite'\nexport default { plugins: [hubDb(), hubKv()] }\n",
+    })
+    for (const codemod of upgradeCodemods) await runCodemod(codemod.name, { cwd, dryRun: false })
+    const route = await readFile(join(cwd, "server/api/a.ts"), "utf8")
+    expect(route).toContain("from 'vite-hub/env'")
+    expect(route).toContain("from 'vite-hub/database'")
+    expect(route).toContain("deriveSecret('app', { event })")
+    expect(route).toContain("kv.delete('a')")
+    const config = await readFile(join(cwd, "vite.config.ts"), "utf8")
+    expect(config).toContain("plugins: [hubDatabase(), hubKV()]")
+    expect(await detectCodemods(cwd)).toEqual([])
+  })
+
   it("migrates plugins, deletes, secrets, and operation names", async () => {
     const input = join(fixtures, "renamed-apis", "input")
     const run = await runCodemod("renamed-apis", { cwd: input, dryRun: true })

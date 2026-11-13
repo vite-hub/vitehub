@@ -52,11 +52,11 @@ async function generatedConfig(root: string, plugins: Plugin[], options?: Parame
 describe("KV driver inference in a build", () => {
   it("selects the database driver for a Postgres Default Database, and imports the app's databases", async () => {
     const root = await createApp("postgresql")
-    const output = await generatedConfig(root, [databasePlugin(root)], { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
+    const output = await generatedConfig(root, [databasePlugin(root)], { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node-server" })
 
     expect(output).toContain(`"driver":"database"`)
     expect(output).toContain(`"inferred":true`)
-    expect(output).toContain(`export const loadDatabases = () => import("vite-hub/database/drizzle").then(module => module.databases);`)
+    expect(output).toContain(`export const loadDatabases = () => import("@vite-hub/database/runtime/registry").then(module => module.databases);`)
   })
 
   it("reads the Database from the integration, also in server directories that KV does not know", async () => {

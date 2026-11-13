@@ -1,4 +1,4 @@
-t3-env: migrated 7 variables from env.ts to vite-hub/nuxt Env (1 public, 6 server), deployment preset "node".
+t3-env: migrated 7 variables from env.ts to vite-hub/nuxt Env (1 public, 6 server), host "node".
 Dry run: no files were written.
 
 Files to change (6):
@@ -10,7 +10,7 @@ Files to change (6):
   package.json
 
 Manual follow-ups (8):
-  1. nuxt.config.ts:8 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  1. nuxt.config.ts:8 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
   2. env.ts Check every migrated variable with missing and invalid values before using the app. Env uses its own parsers; the original coercion, catch() fallbacks, refinements, and transforms are not preserved. For example, z.coerce.boolean() reads "false" as true, while env.boolean() returns false. Keep equivalent parsing and invalid-value fallback handling where code reads a value.
   3. env.ts:10 DATABASE_URL: Env does not keep the URL format. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.
   4. env.ts:13 MOCK_EMAIL: Env does not keep a Zod transform. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.

@@ -48,13 +48,13 @@ export interface AgentInvocationsPluginOptions {
   /** Load the Database store, so `invocations: "database"` works in Agent Definitions. */
   database: boolean
   default?: AgentInvocationsDefault
-  /** The deployment preset. A production build for a host without a persistent filesystem warns about the local file. */
-  preset?: string
+  /** The deployment host. A production build for a host without a persistent filesystem warns about the local file. */
+  host?: string
   /** The D1 binding of the default Database Definition on Cloudflare. A production build stores the default journal there. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
 }
 
-const presetsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
+const hostsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
 
 /**
  * Validates `agent.invocations.retention` before code generation. Only a local SQLite journal supports maxSize.
@@ -77,8 +77,8 @@ export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy 
 }
 
 /** A Worker cannot open a local file, so a Cloudflare production build rejects a `file:` journal URL instead of keeping records in memory. */
-export function assertAgentInvocationsUrl(preset: string | undefined, databaseUrl: string | undefined): void {
-  if (preset !== "cloudflare" || !databaseUrl || !/^file:/i.test(databaseUrl.trim())) return
+export function assertAgentInvocationsUrl(host: string | undefined, databaseUrl: string | undefined): void {
+  if (host !== "cloudflare" || !databaseUrl || !/^file:/i.test(databaseUrl.trim())) return
   throw viteHubErrorDiagnostics.VITE_HUB_B0021({ message: "[vitehub] agent.invocations.databaseUrl is a local file, which a Cloudflare Worker cannot open. Remove it to use the D1 binding of the default Database, or set a remote libSQL URL." })
 }
 
@@ -87,8 +87,8 @@ export function assertAgentInvocationsUrl(preset: string | undefined, databaseUr
  * A Cloudflare production build stores it in D1 or Worker memory unless `databaseUrl` selects libSQL. Development
  * keeps the local file. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` on such a Worker then throws `AGENT_R1036`.
  */
-export function defaultJournalNeedsLibsql(options: { build: boolean, databaseUrl?: string, preset?: string }): boolean {
-  return !options.build || options.preset !== "cloudflare" || Boolean(options.databaseUrl?.trim())
+export function defaultJournalNeedsLibsql(options: { build: boolean, databaseUrl?: string, host?: string }): boolean {
+  return !options.build || options.host !== "cloudflare" || Boolean(options.databaseUrl?.trim())
 }
 
 /** Render the Nitro plugin that installs the Database store loader and the app-wide journal before Agents run. */
@@ -171,10 +171,10 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
           ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
         assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined, setting?.databaseUrl)
-        libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, preset: options.preset })
-        if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
-        localFileWarning = environment?.command === "build" && !setting?.databaseUrl && presetsWithoutPersistentFiles.has(options.preset ?? "")
-          ? `[vitehub] Agent Invocation journal: the ${options.preset} preset has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
+        libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, host: options.host })
+        if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.host, setting?.databaseUrl)
+        localFileWarning = environment?.command === "build" && !setting?.databaseUrl && hostsWithoutPersistentFiles.has(options.host ?? "")
+          ? `[vitehub] Agent Invocation journal: the ${options.host} host has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
           : undefined
       }
       else {

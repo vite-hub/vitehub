@@ -56,7 +56,7 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
 }
 
 const selectUsers = [
-  'import { useDatabase } from "@vite-hub/database/drizzle"',
+  'import { useDatabase } from "@vite-hub/database"',
   'const { db, schema } = useDatabase("default")',
   "console.log(JSON.stringify(await db.select().from(schema.users)))",
 ]
@@ -494,7 +494,7 @@ describe("database.migrateOnStart", () => {
 describe("ensureMigrations", () => {
   // Parallel calls and a later call, then the rows of `users`.
   const ensureThenSelect = [
-    'import { ensureMigrations } from "@vite-hub/database/drizzle"',
+    'import { ensureMigrations } from "@vite-hub/database"',
     'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
     "await ensureMigrations()",
     ...selectUsers,
@@ -524,7 +524,7 @@ describe("ensureMigrations", () => {
     const url = `file:${join(root, "data/app.sqlite")}`
     // Without the ledger, a run of its own would apply `init` again and fail on the existing table.
     const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true }, [], false, [
-      'import { useDatabase as useStartDatabase } from "@vite-hub/database/drizzle"',
+      'import { useDatabase as useStartDatabase } from "@vite-hub/database"',
       'await useStartDatabase("default").db.$client.execute("DROP TABLE __drizzle_migrations")',
       ...ensureThenSelect,
     ])

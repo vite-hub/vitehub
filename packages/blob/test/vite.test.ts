@@ -13,7 +13,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { UserConfig } from "vite"
-import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -542,8 +542,8 @@ describe("hubBlob", () => {
   it("generates only the selected Netlify Blob driver for Nitro", async () => {
     const root = await temporaryDirectory("vitehub-blob-nitro-netlify-")
     const artifactRoot = await temporaryDirectory("vitehub-blob-netlify-artifact-")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
+    const previousHosting = process.env.VITEHUB_HOST
+    process.env.VITEHUB_HOST = "netlify"
     try {
       const plugin = hubBlob()
       const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -613,8 +613,8 @@ describe("hubBlob", () => {
       expect(stdout.trim()).toBe("netlify-store")
     }
     finally {
-      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
+      if (previousHosting === undefined) delete process.env.VITEHUB_HOST
+      else process.env.VITEHUB_HOST = previousHosting
       await Promise.all([
         rm(root, { force: true, recursive: true }),
         rm(artifactRoot, { force: true, recursive: true }),
@@ -796,9 +796,9 @@ describe("hubBlob", () => {
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {
     const root = await temporaryDirectory("vitehub-blob-inferred-cloudflare-")
     const previousBucket = process.env.BLOB_BUCKET_NAME
-    const previousHosting = process.env.VITEHUB_HOSTING
+    const previousHosting = process.env.VITEHUB_HOST
     process.env.BLOB_BUCKET_NAME = "assets"
-    process.env.VITEHUB_HOSTING = "cloudflare"
+    process.env.VITEHUB_HOST = "cloudflare"
     try {
       const plugin = hubBlob()
       const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
@@ -859,8 +859,8 @@ describe("hubBlob", () => {
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
       else process.env.BLOB_BUCKET_NAME = previousBucket
-      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
+      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOST
+      else process.env.VITEHUB_HOST = previousHosting
     }
   })
 
@@ -1676,7 +1676,7 @@ describe("hubBlob in vite dev", () => {
     ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, true],
     ["cloudflare", { driver: "cloudflare-r2" }, false],
     ["cloudflare", { driver: "cloudflare-r2" }, true],
-  ] as const)("keeps the %s preset (%o, remote=%s) when ViteHub replaces Blob options", async (preset, options, remote) => {
+  ] as const)("keeps the %s host (%o, remote=%s) when ViteHub replaces Blob options", async (preset, options, remote) => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
     vi.stubEnv("BLOB_STORE_ID", "")
     try {
@@ -1688,7 +1688,7 @@ describe("hubBlob in vite dev", () => {
         logLevel: "silent",
         plugins: [
           // SAFETY: These private keys carry what the `vitehub()` deployment hook resolves for the owner plugin.
-          { name: "app-blob-config", config: () => ({ [VITEHUB_FEATURES]: { blob: { remote } }, [VITEHUB_DEPLOYMENT_PRESET]: preset }) as UserConfig },
+          { name: "app-blob-config", config: () => ({ [VITEHUB_FEATURES]: { blob: { remote } }, [VITEHUB_DEPLOYMENT_HOST]: preset }) as UserConfig },
           plugin,
         ],
         root,

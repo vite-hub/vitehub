@@ -144,5 +144,55 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `previews: true` with one `github()` Source in `sources`, or name the Source with `previews: { source: \"docs\" }`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    /** `vitehub content check`: a document does not load or parse, such as frontmatter that is not valid YAML. Error. */
+    CONTENT_R0060: {
+      fix: "Fix the file that the finding names so it parses, then run `vitehub content check` again.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: frontmatter does not match the `schema` of `contentSource(input, { schema })`. Error. */
+    CONTENT_R0061: {
+      fix: "Change the frontmatter field that the finding names so it matches the schema, or change the schema.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link points to a missing page below a first path segment that holds pages, such as `/docs/kvv`. Error. */
+    CONTENT_R0062: {
+      fix: "Fix the link. When another route serves the path, add it to `defineContent({ check: { ignoreLinks } })` or pass `--ignore` to `vitehub content check`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link points to a path that no page of the Source serves, such as `/learn`. Another route may serve it. Warning. */
+    CONTENT_R0063: {
+      fix: "When another route of the app serves the path, add it to `defineContent({ check: { ignoreLinks } })` or pass `--ignore` to `vitehub content check`. Otherwise fix the link.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a link names a heading that the target page does not have. Warning. */
+    CONTENT_R0064: {
+      fix: "Link to the id of an existing heading. Content makes the id from the heading text, such as `#configure-the-store`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page has no title, or a title shorter than 10 or longer than 60 characters. Warning. */
+    CONTENT_R0065: {
+      fix: "Set `title` in the frontmatter, between 10 and 60 characters with the site's title pattern. Use `seo.title` when the heading must stay.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page has no description, or one shorter than 70 or longer than 160 characters. Warning. */
+    CONTENT_R0066: {
+      fix: "Set `description` in the frontmatter, between 70 and 160 characters.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: two or more pages have the same title or the same description. Warning. */
+    CONTENT_R0067: {
+      fix: "Give each page its own title and description, or its own `seo.title` and `seo.description`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `vitehub content check`: a page skips a heading level, such as an `h2` followed by an `h4`. Warning. */
+    CONTENT_R0068: {
+      fix: "Go down one heading level at a time. The page title counts as the `h1`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    /** `content.check()` or `vitehub content check` could not run, such as for an unknown Source or a commit GitHub does not give. */
+    CONTENT_R0069: {
+      fix: "Name a Source from `defineContent({ sources })`, pass `sha` only for a `github()` Source, and check that GitHub can serve the commit. In local mode, pass a folder that exists.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
   },
 })

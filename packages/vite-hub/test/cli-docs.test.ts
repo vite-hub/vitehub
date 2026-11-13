@@ -21,6 +21,7 @@ import { hubSchedule } from "@vite-hub/schedule/vite";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { describe, expect, it } from "vitest";
 
+import { createMigrateCliNamespace } from "../src/migrate-cli.ts";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
 import { consoleOperations } from "../src/console/runtime/server/operations.ts";
@@ -104,7 +105,7 @@ describe("CLI documentation contract", () => {
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
-    const runtimeNamespaces = [createDecisionsCliNamespace(), createSandboxCliNamespace()];
+    const runtimeNamespaces = [createDecisionsCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
 
     await expect(
       runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),

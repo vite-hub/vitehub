@@ -114,7 +114,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
     ...before,
-    'import { useDatabase } from "@vite-hub/database/drizzle"',
+    'import { useDatabase } from "@vite-hub/database"',
     'const { db, schema } = useDatabase("default")',
     "console.log(JSON.stringify(await db.select().from(schema.users)))",
     "await db.$client.end()",
@@ -207,7 +207,7 @@ describe.skipIf(!adminUrl)("ensureMigrations on Postgres", () => {
     const { root } = await createProject([init, seed])
     const url = await createDatabase()
     const server = await buildNodeServer(root, { migrateOnStart: false }, [
-      'import { ensureMigrations } from "@vite-hub/database/drizzle"',
+      'import { ensureMigrations } from "@vite-hub/database"',
       'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
       "await ensureMigrations()",
     ])

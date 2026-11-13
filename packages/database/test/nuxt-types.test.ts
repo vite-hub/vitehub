@@ -38,7 +38,7 @@ async function createApp() {
 
 // Reads tables through `schema` and through the registry. A `@ts-expect-error` fails when the types are `any`.
 const tableChecks = [
-  "import type { schema, useDatabase } from '@vite-hub/database/drizzle'",
+  "import type { schema, useDatabase } from '@vite-hub/database'",
   "export type Note = typeof schema.notes.$inferSelect",
   "export const noteId = (note: Note): number => note.id",
   "export const noteTitle = (note: Note): string => note.title",

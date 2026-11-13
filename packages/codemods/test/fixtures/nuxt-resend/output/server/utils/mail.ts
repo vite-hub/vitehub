@@ -1,4 +1,4 @@
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export async function sendLoginCode(to: string, code: string) {
   const [error, data] = await email.send({ from: 'Login <login@example.com>', to: [to], subject: 'Your code', html: `<b>${code}</b>`, tags: [{ name: 'kind', value: 'login' }] })

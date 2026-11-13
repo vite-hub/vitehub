@@ -328,6 +328,12 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
         fix: "Rename `sandbox` to `sandboxTask: true`.",
       }
     }
+    else if (name === "preset") {
+      report = {
+        why: "`preset` is not a ViteHub option. It was renamed to `host`, so this key does nothing and ViteHub detects the host instead.",
+        fix: "Rename `preset` to `host`.",
+      }
+    }
     else if (name === "devtools") {
       report = {
         why: "The ViteHub `devtools` option was removed with the browser DevTools, so this key does nothing.",
@@ -336,7 +342,7 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
     }
     else if (name === "sandboxTask" && isObject) {
       report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the provider.",
+        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The host selects the provider.",
         fix: "Set `sandboxTask: true`.",
       }
     }
@@ -399,7 +405,7 @@ const nuxtHubImport = /^(?:hub:(?:db(?::schema)?|kv|blob)|@nuxthub\/.+)$/
 const nuxtHubHelpers = new Map([
   ["hubAI", "ViteHub has no AI binding helper. Call the AI SDK from a route or an Agent."],
   ["hubBlob", "Use `blob` from `vite-hub/blob`. Its methods return `[error, value]` tuples."],
-  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database/drizzle`."],
+  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database`."],
   ["hubKV", "Use `kv` from `vite-hub/kv`. Its methods return `[error, value]` tuples."],
 ])
 
@@ -428,7 +434,7 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
       if (hub) {
         ctx.report(diagnostics.VHUB0032({
           why: "`vite-hub/nuxt` does not read the NuxtHub `hub` key, so these features stay off.",
-          fix: "Rename `hub` to `vitehub` and add a `preset`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { preset: \"node\", database: true }`.",
+          fix: "Rename `hub` to `vitehub` and add a `host`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { host: \"node\", database: true }`.",
         }), { range: ctx.range(hub) })
       }
     }
@@ -451,7 +457,7 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
         if (!source || !nuxtHubImport.test(source.specifier)) return
         ctx.report(diagnostics.VHUB0032({
           why: `\`${source.specifier}\` is a NuxtHub import. ViteHub does not provide it.`,
-          fix: "Import `kv` from `vite-hub/kv`, `blob` from `vite-hub/blob`, and `useDatabase` from `vite-hub/database/drizzle`. Each KV and Blob method returns an `[error, value]` tuple.",
+          fix: "Import `kv` from `vite-hub/kv`, `blob` from `vite-hub/blob`, and `db` from `vite-hub/database`. Each KV and Blob method returns an `[error, value]` tuple.",
         }), { range: ctx.range(node) })
       },
     }
@@ -467,6 +473,11 @@ const removedPaths = new Map([
   ["vite-hub/content/presets/cms", { replacement: "vite-hub/cms", note: "The CMS has its own package." }],
   ["@vite-hub/content/presets/cms", { replacement: "@vite-hub/cms", note: "The CMS has its own package." }],
   ["vite-hub/schedule/runtime/driver", { replacement: "`startSchedule()` from `vite-hub/schedule`, with a Definition without `cron` in `server/schedules/`", note: "Runtime Schedules are started with `startSchedule()`." }],
+  ["vite-hub/database/drizzle", { replacement: "vite-hub/database", note: "`db`, `schema`, `useDatabase`, and `chunkParameters` moved to the Database root. `vitehub migrate` rewrites the import." }],
+  ["@vite-hub/database/drizzle", { replacement: "@vite-hub/database", note: "`db`, `schema`, `useDatabase`, and `chunkParameters` moved to the Database root. `vitehub migrate` rewrites the import." }],
+  ["vite-hub/email/server", { replacement: "vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
+  ["@vite-hub/email/server", { replacement: "@vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
+  ["#vitehub/env/server", { replacement: "vite-hub/env", note: "`useServerEnv()` and the other Server Env helpers moved to the Env root. `vitehub migrate` rewrites the import." }],
   ...oneEntryPerConcept(),
 ])
 
@@ -474,7 +485,7 @@ const removedPaths = new Map([
 function oneEntryPerConcept(): [string, { replacement: string, note: string }][] {
   const moves: [string, string][] = [
     ...["file", "files", "github", "glob", "markdown"].map((name): [string, string] => [`source/${name}`, "source"]),
-    ...["presets", "provider", "schema", "secret", "server"].map((name): [string, string] => [`env/${name}`, "env"]),
+    ...["presets", "provider", "schema", "secret"].map((name): [string, string] => [`env/${name}`, "env"]),
     ["env/auth", "env/bridge"],
     ["env/http", "env/bridge"],
     ["blob/content-type", "blob"],

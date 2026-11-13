@@ -93,7 +93,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? `The KV store "${store}" sets \`remote: true\`, but it uses the local \`${driver}\` driver in \`vite dev\`.`
         : `The KV store "${store}" sets \`remote: false\`, but the \`${driver}\` driver is always remote.`,
       fix: ({ remote }: { driver: string, remote: boolean, store: string }) => remote
-        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare preset."
+        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare host."
         : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
     },
     KV_INVALID_STORE_MODE: {

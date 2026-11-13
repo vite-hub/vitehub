@@ -57,8 +57,8 @@ The guard rejects input with several statements before it reaches the handle. A 
 
 ## Requirements
 
-- Configure Database. With `hubDatabase()` active, generated Agent routes pass `agentDb` from `vite-hub/database/drizzle` to the Capability.
-- Without a `db` handle, the Capability imports `agentDb` from `@vite-hub/database/drizzle`. If that fails, the Agent Driver gets no Database tools.
+- Configure Database. With `hubDatabase()` active, generated Agent routes pass `agentDb` from `@vite-hub/database/runtime/registry` to the Capability.
+- Without a `db` handle, the Capability imports `agentDb` from `@vite-hub/database/runtime/registry`. If that fails, the Agent Driver gets no Database tools.
 - The handle must have a raw string `query()` for `db_query` and `exec()` for `db_exec`.
 - A `database` other than `"default"` needs a handle with `database()`. Otherwise the tools fail with `Database "<name>" is not available.`
 

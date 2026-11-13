@@ -94,8 +94,8 @@ export interface FsLiteKVStoreConfig {
 export interface InferredKVStoreConfig {
   driver?: undefined
   /**
-   * In `vite dev`, the inferred store is local unless this is `true`: Upstash env and the Vercel preset do not select
-   * Upstash, and the Cloudflare preset uses the local `fs-lite` store when the dev runtime has no KV binding. With
+   * In `vite dev`, the inferred store is local unless this is `true`: Upstash env and the Vercel host do not select
+   * Upstash, and the Cloudflare host uses the local `fs-lite` store when the dev runtime has no KV binding. With
    * `true`, `vite dev` uses the real store, so writes change real data. Builds ignore it.
    */
   remote?: boolean

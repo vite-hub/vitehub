@@ -25,7 +25,7 @@ Source comes with `vite-hub`, so you install nothing. Check that `nuxt.config.ts
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
 })
 ```
 ::::
@@ -37,7 +37,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
+  plugins: [vitehub({ host: 'node' }), nitro()],
 })
 ```
 ::::
@@ -48,7 +48,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
+  plugins: [vitehub({ host: 'node' })],
 })
 ```
 ::::

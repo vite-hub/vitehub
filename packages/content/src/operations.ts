@@ -15,6 +15,7 @@ import type {
   ContentRevisionsOptions,
   ContentWriteOptions,
 } from "./collections-types.ts"
+import type { ContentCheckResult } from "./check.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
 import type { ContentScheduleStatus } from "./schedules.ts"
@@ -82,6 +83,8 @@ const errorStatus = new Map([
   ["CONTENT_R0020", 409],
   ["CONTENT_R0021", 409],
   ["CONTENT_R0022", 424],
+  // A check that cannot run, such as for an unknown Source or a SHA of a Source without commits.
+  ["CONTENT_R0069", 400],
   ["WORKSPACE_CONFLICT", 409],
 ])
 
@@ -819,7 +822,7 @@ const head = defineOperation({
 
 const advance = defineOperation({
   cli: { command: "advance", positional: ["source"] },
-  description: "Move the head of a github() Source to the latest commit of its branch when every document parses. A pinned head does not move.",
+  description: "Move the head of a github() Source to the latest commit of its branch when every document parses and `content check` finds no error. A pinned head does not move.",
   input: v.strictObject({ source: sourceName }),
   kind: "write",
   name: "content.advance",
@@ -832,7 +835,7 @@ const advance = defineOperation({
 
 const pin = defineOperation({
   cli: { command: "pin", positional: ["sha", "source"] },
-  description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse.",
+  description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse and pass the check.",
   input: v.strictObject({ sha: text, source: sourceName }),
   kind: "destructive",
   name: "content.pin",
@@ -856,5 +859,25 @@ const unpin = defineOperation({
   section: "content",
 })
 
+/** `content.check()` of the runtime. A runtime from before `check` cannot run it. */
+function contentChecker(content: ContentOperationsRuntime): (options: { source?: string, sha?: string }) => Promise<ContentCheckResult> {
+  const method: unknown = Reflect.get(Object(content), "check")
+  if (typeof method !== "function") throw invalid("This Content runtime has no check(). Update @vite-hub/content.")
+  return options => Reflect.apply(method, content, [options]) as Promise<ContentCheckResult>
+}
+
+const check = defineOperation({
+  cli: { command: "check", positional: ["source"] },
+  description: "Check the documents of the Sources: frontmatter against the schema, links to missing pages or headings, and title and description rules. A github() Source is checked at sha, or at the latest commit of its branch.",
+  input: v.strictObject({ source: sourceName, sha: v.optional(text) }),
+  kind: "read",
+  name: "content.check",
+  run: async (input): Promise<ContentCheckResult> => attempt(async () => {
+    const run = contentChecker(await contentRuntime())
+    return await run({ ...(input.source === undefined ? {} : { source: input.source }), ...(input.sha === undefined ? {} : { sha: input.sha }) })
+  }),
+  section: "content",
+})
+
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, head, advance, pin, unpin]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, head, advance, pin, unpin, check]

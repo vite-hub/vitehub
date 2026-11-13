@@ -14,6 +14,7 @@ import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
 import { presetsErrorDiagnostics } from "./error-diagnostics.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
+import { validWarmWorkspaces, type BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
 import { channelAdapter, defineChannelTrigger } from "@vite-hub/agent/channels";
 import { channelEnvValue } from "@vite-hub/agent/channels";
 import { agentProcessHostIntake, withAgentProcessHost, type AgentProcessHostContribution } from "@vite-hub/agent/process";
@@ -22,6 +23,7 @@ import { githubAuthorAssociations } from "./babysitter/pull-request-filter.ts";
 
 export type { BabysitterMerge, BabysitterMergeMethod, BabysitterMergeReadinessInput, BabysitterMergeReady } from "./babysitter/merge.ts";
 export type { BabysitterAdmissionOptions, BabysitterAdmissionPause } from "./babysitter/admission.ts";
+export type { BabysitterWarmWorkspaces } from "./babysitter/pr-workspaces.ts";
 export type { AutomatedReviewClass } from "./babysitter/inbox/budgets.ts";
 export { BabysitterPlacementCapacityError } from "./babysitter/placement.ts";
 
@@ -85,17 +87,21 @@ export interface BabysitterOptions {
    * Logins match case-insensitively and in either bot spelling, so `renovate[bot]` also matches `renovate`.
    * Without `repository.allow`, the Babysitter serves every repository that its GitHub App installations
    * can access, except archived ones and those in `repository.deny`, so installing the App on a repository enrolls it.
+   * Without `author` or `authorAssociation` rules, only PRs whose author is an owner, member or collaborator are selected.
    */
   filter: GitHubPullRequestFilter;
-  /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
+  /**
+   * Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter.
+   * Without these labels or `filter.labels`, a PR labelled `babysitter:skip` is skipped. `{ labels: {} }` turns that off.
+   */
   lifecycle: BabysitterLifecycleOptions;
   /** Provider Driver that repairs each PR in its checkout. Defaults to `"codex"`. Set the model with `driver.model`. */
   driver: BuiltInAgentDriverName;
   /**
-   * Merge policy. Defaults to `false`. `"auto"` lets the worker request GitHub native auto-merge.
-   * `"direct"` merges a ready PR into its default branch before any model pass.
-   * `{ strategy: "direct", ready: "approved-if-outside" }` also holds a PR from someone without write
-   * access until a reviewer with write access approves its current head.
+   * Merge policy. Defaults to `"direct"`. `false` never merges, and `"auto"` lets the worker request
+   * GitHub native auto-merge. `"direct"` merges a ready PR into its default branch before any model
+   * pass, and holds a PR from someone without write access until a reviewer with write access approves
+   * its current head. Pass `{ strategy: "direct", ready }` with another callback to change that gate.
    */
   merge: BabysitterMerge;
   /**
@@ -149,10 +155,29 @@ export interface BabysitterOptions {
   /**
    * Model passes on one PR in a rolling 24 hours. After that many, the PR parks until the oldest pass
    * is 24 hours old; its result and the health route show that time. A person's comment or review, the
-   * first failing required check on a head and a merge conflict on a PR without failing checks or open
-   * threads still start a pass, and count. `false` disables the budget. Defaults to 16.
+   * first failing required check on a head, a merge conflict, and one assessment of a head whose required
+   * checks pass still start a pass, and count. A pass that the provider fails within 10 minutes does not
+   * count. `false` disables the budget. Defaults to 16.
    */
   dailyPassBudget: number | false;
+  /**
+   * Repair pushes on one PR in a rolling 24 hours. Past it, `pushRepair` refuses a push until the
+   * oldest is 24 hours old, and a pass that could only push parks until then. A conflict repair still
+   * pushes, and a PR whose required checks fail may push once every two hours. `false` disables the
+   * budget. Defaults to `false`.
+   */
+  dailyPushBudget: number | false;
+  /**
+   * PR labels that put a PR first in the claim order, after main repairs. A labelled PR is exempt from
+   * `dailyPassBudget` and `dailyPushBudget`; checks, reviews and merge gates still apply. Matched
+   * case-insensitively. Defaults to none.
+   */
+  priorityLabels: string[];
+  /**
+   * Head branch prefix of PRs that repair the base branch, such as `"repair-main-"`. These PRs are
+   * claimed before every other PR, and `noProgressBudget` never stops them. Defaults to none.
+   */
+  mainRepairBranchPrefix?: string;
   /**
    * Wait for running required checks and review checks before a pass, unless a failure or conflict
    * already needs repair. One pass then handles CI and review results together. Defaults to `true`.
@@ -168,6 +193,16 @@ export interface BabysitterOptions {
   /** Rerun failed GitHub Actions runs once before a model pass repairs them. Defaults to `true`. */
   ciRecovery: boolean;
   /**
+   * Keep one workspace per open PR under `<dataDir>/pr-workspaces` instead of cloning, copying and
+   * installing for every pass. A pass on the head the previous pass pushed or left, after a pass that
+   * finished, on a clean tree, keeps node_modules and build caches and skips a current install. Any
+   * other pass empties the workspace and checks the head out again. Entries go when the PR closes,
+   * after `idleDays` without a pass, and least recently used first above `budgetGb` or below
+   * `minFreePercent` free disk. `resumeThreads` also continues the previous pass's provider thread.
+   * Passes placed in a Sandbox keep using their own workspace. Defaults to `false`.
+   */
+  warmWorkspaces: boolean | BabysitterWarmWorkspaces;
+  /**
    * Repair a PR whose base is another open PR's branch in parallel with its parent: checks, conflicts
    * and feedback. It never merges into the parent's branch and waits for the parent once its reviewed
    * head has nothing left to repair. Requires `merge: "direct"`. Defaults to `false`, which leaves a
@@ -179,6 +214,11 @@ export interface BabysitterOptions {
    * work such as merges and stack retargets still uses `concurrency`. Defaults to `concurrency`.
    */
   modelConcurrency?: number;
+  /**
+   * Retries of a provider rate limit, 10 seconds apart, before the pass opens the provider cooldown.
+   * Set `0` when the provider already retries, as Codex does. Defaults to 3.
+   */
+  providerRetries: number;
   /**
    * First cooldown after a pass runs out of provider rate-limit retries. Model passes pause; host work
    * continues. Each further cooldown doubles, up to one hour, and halves model concurrency. A
@@ -363,17 +403,28 @@ function validAuthorAssociationRules(rules: unknown): boolean {
   return [rules.allow, rules.deny].every(list => list === undefined || (Array.isArray(list) && list.every(value => (githubAuthorAssociations as readonly unknown[]).includes(value))));
 }
 
-/** Combines explicit lifecycle labels with the shared GitHub PR filter. */
+/** Authors that a filter without `author` or `authorAssociation` rules selects: people with write access. */
+const defaultAuthorAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
+/** The label that pauses a PR when neither `lifecycle.labels` nor `filter.labels` is configured. */
+const defaultSkipLabel = "babysitter:skip";
+
+/**
+ * Combines explicit lifecycle labels with the shared GitHub PR filter. A filter without author rules
+ * selects only PRs from people with write access, and one without label rules skips PRs labelled
+ * `babysitter:skip`.
+ */
 export function resolveBabysitterLifecycleFilter(
-  filter: GitHubPullRequestFilter,
+  configured: GitHubPullRequestFilter,
   lifecycle: BabysitterLifecycleOptions | undefined,
 ): GitHubPullRequestFilter {
-  if (lifecycle === undefined) return filter;
-  if (!isRuntimeRecord(lifecycle)) {
+  const filter = configured.author || configured.authorAssociation
+    ? configured
+    : { ...configured, authorAssociation: { allow: [...defaultAuthorAssociations] } };
+  if (lifecycle !== undefined && !isRuntimeRecord(lifecycle)) {
     throw new TypeError("[vitehub] Babysitter lifecycle must be an object.");
   }
-  const labels = lifecycle.labels;
-  if (labels === undefined) return filter;
+  const labels = lifecycle?.labels;
+  if (labels === undefined) return filter.labels ? filter : { ...filter, labels: { deny: [defaultSkipLabel] } };
   if (filter.labels) {
     throw new TypeError("[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.");
   }
@@ -385,7 +436,7 @@ export const babysitter: BabysitterAgent = defineAgent({
   options: {
     filter: {} as GitHubPullRequestFilter,
     driver: "codex" as BuiltInAgentDriverName,
-    merge: false as BabysitterMerge,
+    merge: "direct" as BabysitterMerge,
     reviewChecks: [] as string[],
     noFindingsReviews: [] as string[],
     ignoreFeedbackAuthors: [] as string[],
@@ -395,6 +446,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     reviewConvergencePushes: false as number | false,
     ignoreAssessedBotThreads: false,
     dailyPassBudget: 16 as number | false,
+    dailyPushBudget: false as number | false,
+    priorityLabels: [] as string[],
+    mainRepairBranchPrefix: undefined as string | undefined,
     deferWhilePending: true,
     install: true as BabysitterInstall,
     mentionAllowlist: [] as string[],
@@ -403,12 +457,14 @@ export const babysitter: BabysitterAgent = defineAgent({
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
     ciRecovery: true,
+    warmWorkspaces: false as boolean | BabysitterWarmWorkspaces,
     repairStackChildren: false,
     modelConcurrency: undefined as number | undefined,
+    providerRetries: 3,
     providerCooldownMs: 5 * 60_000,
     status: {} as BabysitterStatusOptions,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, dailyPushBudget, priorityLabels, mainRepairBranchPrefix, providerRetries, deferWhilePending, install, concurrency, admission, placement, ciRecovery, warmWorkspaces, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -442,6 +498,15 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) {
       throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
     }
+    if (dailyPushBudget !== false && (!Number.isSafeInteger(dailyPushBudget) || dailyPushBudget < 1)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "dailyPushBudget", expected: "a positive integer or false" });
+    }
+    if (!Array.isArray(priorityLabels) || priorityLabels.some(label => !hasRuntimeType(label, "string") || !label.trim())) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "priorityLabels", expected: "a list of GitHub label names" });
+    }
+    if (mainRepairBranchPrefix !== undefined && !(hasRuntimeType(mainRepairBranchPrefix, "string") && mainRepairBranchPrefix.trim())) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "mainRepairBranchPrefix", expected: "a non-empty branch name prefix" });
+    }
     if (!hasRuntimeType(deferWhilePending, "boolean")) {
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
     }
@@ -451,6 +516,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!hasRuntimeType(ciRecovery, "boolean")) {
       throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
     }
+    if (!validWarmWorkspaces(warmWorkspaces)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "warmWorkspaces", expected: "a boolean or { resumeThreads, budgetGb, idleDays, minFreePercent, sweepMinutes } with non-negative numbers" });
+    }
     if (!isRuntimeRecord(status) || [status.comment, status.checkRun].some(value => value !== undefined && !hasRuntimeType(value, "boolean"))) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_STATUS_INVALID();
     }
@@ -459,6 +527,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
       throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
+    }
+    if (!Number.isSafeInteger(providerRetries) || providerRetries < 0) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "providerRetries", expected: "a non-negative integer" });
     }
     if (!Number.isSafeInteger(providerCooldownMs) || providerCooldownMs < 1000 || providerCooldownMs > 60 * 60_000) {
       throw new TypeError("[vitehub] Babysitter providerCooldownMs must be an integer from 1000 to 3600000.");

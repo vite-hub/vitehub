@@ -12,14 +12,14 @@ The generated Database registry has no `default` entry. ViteHub then gives the D
 - The app has only Named Databases, such as `server/databases/analytics.ts`. No Database is named `default`. The Agent `db()` Capability without a `database` option also reads `default`.
 - An app that uses `@vite-hub/database` alone passes `false` to `hubDatabase()`. The registry is then empty.
 
-With `vitehub()`, a disabled Database fails earlier. The build stops with `VITE_HUB_B0013` when code imports `vite-hub/database/drizzle`. An enabled Vite Database without a Definition always has an empty Default Database.
+With `vitehub()`, a disabled Database fails earlier. The build stops with `VITE_HUB_B0013` when code imports accessors from `vite-hub/database`. An enabled Vite Database without a Definition always has an empty Default Database.
 
 Some generated runtimes report a missing Default Database as [`DATABASE_NOT_FOUND`](/docs/database/diagnostics/database_not_found) for `default`. Examples are the Nuxt module and hosted Cloudflare and Vercel builds.
 
 ## Fix it
 
 ```diff [server/api/events.get.ts]
- import { useDatabase } from 'vite-hub/database/drizzle'
+ import { useDatabase } from 'vite-hub/database'
 
  export default defineEventHandler(() => {
 -  const { db, schema } = useDatabase('default')
