@@ -479,6 +479,35 @@ test('counts each review-driven push once and shows the count in the summary', a
   assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 2, heads: ['b', 'c', 'd', 'a'] })
 })
 
+test('settles automated review after minorReviewRounds heads in a row with nothing above P2', async t => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 3, reviewPushes: 3, minorReviewRounds: 2 } })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const pass = async (id: number, head: string, automatedReview: 'P1' | 'P2' | 'none') => {
+    await inbox.seed(repository, pr(head))
+    await wake(inbox, id)
+    const [claim] = await inbox.claim(1)
+    assert.ok(claim)
+    claim.automatedReview = automatedReview
+    assert.ok(await inbox.finish(claim, { text: 'done', progress: { kind: 'no-progress' } }))
+  }
+  await pass(1, 'a', 'P2')
+  // A P0 or P1 starts the count again.
+  await pass(2, 'b', 'P1')
+  await pass(3, 'c', 'none')
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 0, heads: [], minorHeads: ['c'] })
+  // The same head assessed again is not a second round.
+  await pass(4, 'c', 'P2')
+  assert.equal((await inbox.get(repository, 7))?.reviewPushBudget?.count, 0)
+  await pass(5, 'd', 'P2')
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 3, heads: ['d'], minorHeads: ['c', 'd'] })
+  // A later push keeps the record.
+  await wake(inbox, 6)
+  const [claim] = await inbox.claim(1)
+  assert.ok(await inbox.finish(claim!, { text: 'done', progress: { kind: 'verified', evidence: 'push:e', reviewDriven: true } }))
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 4, heads: ['d', 'e'], minorHeads: ['c', 'd'] })
+})
+
 test('records no review pushes when the budget is disabled', async t => {
   const inbox = memory(t)
   await inbox.seed(repository, pr())

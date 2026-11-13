@@ -30,13 +30,14 @@ export function parseProgressBudget(value: unknown): ProgressBudget { return v.p
  * decides it from the claimed snapshot.
  */
 export type ProgressOutcome = { kind: 'no-progress' } | { kind: 'verified'; evidence: string; reviewDriven?: boolean }
-const reviewPushBudgetSchema = v.object({ count, heads: v.array(v.string()) })
+const reviewPushBudgetSchema = v.object({ count, heads: v.array(v.string()), minorHeads: v.optional(v.array(v.string())) })
 /**
  * Review-driven pushes on one PR, over its whole life. `heads` lists the heads that this worker pushed
  * and, once the budget is spent, the heads that already got a model pass. A head outside it was moved
- * by someone else.
+ * by someone else. `minorHeads` lists the heads in a row whose automated review a pass classed with
+ * nothing above P2.
  */
-export interface ReviewPushBudget { count: number; heads: string[] }
+export interface ReviewPushBudget { count: number; heads: string[]; minorHeads?: string[] }
 export function parseReviewPushBudget(value: unknown): ReviewPushBudget { return v.parse(reviewPushBudgetSchema, value) }
 /** Heads kept per PR. Older heads cannot return, so they need no record. */
 const reviewPushHeads = 20
@@ -55,7 +56,20 @@ export function nextReviewPushBudget(budget: ReviewPushBudget | undefined, limit
     if (progress.kind === 'verified' && progress.reviewDriven) pushes++
   }
   if (spent && claimedHead) heads.add(claimedHead)
-  return { count: pushes, heads: [...heads].slice(-reviewPushHeads) }
+  return { count: pushes, heads: [...heads].slice(-reviewPushHeads), ...budget?.minorHeads ? { minorHeads: budget.minorHeads } : {} }
+}
+/** The highest class of valid automated review finding that a pass reported for the head it started on. */
+export type AutomatedReviewClass = 'P0' | 'P1' | 'P2' | 'P3' | 'none'
+/**
+ * The review push record after a pass classed the automated review of `head`. A P0 or P1 restarts the
+ * run of minor heads. `rounds` minor heads in a row spend the budget, so automated review settles.
+ */
+export function nextMinorReviewRound(budget: ReviewPushBudget | undefined, limit: number, rounds: number, severity: AutomatedReviewClass, head: string): ReviewPushBudget {
+  const current = budget ?? { count: 0, heads: [] }
+  if (severity === 'P0' || severity === 'P1') return { ...current, minorHeads: [] }
+  const minorHeads = [...new Set([...current.minorHeads ?? [], head])].slice(-reviewPushHeads)
+  if (minorHeads.length < rounds) return { ...current, minorHeads }
+  return { count: Math.max(current.count, limit), heads: [...new Set([...current.heads, head])].slice(-reviewPushHeads), minorHeads }
 }
 const dailyPassBudgetSchema = v.object({ passes: v.array(count), human: v.optional(count), exemptions: v.array(v.string()) })
 /**
@@ -80,11 +94,12 @@ export function dailyPassResumeAt(budget: DailyPassBudget | undefined, limit: nu
   const passes = (budget?.passes ?? []).filter(at => at > now - day).sort((left, right) => left - right)
   return passes.length < limit ? undefined : passes[passes.length - limit]! + day
 }
-export interface InboxBudgets { providerRetries?: number; noProgress?: number; reviewPushes?: number; dailyPasses?: number }
+export interface InboxBudgets { providerRetries?: number; noProgress?: number; reviewPushes?: number; minorReviewRounds?: number; dailyPasses?: number }
 export function validateBudgets(budgets: InboxBudgets): void {
   if (budgets.providerRetries !== undefined) v.parse(count, budgets.providerRetries)
   if (budgets.noProgress !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.noProgress)
   if (budgets.reviewPushes !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.reviewPushes)
+  if (budgets.minorReviewRounds !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.minorReviewRounds)
   if (budgets.dailyPasses !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.dailyPasses)
 }
 export function requireEvidence(evidence: string): void {

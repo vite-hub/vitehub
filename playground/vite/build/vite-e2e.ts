@@ -1170,7 +1170,7 @@ function renderVercelQueueWrapper(file: string, queueRegistryFile: string, defin
     "app.use(async (event) => {",
     `  const definition = await loadQueueDefinition(${JSON.stringify(definitionName)})`,
     "  if (!definition) throw new Error('Missing queue definition.')",
-    `  return await handleHostedVercelQueueCallback(event, ${JSON.stringify(definitionName)}, definition)`,
+    `  return await handleHostedVercelQueueCallback(event.req, ${JSON.stringify(definitionName)}, definition)`,
     "})",
     "",
     "const handler = toNodeHandler(app)",

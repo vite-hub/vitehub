@@ -6,6 +6,7 @@ import { defineChannel, isChannelDefinition, validateChannelDefinition } from ".
 
 import type { ChannelClient, ChannelDefinition, ChannelDefinitionRegistry } from "../types.ts"
 import type {
+  ChannelDefinitionMessage,
   ChannelDefinitionName,
   ChannelDefinitionSendOptions,
   ChannelRegistryDefinition,
@@ -13,7 +14,7 @@ import type {
 import { channelErrors, channelsErrorDiagnostics } from "../error-diagnostics.ts"
 
 let registryOverride: ChannelDefinitionRegistry | undefined
-let channels = new Map<string, Promise<ChannelClient<unknown>>>()
+let channels = new Map<string, Promise<ChannelClient<unknown, unknown>>>()
 
 export function setChannelRuntimeRegistry(registry: ChannelDefinitionRegistry | undefined): void {
   registryOverride = registry
@@ -40,16 +41,16 @@ export async function loadChannelDefinition(name: string): Promise<ChannelDefini
   return undefined
 }
 
-async function resolveChannel(name: string): Promise<ChannelClient<unknown>> {
+async function resolveChannel(name: string): Promise<ChannelClient<unknown, unknown>> {
   const definition = await loadChannelDefinition(name)
   if (!definition) {
     throw channelsErrorDiagnostics.CHANNELS_R0002({ message: `[vitehub] No Channel Definition was discovered for "${name}".` })
   }
-  // SAFETY: A discovered Channel has one adapter; useChannel() types its send options from the registry.
-  return createChannel(name, definition) as ChannelClient<unknown>
+  // SAFETY: A discovered Channel has one adapter; useChannel() types its message and send options from the registry.
+  return createChannel(name, definition) as ChannelClient<unknown, unknown>
 }
 
-function resolveCachedChannel(name: string): Promise<ChannelClient<unknown>> {
+function resolveCachedChannel(name: string): Promise<ChannelClient<unknown, unknown>> {
   const cache = channels
   const existing = cache.get(name)
   if (existing) return existing
@@ -62,26 +63,26 @@ function resolveCachedChannel(name: string): Promise<ChannelClient<unknown>> {
 }
 
 /** The Channel with this name from `server/channels`. `send()` works from any server code. */
-export function useChannel<const TName extends ChannelDefinitionName>(name: TName): ChannelClient<ChannelDefinitionSendOptions<ChannelRegistryDefinition<TName>>>
+export function useChannel<const TName extends ChannelDefinitionName>(name: TName): ChannelClient<ChannelDefinitionSendOptions<ChannelRegistryDefinition<TName>>, ChannelDefinitionMessage<ChannelRegistryDefinition<TName>>>
 export function useChannel<
   TName extends string,
->(name: string extends TName ? TName : never): ChannelClient<Record<string, unknown> | undefined>
-export function useChannel(name: string): ChannelClient<unknown> {
+>(name: string extends TName ? TName : never): ChannelClient<Record<string, unknown> | undefined, string | object>
+export function useChannel(name: string): ChannelClient<unknown, unknown> {
   if (typeof name !== "string" || name.trim().length === 0) {
     throw channelsErrorDiagnostics.CHANNELS_R0003({ message: "`useChannel()` requires a non-empty channel name." })
   }
 
   return {
     name,
-    async send(text: string, options?: unknown) {
-      let channel: ChannelClient<unknown>
+    async send(message: unknown, options?: unknown) {
+      let channel: ChannelClient<unknown, unknown>
       try {
         channel = await resolveCachedChannel(name)
       }
       catch (cause) {
         return [channelErrors.CHANNEL_DEFINITION_FAILED({ cause, channel: name }), undefined]
       }
-      return await channel.send(text, options)
+      return await channel.send(message, options)
     },
   }
 }

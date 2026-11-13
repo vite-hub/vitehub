@@ -50,7 +50,7 @@ import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
-import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
+import { feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../src/github/pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 import * as githubInstalls from "../src/github/install.ts";
@@ -68,7 +68,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -110,8 +110,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   const extraCheckRuns: Record<string, unknown>[] = [];
   const pr = () => ({
     number: 12,
+    node_id: "PR_12",
     state: "open",
-    draft: false,
+    draft: preset.draft ?? false,
     title: "Fix value",
     body: "Repair the exported value.",
     user: { login: "developer" },
@@ -133,7 +134,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
         id: "PR_12",
         number: 12,
         state: "OPEN",
-        isDraft: false,
+        isDraft: preset.draft ?? false,
         headRefOid: head,
         headRefName: "fix",
         baseRefName: "main",
@@ -170,7 +171,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       if (text.includes("BabysitterOpenPullRequests")) {
         const current = pr();
         const node = {
-          number: current.number, title: current.title, isDraft: false, headRefOid: current.head.sha, headRefName: current.head.ref,
+          number: current.number, title: current.title, isDraft: current.draft, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
           authorAssociation: "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
@@ -1650,6 +1651,42 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
     expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", method: "fast-forward" as "squash" } } })).toThrow(/merge.method/);
+    expect(() => defineAgent({ extends: babysitter, options: { merge: { strategy: "direct", markDraftsReady: [" "] } } })).toThrow(expect.objectContaining({ code: "PRESETS_MERGE_DRAFT_AUTHORS_INVALID" }));
+  });
+
+  describe("merge.markDraftsReady", () => {
+    const markReady = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.filter(([args]) => args.join(" ").includes("markPullRequestReadyForReview"));
+    async function reviewedDraft(merge: unknown) {
+      const f = await fixture(false, false, { merge, draft: true });
+      await f.runtime.inbox.ingest("draft-opened", "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: f.pr() });
+      const snapshot = (await f.runtime.inbox.get("acme/app", 12))!;
+      await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(snapshot), feedback: [] });
+      return f;
+    }
+
+    it("marks a listed author's reviewed draft ready instead of waiting on it", async () => {
+      const f = await reviewedDraft({ strategy: "direct", markDraftsReady: ["Developer"] });
+      try {
+        await f.reconcile();
+        expect(markReady(f)).toHaveLength(1);
+        expect(markReady(f)[0]![0]).toContain("id=PR_12");
+        expect(f.passes).toHaveLength(0);
+        expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
+        expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Marked the reviewed draft ready for review so it can merge." });
+        expect(f.events).toHaveBeenCalledWith("babysitter.draft.ready", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("leaves drafts alone by default and for authors it does not list", async () => {
+      for (const merge of ["direct", { strategy: "direct", markDraftsReady: ["maintainer"] }]) {
+        const f = await reviewedDraft(merge);
+        try {
+          await f.reconcile();
+          expect(markReady(f)).toHaveLength(0);
+          expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "waiting", lastResult: "Reviewed, but the pull request is a draft. It merges once it is marked ready for review." });
+        } finally { await f.runtime.inbox.close(); }
+      }
+    });
   });
 
   it("maps lifecycle labels into the shared PR filter", () => {
@@ -1695,6 +1732,15 @@ describe("Babysitter preset runtime", () => {
       expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget } })).toThrow(/reviewPushBudget must be a positive integer or false/);
     }
     expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget: false } })).not.toThrow();
+    for (const minorReviewRounds of [0, 1.5, true as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds } })).toThrow(/minorReviewRounds must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewPushBudget: false } })).toThrow(/minorReviewRounds needs a reviewPushBudget/);
+    for (const reviewConvergencePushes of [0, 2.5, "2" as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { reviewConvergencePushes } })).toThrow(/reviewConvergencePushes must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { ignoreAssessedBotThreads: "yes" as unknown as boolean } })).toThrow(/ignoreAssessedBotThreads must be a boolean/);
+    expect(() => defineAgent({ extends: babysitter, options: { minorReviewRounds: 2, reviewConvergencePushes: 2, ignoreAssessedBotThreads: true } })).not.toThrow();
     for (const dailyPassBudget of [0, 2.5, "16" as unknown as number]) {
       expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget } })).toThrow(/dailyPassBudget must be a positive integer or false/);
     }
@@ -1762,6 +1808,87 @@ describe("Babysitter preset runtime", () => {
         comment: { id: 202, body: "Please rename it after all.", user: { login: "developer", type: "User" } } });
       await f.reconcile();
       expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks each pass for its automated review class and settles review after minorReviewRounds minor heads", async () => {
+    const result: Record<string, unknown> = { disposition: "park", text: "Assessed; only a P2 finding is left.", automatedReview: "P2" };
+    const f = await fixture(false, false, { result, options: { minorReviewRounds: 2, deferWhilePending: false } });
+    const botReview = (id: number) => f.runtime.inbox.ingest(`bot-review-${id}`, "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id, body: `Finding ${id}`, user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]!.prompt).toContain("<automated-review-severity>");
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 0, heads: [], minorHeads: ["a".repeat(40)] });
+      const next = "d".repeat(40);
+      f.advanceHead(next);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 3, heads: [next], minorHeads: ["a".repeat(40), next] });
+      // Automated review is settled, so new bot feedback parks without a pass.
+      await botReview(401);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.wait?.reason).toBe("review-push-budget");
+      expect(parked.lastResult).toMatch(/^Automated review settled: 2 heads in a row had no finding above P2/);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("asks for a class-level fix from reviewConvergencePushes review-driven pushes on", async () => {
+    const f = await fixture(false, false, { options: { reviewConvergencePushes: 1, deferWhilePending: false } });
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(f.passes[0]!.prompt).not.toContain("<review-convergence>");
+      f.choose(undefined);
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 501, body: "Another alias case is missing.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.passes[1]!.prompt).toContain("<review-convergence>\nThis PR already has 1 review-driven repair pushes.");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("keeps read tools working after new evidence arrives mid-pass", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 601, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("ends the pass at the first write that new evidence refuses", async () => {
+    const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
+    f.choose("updatePullRequest", { title: "Fix value now" });
+    f.onRepair(async () => {
+      await f.runtime.inbox.ingest("mid-pass-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 602, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("evidence changed");
+      expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
     } finally { await f.runtime.inbox.close(); }
   });
 

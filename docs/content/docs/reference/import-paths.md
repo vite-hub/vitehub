@@ -63,6 +63,7 @@ the same behavior.
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
+| `vite-hub/content/markdown` | Markdown negotiation middleware and Markdown 404 helpers. Pass a Content runtime or a loader that defers Content until a Markdown request. |
 | `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
 | `vite-hub/content/sqlite` | In-memory SQLite database for full-text search on Node and Cloudflare Workers. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
@@ -122,6 +123,7 @@ the same behavior.
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
 | `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
+| `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
@@ -138,6 +140,7 @@ the same behavior.
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
 | `vite-hub/ui/chat`, `vite-hub/ui/chat-message`, `vite-hub/ui/prompt-input`, `vite-hub/ui/message-parts`, `vite-hub/ui/markdown`, `vite-hub/ui/chat-session` | Focused imports for chat components. |
+| `vite-hub/ui/agent-session` | Agent session layout, timeline, details card, and surface panel. |
 | `vite-hub/ui/filter-search` and `vite-hub/ui/choices-input` | The `FilterSearch` text box for `useChoices()`, and its headless parts. |
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor` with uploads to Blob. Kept out of the root import, so it loads Tiptap only where you use it. |
 | `vite-hub/ui/message`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/attachment`, `vite-hub/ui/trace`, `vite-hub/ui/code-block` | shadcn/ui part families. |

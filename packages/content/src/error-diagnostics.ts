@@ -81,6 +81,21 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the `default` KV store. A host can limit the size of one value: Cloudflare KV takes up to 25 MiB. `content.sources.head()` shows the cache key and how many reads missed.",
       why: ({ source, key, reason }: { source: string, key: string, reason: string }) => `[vitehub] Content could not store ${key} of Content source ${JSON.stringify(source)} in KV: ${reason}`,
     },
+    /** A request to the GitHub push webhook route has no valid `X-Hub-Signature-256` header. */
+    CONTENT_R0024: {
+      fix: "Set the webhook secret in GitHub to the value of `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env, and set the content type to `application/json`. GitHub shows the failed delivery under Settings, Webhooks, Recent Deliveries.",
+      why: ({ delivery }: { delivery: string | null }) => `[vitehub] The GitHub webhook delivery ${delivery ?? "without an id"} has no valid X-Hub-Signature-256 signature, so Content ignored it.`,
+    },
+    /** A signed push names a repository that no `github()` Source of Content reads. */
+    CONTENT_R0025: {
+      fix: "Point the webhook at the app whose `server/content.ts` reads this repository with `github({ repo })`, or remove the webhook from the repository.",
+      why: ({ repo, heads }: { repo: string, heads: string }) => `[vitehub] Content received a GitHub push for ${repo}, but no github() Source reads that repository. Sources with a head: ${heads}.`,
+    },
+    /** The GitHub push webhook route has no secret, so it is disabled. */
+    CONTENT_R0026: {
+      fix: "Set `VITEHUB_GITHUB_WEBHOOK_SECRET` in the Server Env to the secret of the GitHub webhook. Without it, the head of each `github()` Source moves at most once per hour.",
+      why: () => "[vitehub] The Content GitHub webhook route answers 404, because the Server Env has no VITEHUB_GITHUB_WEBHOOK_SECRET.",
+    },
     /** `content.sources.at()` received a ref that is not a full SHA, a `pr/<number>` ref, or a safe branch name. */
     CONTENT_R0027: {
       fix: "Pass a full 40-character commit SHA, `pr/<number>` such as `pr/12`, or a branch name with letters, digits, and `. _ - /`, up to 200 characters.",

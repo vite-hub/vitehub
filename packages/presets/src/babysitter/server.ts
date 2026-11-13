@@ -178,6 +178,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
+  const minorReviewRounds = presetOptions.minorReviewRounds ?? false;
+  const reviewConvergencePushes = presetOptions.reviewConvergencePushes ?? false;
   const repairStackChildren = merge.mode === "direct" && presetOptions.repairStackChildren === true;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
@@ -186,6 +188,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     activityAuthors,
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
+      ...reviewPushBudget === false || minorReviewRounds === false ? {} : { minorReviewRounds },
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
     claimStackChildren: repairStackChildren,
     // One invalid row must not stop the claim loop or the health endpoint.
@@ -230,6 +233,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     wakeWhenReady: merge.mode === "direct",
     noFindingsReviews: baseAgent.noFindingsReviews ?? presetOptions.noFindingsReviews ?? [],
     ...reviewPushBudget === false ? {} : { reviewPushBudget },
+    ignoreAssessedBotThreads: presetOptions.ignoreAssessedBotThreads === true,
   };
   const schedulerEvent = (name: string, properties: Record<string, unknown> = {}) =>
     options.event?.(name, properties);
@@ -313,6 +317,43 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     rest: (path, signal, key) => readRest(path, key ? `.${key}[]` : ".[]", signal),
     page: readOnePage,
   };
+
+  /**
+   * Marks a reviewed draft ready for review when `merge.markDraftsReady` lists its author and its head
+   * branch is in the repository. GitHub's live PR must still be that draft at the reviewed head.
+   */
+  async function markDraftReady(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
+    const authors = merge.mode === "direct" ? merge.markDraftsReady : undefined;
+    if (!authors) return false;
+    const { repository, number } = snapshot;
+    const allowed = (pr: unknown): pr is Record<string, unknown> => {
+      if (!isRuntimeRecord(pr) || pr.draft !== true || !isRuntimeRecord(pr.user) || !isRuntimeRecord(pr.head) || !isRuntimeRecord(pr.head.repo)) return false;
+      return pr.head.sha === snapshot.pr?.head?.sha && hasRuntimeType(pr.user.login, "string") && authors.has(pr.user.login.toLowerCase())
+        && String(pr.head.repo.full_name).toLowerCase() === repository.toLowerCase();
+    };
+    if (!allowed(snapshot.pr)) return false;
+    let failure: string | undefined;
+    try {
+      const live = await readPull(repository, number, signal);
+      if (!allowed(live) || !hasRuntimeType(live.node_id, "string")) return false;
+      // forges has no ready-for-review operation, and GitHub's REST API cannot clear the draft flag.
+      const { provider } = await forge(repository, signal);
+      const query = "mutation BabysitterMarkDraftReady($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}";
+      const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMarkDraftReady", variables: { id: live.node_id } }, signal })).data;
+      if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length > 0) {
+        failure = response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error)).join("; ");
+      }
+    } catch (error) {
+      await noteForgeQuota(error, "draft-ready");
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    if (failure !== undefined) {
+      schedulerEvent("babysitter.draft.ready_failed", { ...owner, reason: failure.slice(0, 200) });
+      return false;
+    }
+    schedulerEvent("babysitter.draft.ready", { ...owner, head_sha: snapshot.pr?.head?.sha });
+    return true;
+  }
 
   /**
    * Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses.
@@ -761,7 +802,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!deferWhilePending) return undefined;
     const pr = snapshot.pr;
     if (!pr || pr.mergeable === false || pr.mergeable_state === "dirty") return undefined;
-    if (checksStillRunning(snapshot)) return reviewCheckRunning(snapshot, waitPolicy) ? "review checks" : "running checks";
+    if (checksStillRunning(snapshot, Date.now(), waitPolicy)) return reviewCheckRunning(snapshot, waitPolicy) ? "review checks" : "running checks";
     if (failureKeys(snapshot).length) return undefined;
     if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
     const evaluation = await requiredCheckEvaluation(snapshot);
@@ -1218,9 +1259,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           modelWorkParked = true;
           outcome = "waiting";
           const pushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+          const minorHeads = inboxClaim.snapshot.reviewPushBudget?.minorHeads?.length ?? 0;
           const checks = waitPolicy.pendingReviewChecks.size ? `failed ${[...waitPolicy.pendingReviewChecks].join(", ")} checks` : "failed review checks";
+          const spent = minorReviewRounds !== false && minorHeads >= minorReviewRounds
+            ? `Automated review settled: ${minorHeads} heads in a row had no finding above P2 (minorReviewRounds ${minorReviewRounds})`
+            : `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget})`;
           await pullRequestInbox.finish(inboxClaim, {
-            text: `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget}). Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
+            text: `${spent}. Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
             wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "review-push-budget" },
           });
           schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "review-push-budget" });
@@ -1331,6 +1376,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
               if (stackParent !== undefined) {
                 await parkOnStackParent(stackParent, `Waiting for open parent PR #${stackParent} to merge; this child has nothing left to repair.`);
+                return;
+              }
+              // A reviewed draft never merges. Marking it ready sends ready_for_review, which wakes the PR
+              // and starts workflows that skip drafts.
+              if (inboxClaim.snapshot.pr?.draft === true && await requiredCheckState(inboxClaim.snapshot) !== "failed"
+                && await markDraftReady(inboxClaim.snapshot, owner, passSignal)) {
+                await pullRequestInbox.finish(inboxClaim, {
+                  text: "Marked the reviewed draft ready for review so it can merge.",
+                  wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), retryAt: Date.now() + 120_000 },
+                });
                 return;
               }
               // A direct merge lands only on the default branch, and never merges a draft, so retrying either
@@ -1525,12 +1580,18 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               };
               let observePendingPush: ((current: Snapshot) => void) | undefined;
               const pendingInboxHeads = new Set([pullRequest.headRefOid]);
-              const assertLease = async () => {
+              // Reads need only the lease: new evidence cannot make a log or feedback read unsafe.
+              const readOperation = new AsyncLocalStorage<boolean>();
+              const assertLeaseHeld = async () => {
                 abortSignal.throwIfAborted();
                 const current = await pullRequestInbox.get(repository, number);
                 if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
                 }
+                return current;
+              };
+              const assertLease = async () => {
+                const current = await assertLeaseHeld();
                 observePendingPush?.(current);
                 for (const [id, reopens] of ownedResolutions) {
                   if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
@@ -1550,7 +1611,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 const selfHead = observedHead !== pullRequest.headRefOid && verifiedPushHeads.has(observedHead ?? "");
                 if (current.generation !== inboxClaim.generation
                   && !((selfHead || repairOperation.getStore()) && repairEvidenceKey(current) === repairEvidenceKey(inboxClaim.snapshot, current))) {
-                  throw new DOMException("Pull request evidence changed.", "AbortError");
+                  // Every later write would be refused too, so end the pass and let the claim requeue.
+                  const changed = new DOMException("Pull request evidence changed.", "AbortError");
+                  schedulerEvent("babysitter.pass.evidence_changed", { ...owner, head_sha: pullRequest.headRefOid, observed_head: observedHead });
+                  passController.abort(changed);
+                  throw changed;
                 }
                 return current;
               };
@@ -1615,7 +1680,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // Operations ask for a provider before each request group, so every group checks the lease.
               const operationHost: Pick<GitHubHost, "forge"> = {
                 forge: async (input) => {
-                  await assertLease();
+                  await (readOperation.getStore() ? assertLeaseHeld() : assertLease());
                   return await github.forge(input);
                 },
               };
@@ -1728,6 +1793,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   }
                 },
               });
+              const { readCheckLogs, readBaseCheckEvidence, readBaseCheckLogs } = operations;
+              operations.readCheckLogs = runId => readOperation.run(true, () => readCheckLogs(runId));
+              operations.readBaseCheckEvidence = () => readOperation.run(true, () => readBaseCheckEvidence());
+              operations.readBaseCheckLogs = runId => readOperation.run(true, () => readBaseCheckLogs(runId));
               const resolveThread = operations.resolveThread;
               operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
@@ -1788,7 +1857,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   dependencyRefreshes++;
                   return () => { dependencyRefreshes--; };
                 },
-                readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
+                readFeedback: async input => readBabysitterFeedback(await assertLeaseHeld(), input),
                 readState: async () => {
                   let current = await assertLease();
                   const directory = providerDirectory ?? checkout;
@@ -1920,7 +1989,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
               const snapshotContext = snapshotPrompt(webhookSnapshot);
               const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest that the error names until the frozen install passes. For pnpm, resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, then finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a dependency such as a pkg.pr.new build keeps no integrity and the frozen install fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include the lockfile in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
-              const userMessage = `${prompt}\n\n${snapshotContext}${installContext}`;
+              const settled = reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy);
+              const reviewPushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+              const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
+              const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
+              const userMessage = `${prompt}\n\n${snapshotContext}${installContext}${severityContext}${convergenceContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
@@ -1979,6 +2052,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // SAFETY: The configured worker output schema guarantees this
               // shape before runAgent resolves.
               passResult = result as BabysitterPassResult;
+              if (passResult.automatedReview) inboxClaim.automatedReview = passResult.automatedReview;
               if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", { ...owner, reviewed_head: passResult.reviewedHead, head_sha: pullRequest.headRefOid });
               disposition = passResult.disposition;
               resultText = passResult.text;

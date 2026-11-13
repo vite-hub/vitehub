@@ -31,6 +31,8 @@ const content: DocsContentRuntime = {
 }
 
 vi.mock("nitro/kv", () => ({ useKV: () => ({ getItem }) }))
+// Development has no packed files, so the handlers read Nitro server assets.
+vi.mock("#docs/files", () => ({ default: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
   return { default: createDocsManifest({ dir: fixtures, base: "/docs" }) }

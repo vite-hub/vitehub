@@ -11,7 +11,8 @@ type LayerAgentDefinition = Omit<AgentDefinition, keyof AgentInterceptOutputCarr
 interface ConfiguredLayer {
   options: Record<string, unknown>
   configure: (options: Record<string, unknown>) => unknown
-  overrides: Record<string, unknown>
+  // Each child layer's overrides, oldest first. They apply one at a time so `{ extend }` receives the complete parent document.
+  overrides: readonly Record<string, unknown>[]
   configKey?: string
 }
 
@@ -296,11 +297,13 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
     const options = mergePresetOptions(configured.options, presetOptions)
     const definition = configured.configure(mergePresetOptions({}, options))
     assertLayerDefinition(definition)
-    const { name: _inheritedName, ...parentOverrides } = configured.overrides
-    const inheritedOverrides = merge(parentOverrides, overrides, "")
-    if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
+    const inheritedOverrides = [...configured.overrides, overrides]
     const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
-    const settings = merge(defaults, inheritedOverrides, "")
+    const settings = inheritedOverrides.reduce<unknown>((document, layer, index) => {
+      // Only the newest layer keeps its name.
+      const { name: _inheritedName, ...rest } = layer
+      return merge(document, index === inheritedOverrides.length - 1 ? layer : rest, "")
+    }, defaults)
     if (!record(settings)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     const { workspace: discoveredWorkspace, ...discoveryDefaults } = inherited.defaults ?? {}
     // Inspect final settings before discovery defaults can create Workspace access.
@@ -317,8 +320,10 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
     copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(resolved))
     const skills = Object.getOwnPropertyDescriptor(definition, colocatedSkills)
     const inheritedSkills = Object.getOwnPropertyDescriptor(parent, colocatedSkills)
-    // Preserve discovered Skill source identity when configuration only copied the decoration.
-    if (skills && inheritedSkills && "value" in skills && "value" in inheritedSkills) Object.defineProperty(resolved, colocatedSkills, inheritedSkills)
+    // A data property on the callback definition is discovered Skills, while a
+    // manual composition uses a getter. Preserve the preset's live discovery
+    // layer for the former; re-evaluate manual Skills with the new options.
+    if (skills && inheritedSkills && "value" in skills) inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     else if (skills) Object.defineProperty(resolved, colocatedSkills, skills)
     else inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     return resolved
@@ -608,7 +613,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
-  rememberConfiguredLayer(configured, { options, configure, overrides: {}, configKey })
+  rememberConfiguredLayer(configured, { options, configure, overrides: [], configKey })
   return configured
 }
 

@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, progressCooldownMs, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, progressCooldownMs, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget, nextMinorReviewRound, type AutomatedReviewClass } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -53,7 +53,11 @@ export interface GitHubInboxSummary {
   dailyPassBudget?: DailyPassBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
-export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
+export type Claim = {
+  token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity
+  /** The pass's class of the automated review of the claimed head. `finish()` records it with `budgets.minorReviewRounds`. */
+  automatedReview?: AutomatedReviewClass
+}
 export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
@@ -1391,9 +1395,12 @@ export class PullRequestInbox {
   }
   private recordReviewPush(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const limit = this.budgets.reviewPushes
-    if (limit === undefined || !progress) return
-    if (progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
-    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, claim.snapshot.pr?.head?.sha)
+    if (limit === undefined) return
+    const head = claim.snapshot.pr?.head?.sha
+    const rounds = this.budgets.minorReviewRounds
+    if (rounds !== undefined && claim.automatedReview && head) s.reviewPushBudget = nextMinorReviewRound(s.reviewPushBudget, limit, rounds, claim.automatedReview, head)
+    if (!progress || progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
+    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, head)
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha

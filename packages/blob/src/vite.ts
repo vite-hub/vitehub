@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
@@ -26,6 +27,7 @@ import {
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -63,7 +65,7 @@ interface BlobProvisionContributingPlugin {
   }
 }
 
-export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI, vitehub: { operations: readonly OperationContributionEntry[] } }
+export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI, vitehub: DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 
 interface InternalBlobModuleOptions {
   importBase?: string
@@ -512,6 +514,12 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
     name: BLOB_VITE_PLUGIN_NAME,
     api: { getConfig },
     vitehub: {
+      durability: () => {
+        const config = getConfig().blob
+        if (!config) return []
+        const stores = Object.fromEntries(Object.entries({ default: config.store, ...config.stores }).map(([name, store]) => [name, { driver: store.driver, ...("base" in store && typeof store.base === "string" ? { base: store.base } : {}) }]))
+        return [{ export: "blobDurability", input: { stores }, module: durabilityModuleFile(import.meta.url), primitive: "blob" }]
+      },
       // The Console, `vitehub blob`, and agents run these.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: operationsModule }],
       cli: async () => {
