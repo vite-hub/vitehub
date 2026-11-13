@@ -350,7 +350,7 @@ pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite
 // nuxt.config.ts
 export default defineNuxtConfig({
   modules: [
-    ["vite-hub/nuxt", { preset: "node", agent: true, connections: true, database: true }],
+    ["vite-hub/nuxt", { host: "node", agent: true, connections: true, database: true }],
     "@vite-hub/docs/nuxt",
   ],
   docs: { assistant: true },

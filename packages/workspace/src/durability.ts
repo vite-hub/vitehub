@@ -45,7 +45,7 @@ export function workspaceDefinitionsDurability(
   const entries = Object.entries(definitions)
   return (entries.length ? entries : [["default", {}] as const]).flatMap(([name, input]) => {
     const definition = normalizeWorkspaceDefinition(name, input)
-    const store = resolveWorkspaceDefinitionStore(definition, config, { env: context.env, hosting: context.env.VITEHUB_HOSTING })
+    const store = resolveWorkspaceDefinitionStore(definition, config, { env: context.env, hosting: context.env.VITEHUB_HOST })
     const report = workspaceDurability(isWorkspaceStore(store) ? { custom: true } : {
       provider: store?.provider,
       root: store && "root" in store && typeof store.root === "string" ? store.root : config ? `${config.root}/${name}` : undefined,

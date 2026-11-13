@@ -10,14 +10,14 @@ The Babysitter preset (an Agent Definition that your Agent extends) fixes review
 
 ## Enable the Agent integration
 
-Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host preset:
+Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integration with the Node host:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 :::
@@ -29,7 +29,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: true }), nitro()],
 })
 ```
 :::
@@ -40,7 +40,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true })],
+  plugins: [vitehub({ host: 'node', agent: true })],
 })
 ```
 :::
@@ -257,7 +257,7 @@ The Babysitter uses the invocation journal assigned to its discovered Agent. Set
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -275,7 +275,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -292,7 +292,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -363,7 +363,7 @@ The host leaves its own `babysitter` check out of every CI and merge decision, s
 
 ## Deploy
 
-Deploy the long-running Babysitter with the Node server preset on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
+Deploy the long-running Babysitter with the Node host on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
 
 It starts with the server. A development server starts it only with `VITEHUB_AGENT_PROCESS_HOSTS=1`, so it does not repair real pull requests by accident.
 

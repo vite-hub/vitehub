@@ -8,7 +8,7 @@ import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
@@ -242,10 +242,10 @@ function renderNitroRequestStatsMiddleware() {
   ].join("\n")
 }
 
-// Under `vitehub()`, the dev server config names the deployment preset, and Nitro has none.
+// Under `vitehub()`, the dev server config names the host, and Nitro has none.
 function devServerTargetsCloudflare(config: ResolvedConfig | undefined): boolean {
   if (config?.command !== "serve") return false
-  return resolveHost({ hosting: getDeploymentPreset(config), nitro: Reflect.get(config, "nitro") }) === "cloudflare"
+  return resolveHost({ hosting: getDeploymentHost(config), nitro: Reflect.get(config, "nitro") }) === "cloudflare"
 }
 
 function resolveHostedProvider(config: ResolvedConfig): DBProvider | undefined {

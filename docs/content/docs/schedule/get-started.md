@@ -31,7 +31,7 @@ Then add `kv` and `schedule` to the ViteHub options. Keep the other options of y
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     kv: true,
     schedule: { runtime: { driver: 'process' } },
   },
@@ -48,7 +48,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: true,
       schedule: { runtime: { driver: 'process' } },
     }), nitro(),
@@ -65,7 +65,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: true,
       schedule: { runtime: { driver: 'process' } },
     }),
@@ -168,7 +168,7 @@ To see the same runs in a page, with a button to run the schedule, open the app 
 You keep the schedule file. You change the `schedule` option for the host:
 
 - **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
-- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
+- **Cloudflare, Vercel, or Netlify**: set the host of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
 
 For example, on Vercel:
 
@@ -177,7 +177,7 @@ For example, on Vercel:
 ```ts [vercel/nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', schedule: true },
+  vitehub: { host: 'vercel', schedule: true },
 })
 ```
 :::
@@ -189,7 +189,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
 })
 ```
 :::
@@ -200,13 +200,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', schedule: true })],
+  plugins: [vitehub({ host: 'vercel', schedule: true })],
 })
 ```
 :::
 ::
 
-The `deno` preset does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
+The `deno` host does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 

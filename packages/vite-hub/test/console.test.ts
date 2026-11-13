@@ -564,20 +564,20 @@ describe("Agent invocation console", () => {
     ["cloudflare", "before", true],
     ["cloudflare", "after", true],
     ["cloudflare", "after", false],
-  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (preset, order, enabled) => {
+  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (host, order, enabled) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugins = vitehub({
         console: { ...productionConsole, mcpClient: true },
         env: false,
-        preset,
+        host,
       })
       // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv(enabled ? { driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
+      const kvPlugin = hubKv(enabled ? { driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
@@ -929,7 +929,7 @@ describe("Agent invocation console", () => {
       const plugins = vitehub({
         console: productionConsole,
         database: { projectRoot: "packages/database" },
-        preset: "cloudflare",
+        host: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },

@@ -580,7 +580,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
-        export default defineConfig({ plugins: [vitehub({ env: { public: {} }, preset: "cloudflare", blob: true, queue: true${features} })] })
+        export default defineConfig({ plugins: [vitehub({ env: { public: {} }, host: "cloudflare", blob: true, queue: true${features} })] })
       `
       await Promise.all([
         writeFile(join(appDir, "vite.config.ts"), config(""), "utf8"),
@@ -664,7 +664,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           import { vitehub } from "vite-hub"
 
           export default defineConfig({
-            plugins: [vitehub({ preset: "deno" }), nitro()],
+            plugins: [vitehub({ host: "deno" }), nitro()],
           })
         `, "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
@@ -703,7 +703,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, preset: "node" },
+            vitehub: { agent: false, host: "node" },
           }
         `),
         writeFile(join(appDir, "server/api/markdown.get.ts"), `
@@ -775,7 +775,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, preset: "node" },
+            vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, host: "node" },
           }
         `),
         // No \`kv\` import: the module auto-imports \`kv\` in server code. Nuxt 5 does not auto-import
@@ -859,7 +859,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, kv: true, preset: "node" },
+            vitehub: { agent: false, kv: true, host: "node" },
           }
         `),
         writeFile(join(appDir, "server/api/ping.get.ts"), "export default () => ({ ok: true })\n"),
@@ -928,7 +928,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, kv: true, preset: "node", queue: true },
+            vitehub: { agent: false, kv: true, host: "node", queue: true },
           }
         `),
         // `defineQueue<...>()` does not compile when `defineQueue` is untyped (TS2347).
@@ -1038,7 +1038,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: true, preset: "node" },
+            vitehub: { agent: true, host: "node" },
           }
         `, "utf8"),
         writeFile(join(appDir, "server/agents/disabled.ts"), `
@@ -1209,7 +1209,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default defineNuxtConfig({
             compatibilityDate: "2026-10-01",
             modules: ["vite-hub/nuxt"],
-            vitehub: { console: { auth: false }, comments: false, kv: true, preset: "node" },
+            vitehub: { console: { auth: false }, comments: false, kv: true, host: "node" },
           })
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
@@ -1292,7 +1292,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
                 databaseId: "00000000-0000-0000-0000-000000000000",
                 databaseName: "portable-db",
               },
-              preset: "cloudflare",
+              host: "cloudflare",
             },
           })
         `, "utf8"),

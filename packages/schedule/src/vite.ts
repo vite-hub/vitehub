@@ -717,7 +717,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options, startableDefinitions.length)
   const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
     ? options.nitro.preset
-    : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
+    : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOST || ""
   const standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
   const vercelDefinitions = options.command === "build"
     && nitroPreset.startsWith("vercel")

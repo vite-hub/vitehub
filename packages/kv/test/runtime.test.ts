@@ -156,7 +156,7 @@ describe("kv runtime", () => {
   afterEach(() => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
-    delete process.env.VITEHUB_HOSTING
+    delete process.env.VITEHUB_HOST
     // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
@@ -169,7 +169,7 @@ describe("kv runtime", () => {
   })
 
   it("returns provider failures as KV results", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const cause = new Error("provider unavailable")
     // SAFETY: The fixture extends a complete minimal Driver with the optional methods under test.
     fsLiteDriver = {
@@ -191,7 +191,7 @@ describe("kv runtime", () => {
   })
 
   it("returns provider initialization failures as KV results", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const cause = new Error("provider initialization unavailable")
     fsLiteDriver = cause
     const { kv } = await import("../src/runtime/storage.ts")
@@ -330,7 +330,7 @@ describe("kv runtime", () => {
   })
 
   it("throws config errors instead of returning them", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
     await expect(kv.store("missing").get("settings")).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
@@ -376,7 +376,7 @@ describe("kv runtime", () => {
   })
 
   it("rejects atomic operations on unsupported KV stores", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
     expect((await kv.getAndDelete("verification"))[0]).toMatchObject({ code: "KV_UNSUPPORTED_OPERATION", why: "kv.getAndDelete() needs atomic operations, and the \"default\" store does not support them." })
@@ -389,7 +389,7 @@ describe("kv runtime", () => {
   })
 
   it("honors explicit hosting before ambient Deno KV detection", async () => {
-    process.env.VITEHUB_HOSTING = "local"
+    process.env.VITEHUB_HOST = "local"
     const { openKv } = createDenoOpenKvMock()
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
@@ -518,7 +518,7 @@ describe("kv runtime", () => {
     const { data, openKv } = createDenoOpenKvMock()
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    process.env.VITEHUB_HOSTING = "deno"
+    process.env.VITEHUB_HOST = "deno"
     const { kv } = await import("../src/runtime/storage.ts")
     for (const key of ["", ":", "/", "a/../b", "./a"]) {
       const [error] = await kv.set(key, "empty key")

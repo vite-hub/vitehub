@@ -254,7 +254,7 @@ describe("hubDb", () => {
   it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options when Vite builds for Cloudflare", async (name) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, name === "default" ? "server/databases/default.ts" : `server/databases/${name}/index.ts`)
-    // `vitehub({ preset: "cloudflare", database: true })` passes this to the Database plugin.
+    // `vitehub({ host: "cloudflare", database: true })` passes this to the Database plugin.
     const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
 
     expect(buildStart).toThrow(expect.objectContaining({
