@@ -2801,6 +2801,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       nuxt:
         specifier: catalog:nuxt
         version: nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a)
