@@ -81,6 +81,20 @@ describe("Form", () => {
     expect(email.validity.valid).toBe(false);
   });
 
+  it("refreshes Field when errors are cleared programmatically", async () => {
+    const errors = ref<FormErrors>({});
+    const { email, error } = render(errors);
+    await type(email, "ada@example.com");
+    errors.value = { email: "Taken" };
+    await settle();
+    expect(error()).toBe("Taken");
+    errors.value = {};
+    await settle();
+    expect(email.validity.valid).toBe(true);
+    expect(email.getAttribute("aria-invalid")).not.toBe("true");
+    expect(error()).toBeNull();
+  });
+
   it("drops an error when the person edits its control", async () => {
     const errors = ref<FormErrors>({ email: "This email is taken.", other: "Kept." });
     const { email, error, submit, submits } = render(errors);

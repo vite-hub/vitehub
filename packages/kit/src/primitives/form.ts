@@ -140,7 +140,11 @@ export const formPrimitive: FormPrimitive = definePrimitive({
         const message = errors[name];
         if (message) for (const control of controlsNamed(el, name)) next.set(control, message);
       }
-      for (const control of shown.keys()) if (!next.has(control)) control.setCustomValidity("");
+      const cleared: Control[] = [];
+      for (const control of shown.keys()) if (!next.has(control)) {
+        control.setCustomValidity("");
+        cleared.push(control);
+      }
       const fresh: Control[] = [];
       for (const [control, message] of next) {
         if (shown.get(control) === message) continue;
@@ -149,6 +153,8 @@ export const formPrimitive: FormPrimitive = definePrimitive({
       }
       shown = next;
       for (const control of fresh) control.checkValidity();
+      // Field reads native validity on change, including a now-valid control.
+      for (const control of cleared) control.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
     return {

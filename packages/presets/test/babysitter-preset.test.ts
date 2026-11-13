@@ -1972,6 +1972,11 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { refreshes: 0 } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
+    for (const mainRepair of [{}, { workflows: [] }, { workflows: [" "] }, { workflows: ["ci"], repositories: ["app"] }, { workflows: ["ci"], stuckJobMinutes: 0 }, { workflows: ["ci"], stuckJobMinutes: true }, true]) {
+      expect(() => defineAgent({ extends: babysitter, options: { mainRepairBranchPrefix: "repair-main-", mainRepair: mainRepair as never } })).toThrow(/mainRepair must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { mainRepair: { workflows: ["ci"] } } })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_MAIN_REPAIR_NEEDS_PREFIX" }));
+    expect(() => defineAgent({ extends: babysitter, options: { mainRepairBranchPrefix: "repair-main-", mainRepair: { workflows: ["ci", "pkg.pr.new"], repositories: ["acme/app"], stuckJobMinutes: false } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: false } })).toThrow(/repairStackChildren requires merge: "direct"/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).not.toThrow();

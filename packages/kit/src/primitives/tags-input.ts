@@ -114,7 +114,7 @@ export interface TagsInputApi {
   internal: {
     keydown: (event: KeyboardEvent, input: HTMLInputElement) => void;
     input: (event: InputEvent, input: HTMLInputElement) => void;
-    paste: (event: ClipboardEvent) => void;
+    paste: (event: ClipboardEvent, input: HTMLInputElement) => void;
     focusout: (event: FocusEvent, input: HTMLInputElement) => void;
   };
 }
@@ -222,22 +222,23 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
     // Adds every text at once, so a paste of several tags makes one change.
     function addAll(texts: string[], details: ChangeOptions<TagsInputValueChangeReason>) {
       const { value, disabled } = store.get();
-      if (disabled) return false;
+      if (disabled) return { accepted: false, remaining: texts };
       const max = options().max;
       const next = [...value];
-      let refused = false;
+      const remaining: string[] = [];
       for (const text of texts) {
         const tag = text.trim();
         if (!tag) continue;
-        if (next.includes(tag) || (max !== undefined && next.length >= max)) refused = true;
+        if (next.includes(tag) || (max !== undefined && next.length >= max)) remaining.push(text);
         else next.push(tag);
       }
-      if (refused) store.set({ invalid: true });
-      return next.length > value.length && set(next, details) && !refused;
+      if (remaining.length) store.set({ invalid: true });
+      const accepted = next.length > value.length && set(next, details);
+      return { accepted, remaining: accepted ? remaining : texts };
     }
 
     const api: TagsInputApi = {
-      add: (text, details = {}) => addAll([text], details),
+      add: (text, details = {}) => addAll([text], details).accepted,
       remove(tag, details = {}) {
         const { value, disabled } = store.get();
         if (disabled || locked(tag) || !value.includes(tag)) return false;
@@ -264,7 +265,7 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
             case "Tab": {
               if (!input.value.trim() || (event.key === "Tab" && !options().addOnTab)) return;
               // Enter adds the tag instead of submitting the form.
-              event.preventDefault();
+              if (event.key === "Enter") event.preventDefault();
               if (api.add(input.value, { reason: "input-commit", event })) input.value = "";
               return;
             }
@@ -315,15 +316,18 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
           if (!delimiter || !input.value.includes(delimiter)) return;
           const texts = input.value.split(delimiter);
           const rest = texts.pop() ?? "";
-          addAll(texts, { reason: "input-change", event });
-          input.value = rest;
+          const { remaining } = addAll(texts, { reason: "input-change", event });
+          input.value = [...remaining, rest].join(delimiter);
         },
-        paste(event) {
+        paste(event, input) {
           const text = event.clipboardData?.getData("text");
           if (!options().addOnPaste || !text) return;
           event.preventDefault();
           const delimiter = options().delimiter ?? ",";
-          addAll(delimiter ? text.split(delimiter) : [text], { reason: "input-change", event });
+          const { remaining } = addAll(delimiter ? text.split(delimiter) : [text], { reason: "input-change", event });
+          // Preserve the draft and insert refused text at the paste selection.
+          input.setRangeText(remaining.join(delimiter), input.selectionStart ?? input.value.length,
+            input.selectionEnd ?? input.value.length, "end");
         },
         focusout(event, input) {
           highlight(null);
@@ -390,7 +394,7 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
       on: {
         keydown: (event, { el, api }) => el && api.internal.keydown(event as KeyboardEvent, el as HTMLInputElement),
         input: (event, { el, api }) => el && api.internal.input(event as InputEvent, el as HTMLInputElement),
-        paste: (event, { api }) => api.internal.paste(event as ClipboardEvent),
+        paste: (event, { el, api }) => el && api.internal.paste(event as ClipboardEvent, el as HTMLInputElement),
         focusout: (event, { el, api }) => el && api.internal.focusout(event as FocusEvent, el as HTMLInputElement),
       },
     }),

@@ -16,8 +16,7 @@ async function loadApp(options: { prefix?: string }) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-kit-nuxt-"));
   roots.push(root);
   await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n");
-  // SAFETY: `KitNuxtModule` keeps @nuxt/schema out of the public declarations. Nuxt takes the module as it is.
-  return loadNuxt({ cwd: root, overrides: { dev: false, modules: [[kit as never, options]] }, ready: true });
+  return loadNuxt({ cwd: root, overrides: { dev: false, modules: [[kit, options]] }, ready: true });
 }
 
 describe("@vite-hub/kit Nuxt module", () => {

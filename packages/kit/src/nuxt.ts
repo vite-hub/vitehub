@@ -1,4 +1,5 @@
 import { addComponent, defineNuxtModule, installModule } from "@nuxt/kit";
+import type { ModuleSetupReturn } from "@nuxt/schema";
 import uiSdk from "@ui-sdk/vue/nuxt";
 
 import { ownEntries } from "./parts/own-entries.ts";
@@ -8,9 +9,28 @@ export interface KitNuxtOptions {
   prefix?: string;
 }
 
-export interface KitNuxtModule {
-  (inlineOptions: KitNuxtOptions, nuxt: never): unknown;
-  getMeta?: () => Promise<Record<string, unknown>>;
+// Nuxt stable and nightly carry different instance types. A method signature keeps
+// the callable compatible with either while the implementation uses @nuxt/kit's types.
+export type KitNuxtModule = {
+  setup(inlineOptions: KitNuxtOptions, nuxt: object): ModuleSetupReturn;
+}["setup"] & { getMeta?: () => Promise<Record<string, unknown>> };
+
+declare module "@nuxt/schema" {
+  interface NuxtConfig {
+    viteHubKit?: KitNuxtOptions;
+  }
+  interface NuxtOptions {
+    viteHubKit?: KitNuxtOptions;
+  }
+}
+
+declare module "nuxt/schema" {
+  interface NuxtConfig {
+    viteHubKit?: KitNuxtOptions;
+  }
+  interface NuxtOptions {
+    viteHubKit?: KitNuxtOptions;
+  }
 }
 
 const uiSdkEntry = "@ui-sdk/vue/";
@@ -21,9 +41,9 @@ function toKitEntry(path: string): string {
 }
 
 /**
- * Auto-imports every part and helper of ui-sdk, and the parts the kit adds, in a Nuxt app. The ui-sdk Nuxt module
- * registers its own. This module registers the kit's parts and moves the import paths from `@ui-sdk/vue/<entry>` to
- * `@vite-hub/kit/<entry>`. The app installs `@vite-hub/kit`, and with pnpm it cannot resolve `@ui-sdk/vue`. The build still works, but the generated types of
+ * Auto-imports ui-sdk parts and helpers and the kit’s own parts in a Nuxt app.
+ * This module registers the kit parts and moves the import paths from `@ui-sdk/vue/<entry>` to `@vite-hub/kit/<entry>`. The app installs
+ * `@vite-hub/kit`, and with pnpm it cannot resolve `@ui-sdk/vue`. The build still works, but the generated types of
  * `.nuxt/components.d.ts` and `.nuxt/imports.d.ts` do not resolve, so every part and helper has the type `any`.
  */
 const kitNuxtModule: KitNuxtModule = defineNuxtModule<KitNuxtOptions>({
@@ -31,7 +51,6 @@ const kitNuxtModule: KitNuxtModule = defineNuxtModule<KitNuxtOptions>({
   defaults: { prefix: "" },
   async setup({ prefix = "" }, nuxt) {
     await installModule(uiSdk, { prefix }, nuxt);
-    // The parts the kit adds to ui-sdk's.
     for (const [entry, names] of Object.entries(ownEntries)) {
       for (const name of names) addComponent({ name: prefix + name, export: name, filePath: kitEntry + entry });
     }

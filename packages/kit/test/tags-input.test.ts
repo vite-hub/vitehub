@@ -57,6 +57,54 @@ describe("TagsInput", () => {
     expect(empty.defaultPrevented).toBe(false);
   });
 
+  it.each([false, true])("commits on Tab without canceling navigation (shift=%s)", async (shiftKey) => {
+    const tags = ref<string[]>([]);
+    const { input } = render(tags, { addOnTab: true });
+    await type(input, "vue");
+    const tab = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+    input.dispatchEvent(tab);
+    expect(tags.value).toEqual(["vue"]);
+    expect(input.value).toBe("");
+    expect(tab.defaultPrevented).toBe(false);
+  });
+
+  it.each([false, true])("keeps refused delimiter input (cancel=%s)", async (cancel) => {
+    const tags = ref(["vue"]);
+    const { input } = render(tags, cancel
+      ? { onValueChange: (_value: string[], details: { cancel: () => void }) => details.cancel() }
+      : { max: 1 });
+    await type(input, "nuxt,");
+    expect(tags.value).toEqual(["vue"]);
+    expect(input.value).toBe("nuxt,");
+  });
+
+  it.each([false, true])("keeps refused pasted text (cancel=%s)", async (cancel) => {
+    const tags = ref(["vue"]);
+    const { input } = render(tags, { addOnPaste: true, ...(cancel
+      ? { onValueChange: (_value: string[], details: { cancel: () => void }) => details.cancel() }
+      : { max: 1 }) });
+    const data = new DataTransfer();
+    data.setData("text", "nuxt,vite");
+    input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    expect(tags.value).toEqual(["vue"]);
+    expect(input.value).toBe("nuxt,vite");
+  });
+
+  it.each([false, true])("retains only refused entries in a partial batch (paste=%s)", async (paste) => {
+    const tags = ref<string[]>([]);
+    const { input } = render(tags, { max: 1, addOnPaste: true });
+    if (paste) {
+      const data = new DataTransfer();
+      data.setData("text", "vue,nuxt,vite");
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    } else {
+      input.value = "vue,nuxt,vite,";
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    }
+    expect(tags.value).toEqual(["vue"]);
+    expect(input.value).toBe(paste ? "nuxt,vite" : "nuxt,vite,");
+  });
+
   it("adds a tag when the delimiter is typed", async () => {
     const tags = ref<string[]>([]);
     const { input } = render(tags, { delimiter: ";" });
