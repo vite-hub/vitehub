@@ -13,7 +13,7 @@ export default defineMcpTool({
 })
 ```
 
-Turn it on with `vitehub({ mcp: true })`. User docs: [App MCP server](https://vitehub.dev/docs/development/app-mcp).
+Turn it on with `vitehub({ mcp: true })`. User docs: [MCP server](https://vitehub.dev/docs/mcp).
 
 ## Contract
 

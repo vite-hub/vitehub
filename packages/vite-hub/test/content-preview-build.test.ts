@@ -32,7 +32,7 @@ describe("Content preview in a built Nitro 3 app", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         nitro: { routeRules: cachedRouteRules, serverDir: join(root, "server") },
-        plugins: [nitro() as never, vitehub({ preset: "node" })],
+        plugins: [nitro() as never, vitehub({ host: "node" })],
         root,
       } as never)
       await builder.buildApp()
@@ -75,7 +75,7 @@ describe("Content preview in a built Nuxt app", () => {
           `export default defineNuxtConfig({`,
           `  compatibilityDate: "2026-10-01",`,
           `  devtools: { enabled: false },`,
-          `  modules: [[viteHubNuxt, { preset: "node" }]],`,
+          `  modules: [[viteHubNuxt, { host: "node" }]],`,
           `  routeRules: ${JSON.stringify({ ...cachedRouteRules, "/post": { swr: 60 }, "/old-post": { redirect: "/post" } })},`,
           `  telemetry: false,`,
           `})`,

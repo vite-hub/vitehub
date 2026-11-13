@@ -12,7 +12,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 | Output | Provider | Owner | Purpose |
 | --- | --- | --- | --- |
-| `deployment.json` | All built-in presets | `vite-hub` | Deployment identity and source, with host, runtime, output, and service contract. |
+| `deployment.json` | All built-in hosts | `vite-hub` | Deployment identity and source, with host, runtime, output, and service contract. |
 | Worker bundle | Cloudflare | Packages with Cloudflare output | Runs server and primitive code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state | Bindings, crons, durable objects, queues, Rate Limiting bindings, and other Worker config. |
 | Vercel Build Output | Vercel | Packages with Vercel output | Functions, static files, routes, and function config in `.vercel/output`. |
@@ -28,7 +28,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 Production builds write Provider Output. Vite dev writes only discovery and local generated files. Netlify local dev also writes package functions for the Netlify CLI.
 
-`vitehub inspect output` lists the files of the active packages and the preset, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+`vitehub inspect output` lists the files of the active packages and the host, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
 
 ```bash [Terminal]
 pnpm build
@@ -68,7 +68,7 @@ Nuxt writes generated Agent files to `<buildDir>/vitehub/agent` (usually `.nuxt/
 | Do | Avoid |
 | --- | --- |
 | Call `sendQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |
-| Import `useServerEnv()` from `#vitehub/env/server`. | Import `.vitehub/env/server.mjs` directly. |
+| Import `useServerEnv()` from `vite-hub/env`. | Import `.vitehub/env/server.mjs` directly. |
 | Inspect `.vercel/output` to debug a deploy. | Edit `.vercel/output` files as source. |
 
 ## Related

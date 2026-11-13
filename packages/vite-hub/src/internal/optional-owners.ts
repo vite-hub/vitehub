@@ -19,6 +19,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/browser"
     | "@vite-hub/channels"
     | "@vite-hub/cms"
+    | "@vite-hub/codemods"
     | "@vite-hub/comments"
     | "@vite-hub/connections"
     | "@vite-hub/content"
@@ -79,6 +80,8 @@ export const optionalFeaturePackages = {
   // `.template.md` imports and `vite-hub/markdown-template`.
   "markdown-template": ["@vite-hub/markdown-template"],
   "mcp": features.mcp.packages,
+  // `vitehub migrate` runs its codemods. Install it as a development dependency.
+  "migrate": ["@vite-hub/codemods"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
   "queue": features.queue.packages,
   "rateLimit": features.rateLimit.packages,

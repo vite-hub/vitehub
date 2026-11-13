@@ -8,114 +8,116 @@ icon: i-lucide-files
 ---
 
 ::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree{feature="blob"}
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
-      preset: 'node',
+  :hero-figure{name="blob"}
+::
+
+::code-tree{feature="blob"}
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    // On Node, files are saved in .vitehub/data/blob
+    blob: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
       // On Node, files are saved in .vitehub/data/blob
       blob: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      // On Node, files are saved in .vitehub/data/blob
+      blob: true,
+    }),
+  ],
+})
+```
+:::
+
+```ts [server/api/avatars.post.ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+// Check who may upload before this call
+export default defineEventHandler(async (event) => {
+  const [error, files] = await blob.handleUpload(
+    event,
+    {
+      formKey: 'files',
+      ensure: { maxSize: '8MB', types: ['image'] },
+      put: { prefix: 'avatars', addRandomSuffix: true },
     },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { nitro } from 'nitro/vite'
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+  )
+  if (error) throw error
+  return files
+})
+```
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        preset: 'node',
-        // On Node, files are saved in .vitehub/data/blob
-        blob: true,
-      }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+```vue [app/pages/upload.vue]
+<script setup lang="ts">
+import { useUpload } from 'vite-hub/blob/vue'
 
-  export default defineConfig({
-    plugins: [
-      vitehub({
-        preset: 'node',
-        // On Node, files are saved in .vitehub/data/blob
-        blob: true,
-      }),
-    ],
-  })
-  ```
-  ::::
+// Send one file to the upload route
+const upload = useUpload('/api/avatars', {
+  multiple: false,
+})
 
-  ```ts [server/api/avatars.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { blob } from 'vite-hub/blob'
+async function onChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = await upload(input)
+  console.log(file?.pathname)
+}
+</script>
 
-  // Check who may upload before this call
-  export default defineEventHandler(async (event) => {
-    const [error, files] = await blob.handleUpload(
-      event,
-      {
-        formKey: 'files',
-        ensure: { maxSize: '8MB', types: ['image'] },
-        put: { prefix: 'avatars', addRandomSuffix: true },
-      },
-    )
-    if (error) throw error
-    return files
-  })
-  ```
+<template>
+  <input
+    type="file"
+    accept="image/*"
+    @change="onChange"
+  >
+</template>
+```
 
-  ```vue [app/pages/upload.vue]
-  <script setup lang="ts">
-  import { useUpload } from 'vite-hub/blob/vue'
+```ts [server/api/notes.post.ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
 
-  // Send one file to the upload route
-  const upload = useUpload('/api/avatars', {
-    multiple: false,
-  })
-
-  async function onChange(event: Event) {
-    const input = event.target as HTMLInputElement
-    const file = await upload(input)
-    console.log(file?.pathname)
-  }
-  </script>
-
-  <template>
-    <input
-      type="file"
-      accept="image/*"
-      @change="onChange"
-    >
-  </template>
-  ```
-
-  ```ts [server/api/notes.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { blob } from 'vite-hub/blob'
-
-  // Save text as a file and return its details
-  export default defineEventHandler(async () => {
-    const [error, file] = await blob.put(
-      'notes/hello.txt',
-      'Hello from ViteHub',
-      { contentType: 'text/plain' },
-    )
-    if (error) throw error
-    return file
-  })
-  ```
-  :::
+// Save text as a file and return its details
+export default defineEventHandler(async () => {
+  const [error, file] = await blob.put(
+    'notes/hello.txt',
+    'Hello from ViteHub',
+    { contentType: 'text/plain' },
+  )
+  if (error) throw error
+  return file
+})
+```
 ::
 
 ::product-features

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { budgetParks, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
-import { dailyPassResumeAt } from '../src/babysitter/inbox/budgets.ts'
+import { dailyPassResumeAt, repairPushAllowance } from '../src/babysitter/inbox/budgets.ts'
 
 const repository = 'vite-hub/vitehub'
 const pr = (head = 'a') => ({ number: 7, state: 'open', head: { sha: head, ref: 'fix' }, base: { ref: 'main' } })
@@ -560,4 +560,35 @@ test('lists a daily budget park with the time it resumes', async t => {
   const resumeAt = Date.parse('2026-10-20T00:00:00Z')
   assert.ok(await inbox.finish(claim!, { text: 'Daily pass budget spent.', wait: { reason: 'daily-pass-budget', evidenceKey: 'k', retryAt: resumeAt } }))
   assert.deepEqual(budgetParks(await inbox.summary()), [{ repository, number: 7, budget: 'daily-pass-budget', reason: 'Daily pass budget spent.', resumeAt: '2026-10-20T00:00:00.000Z' }])
+})
+
+test('gives back a pass and its exemption that the provider failed', async t => {
+  let now = Date.parse('2026-10-20T00:00:00Z')
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { dailyPasses: 2 }, clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1)
+  const first = await inbox.recordModelPass(claim!)
+  now += 60_000
+  const failed = await inbox.recordModelPass(claim!, 'required-failure:a')
+  assert.ok(first && failed)
+  assert.ok(await inbox.releaseModelPass(claim!, failed, 'required-failure:a'))
+  assert.deepEqual((await inbox.get(repository, 7))?.dailyPassBudget, { passes: [first], exemptions: [] })
+  assert.equal(await inbox.releaseModelPass(claim!, failed, 'required-failure:a'), false)
+})
+
+test('lets a PR push past its daily push budget only for conflicts, priority and spaced CI repairs', () => {
+  const hour = 60 * 60_000
+  const now = 10 * 24 * hour
+  const five = [10, 8, 6, 4, 3].map(hours => now - hours * hour)
+  const state = { requiredChecks: 'passed', conflicted: false, priority: false, now }
+  assert.deepEqual(repairPushAllowance(five.slice(1), 5, state), { allowed: true, count: 4 })
+  assert.deepEqual(repairPushAllowance(five, 5, state), { allowed: false, count: 5, nextAt: five[0]! + 24 * hour })
+  assert.deepEqual(repairPushAllowance(five, 5, { ...state, conflicted: true }), { allowed: true, count: 5 })
+  assert.deepEqual(repairPushAllowance([...five, now - hour], 5, { ...state, requiredChecks: 'unknown', priority: true }), { allowed: true, count: 6 })
+  // Failing required checks still get one push every two hours.
+  assert.deepEqual(repairPushAllowance(five, 5, { ...state, requiredChecks: 'failed' }), { allowed: true, count: 5, spaced: true })
+  assert.deepEqual(repairPushAllowance([...five, now - hour], 5, { ...state, requiredChecks: 'failed' }), { allowed: false, count: 6, nextAt: now + hour })
+  // Pushes older than a day do not count.
+  assert.deepEqual(repairPushAllowance([now - 25 * hour, ...five.slice(1)], 5, state), { allowed: true, count: 4 })
 })

@@ -1,7 +1,7 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 import { withAuthorization } from "vite-hub/auth/server"
-import { useDatabase } from "vite-hub/database/drizzle"
+import { useDatabase } from "vite-hub/database"
 
 import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 

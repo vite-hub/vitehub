@@ -8,45 +8,47 @@ icon: i-lucide-inbox
 ---
 
 ::product-hero{tagline="Write the schema of a form. ViteHub checks each message, stores it, emails you, and shows it in the Console." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
-  :::code-tree
-  ```ts [shared/schemas.ts] fragment
-  import * as v from 'valibot'
+  :hero-figure{name="forms"}
+::
 
-  export const ContactSchema = v.object({
-    email: v.pipe(v.string(), v.email()),
-    message: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(5000)),
-  })
-  ```
+::code-tree
+```ts [shared/schemas.ts] fragment
+import * as v from 'valibot'
 
-  ```ts [server/forms/contact.ts] fragment
-  import { defineForm } from 'vite-hub/forms'
-  import { ContactSchema } from '../../shared/schemas'
+export const ContactSchema = v.object({
+  email: v.pipe(v.string(), v.email()),
+  message: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(5000)),
+})
+```
 
-  // One file is one form, at POST /api/_vitehub/forms/contact
-  export default defineForm({
-    schema: ContactSchema,
-    notify: { email: { to: 'you@example.com', replyTo: 'email' } },
-  })
-  ```
+```ts [server/forms/contact.ts] fragment
+import { defineForm } from 'vite-hub/forms'
+import { ContactSchema } from '../../shared/schemas'
 
-  ```vue [app/components/ContactForm.vue] fragment
-  <script setup lang="ts">
-  import { AutoForm } from 'vite-hub/forms/vue'
-  import { ContactSchema } from '../../shared/schemas'
-  </script>
+// One file is one form, at POST /api/_vitehub/forms/contact
+export default defineForm({
+  schema: ContactSchema,
+  notify: { email: { to: 'you@example.com', replyTo: 'email' } },
+})
+```
 
-  <!-- Labels, inputs, errors, and the honeypot from the same schema -->
-  <template>
-    <AutoForm name="contact" :schema="ContactSchema" />
-  </template>
-  ```
+```vue [app/components/ContactForm.vue] fragment
+<script setup lang="ts">
+import { AutoForm } from 'vite-hub/forms/vue'
+import { ContactSchema } from '../../shared/schemas'
+</script>
 
-  ```bash [terminal]
-  # Read and close messages from the terminal, or in the Console
-  vitehub forms list --status open
-  vitehub forms mark 3f2c... done
-  ```
-  :::
+<!-- Labels, inputs, errors, and the honeypot from the same schema -->
+<template>
+  <AutoForm name="contact" :schema="ContactSchema" />
+</template>
+```
+
+```bash [terminal]
+# Read and close messages from the terminal, or in the Console
+vitehub forms list --status open
+vitehub forms mark 3f2c... done
+```
 ::
 
 ## What you get

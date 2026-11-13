@@ -1,7 +1,6 @@
 import { existsSync, statSync } from "node:fs"
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { findPackageJSON } from "node:module";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import * as v from "valibot";
 
@@ -34,12 +33,6 @@ export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
 
 const resolvedConnectionsRegistryId = `\0${CONNECTIONS_REGISTRY_ID}`;
-/**
- * Nitro 2 matches `@vite-hub/connections` against the import name and the resolved path after its last
- * `node_modules/`. A linked package, such as a pnpm workspace package, resolves outside `node_modules`, so Nitro left
- * it to Node, and Node served the empty registry fallback instead of the generated registry alias.
- */
-const connectionsPackageRoot = `${dirname(findPackageJSON(import.meta.url)!)}${sep}`;
 const noExternalAddition = createNoExternalAddition("@vite-hub/connections");
 const generatedTypesPath = ".vitehub/types/connections.d.ts";
 /** The exact shape of `renderRegistryTypes()`, with or without its header, so cleanup never removes a file a developer edited. */
@@ -135,7 +128,7 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   };
   nitro: {
     name: string;
-    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
+    /** Nitro rebuilds its routing table from `options.handlers` when `routing.sync()` runs. */
     setup: (nitro: ConnectionsNitro) => void;
   };
 };
@@ -143,7 +136,7 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
 /** The parts of a Nitro instance that the management route reads and changes. */
 type ConnectionsNitro = {
   options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
-  routing?: { sync: () => void };
+  routing: { sync: () => void };
 };
 
 /** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
@@ -335,30 +328,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const nitro = v.parse(
         v.looseObject({
           alias: v.optional(v.record(v.string(), v.unknown()), {}),
-          externals: v.optional(
-            v.looseObject({
-              inline: v.optional(v.union([v.literal(true), v.array(v.unknown())]), []),
-            }),
-            {},
-          ),
         }),
         nitroInput ?? {},
       );
       const alias = nitro.alias;
-      const externals = nitro.externals;
-      const inline =
-        externals.inline === true
-          ? true
-          : [
-              ...new Set([
-                ...(Array.isArray(externals.inline) ? externals.inline : []),
-                "vite-hub",
-                "@vite-hub/connections",
-                connectionsPackageRoot,
-              ]),
-            ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };
-      nitro.externals = { ...externals, inline };
       if (environment.command === "serve") {
         // Node loads this package in `vite dev`, so a plugin hands it the generated registry.
         const registryPlugin = resolve(generatedDir, "registry-dev-plugin.ts");
@@ -410,7 +384,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing?.sync();
+            nitroInstance.routing.sync();
           }
           await writeManagementHandler(route);
         };

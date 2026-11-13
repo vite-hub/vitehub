@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const mcpErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/mcp/diagnostics",
   codes: {
     // `mcp.route` or `mcp.publicRoute` is not a path, or both are the same path.
     MCP_B0001: dynamicError,

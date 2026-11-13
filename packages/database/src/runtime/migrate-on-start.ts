@@ -182,7 +182,7 @@ export interface ShippedMigrations {
 }
 
 export interface EnsureMigrationsContext {
-  /** The `databases` of `@vite-hub/database/drizzle`. */
+  /** The internal Database registry of the app. */
   databases: Record<string, { db: unknown }>
   load: () => Promise<ShippedMigrations>
 }

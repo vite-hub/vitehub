@@ -38,7 +38,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING")
+  const explicit = readEnv(env, "VITEHUB_HOST")
   if (explicit) {
     return explicit
   }
@@ -117,7 +117,7 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async deleteIfEquals(key, expected) {
       return runKVOperation("deleteIfEquals", name, async (storage) => {
         if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })

@@ -76,7 +76,7 @@ Each request gets its own grant through `AsyncLocalStorage`, so parallel preview
 
 A generated Nitro plugin wraps Nitro's request entry. The whole request runs in the preview scope: route rules, middleware, cached routes, pages, and server routes. Requests without the cookie pass through. Your server code does not change.
 
-This works with the `vitehub()` Vite plugin and the `vite-hub/nuxt` module on Nitro 3, with no Nitro experimental flag. Nuxt `useFetch()` during SSR forwards the cookie, so the rendered page shows the draft too.
+Preview requires Nitro 3. This works with the `vitehub()` Vite plugin on Nitro 3 and the `vite-hub/nuxt` module on Nuxt 5, with no Nitro experimental flag. Nuxt `useFetch()` during SSR forwards the cookie, so the rendered page shows the draft too.
 
 Preview needs the host's `AsyncLocalStorage` request context. On Cloudflare Workers, turn on the `nodejs_als` compatibility flag in the Worker configuration. Without this API, ViteHub reports a configuration error before it serves requests.
 
@@ -105,7 +105,7 @@ A frame token reads the draft of its one document only:
 - A form that posts another document, or a token changed in any part, gets `403`. Frame tokens and preview cookie tokens are not interchangeable. Use `enable()` to preview the whole site.
 - Nested requests, such as `/api/content/**` during SSR, keep the frame scope. A preview cookie does not widen it.
 - Nothing is stored. The response is `private, no-store` and `noindex`, and skips Nitro's cache. In Nuxt, the page keeps its payload in the HTML, even with a `cache`, `swr`, or `isr` rule. A later `_payload.json` request cannot carry the form, so it would read `published`.
-- A form without a valid token, or with a cross-site `Sec-Fetch-Site` or `Origin`, gets `403`. `Origin` must match the page URL and protocol, which comes from `x-forwarded-proto` behind a proxy or from TLS. The parameter on a `GET` grants nothing. The token is in the form body, never the URL. A cross-site form is refused before its body is read. The body is at most 1 MiB. The plugin counts bytes as they arrive, ignores `Content-Length`, and answers `403` at the first byte over.
+- A form without a valid token, or with a cross-site `Sec-Fetch-Site` or `Origin`, gets `403`. `Origin` must match the page URL and protocol, which comes from `x-forwarded-proto` behind a proxy or from the Web request URL. The parameter on a `GET` grants nothing. The token is in the form body, never the URL. A cross-site form is refused before its body is read. The body is at most 1 MiB. The plugin counts bytes as they arrive, ignores `Content-Length`, and answers `403` at the first byte over.
 
 A `GET` of the page with `?vitehub-content-published` loads it as a guest sees it.
 
@@ -171,5 +171,33 @@ Nitro's cache skips preview requests. Cached handlers, `cache` or `swr` route ru
 ::warning
 A CDN or reverse proxy caches by URL and does not know the cookie. If it caches HTML, make it skip its cache for requests with the `vitehub-content-preview` cookie. Otherwise the previewer gets the cached published page. `private, no-store` stops a correct CDN from storing the draft response.
 ::
+
+## Branch, commit, and pull request previews
+
+A `github()` Source can show any allowed ref at a URL. Set `previews: true`:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { github } from 'vite-hub/source'
+
+export default defineContent({
+  sources: { docs: github({ repo: 'acme/docs', ref: 'main' }) },
+  previews: true,
+})
+```
+
+| URL | Reads |
+| --- | --- |
+| `/tree/feat/x/-/docs/kv` | The latest commit of the branch `feat/x`. The part `-` ends the branch name. |
+| `/blob/<sha>/docs/kv` | One commit, by its full 40-character SHA. |
+| `/pr/12/docs/kv` | The head commit of pull request 12. |
+
+The page runs at `/docs/kv` through your real routes, and every read of the Source returns the commit of the ref. Internal links in the Comark tree get the prefix, so `/docs/next` becomes `/pr/12/docs/next`. `content.sources.current()` tells a page that it is a preview: `{ ref, kind, sha, pull, prefix, path, url }`, where `url` is the production URL.
+
+Content asks `content.sources.allow()` first. A ref that it denies gets your app's own 404, the same answer as for any unknown path. The draft branch of the CMS, its publish branches, and fork pull requests without the `preview:enabled` label need the preview cookie or a link from `content.sources.sign()`.
+
+A preview response has `X-Robots-Tag: noindex` and a canonical `Link` header to the production URL. Its `Cache-Control` is `private, no-store` for the cookie or a signed link, `immutable` for a `/blob` commit in the published history, and one minute for other refs. These are upper bounds: shorter application `max-age` and `s-maxage` values and revalidation directives stay in place. A response with its own cache policy does not become immutable only because the Source commit is published. A response that your route marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. Nitro's cache skips preview requests. A ref that a signed link opened keeps the link token on its internal links and redirects.
+
+In Nuxt, the client router does not know the prefix yet. A page that reads its route on the client sees the preview URL after hydration.
 
 See [Limits and errors](/docs/content/limits-and-errors) for every Content error code.

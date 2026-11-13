@@ -1,15 +1,10 @@
-import { IncomingMessage, ServerResponse } from "node:http"
-import { Socket } from "node:net"
-
 import { H3Event } from "h3"
-import { createEvent } from "h3-v1"
 import { Request as MiniflareRequest } from "miniflare"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { runWithActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 
 import { getRuntimeContext, installStandardContext } from "../src/runtime/h3.ts"
-import type { ViteHubContext } from "../src/runtime/h3.ts"
 
 const url = "https://example.test/path"
 
@@ -27,10 +22,6 @@ function hostEvent<T extends object>(fields: T, request: Request = new Request(u
   return event
 }
 
-function nodeRequest(fields: object = {}): IncomingMessage {
-  return Object.assign(new IncomingMessage(new Socket()), { headers: { host: "example.test" }, method: "GET", url: "/path" }, fields)
-}
-
 function spoofed(req: unknown) {
   return { context: {}, req, res: { headers: new Headers() } }
 }
@@ -39,7 +30,6 @@ describe("H3 Runtime Context", () => {
   const env = { BUCKET: "request bucket" }
   const response = () => ({ headers: new Headers() })
   const request = (owner: object = {}) => Object.assign(new Request(url), owner)
-  const node = (req: IncomingMessage) => ({ req, res: new ServerResponse(req) })
   const shapes = [
     (owner: object) => ({ context: {}, env, ...owner, req: request(), res: response() }),
     (owner: object) => ({ context: { ...owner, cloudflare: { env } }, req: request(), res: response() }),
@@ -50,9 +40,6 @@ describe("H3 Runtime Context", () => {
     (owner: object) => ({ context: {}, req: request({ ...owner, runtime: { cloudflare: { env } } }), res: response() }),
     (owner: object) => ({ context: {}, req: request({ runtime: { cloudflare: { env, ...owner } } }), res: response() }),
     (owner: object) => ({ context: {}, req: request({ runtime: { cloudflare: { env, context: owner } } }), res: response() }),
-    (owner: object) => ({ context: {}, node: node(nodeRequest({ ...owner, runtime: { cloudflare: { env } } })) }),
-    (owner: object) => ({ context: {}, node: node(nodeRequest({ runtime: { cloudflare: { env, ...owner } } })) }),
-    (owner: object) => ({ context: {}, node: node(nodeRequest({ runtime: { cloudflare: { env, context: owner } } })) }),
   ]
 
   it.each(shapes)("normalizes host bindings and preserves the waitUntil receiver %#", async shape => {
@@ -74,21 +61,12 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
-  it("accepts H3 1 and H3 2 events", async () => {
+  it("accepts H3 2 events", async () => {
     const request = new Request("https://example.test")
-    const modern = new H3Event(request)
-    const nodeRequest = new IncomingMessage(new Socket())
-    const classic = createEvent(nodeRequest, new ServerResponse(nodeRequest))
-    const modernContext = getRuntimeContext(modern)
-    // SAFETY: The test imports H3 1 as `h3-v1`, which the `h3` module augmentation does not reach. Apps import it as `h3`.
-    const classicContext = getRuntimeContext(classic as typeof classic & ViteHubContext)
-    expect(modernContext.request).toBe(request)
-    expect(classicContext.event).toBe(classic)
-    expect(classicContext.request).toBeInstanceOf(Request)
-    expectTypeOf(modernContext).toExtend<AgentRuntimeContext>()
-    expectTypeOf(classicContext).toExtend<AgentRuntimeContext>()
-    await modernContext.flushWaitUntil()
-    await classicContext.flushWaitUntil()
+    const context = getRuntimeContext(new H3Event(request))
+    expect(context.request).toBe(request)
+    expectTypeOf(context).toExtend<AgentRuntimeContext>()
+    await context.flushWaitUntil()
   })
 
   it("rejects an event without a request", () => {
@@ -247,32 +225,5 @@ describe("Standard Context for H3 events", () => {
     const event = { "~standard": standard }
     installStandardContext(event)
     expect(event["~standard"]).toBe(standard)
-  })
-
-  it("maps an H3 1 event and builds its Request on first read", async () => {
-    const req = nodeRequest({ method: "POST", url: "/upload", headers: { "content-type": "text/plain", host: "example.test" } })
-    const res = new ServerResponse(req)
-    const event = createEvent(req, res)
-    installStandardContext(event)
-    const standard = event["~standard"]
-    queueMicrotask(() => {
-      req.push("payload")
-      req.push(null)
-    })
-
-    expect(standard.vendor).toBe("h3")
-    expect(standard.req).toBe(standard.req)
-    expect(standard.req.url).toBe("http://example.test/upload")
-    expect(await standard.req.text()).toBe("payload")
-
-    standard.res.status = 202
-    standard.res.headers?.set("x-test", "yes")
-    standard.res.headers?.append("set-cookie", "a=1")
-    standard.res.headers?.append("set-cookie", "b=2")
-    expect(res.statusCode).toBe(202)
-    expect(res.getHeader("x-test")).toBe("yes")
-    expect(standard.res.headers?.getSetCookie()).toEqual(["a=1", "b=2"])
-    standard.res.headers?.delete("x-test")
-    expect(res.hasHeader("x-test")).toBe(false)
   })
 })

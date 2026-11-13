@@ -18,7 +18,7 @@ import ConsoleSearch from "./console-search.vue";
 import type { ConsoleMediaFile } from "../client/media-library";
 
 /**
- * The Blob section: one Blob Store in the media browser of Content, with its raw metadata next to it. Upload and delete run the `blob.put` and `blob.del` operations. The
+ * The Blob section: one Blob Store in the media browser of Content, with its raw metadata next to it. Upload and delete run the `blob.put` and `blob.delete` operations. The
  * store, the folder, the open object, the search, the type filter, and "Show ViteHub files" live in the URL, so a link opens the same view.
  */
 const props = defineProps<{

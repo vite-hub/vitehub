@@ -1,7 +1,7 @@
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
-import { console } from "../../server.ts"
+import { agentConsole } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessInvoker, readConsoleAccessUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError } from "./request.ts"
@@ -49,7 +49,7 @@ export async function replayConsoleChannel(
   const runtime = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
     ...(invoker ? { invoker } : {}),
-    capabilities: { ...await getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console: agentConsole },
     memo: memo(),
     ...(context.request ? { request: context.request } : {}),
     runtime: "unknown" as const,

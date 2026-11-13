@@ -103,7 +103,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-See [AI gateways](../../docs/content/docs/agents/ai-gateways.md).
+See [AI gateways](../../docs/content/docs/gateways/index.md).
 
 ## Direct invocations
 
@@ -145,7 +145,7 @@ To run Codex on a user's ChatGPT plan, set `driver: codexDriver({ gateway: chatg
 
 Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, including approval-required provider actions. The factory options expose shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options. Only these factories import the provider runtime, so an app that does not call one does not bundle it. A string such as `driver: "codex"` or a plain `{ kind: "codex" }` object fails with `AGENT_R0490` or `AGENT_R0492`.
 
-Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
+Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/gateways/index.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
 The Agent reads the Codex `auth.json` from a Server Env secret:
 
@@ -173,7 +173,7 @@ export default defineConfig({
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";
 import { file } from "@vite-hub/workspace";
-import { loadServerEnv } from "#vitehub/env/server";
+import { loadServerEnv } from "@vite-hub/env";
 
 export default defineAgent({
   driver: codexDriver({
@@ -207,7 +207,12 @@ Journaled Invocations require a successful cancellation-state read before execut
 
 Hosts can persist external delivery evidence with `await invocations.appendObservation(invocationId, event, { id: deliveryId })`. The stable observation ID makes retries idempotent. The store assigns the sequence atomically, including for completed, failed, or cancelled Invocations, without changing lifecycle state or taking the running Agent's claim. The configured content policy still applies. Appends return the persisted record, return `undefined` when the Invocation does not exist, and throw if storage fails or the observation capacity prevents an append. Retain the same ID when retrying an ambiguous storage failure. Use one store instance per SQLite connection so its write queue serializes concurrent append calls.
 
-`permissions` accepts `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"` and defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly when provider actions should run without approval. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider-backed invocations accept live input through invocation input mode `"steer"` when the provider adds the input to its active turn. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills. A Provider Driver writes Agent-owned Skills and the colocated `instructions.md` into its working directory or Sandbox Home for each Invocation. ViteHub does not store them as Workspace Sources for a Provider Driver, so an owned Workspace does not materialize them on every Invocation.
+`permissions` accepts `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"` and defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly when provider actions should run without approval. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider-backed invocations accept live input through invocation input mode `"steer"` when the provider adds the input to its active turn. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills. A Provider Driver writes the colocated `instructions.md` into its working directory or Sandbox Home for each Invocation. ViteHub does not store Agent-owned Skills or instructions as Workspace Sources for a Provider Driver, so an owned Workspace does not materialize them on every Invocation.
+
+A Provider Driver never writes Skills into its working directory. For each Invocation, it writes Agent-owned Skills to one private folder outside the checkout. It also links the Workspace Skills that the provider cannot read in its working directory: Skills under another provider's skill root, and Skills of the outer Workspace root when the provider runs in a nested pull request checkout. Codex loads the folder as an extra skill root. Claude Code reads it through `--add-dir`. The folder is removed when the Invocation ends. In a Sandbox, the Driver writes these Skills to the one Home skill root that the provider reads: `.agents/skills` for Codex, `.claude/skills` for Claude Code. With `launch`, the provider host must see the temporary directory of the ViteHub host (`os.tmpdir()`) at the same path, because the folder is there.
+
+> [!WARNING]
+> Breaking change: Skills no longer appear at `<cwd>/.agents/skills`, `<cwd>/.codex/skills`, or `<cwd>/.claude/skills`, and the Driver no longer copies a Skill between those roots. A pull request checkout keeps only its own files. Do not read Skill files from the checkout in prompts or launch wrappers. Codex needs `skills/extraRoots/set` in `codex app-server`. Codex 0.153.4 and 0.167.0 support it.
 
 ## Invocation budgets
 
@@ -490,6 +495,10 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 
 A store that connects on first use can implement `open()`. The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`. Concurrent callers share the underlying open, even after a wait times out. Only a rejected open is retried. `createLibsqlAgentInvocationStore()` implements it with its table setup.
 
+## Imported sessions
+
+`@vite-hub/agent/sessions` reads Codex (`readCodexSession()`) and Claude Code (`readClaudeCodeSession()`) session files into one provider-neutral `AgentSession`: prompt, steps, usage, model, and status. Steps are messages with a `commentary`, `reasoning`, or `final` phase, and tool calls with input, output, exit code, duration, and file changes as unified diff hunks. Commands use the Console's `command_execution` shape and file edits its `fileChange` shape. `importAgentSession(store, session, { agentName, runId })` writes the session to an Agent Invocation store as a finished Invocation with the session's own timestamps and the id `agentInvocationId(runId, agentName)`. A second import of the same run replaces the record. `agentSessionInvocation()` returns the record without writing it. See [Import a session that ran elsewhere](../../docs/content/docs/agents/invocations.md#import-a-session-that-ran-elsewhere).
+
 ## Invocation cancel
 
 `invocations.cancel(id)` records `cancelRequestedAt` on a pending or running Invocation and returns an `AgentInvocationCancelResult`. A run in the same process aborts its Invocation abort signal at once. The `requested` outcome confirms a recorded or locally sent request, not that execution stopped. If the journal record is missing but a local run received the request, the result still reports `requested` with `delivery: "local"` and any Driver warning. Before setup, active runs check the flag. With `enforcement: "strict"`, a rejected or missing read, or a check that exceeds `storeTimeoutMs`, fails startup with `AGENT_R0973`; in best-effort mode the run starts and reads the flag again at the next poll. After startup, active runs read the flag every 10 seconds, including after a lost lease stops claim renewal. Orphaned records remain pending or running until an execution owner recovers and observes the request. Cancellation does not take over expired leases or recover orphaned work. Read the final journal status to confirm cancellation. Model-backed and provider-backed Drivers stop on cancel. Cancellation before Driver dispatch stops startup without a warning. `cancelWarningPending` and its `cancelWarningOwnerId` are persisted when a custom Driver record is created and identifies dispatch that is not yet verified; warning writes retry after dispatch. A remote caller waits up to five seconds to verify a pending state, then throws `AGENT_R0974` if verification fails, while keeping the recorded request. A custom `run` Driver that has started receives the aborted signal but ViteHub cannot stop it, so the result reports `notEnforcedBy: "run"` and the record stays `running`. A terminal journal does not prove every stale local Driver stopped; cancelling it still signals local runs and returns durable or local `notEnforcedBy` warnings without changing the terminal record. Durable warnings describe Driver enforcement and do not prove work is still active. Custom stores keep the new fields through `applyAgentInvocationStoreUpdate()`. `vitehub agent invocations cancel <id>` sends the same request into the Nitro runtime of a Vite + Nitro Development Server, so it reaches the application's own journal and abort handles. Nuxt and plain Vite return `501`. With `--url https://app.example.com`, the command sends the request to the Console route of the deployment instead, signed with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#cancel-an-invocation).
@@ -598,6 +607,8 @@ const changelogAgent = agentWithSkills(
 ```
 
 Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
+
+A discovered child Agent with its own `skills/` folder also keeps the colocated Skills of its parent. A child Skill folder replaces the parent folder with the same name, including its references.
 
 ### Presets from a package
 

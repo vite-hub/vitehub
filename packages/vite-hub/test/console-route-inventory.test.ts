@@ -53,7 +53,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       console: consoleOptions,
       database: true,
       kv: true,
-      preset: "node",
+      host: "node",
       schedule: { providerOutput: false },
       workflow: true,
     }),
@@ -105,6 +105,7 @@ const plugins = [
   "app/.vitehub/nitro/blob/plugin.ts",
   "app/.vitehub/nitro/comments/plugin.mjs",
   "app/.vitehub/nitro/console/plugin.mjs",
+  "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/dev-plugin.mjs",
@@ -113,6 +114,8 @@ const plugins = [
 const publicAssets = [
   // The public ViteHub skill of the installed `vite-hub` version, for `npx skills add <app>/_vitehub`. Static files.
   "/_vitehub/.well-known/skills console/public/skills",
+  // The Console link of the page tools pill. Comments added the session route and the loader first, so they stay.
+  "/_vitehub/console/assets console/page-tool",
   // The page tools loader and the Comments overlay script.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
   "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",

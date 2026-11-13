@@ -62,6 +62,7 @@ const runtimeEntries = [
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
   "src/task/operations.ts",
+  "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
   "src/connections/agent.ts",
@@ -106,6 +107,7 @@ const runtimeEntries = [
   "src/console/runtime/client/route-query.ts",
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
+  "src/console/runtime/client/site-access.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
   "src/console/runtime/auth-operations.ts",
@@ -113,10 +115,12 @@ const runtimeEntries = [
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
+  "src/console/runtime/site-access.ts",
   "src/console/runtime/skills.ts",
   // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
   "src/console/runtime/server/access-policy.ts",
   "src/console/runtime/server/development.ts",
+  "src/console/runtime/server/page-tool.ts",
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
@@ -138,6 +142,9 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
+  // The page tools session route, and the Auth reader that the Console page tool loads with the first session request.
+  "src/console/runtime/server/page-auth.ts",
+  "src/console/runtime/server/page-session.ts",
 ];
 
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
@@ -156,6 +163,10 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
+        {
+          from: "src/console/runtime/components/console-lazy-views.ts",
+          to: "dist/console/runtime/components",
+        },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -266,6 +277,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-kv.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-site.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -532,6 +547,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/route-query"];
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
+          delete exports["./console/runtime/client/site-access"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/auth-operations"];
@@ -539,6 +555,7 @@ export default defineConfig({
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
+          delete exports["./console/runtime/site-access"];
           delete exports["./console/runtime/skills"];
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
@@ -563,6 +580,9 @@ export default defineConfig({
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
+          delete exports["./console/runtime/server/page-auth"];
+          delete exports["./console/runtime/server/page-session"];
+          delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sections.get"];
@@ -573,6 +593,7 @@ export default defineConfig({
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
           delete exports["./task/operations"];
+          delete exports["./durability/operations"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];
@@ -627,6 +648,27 @@ export default defineConfig({
         },
       },
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
+    },
+    {
+      // The page tools loader at `/_vitehub/page/assets/loader.js`, for an app with the Console and no Comments. It has its
+      // own build, so it shares no chunk with the server code.
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page/loader": "src/page/loader.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      tsconfig: "tsconfig.build.json",
+    },
+    {
+      // The Console segment of the page tools pill, at `/_vitehub/console/assets/page-tool.js` (see src/page/console.ts).
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page-tool/page-tool": "src/page/console.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      tsconfig: "tsconfig.build.json",
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).

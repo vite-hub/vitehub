@@ -176,19 +176,23 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
 
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
+    `import { createDatabaseBindingLookup } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/agent")))}`,
+    `import { ensureDatabaseMigrations } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/migrate-on-start")))}`,
     "",
     ...schemaImports,
     "export const databases = {",
     ...databaseEntries,
     "}",
-    "export function useDatabase(name) { return databases[name] }",
+    "export function useDatabase(name) {",
+    "  if (!Object.hasOwn(databases, name)) throw new Error(`The database \"${name}\" is not configured.`)",
+    "  return databases[name]",
+    "}",
+    "export const useDatabaseBinding = createDatabaseBindingLookup(databases)",
+    "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: async () => ({ allowDataLoss: false, databases: {}, unsupported: 'Hosted test output does not ship migrations.' }) }, name === undefined ? undefined : [name]) }",
     "",
-    ...(config.databaseNames.includes("default")
-      ? [
-          "export const db = databases.default.db",
-          "export const schema = databases.default.schema",
-        ]
-      : []),
+    // The Database root re-exports `db` and `schema`, so the registry has them also without a default Database.
+    "export const db = databases.default?.db ?? new Proxy({}, { get() { throw new Error('The database \"default\" is not configured.') } })",
+    "export const schema = databases.default?.schema ?? {}",
     "",
   ].join("\n")
 }
@@ -236,7 +240,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
       "const disabled = async () => { throw new Error('[vitehub] `@vite-hub/kv` runtime is disabled.') }",
       "export const kv = {",
       "  clear: disabled,",
-      "  del: disabled,",
+      "  delete: disabled,",
       "  get: disabled,",
       "  has: disabled,",
       "  keys: disabled,",
@@ -277,7 +281,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
       : "const storage = createStorage({ driver: createDriver(resolvedKvConfig.store) })",
     "export const kv = {",
     "  async clear(base, options) { return kvResult(\"clear\", \"default\", async () => { await storage.clear(base, options) }) },",
-    "  async del(key, options) { return kvResult(\"del\", \"default\", async () => { await storage.removeItem(key, options) }) },",
+    "  async delete(key, options) { return kvResult(\"delete\", \"default\", async () => { await storage.removeItem(key, options) }) },",
     "  async get(key, options) { return kvResult(\"get\", \"default\", () => storage.getItem(key, options)) },",
     "  async has(key, options) { return kvResult(\"has\", \"default\", () => storage.hasItem(key, options)) },",
     "  async keys(base, options) { return kvResult(\"keys\", \"default\", () => storage.getKeys(base, options)) },",
@@ -736,7 +740,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (options.db) {
     const dbRuntimeFile = resolve(generatedDir, "database-runtime.mjs")
-    alias["@vite-hub/database/drizzle"] = dbRuntimeFile
+    alias["@vite-hub/database/runtime/registry"] = dbRuntimeFile
     runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 
@@ -757,7 +761,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(
       writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"),
-      writeFile(kvViteRuntimeGuardFile, "export const hubKv = () => { throw new Error('[vitehub] `@vite-hub/kv/vite` is config-only.') }\n", "utf8"),
+      writeFile(kvViteRuntimeGuardFile, "export const hubKV = () => { throw new Error('[vitehub] `@vite-hub/kv/vite` is config-only.') }\n", "utf8"),
     )
   }
 

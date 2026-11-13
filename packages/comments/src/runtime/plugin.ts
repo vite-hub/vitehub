@@ -1,6 +1,7 @@
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { installRequestStandardContext } from "@vite-hub/runtime"
 
+import { commentsPassGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
 import { runtimeBuilds } from "../installed.ts"
@@ -97,6 +98,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
+      grants: commentsPassGrants,
       async allowed({ request }) {
         // In a ViteHub app, the Request of the session route carries the Standard Context of the request.
         installRequestStandardContext(request)
