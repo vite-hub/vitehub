@@ -2973,9 +2973,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      h3-v1:
-        specifier: npm:h3@^1.15.11
-        version: h3@1.15.11
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3875,9 +3872,6 @@ importers:
       evalite:
         specifier: catalog:ai
         version: 1.0.0-beta.16(ai@7.0.130(zod@4.6.7))(better-sqlite3@12.9.0)
-      h3-v1:
-        specifier: npm:h3@^1.15.11
-        version: h3@1.15.11
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3

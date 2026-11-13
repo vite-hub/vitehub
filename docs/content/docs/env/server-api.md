@@ -25,7 +25,7 @@ icon: i-lucide-code-2
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
 | `resolveServerEnv`, and the registry forms of `loadServerEnv`, `describeServerEnv`, `inspectServerEnv` from `vite-hub/env/server` | Resolve, load, or inspect an explicit Server Env registry. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
+| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
 | `parseSchema` from `vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime

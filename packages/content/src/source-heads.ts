@@ -5,6 +5,7 @@ import type { GitHubPullRequest, GitHubRef, GitHubRefTarget, Source, SourceItem,
 import { contentHub } from "comark-content"
 import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
 import { formatDiagnostic } from "nostics"
+import type { Diagnostic } from "nostics"
 
 import { CommitMemory, commitKey, decodeCommit, encodeCommit, parserHash, withCommitDocuments } from "./commit-cache.ts"
 import { contentSource, contentSourceDefinition, createContentInstance } from "./content-source.ts"
@@ -38,16 +39,29 @@ export interface ContentSourceHead {
   movedAt: string | null
   /** True after `pin()`. `advance()` keeps the head until `unpin()`. */
   pinned: boolean
-  /** The newest commit that failed validation, and why. Null after the head moves past it. */
+  /** The newest commit that failed validation, and why. May remain as history after recovery; `diagnostic` says whether it still blocks the head. */
   rejected: { sha: string, at: string, reason: string } | null
   /** When Content last resolved the branch, as an ISO date. Content resolves it again after one hour without a push. */
   checkedAt: string | null
   /** The last GitHub push webhook delivery for this Source, or null when none arrived. */
   webhook: ContentSourceWebhookDelivery | null
+  /**
+   * Why the head does not follow the branch, with its fix: `CONTENT_R0020` (no token), `CONTENT_R0021` (no KV store),
+   * `CONTENT_R0035` (GitHub refused the last branch lookup of this server instance), or `CONTENT_R0019` (the newest
+   * commit failed validation). Null when the head follows the branch. `vitehub content head` prints it.
+   */
+  diagnostic: ContentSourceHeadDiagnostic | null
   /** How this server instance read commits of the Source: from memory, from ViteHub KV, or from a GitHub archive. */
   cache: ContentCommitCacheStats
   /** The commits of the Source that this server instance holds open for `at()`, the most recently used last. */
   views: string[]
+}
+
+/** A diagnostic of a head, as `head()` returns it. `vitehub content head --json` prints the same fields. */
+export interface ContentSourceHeadDiagnostic {
+  code: "CONTENT_R0019" | "CONTENT_R0020" | "CONTENT_R0021" | "CONTENT_R0035"
+  message: string
+  fix: string
 }
 
 /** One GitHub push webhook delivery that matched a Source. */
@@ -140,6 +154,8 @@ interface StoredHead {
   movedAt: string | null
   pinned: boolean
   rejected: ContentSourceHead["rejected"]
+  /** True after a valid pin or a lookup confirms the serving commit. Older heads infer recovery from `movedAt`. */
+  rejectionResolved?: boolean
   /** The check time in heads stored before polling metadata moved to its own key. */
   checkedAt?: string | null
 }
@@ -167,6 +183,10 @@ interface HeadState {
   instance?: ComarkContent
   /** Whether the Source has a token and the app a KV store. Checked once per server instance. */
   live?: Promise<boolean>
+  /** `CONTENT_R0020` or `CONTENT_R0021` when the Source is not live. */
+  offline?: ContentSourceHeadDiagnostic
+  /** `CONTENT_R0035` when the last branch lookup of this server instance got no commit from GitHub. */
+  limited?: ContentSourceHeadDiagnostic
   /** The head read from KV, held in memory until `at + HOLD_MS`. */
   held?: { head: StoredHead | null, at: number }
   reading?: Promise<StoredHead | null>
@@ -266,6 +286,12 @@ const kvFailures = new WeakSet<object>()
 
 type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
 
+/** The fields of a diagnostic that `head()` returns. `warn` also logs it. */
+function diagnosticOf(code: ContentSourceHeadDiagnostic["code"], error: Diagnostic<unknown>, warn = false): ContentSourceHeadDiagnostic {
+  if (warn) console.warn(formatDiagnostic(error))
+  return { code, message: error.message, fix: error.fix ?? "" }
+}
+
 function isKVFailure(error: unknown): error is KVFailure {
   return error instanceof Error && kvFailures.has(error)
 }
@@ -290,10 +316,10 @@ interface ContentSourceHeadsRuntime {
   deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
 }
 
-const runtimes = new WeakMap<ContentSourceHeads, ContentSourceHeadsRuntime>()
+const runtimes = new WeakMap<object, ContentSourceHeadsRuntime>()
 
-/** The runtime behind `content.sources`, for the push webhook route. */
-export function contentSourceHeadsRuntime(api: ContentSourceHeads): ContentSourceHeadsRuntime | undefined {
+/** The runtime behind `content.sources`, for the push webhook route and the Content operations. */
+export function contentSourceHeadsRuntime(api: object): ContentSourceHeadsRuntime | undefined {
   return runtimes.get(api)
 }
 
@@ -328,9 +354,9 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   async function isLive(state: HeadState): Promise<boolean> {
     state.live ??= state.definition.authenticated().then((authenticated) => {
-      if (!authenticated) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0020({ source: state.name })))
-      else if (!contentKV()) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0021({ source: state.name })))
-      return authenticated && Boolean(contentKV())
+      if (!authenticated) state.offline = diagnosticOf("CONTENT_R0020", contentErrorDiagnostics.CONTENT_R0020({ source: state.name }), true)
+      else if (!contentKV()) state.offline = diagnosticOf("CONTENT_R0021", contentErrorDiagnostics.CONTENT_R0021({ source: state.name }), true)
+      return !state.offline
     })
     return await state.live
   }
@@ -508,10 +534,17 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     // A fresh reader resolves the branch, not the head that the instance reads.
     const revision = await createSource(state.definition).revision()
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
-    if (!revision?.immutable) return before
+    if (!revision?.immutable) {
+      // Log once until a lookup succeeds again.
+      state.limited ??= diagnosticOf("CONTENT_R0035", contentErrorDiagnostics.CONTENT_R0035({ source: state.name, head: before?.sha ?? null }), true)
+      return before
+    }
+    state.limited = undefined
     if (revision.id === before?.sha) {
       const latest = await read(state)
-      if (!recheck || JSON.stringify(latest) !== JSON.stringify(before)) return latest
+      if (!before || JSON.stringify(latest) !== JSON.stringify(before)) return latest
+      if (activeRejection(before)) await write(state, { ...before, rejectionResolved: true })
+      else if (!recheck) return latest
       await checked(state)
       // A pin or webhook may have completed during the branch lookup. A check never restores the old head.
       return await read(state)
@@ -519,7 +552,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const reason = await check(state, revision)
     const now = new Date().toISOString()
     const next: StoredHead = reason
-      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason } }
+      ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, rejectionResolved: false }
       : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null }
     // Best-effort conflict detection only. KV is not CAS: callers must serialize initialization and mutations through one writer.
     const latest = await read(state)
@@ -531,9 +564,10 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   function hold(state: HeadState, head: StoredHead | null): void {
     state.held = { head, at: Date.now() }
-    if (!head?.rejected || state.reported.has(head.rejected.sha)) return
-    state.reported.add(head.rejected.sha)
-    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: head.rejected.sha, reason: head.rejected.reason, head: head.sha })))
+    const rejected = activeRejection(head)
+    if (!rejected || state.reported.has(rejected.sha)) return
+    state.reported.add(rejected.sha)
+    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null })))
   }
 
   /**
@@ -628,6 +662,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       rejected: head?.rejected ?? null,
       checkedAt: live && head ? await lastCheck(state, head) : null,
       webhook: await lastDelivery(state),
+      diagnostic: diagnostic(state, head, live),
       cache: { key: live && head?.sha ? commitKey(await hashOf(state), head.sha, state.name) : null, hits: { memory: memoryHits, kv: kvHits }, misses },
       views: [...views.values()].filter(open => open.state === state).map(open => open.sha),
     }
@@ -760,6 +795,20 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     }
   }
 
+  function activeRejection(head: StoredHead | null): ContentSourceHead["rejected"] {
+    if (!head?.rejected) return null
+    const resolved = head.rejectionResolved ?? Boolean(head.movedAt && head.rejected.at < head.movedAt)
+    return resolved ? null : head.rejected
+  }
+
+  function diagnostic(state: HeadState, head: StoredHead | null, live: boolean): ContentSourceHeadDiagnostic | null {
+    if (!live) return state.offline ?? null
+    if (state.limited) return state.limited
+    const rejected = activeRejection(head)
+    if (rejected) return diagnosticOf("CONTENT_R0019", contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null }))
+    return null
+  }
+
   /** Resolve the head before a serving operation, including reads satisfied by a parsed index. */
   async function sync(state: HeadState): Promise<void> {
     if (!await isLive(state)) return
@@ -809,7 +858,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })
-      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null }
+      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null, rejectionResolved: true }
       await write(state, head)
       hold(state, head)
       await serve(state, head)

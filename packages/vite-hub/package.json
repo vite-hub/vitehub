@@ -1091,7 +1091,6 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
     "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
