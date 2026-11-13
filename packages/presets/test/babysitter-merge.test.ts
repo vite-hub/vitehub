@@ -61,6 +61,29 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "failed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
   });
 
+  it("needs an assessment of a P0 or P1 bot finding after the budget, until twice the budget", () => {
+    const s = snapshot();
+    s.reviews.bot = { id: 5, state: "COMMENTED", commit_id: head, body: "**P1 · Class: lost MAIL_KEY.** The tuple form drops it.", user: { login: "pullfrog[bot]", type: "Bot" } };
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true })).toEqual({ ready: false, reason: "1 new feedback item needs assessment" });
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true, severeReviewSettled: true })).toEqual({ ready: true, head });
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true, assessedFeedback: new Set(feedbackFingerprints(s)) })).toEqual({ ready: true, head });
+    // A configured author stays ignored whatever its label.
+    s.reviews.bot.user = { login: "chatgpt-codex-connector[bot]", type: "Bot" };
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true, ignoreFeedbackAuthors: new Set(["chatgpt-codex-connector[bot]"]) })).toEqual({ ready: true, head });
+  });
+
+  it("waits for a person while a declined P0 or P1 thread is open", () => {
+    const s = snapshot();
+    s.threads = [{ id: "T1", node_id: "T1", isResolved: false, comments: [{ id: 7 }] }, { id: "T2", node_id: "T2", isResolved: false, comments: [{ id: 8 }] }];
+    const policy = { ignoreAssessedBotThreads: true, workerAuthors: new Set<string>() };
+    s.threads.forEach(thread => { thread.comments = [{ id: 7, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] });
+    expect(directMergeReadiness(s, "passed", policy)).toEqual({ ready: true, head });
+    expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1"]) })).toEqual({ ready: false, reason: "a person to resolve a review thread the worker declined although the reviewer labeled it P0 or P1" });
+    expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1", "T2"]) })).toEqual({ ready: false, reason: "a person to resolve 2 review threads the worker declined although the reviewer labeled them P0 or P1" });
+    s.threads[0]!.isResolved = true;
+    expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1"]) })).toEqual({ ready: true, head });
+  });
+
   it("does not wait for a running review once automated review is settled", () => {
     const s = snapshot();
     s.checks.review = { id: 6, name: "pullfrog", head_sha: head, status: "queued", app: { id: 9 } };

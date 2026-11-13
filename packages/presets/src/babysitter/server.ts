@@ -43,7 +43,7 @@ import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks, type GitHubRequiredCheckPolicy } from "../github/index.ts";
 import { directMergeReadiness, feedbackFingerprints, hasHumanComment, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
-import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
+import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, severeReviewSettled, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, checksTestedBase, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
@@ -118,6 +118,9 @@ export interface BabysitterRuntimeOptions {
   /** One kept workspace per open PR. Without it, each pass clones and installs into temporary directories. */
   workspaces?: PullRequestWorkspaces;
 }
+
+/** Inbox meta key of the review threads a worker declined while their reviewer labeled them P0 or P1. */
+const heldThreadsKey = (repository: string, number: number) => `held-review-threads:${repository}#${number}`;
 
 /** How long an external blocker waits before another pass. */
 const externalRetryMs = 2 * 60 * 60_000;
@@ -844,8 +847,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : undefined;
     const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : undefined;
     const assessedFeedback = new Set(isRuntimeRecord(assessment) && Array.isArray(assessment.feedback) ? assessment.feedback.filter(item => hasRuntimeType(item, "string")) : []);
+    const savedHeld = await pullRequestInbox.meta(heldThreadsKey(repository, number));
+    const heldThreads = new Set(Array.isArray(savedHeld) ? savedHeld.filter(item => hasRuntimeType(item, "string")) : []);
     const readiness = (checked: Snapshot, state: typeof evaluation.state, inheritedCheckIds: readonly number[]) => directMergeReadiness(checked, state, {
-      ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy), inheritedCheckIds: new Set(inheritedCheckIds) });
+      ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy),
+      severeReviewSettled: severeReviewSettled(snapshot, waitPolicy), heldThreads, inheritedCheckIds: new Set(inheritedCheckIds) });
     // Green PRs merge here without reaching the reviewed-head path that also marks drafts ready.
     if (!pending && snapshot.pr?.draft === true && evaluation.state !== "failed" && snapshot.pr.mergeable !== false
       && snapshot.pr.mergeable_state !== "dirty" && await markDraftReady(snapshot, owner, signal)) {
@@ -2301,11 +2307,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
                 const reopens = current.threadReopens?.[id] ?? 0;
-                await resolveThread(id, answer);
+                const resolution = await resolveThread(id, answer);
+                if (resolution.held) {
+                  const held = await pullRequestInbox.meta(heldThreadsKey(repository, number));
+                  await pullRequestInbox.setMeta(heldThreadsKey(repository, number), [...new Set([...Array.isArray(held) ? held.filter(item => hasRuntimeType(item, "string")) : [], id])].slice(-100));
+                  return resolution;
+                }
                 await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
                 // Record only a successful, PR-owned resolution. New comments
                 // remain in the evidence hash; any external reopen revokes it.
                 ownedResolutions.set(id, reopens);
+                return resolution;
               });
               const baseSettings = agentSettings(baseAgent);
               const driver = baseSettings?.driver;

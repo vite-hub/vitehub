@@ -10,6 +10,7 @@ import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./me
 import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
+import { reviewerLabeledSevere } from "../github/index.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
@@ -60,6 +61,14 @@ export function reviewPushBudgetSpent(s: Pick<Snapshot, "reviewPushBudget">, pol
   return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= policy.reviewPushBudget;
 }
 
+/**
+ * The PR made twice `reviewPushBudget` review-driven pushes. Until then, a bot finding that its reviewer
+ * labeled P0 or P1 still starts a pass and needs an assessment after the budget is spent.
+ */
+export function severeReviewSettled(s: Pick<Snapshot, "reviewPushBudget">, policy: Pick<BabysitterWaitPolicy, "reviewPushBudget">): boolean {
+  return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= 2 * policy.reviewPushBudget;
+}
+
 function login(value: GitHubEvidence): string {
   const user: unknown = value.user ?? value.author;
   return isRuntimeRecord(user) && hasRuntimeType(user.login, "string") ? user.login.toLowerCase() : "";
@@ -94,9 +103,11 @@ function withoutFindings(review: GitHubEvidence, policy: ContextPolicy): boolean
 /** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
 function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
   const pr = s.pr;
-  // After the review push budget is spent, bot feedback is not repair work, even a request for changes.
+  // After the review push budget is spent, bot feedback is not repair work, even a request for changes,
+  // unless its reviewer labeled it P0 or P1 and the PR has not spent the budget twice.
   const settled = reviewPushBudgetSpent(s, policy);
-  const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value)
+  const severeSettled = severeReviewSettled(s, policy);
+  const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value) && (severeSettled || !reviewerLabeledSevere(value.body))
     || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (hasGitHubLogin(policy.workerAuthors, login(value)) || hasGitHubLogin(policy.ignoreFeedbackAuthors, login(value)));
   const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
   const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
@@ -223,7 +234,7 @@ export function reviewPushBudgetWork(s: Snapshot, policy: BabysitterWaitPolicy, 
   const work: string[] = [];
   if (conflicted(s)) work.push("merge-conflict");
   if (repairFailureKeys(s, policy).length) work.push("failed-check");
-  if (feedbackFingerprints(s, { ...policy, automatedReviewSettled: true }).some(id => !assessedFeedback.has(id))) work.push("feedback");
+  if (feedbackFingerprints(s, { ...policy, automatedReviewSettled: true, severeReviewSettled: severeReviewSettled(s, policy) }).some(id => !assessedFeedback.has(id))) work.push("feedback");
   if (s.threads.some(thread => thread.isResolved !== true && hasHumanComment(thread, policy.workerAuthors))) work.push("unresolved-thread");
   const head = s.pr?.head?.sha;
   if (head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
