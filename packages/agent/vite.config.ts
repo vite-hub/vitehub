@@ -61,6 +61,7 @@ export default defineConfig({
     entry: [
       "src/capabilities.ts",
       "src/channels.ts",
+      "src/durability.ts",
       "src/index.ts",
       "src/messages.ts",
       "src/internal/workspace/internal/runtime/hosted.ts",

@@ -2,6 +2,7 @@ export * from "./components/chat.ts";
 export * from "./components/chat-message.ts";
 export * from "./components/prompt-input.ts";
 export * from "./components/code-view.ts";
+export * from "./components/patch-parsers.ts";
 export * from "./components/file-tree.ts";
 export * from "./components/markdown.ts";
 export * from "./components/message-parts.ts";
@@ -23,6 +24,16 @@ export * from "./components/message.ts";
 export * from "./components/status.ts";
 export * from "./components/sync-status.ts";
 export * from "./components/trace.ts";
+export {
+  PlaygroundRender,
+  type PlaygroundIssue,
+  type PlaygroundPane,
+  type PlaygroundPaneSlotProps,
+  type PlaygroundPreset,
+  type PlaygroundRenderer,
+  type PlaygroundResult,
+} from "./playground/playground-render.ts";
+export type { PlaygroundFiles } from "./playground/share.ts";
 export * from "./composables/attachments.ts";
 export * from "./composables/highlighted-code.ts";
 export * from "./config.ts";

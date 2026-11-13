@@ -5,7 +5,7 @@ export default defineNuxtConfig({
   nitro: { preset: 'cloudflare-module' },
   runtimeConfig: { resend: { apiKey: '' } },
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('NUXT_RESEND_API_KEY') }) },

@@ -21,7 +21,7 @@ describe("preview setup installs", () => {
   it.each(["pnpm", "npm", "yarn", "bun"])("keeps ViteHub packages on the CLI preview with %s", async (manager) => {
     const root = await createProject({
       "package.json": JSON.stringify({ ...JSON.parse(pnpmManifest), packageManager: `${manager}@1.0.0` }),
-      "vite.config.ts": viteConfig('{ preset: "node" }'),
+      "vite.config.ts": viteConfig('{ host: "node" }'),
     })
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const result = await runSetup<SetupAddPlan>(["add", "database", "--yes", "--json"], root, {}, { spawn })

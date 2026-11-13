@@ -7,8 +7,9 @@ import { expect, it } from "vitest"
 import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
-// Every app with Console access serves the operation RPC, and no other Console route.
-const consoleRoutes = ["/_vitehub/rpc"]
+// Every app with Console access serves the operation RPC and the page tools session of the Console link, and no other
+// Console route.
+const consoleRoutes = ["/_vitehub/rpc", "/_vitehub/page/session"]
 
 it.each([
   ["no primitives", { env: false }, []],

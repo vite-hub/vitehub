@@ -55,7 +55,7 @@ icon: i-lucide-list-ordered
   export default defineNuxtConfig({
     modules: ['vite-hub/nuxt'],
     vitehub: {
-      preset: 'cloudflare',
+      host: 'cloudflare',
       // On Cloudflare, jobs go to Cloudflare Queues
       queue: true,
     },
@@ -71,7 +71,7 @@ icon: i-lucide-list-ordered
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'cloudflare',
+        host: 'cloudflare',
         // On Cloudflare, jobs go to Cloudflare Queues
         queue: true,
       }),
@@ -88,7 +88,7 @@ icon: i-lucide-list-ordered
   export default defineConfig({
     plugins: [
       vitehub({
-        preset: 'cloudflare',
+        host: 'cloudflare',
         // On Cloudflare, jobs go to Cloudflare Queues
         queue: true,
       }),

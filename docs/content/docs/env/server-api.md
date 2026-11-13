@@ -25,7 +25,7 @@ icon: i-lucide-code-2
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
 | `resolveServerEnv` from `vite-hub/env` | Resolve a Server Env registry yourself. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
+| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
 | `parseSchema` from `vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime
@@ -40,7 +40,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -140,7 +140,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       providers: {
         credentials: './server/env/credentials.ts',
@@ -172,7 +172,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         providers: {
           credentials: './server/env/credentials.ts',
@@ -205,7 +205,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         providers: {
           credentials: './server/env/credentials.ts',
