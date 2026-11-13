@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises"
+import { mkdir, rm } from "node:fs/promises"
 
 import { computePackageDir, createImportPath, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -290,6 +290,29 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
   await writeFileIfChanged(generatedTypesFile, "export {}\n")
 }
 
+/**
+ * Drizzle Kit loads the generated schema with jiti and takes import aliases only from the `paths` of the nearest
+ * `tsconfig.json`. A Nuxt 5 root `tsconfig.json` has only project references, so a Definition that imports
+ * `~~/server/tables` or `#layers/...` loads in `vite dev` but not in `vitehub database generate`. This file sits beside
+ * the generated schema and configs and gives Drizzle Kit the aliases of the host. `files: []` keeps TypeScript out.
+ */
+async function writeGeneratedAliasTsconfig(dir: string, alias: Record<string, string> | undefined) {
+  const file = join(dir, "tsconfig.json")
+  const entries = Object.entries(alias ?? {}).filter(([, target]) => isAbsolute(target))
+  if (!entries.length) {
+    await rm(file, { force: true })
+    return
+  }
+  const paths: Record<string, string[]> = {}
+  for (const [name, target] of entries) {
+    const key = name.replace(/\/+$/, "")
+    paths[key] = [target]
+    // A folder alias such as `~~` or `#layers/auth` also maps the files below it.
+    if (!/\.[cm]?[jt]sx?$/.test(target)) paths[`${key}/*`] = [`${target.replace(/\/+$/, "")}/*`]
+  }
+  await writeFileIfChanged(file, `${JSON.stringify({ compilerOptions: { paths }, files: [] }, null, 2)}\n`)
+}
+
 async function finishArtifactWrites(writes: Promise<void>[]) {
   // Callers serialize generations on this promise, so even a failed generation must finish its sibling writes.
   for (const result of await Promise.allSettled(writes)) {
@@ -314,6 +337,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFileIfChanged(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config))
+  await writeGeneratedAliasTsconfig(dirname(config.generatedDrizzleConfigFile), options.alias)
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFileIfChanged(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions))
   await finishArtifactWrites(config.databaseNames.map(async (name) => {
