@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { isGitHubOrgMember } from "../src/index.ts"
+import { checkGitHubOrgMember, isGitHubOrgMember } from "../src/index.ts"
 
 function stubMembership(respond: () => Response | Promise<Response>) {
   const fetch = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => await respond())
@@ -100,5 +100,46 @@ describe("isGitHubOrgMember()", () => {
     fetch.mockImplementation(async () => Response.json({ state: "pending" }))
     await expect(isGitHubOrgMember("token-mixed-ttl", "vite-hub", { cacheMs: 1_000 })).resolves.toBe(false)
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("checkGitHubOrgMember()", () => {
+  async function code(response: () => Response | Promise<Response>, token: string | null = "token") {
+    stubMembership(response)
+    const [error] = await checkGitHubOrgMember(token, "vite-hub")
+    return error?.code
+  }
+
+  it("returns no error for an active membership", async () => {
+    stubMembership(active)
+    await expect(checkGitHubOrgMember("token", "vite-hub")).resolves.toEqual([undefined, undefined])
+  })
+
+  it("says the token is invalid when GitHub rejects it or there is none", async () => {
+    expect(await code(() => Response.json({ message: "Bad credentials" }, { status: 401 }))).toBe("AUTH_GITHUB_TOKEN_INVALID")
+    expect(await code(active, null)).toBe("AUTH_GITHUB_TOKEN_INVALID")
+  })
+
+  it("says the token cannot read the organization without an org scope or single sign-on", async () => {
+    stubMembership(() => Response.json({ message: "Resource protected by organization SAML enforcement." }, {
+      headers: { "x-github-sso": "required; url=https://github.com/orgs/vite-hub/sso?authorization_request=1" },
+      status: 403,
+    }))
+    const [sso] = await checkGitHubOrgMember("token", "vite-hub")
+    expect(sso).toMatchObject({ code: "AUTH_GITHUB_ORG_ACCESS_DENIED", why: "`vite-hub` uses SAML single sign-on, and the token is not authorized for it." })
+    expect(await code(() => Response.json({ message: "Not Found" }, { headers: { "x-oauth-scopes": "read:user, user:email" }, status: 404 }))).toBe("AUTH_GITHUB_ORG_ACCESS_DENIED")
+  })
+
+  it("says GitHub is unavailable when it is down, rate limits the token, or does not answer", async () => {
+    expect(await code(() => new Response(null, { status: 502 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
+    expect(await code(() => new Response(null, { status: 429 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
+    expect(await code(() => Response.json({ message: "API rate limit exceeded" }, { headers: { "x-ratelimit-remaining": "0" }, status: 403 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
+    expect(await code(() => Promise.reject(new TypeError("fetch failed")))).toBe("AUTH_GITHUB_UNAVAILABLE")
+    expect(await code(() => new Response("<html>", { status: 200 }))).toBe("AUTH_GITHUB_UNAVAILABLE")
+  })
+
+  it("says the user is not a member for a pending invitation or a 404 with the org scope", async () => {
+    expect(await code(() => Response.json({ state: "pending" }))).toBe("AUTH_GITHUB_NOT_ORG_MEMBER")
+    expect(await code(() => Response.json({ message: "Not Found" }, { headers: { "x-oauth-scopes": "read:org, read:user" }, status: 404 }))).toBe("AUTH_GITHUB_NOT_ORG_MEMBER")
   })
 })

@@ -490,6 +490,15 @@ import { isGitHubOrgMember } from "@vite-hub/auth";
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
 ```
 
+`checkGitHubOrgMember()` runs the same check and returns `[error, undefined]`, so the app can say why access failed. `error.code` is `AUTH_GITHUB_TOKEN_INVALID` (401 or no token), `AUTH_GITHUB_ORG_ACCESS_DENIED` (403, a missing `read:org` scope, or SAML single sign-on that the token is not authorized for), `AUTH_GITHUB_UNAVAILABLE` (network error, timeout, 429, 5xx, or rate limit), or `AUTH_GITHUB_NOT_ORG_MEMBER` (404 or a pending invitation). An empty `org` throws a `TypeError`.
+
+```ts fragment
+import { checkGitHubOrgMember } from "@vite-hub/auth";
+
+const [error] = await checkGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
+if (error?.code === "AUTH_GITHUB_TOKEN_INVALID") return redirectToSignIn();
+```
+
 ## MCP OAuth
 
 `@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
