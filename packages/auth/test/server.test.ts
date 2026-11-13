@@ -18,8 +18,6 @@ describe("server auth helpers", () => {
     const definition = defineAuth({
       appName: "ViteHub",
       basePath: "/auth/",
-      database: { dedicated: true, name: "auth" },
-      secondaryStorage: { store: "auth" },
     })
 
     const options = createBetterAuthOptions(definition, {

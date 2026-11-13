@@ -727,6 +727,11 @@ export interface WorkspaceSource {
   skills?: false
   /** Stable provider name used for inspection and diagnostics. */
   name?: string
+  /**
+   * The key of the one item of a file Source. Without a mount path, the Workspace places that item at this path.
+   * Other Sources mount under their binding key.
+   */
+  key?: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
