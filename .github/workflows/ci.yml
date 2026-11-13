@@ -567,7 +567,9 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
-      - run: vp run --cache -t playground-docs-demo#build
+      # Cache the package builds, but generate the deployable app in this job, as the docs job does.
+      - run: vp run --cache -t vite-hub#build -t @vite-hub/docs#build
+      - run: vp run --no-cache --filter playground-docs-demo build
       - name: Verify Worker bundle
         run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/docs/playground/.output/server/wrangler.json
       - name: Upload Worker bundle
