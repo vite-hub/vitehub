@@ -220,6 +220,16 @@ describe("app MCP prompts, resources, and server info", () => {
     expect((await rpc(options, "resources/read", { uri: "skill://drop/missing.md" })).body.error).toMatchObject({ code: -32002, data: { uri: "skill://drop/missing.md" } })
   })
 
+  it("matches empty values and percent-encoded literals of a URI template", async () => {
+    const manual = {
+      uriTemplate: "docs://café/{+page}",
+      handler: (_uri: string, { variables }: { variables: Record<string, string> }) => `page "${variables.page}"`,
+    } satisfies McpResourceDefinition
+    const read = async (uri: string) => (await rpc({ resources: { manual } }, "resources/read", { uri })).body.result.contents
+    expect(await read("docs://caf%C3%A9/intro")).toEqual([{ text: "page \"intro\"", uri: "docs://caf%C3%A9/intro" }])
+    expect(await read("docs://café/")).toEqual([{ text: "page \"\"", uri: "docs://café/" }])
+  })
+
   it("turns a 4xx error of a resource into its message and hides other errors", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     const resources = {
