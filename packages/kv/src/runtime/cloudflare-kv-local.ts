@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import createCloudflareDriver from "./cloudflare-kv.ts"
-import { assertCloudflareKVWrite, installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
+import { assertCloudflareKVWrite, installCloudflareKVLimits, validateCloudflareKVBatch } from "./cloudflare-kv-limits.ts"
 import createFsLiteKVDriver from "./fs-lite.ts"
 import { getItemsOneByOne, setItemsOneByOne } from "./batch.ts"
 
@@ -28,6 +28,7 @@ export default function createCloudflareKVLocalDriver(store: ResolvedCloudflareK
   }
   return {
     name: "cloudflare-kv-local",
+    validateBatch: validateCloudflareKVBatch,
     options: store,
     clear: async (base, options) => (await pick()).clear?.(base, options),
     async dispose() {

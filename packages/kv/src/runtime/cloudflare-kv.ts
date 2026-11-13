@@ -4,7 +4,7 @@ import { createKVStorage } from "./create-storage.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
-import { assertCloudflareKVKey, assertCloudflareKVWrite, installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
+import { assertCloudflareKVKey, assertCloudflareKVWrite, installCloudflareKVLimits, validateCloudflareKVBatch } from "./cloudflare-kv-limits.ts"
 import { chunks, setItemsOneByOne } from "./batch.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
@@ -68,6 +68,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
   installCloudflareKVLimits(driver)
+  driver.validateBatch = validateCloudflareKVBatch
   driver.getItems = async (items) => {
     for (const item of items) assertCloudflareKVKey(item.key)
     const values = new Map<string, string | null>()

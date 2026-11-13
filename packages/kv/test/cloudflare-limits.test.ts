@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import memoryDriver from "unstorage/drivers/memory"
 
+const deletes: string[] = []
 const puts: Array<{ key: string, options: unknown }> = []
 
 vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
@@ -8,6 +9,10 @@ vi.mock("unstorage/drivers/cloudflare-kv-binding", () => ({
     const driver = memoryDriver()
     return {
       ...driver,
+      async removeItem(key: string) {
+        deletes.push(key)
+        await driver.removeItem!(key, {})
+      },
       async setItem(key: string, value: string, options: unknown) {
         puts.push({ key, options })
         await driver.setItem!(key, value, {})
@@ -24,6 +29,7 @@ describe("Cloudflare KV limits", () => {
   beforeEach(() => {
     vi.resetModules()
     puts.length = 0
+    deletes.length = 0
   })
 
   afterEach(() => {
@@ -58,6 +64,29 @@ describe("Cloudflare KV limits", () => {
     const [error] = await kv.set("k".repeat(512), "value")
     expect(error).toBeUndefined()
     expect(puts).toHaveLength(1)
+  })
+
+  it.each(["cloudflare", "local"])("preflights mixed writes and deletions on %s stores", async (host) => {
+    process.env.VITEHUB_HOST = host
+    const { createKVStorage } = await import("../src/runtime/create-storage.ts")
+    const { default: createDriver } = await import("../src/runtime/cloudflare-kv.ts")
+    const { default: createLocalDriver } = await import("../src/runtime/cloudflare-kv-local.ts")
+    const driver = host === "cloudflare" ? createDriver({ binding: "KV" }) : createLocalDriver({ driver: "cloudflare-kv-binding", binding: "KV", localBase: "/tmp/kv-batch-preflight" })
+    const storage = createKVStorage(driver)
+    await storage.setItem("keep", "original")
+    puts.length = 0
+    for (const entries of [
+      [{ key: "keep", value: undefined }, { key: "k".repeat(513), value: "bad" }],
+      [{ key: "write", value: "good" }, { key: "k".repeat(513), value: undefined }],
+      [{ key: "k".repeat(513), value: undefined }],
+    ]) {
+      await expect(storage.setMany(entries)).rejects.toMatchObject({ code: "KV_KEY_TOO_LONG" })
+      expect(puts).toEqual([])
+      expect(deletes).toEqual([])
+      expect(await storage.getItem("keep")).toBe("original")
+      expect(await storage.getItem("write")).toBeNull()
+    }
+    await storage.dispose()
   })
 
   it("returns the limit codes from getMany() and setMany() before any provider call", async () => {

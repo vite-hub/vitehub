@@ -171,7 +171,7 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 | `kv.deleteIfEquals<T>(key, expected)` | Atomically deletes the key when it holds `expected`. Returns `true` when this call deleted it. On `redis`, `database`, and Upstash. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
-| `kv.clear(base?)` | Deletes keys under an optional base prefix. |
+| `kv.clear(base?)` | Deletes keys under an optional base prefix. `kv.clear('users')` deletes `users:alice` but not `users-old:alice`. The store deletes in batches: one statement on `database`, 1000 keys per command on Redis, one command on Upstash. Cloudflare KV deletes one key per call. |
 | `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Every async method returns `[error, value]`, so you need no `try/catch`. `error.code` is typed per method, and `why`, `fix`, and `docs` explain it. Provider failures are `KV_OPERATION_FAILED`, with the provider error in `cause`. Configuration errors, such as an unknown store, throw. Read [Limits and errors](/docs/kv/limits-and-errors) for each code.

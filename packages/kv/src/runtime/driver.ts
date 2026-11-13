@@ -1,4 +1,4 @@
-import type { Driver } from "unstorage"
+import type { Driver, TransactionOptions } from "unstorage"
 
 import type { KVAtomicOperation, KVDriver, KVDriverAtomicOperations, KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import type { KVDatabases } from "./database.ts"
@@ -19,6 +19,7 @@ const lazyDriverMethods = new Set<PropertyKey>([
 ])
 
 export type KVRuntimeDriver = Driver & Record<string, unknown> & {
+  validateBatch?: (items: Parameters<NonNullable<Driver["setItems"]>>[0], removals: string[], options?: TransactionOptions) => void | Promise<void>
   /** Deletes the key when it holds the serialized `expected` value. Resolves `true` when this call deleted it. */
   deleteIfEqualsItem?: (key: string, expected: string) => Promise<boolean>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract at the internal driver boundary.
@@ -49,6 +50,7 @@ const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOpera
 
 /** Other optional unstorage methods that a driver has. */
 const otherOptionalDriverMethods: Partial<Record<KVDriver, readonly string[]>> = {
+  "cloudflare-kv-binding": ["validateBatch"],
   "fs-lite": ["getItemRaw", "getMeta", "setItemRaw"],
 }
 

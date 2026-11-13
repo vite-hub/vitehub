@@ -138,8 +138,10 @@ const appDeclarations = [
   },
 ]
 
-/** Nuxt declares `defineNuxtConfig()` globally in `nuxt.config.ts`. */
+/** Nuxt declares `defineNuxtConfig()` globally in `nuxt.config.ts`, and `defineAppConfig()` in `app.config.ts`. */
 function withAppGlobals(snippet) {
+  const appConfig = /(^|\/)app\.config\.ts$/.test(snippet.label ?? "") && !/^import\b[^\n]*\bdefineAppConfig\b/m.test(snippet.code)
+  if (appConfig) return `${snippet.code}\ndeclare var defineAppConfig: typeof import("nuxt/app").defineAppConfig\n`
   const nuxtConfig = /(^|\/)nuxt\.config\.ts$/.test(snippet.label ?? "") || /^export default defineNuxtConfig\(/m.test(snippet.code)
   if (!nuxtConfig || /^import\b[^\n]*\bdefineNuxtConfig\b/m.test(snippet.code)) return snippet.code
   return `${snippet.code}\ndeclare var defineNuxtConfig: typeof import("nuxt/config").defineNuxtConfig\n`
