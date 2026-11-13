@@ -162,6 +162,10 @@ export default defineConfig({
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
         {
+          from: "src/console/runtime/components/console-lazy-views.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
         },

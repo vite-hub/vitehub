@@ -225,6 +225,16 @@ Each owner rechecks the durable deadline before dispatch, including after
 workspace setup. Host merges and stack retargets continue during the cooldown.
 A failed dependency install continues the pass without dependencies unless
 `install.required` is set; `install.concurrency` sets the install slots.
+`warmWorkspaces` (default `false`) keeps one workspace per open PR in
+`<dataDir>/pr-workspaces`. A pass on the head the previous pass pushed or left,
+after a pass that finished, on a clean tree, keeps `node_modules` and build
+caches and skips a current install; any other pass empties the workspace and
+checks the head out again. The host clone is fetched instead of cloned. Entries
+go when the PR closes, after `idleDays` (7) without a pass, and least recently
+used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
+`warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
+provider thread when that pass pushed or recorded a wait on the same base and
+release.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding

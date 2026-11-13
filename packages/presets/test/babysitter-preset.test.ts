@@ -47,6 +47,7 @@ import { babysitterRepositories, type BabysitterRepositories } from "../src/baby
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
+import { createPullRequestWorkspaces, type PullRequestWorkspaces } from "../src/babysitter/pr-workspaces.ts";
 import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { agentSettings } from "@vite-hub/agent";
 import { github as githubChannel } from "@vite-hub/agent/channels";
@@ -69,7 +70,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; repositories?: BabysitterRepositories } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -355,9 +356,11 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(preset.postPushGraceMs === undefined ? {} : { postPushGraceMs: preset.postPushGraceMs }),
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
     mergeabilityRetryDelayMs: 1,
+    ...(preset.workspaces ? { workspaces: preset.workspaces } : {}),
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string; environment?: NodeJS.ProcessEnv }> = [];
   const operationResults: unknown[] = [];
+  const cwds: Array<string | undefined> = [];
   let operation: "refreshDependencies" | "checkDependencies" | "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
   let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async (options: { settings?: { launchArgs?: string }; environment?: NodeJS.ProcessEnv }) => {
@@ -379,7 +382,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       close: async () => {},
       stopSession: async () => {},
       interruptTurn: async () => {},
-      startSession: async (input: { mcp?: typeof mcp, runtimeMode?: string, approvalPolicy?: string, threadId: string }) => {
+      startSession: async (input: { mcp?: typeof mcp, runtimeMode?: string, approvalPolicy?: string, threadId: string, cwd?: string }) => {
+        cwds.push(input.cwd);
         mcp = input.mcp ?? mcp;
         threadId = input.threadId;
         runtimeMode = input.runtimeMode;
@@ -483,6 +487,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     runtime,
     reconcile,
     passes,
+    cwds,
     operationResults,
     errors,
     events,
@@ -3642,6 +3647,37 @@ describe("Babysitter preset runtime", () => {
     expect(f.passes).toHaveLength(2);
     expect(new Set(f.passes.map(pass => pass.session)).size).toBe(2);
     expect(f.runtime.workload()).toEqual({ running: 0 });
+    await f.runtime.inbox.close();
+  });
+
+  it.each([true, false])("works in the PR's kept workspace and continues the provider thread after a push only with resumeThreads %s", async (resumeThreads) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-kept-"));
+    roots.push(root);
+    const workspaces = createPullRequestWorkspaces({ root, resumeThreads });
+    const f = await fixture(false, false, { workspaces });
+    const work = join(root, "acme+app+12", "work");
+    f.choose("pushRepair");
+    await f.reconcile();
+    expect(f.prepare).toHaveBeenCalledExactlyOnceWith(work, { reuse: false, reason: "cold" });
+    expect(f.events).toHaveBeenCalledWith("babysitter.owner.finished", expect.objectContaining({ outcome: "waiting", workspace: "reset", workspace_reason: "cold" }));
+    f.choose(undefined);
+    await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+    await f.runtime.inbox.ingest("new-feedback", "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id: 42, body: "Check this follow-up", user: { login: "another-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    f.reportCheckRun({ id: 3, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success" });
+    await f.runtime.inbox.ingest("check-passed", "check_run", {
+      repository: { full_name: "acme/app" }, action: "completed",
+      check_run: { id: 3, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", pull_requests: [{ number: 12 }] },
+    });
+    await f.reconcile();
+    expect(f.passes).toHaveLength(2);
+    // The pass pushed this head, so the next one keeps its tree.
+    expect(f.prepare).toHaveBeenLastCalledWith(work, { reuse: true, reason: "warm" });
+    expect(f.cwds).toEqual([work, work]);
+    expect(f.passes[1]?.session === f.passes[0]?.session).toBe(resumeThreads);
+    expect(f.passes[1]?.prompt.includes("<resumed-pass>")).toBe(resumeThreads);
     await f.runtime.inbox.close();
   });
 
