@@ -99,7 +99,7 @@ export default defineRealtime({
 | `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`. Else throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
 | `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. An interrupted shared save can reset the room; see below. |
 | `issues` | Validation problems that did not block the save. They show in the room `status` map. |
-| `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
+| `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. Without it, `history.checkpoint` fails with `REALTIME_CHECKPOINT_UNSUPPORTED` when the server loads the definition. |
 | `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to hold a lease. A thrown error shows in the room `status` until a later call works. |
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
