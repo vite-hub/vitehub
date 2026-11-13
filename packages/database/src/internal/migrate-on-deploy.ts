@@ -48,11 +48,12 @@ function wranglerConfigArgument(outputDir: string, serverDir: string): string {
 /**
  * Adds the D1 migrations to the Cloudflare deploy command before Nitro writes it to `nitro.json`. `build:before` runs
  * after every Nitro module set the command, so the order of the modules does not matter. `target` returns `undefined`
- * when `migrateOnDeploy` is off.
+ * when `migrateOnDeploy` is off. Vite also calls the returned updater after Database configuration resolves, since
+ * Nitro runs `build:before` during Vite configuration, before Database bindings are ready.
  */
-export function installMigrateOnDeploy(nitro: MigrateOnDeployNitro, target: () => MigrateOnDeployTarget | undefined): void {
+export function installMigrateOnDeploy(nitro: MigrateOnDeployNitro, target: () => MigrateOnDeployTarget | undefined): () => void {
   let written: string | undefined
-  nitro.hooks.hook("build:before", () => {
+  const update = () => {
     const { commands, dev, output, preset } = nitro.options
     if (dev || preset === "nitro-prerender") return
     const resolved = target()
@@ -74,5 +75,7 @@ export function installMigrateOnDeploy(nitro: MigrateOnDeployNitro, target: () =
     }
     written = withD1MigrationsBeforeDeploy(deploy, [...new Set(bindings)], wranglerConfigArgument(output.dir, output.serverDir))
     commands.deploy = written
-  })
+  }
+  nitro.hooks.hook("build:before", update)
+  return update
 }

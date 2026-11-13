@@ -11,7 +11,7 @@ import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createServer as createViteServer, type ViteDevServer } from "vite"
+import { createServer as createViteServer, resolveConfig, type ViteDevServer } from "vite"
 import { VITEHUB_FEATURES, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
@@ -251,6 +251,37 @@ describe("hubDatabase", () => {
   })
 
   describe("migrateOnDeploy", () => {
+    it.each([false, true])("resolves migration commands in the real Vite/Nitro lifecycle (HTTP: %s)", { timeout: 30_000 }, async (http) => {
+      const { nitro } = await import("nitro/vite")
+      const rootDir = await createTempProject()
+      await writeDefinition(rootDir, "server/databases/default.ts", "notes", {
+        cloudflare: `binding: 'DB', databaseName: 'app', databaseId: 'database-id', http: ${http},`,
+      })
+      let instance: import("nitro/types").Nitro | undefined
+      const configuration = resolveConfig({
+        configFile: false,
+        root: rootDir,
+        plugins: [hubDatabase({ migrateOnDeploy: true }), nitro({
+          preset: "cloudflare_module",
+          compatibilityDate: "2026-10-01",
+          commands: { deploy: "npx wrangler deploy --config ./server/wrangler.json" },
+          modules: [{ setup(nitro) { instance = nitro } }],
+        })],
+      }, "build")
+      try {
+        if (http) {
+          await expect(configuration).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED" })
+        }
+        else {
+          await configuration
+          expect(instance?.options.commands.deploy).toBe("npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json")
+        }
+      }
+      finally {
+        await instance?.close()
+      }
+    })
+
     async function buildCommand(options: { cloudflare?: string, preset?: string, serverDir?: string } = {}) {
       const rootDir = await createTempProject()
       await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: options.cloudflare ?? "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
@@ -300,16 +331,8 @@ describe("hubDatabase", () => {
     })
 
     it("fails the build for another host or a database without a D1 binding", async () => {
-      const caught = (build: () => unknown) => {
-        try {
-          build()
-        }
-        catch (error) {
-          return error
-        }
-      }
-      expect(caught(await buildCommand({ preset: "vercel" }))).toMatchObject({ code: "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED" })
-      expect(caught(await buildCommand({ cloudflare: "databaseId: 'database-id', http: true," }))).toMatchObject({
+      await expect(buildCommand({ preset: "vercel" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED" })
+      await expect(buildCommand({ cloudflare: "databaseId: 'database-id', http: true," })).rejects.toMatchObject({
         code: "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED",
         why: expect.stringContaining("cannot migrate the database \"default\". It uses Cloudflare D1 over HTTP."),
       })

@@ -317,6 +317,7 @@ async function collectSourceDependencies(file: string, require: NodeRequire, fil
 }
 
 export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
+  let updateMigrateOnDeploy: (() => void) | undefined
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ binding: string, source: string, target: string }> = []
   let providerOutput: ProviderOutputCatalog | undefined
@@ -502,10 +503,10 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
         installNitroMigrateOnStart()
         // Keep the feature hook surface when Nitro augments Vite's Plugin type.
         const hooks: DatabaseNitroHooks = nitro.hooks
-        installMigrateOnDeploy({ hooks, options: nitro.options }, () => {
+        updateMigrateOnDeploy = installMigrateOnDeploy({ hooks, options: nitro.options }, () => {
           const database = resolvedOptions()
           // In Nuxt the Database module installs it.
-          if (!database || !database.migrateOnDeploy || "nuxtHostResource" in database) return
+          if (!database || !database.migrateOnDeploy || "nuxtHostResource" in database || !runtimeConfig) return
           return { bindings: nitroMigrations.map(item => item.binding), config: runtimeConfig }
         })
         hooks.hook("vitehub:bundle:rules", (rules) => {
@@ -605,6 +606,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       installNitroPostgresRequestScope()
       installNitroRequestStats()
       installNitroMigrateOnStart()
+      updateMigrateOnDeploy?.()
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
