@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url"
 import { mediaRoute, publicUrl } from "./site.ts"
 
 export default defineNuxtConfig({
+  // This app always runs on Workers. Use its model-backed assistant during Node prerendering too.
+  alias: { "@vite-hub/docs/assistant": fileURLToPath(new URL("../dist/assistant-worker.js", import.meta.url)) },
   modules: [
     ["vite-hub/nuxt", {
       preset: "cloudflare",

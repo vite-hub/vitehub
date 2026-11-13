@@ -847,7 +847,7 @@ describe("ViteHub Nuxt integration", () => {
       await symlink(authRoot, resolve(nodeModules, "@vite-hub/auth"), "junction")
       await symlink(installedRoot, resolve(nodeModules, "@vite-hub/kv"), "junction")
       const nitroConfig: Record<string, unknown> = {}
-      await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
+      await viteHubNuxtModule({ console: false }, nuxt)
       await runNitroConfigHook(nitroConfig)
       await runNitroConfigHook(nitroConfig)
       expect(nitroConfig.noExternals).toEqual(["vite-hub", "@vite-hub/", resolve(nuxt.options.rootDir, ".vitehub"), h3RuntimeRoot, frameworkRoot, authRoot])
