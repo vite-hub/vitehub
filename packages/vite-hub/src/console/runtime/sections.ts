@@ -1,8 +1,11 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "setup"] as const
+export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "site", "setup"] as const
 
-/** Sections that only a development server has. They are tools, not primitives, so the Overview does not offer them. */
-export const consoleDevelopmentSectionIds: readonly ConsoleBuiltinSectionId[] = ["setup"]
+/**
+ * Sections that are tools, not primitives, so the Overview does not offer them: Setup, which only a development server
+ * has, and Site access, which comes with the page tools.
+ */
+export const consoleToolSectionIds: readonly ConsoleBuiltinSectionId[] = ["setup", "site"]
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -63,6 +66,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "KV",
     routeName: "vitehub-console-kv",
   },
+  site: {
+    description: "Choose who uses the page tools on the site without signing in: your browsers and invited guests.",
+    icon: "i-lucide-globe-lock",
+    label: "Site access",
+    routeName: "vitehub-console-site",
+  },
   setup: {
     description: "Turn features on and off for this app. Development only.",
     icon: "i-lucide-blocks",
@@ -98,6 +107,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   auth: "platform",
   email: "platform",
   "rate-limits": "platform",
+  site: "platform",
   setup: "platform",
 }
 
@@ -182,13 +192,16 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts."),
 ]
 
-/** Guides that the Overview links next to the primitives. */
-export const consoleGuides: readonly { readonly description: string, readonly href: string, readonly icon: string, readonly label: string }[] = [
-  { description: "Enable the Console, inspect primitives, and protect its routes.", href: `${consoleDocsBase}/development/console`, icon: "i-vitehub-docs", label: "Console guide" },
-  { description: "Add local KV to a small Vite server and return one stored value.", href: `${consoleDocsBase}/getting-started/first-server-primitive`, icon: "i-vitehub-start", label: "First Server Primitive" },
-  { description: "Vue components for chat, Agent Invocations, traces, diffs, and file trees.", href: `${consoleDocsBase}/ui`, icon: "i-vitehub-ui", label: "UI kit" },
-  { description: "Run package-owned development workflows through the local Vite config.", href: `${consoleDocsBase}/development/cli`, icon: "i-vitehub-development", label: "CLI" },
-]
+/**
+ * The guide that the Overview links under Learn, before the docs of each enabled section. It is for the people who run
+ * the app, so it explains the Console, not how to build with ViteHub.
+ */
+export const consoleGuide: { readonly description: string, readonly href: string, readonly icon: string, readonly label: string } = {
+  description: "What each page of this Console does, and who can open it.",
+  href: `${consoleDocsBase}/development/console`,
+  icon: "i-vitehub-docs",
+  label: "Console guide",
+}
 
 /** Returns the documentation link of a section, or undefined for a contributed section that the Console does not know. */
 export function resolveConsoleSectionDocs(section: ConsoleSectionId): string | undefined {
@@ -223,6 +236,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   env: "e",
   email: "m",
   "rate-limits": "r",
+  site: "c",
   setup: "y",
 }
 
@@ -314,9 +328,9 @@ export function resolveConsoleSectionIds(options: {
   comments?: unknown;
   database?: unknown;
   email?: unknown;
+  host?: unknown;
   kv?: unknown;
   observability?: unknown;
-  preset?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
   sandboxTask?: unknown;
@@ -325,7 +339,7 @@ export function resolveConsoleSectionIds(options: {
   workspace?: unknown
 }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
-    && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
+    && Boolean(options.workflow || (options.agent && options.host !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
     // `observability: { logs }` connects the log source that the section reads.

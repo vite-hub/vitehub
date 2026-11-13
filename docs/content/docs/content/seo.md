@@ -1,6 +1,6 @@
 ---
 title: Content SEO
-description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap, robots.txt, RSS feed, and page MCP server.
+description: Give documents public URLs, SEO fields, head tags, a sitemap and robots.txt, an RSS feed, Markdown files for agents, and a page MCP server.
 navigation.title: SEO
 navigation.order: 12
 icon: i-lucide-search-check
@@ -14,7 +14,8 @@ Content handles the SEO parts that depend on your documents: each document's URL
 | [`seo()`](#seo-fields) | Per-document title, description, social image, canonical URL, and `noindex`. |
 | [`contentHead()`](#head-tags) | Head tags from a document, its `seo()` values, and site defaults. |
 | [`defineContent({ seo })`](#sitemap-and-robotstxt) | Generated `/sitemap.xml` and `/robots.txt`. |
-| [`seo: { rss }`](#rss-feed) | A generated `/rss.xml` with the newest pages, dated from their history. |
+| [`seo: { rss }`](#rss-feed) | A generated `/rss.xml` dated from page history. |
+| [`seo: { markdown, llms }`](#markdown-for-agents) | Markdown copies of each page, `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. |
 | [`seo: { mcp }`](#page-mcp-server) | A public read-only MCP server at `/mcp`, so agents can list and read your pages. |
 | [Console SEO group](#console) | Counters, fallbacks, and search and social previews. |
 
@@ -114,6 +115,7 @@ Nuxt has `useHead()` built in. In a Vue app, install `@unhead/vue`. In a plain s
 | --- | --- |
 | `site.url` | Public origin for absolute canonical, `og:url`, and image URLs. |
 | `site.name` | `og:site_name`, and the default title template `%s · <name>`. |
+| `rss` | `true` adds an RSS discovery link to `/rss.xml`. |
 | `site.locale` | `og:locale`, such as `en_US`. |
 | `defaults` | `{ title?, description?, image? }` fallbacks, often from a [settings document](/docs/content/configure#singletons-and-data-files). ViteHub has no settings schema, so you map your fields. |
 | `titleTemplate` | `'%s \| Docs'`, a function, or `null` for none. A document without a title uses the default title as is. |
@@ -165,7 +167,6 @@ export default defineContent({
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves a `/robots.txt` that allows every crawler. `{ disallow }` keeps paths out. It names `/sitemap.xml` when the sitemap is on. |
 | `rss` | `true`, or `{ title, description, limit }`, serves [`/rss.xml`](#rss-feed). |
-| `mcp` | `true`, or `{ name }`, serves a [page MCP server](#page-mcp-server) at `/mcp`. |
 | `dateLeases` | A shared atomic `LeaseStore` to coordinate Source date refreshes across server instances. See [RSS feed](#rss-feed). |
 
 In a collection with locales, the sitemap lists each published translation at its own URL, with `locale` on each entry. It leaves out pages that show the source locale as a fallback: their canonical link points to the source locale page.
@@ -173,11 +174,11 @@ In a collection with locales, the sitemap lists each published translation at it
 The sitemap lists:
 
 - Every published document with a URL in a routable collection, except documents with `seo.noindex` or a `seo.canonical` that points elsewhere. `lastmod` is its `updatedAt` on `published`. Drafts are never listed.
-- Every document of a Source with a [`url`](#source-urls). For a `github()` Source, `lastmod` is the date of the latest commit that changed the file, from [`content.history()`](#rss-feed). Other Sources, and a `github()` Source without a GitHub token, have no `lastmod`. A Source without `url` is not listed.
+- Every document of a Source with a [`url`](#source-urls), with `lastmod` from its latest GitHub commit when a token is set. A Source without `url` is not listed.
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
-Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every preset. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
+Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every host. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
 
 Check the output from code:
 
@@ -227,6 +228,54 @@ Blocking reads, background reads, and webhook warming share in-flight work withi
 A lease holds one Source/head for 60 seconds. A successful refresh keeps it until expiry so the KV cache can propagate. A failed refresh releases it for retry. An instance that does not get the lease serves cached dates or none, even without `waitUntil`; later requests see the new dates when KV exposes them. A failed lease acquisition logs a warning and serves the same fallback without starting GitHub work. A refresh that runs longer than the lease can overlap a later refresh. Cloudflare KV has no atomic acquire operation and cannot provide this lock. Without `dateLeases`, each instance can compute the same dates; route feed, sitemap, and webhook refreshes through one instance when a shared authority is not available.
 
 Add the feed to your pages with `contentHead(document, { rss: true })`. `content.rss()` returns the same XML. ViteHub generates `/rss.xml` like the sitemap; in another server, mount `defineContentRssHandler(content)`. `renderContentRss(channel, items)` renders your own items.
+
+## Markdown for agents
+
+Agents read Markdown better than HTML. Two `seo` options serve your published Markdown documents as Markdown:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), description: z.string().optional() } }),
+  },
+  seo: { site: 'https://example.com', llms: { title: 'Example', description: 'Notes about examples.' } },
+})
+```
+
+| `seo` option | Description |
+| --- | --- |
+| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. |
+| `llms` | `true`, or `{ title, description }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. |
+
+The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
+
+- `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description, a link to `/llms-full.txt`, then one section per collection, named by its `label`, with a link to the `.md` copy of each page and its description.
+- `/llms-full.txt` joins the copy of every page, home page first.
+- `/sitemap.md` lists every page, grouped by the first segment of its URL.
+
+They list the same pages as the sitemap, but only from Markdown collections: published documents with a URL, without `seo.noindex` or a `seo.canonical` that points elsewhere. Drafts, JSON and YAML documents, and Sources are not listed.
+
+Responses that can be Markdown carry `Vary: Accept`, so a cache keeps the HTML and the Markdown apart. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+
+Check the output from code:
+
+```ts [server/utils/agent-check.ts]
+import content from '../content'
+
+export async function checkAgentFiles() {
+  await content.llms()                           // llms.txt
+  await content.llms({ file: 'llms-full.txt' })
+  await content.llms({ file: 'sitemap.md' })
+  await content.markdown('/blog/hello.md')       // the copy, or null
+}
+```
+
+ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
 
 ## Page MCP server
 

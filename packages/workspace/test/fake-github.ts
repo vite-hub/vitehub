@@ -84,7 +84,7 @@ function failure(status: number, message: string): Response {
  * A fake of the GitHub REST and GraphQL endpoints that the Workspace GitHub Store and history use.
  * Install `fake.fetch` as the global `fetch`.
  */
-export function createFakeGitHub(options: { owner?: string, repo?: string } = {}) {
+export function createFakeGitHub(options: { owner?: string, repo?: string, etags?: boolean } = {}) {
   const owner = options.owner ?? "onmax"
   const repo = options.repo ?? "repo"
   const prefix = `/repos/${owner}/${repo}`
@@ -98,6 +98,8 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
   /** The comments of issues and pull requests, by `issue` number, in the order GitHub lists them. */
   const comments: Array<{ body: string, id: number, issue: number, user: string }> = []
+  /** Requests that GitHub answered with `304 Not Modified`, as it does for a matching `If-None-Match`. */
+  const notModified: FakeRequest[] = []
   let commitIndex = 0
   let deliveryIndex = 0
   let treeIndex = 0
@@ -586,13 +588,25 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const response = override(request)
       if (response) return response
     }
-    return route(request, url)
+    const response = route(request, url)
+    if (!options.etags || method !== "GET" || response.status !== 200 || !response.headers.get("content-type")?.includes("json")) return response
+    // GitHub sends an ETag with each JSON answer and answers a request that sends it back with 304.
+    const text = await response.text()
+    const etag = `W/"${createHash("sha1").update(text).digest("hex")}"`
+    if (request.headers.get("if-none-match") === etag) {
+      notModified.push(request)
+      return new Response(null, { status: 304, headers: { etag } })
+    }
+    const headers = new Headers(response.headers)
+    headers.set("etag", etag)
+    return new Response(text, { status: 200, headers })
   }
 
   return {
     blobs,
     commits,
     fetch: fakeFetch,
+    notModified,
     requests,
     state,
     /** The head of `branch`. */

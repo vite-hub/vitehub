@@ -18,6 +18,7 @@ const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleLogs = () => import("../components/console-logs.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
+const ConsoleSite = () => import("../components/console-site.vue");
 const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
 const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 const ConsoleSkills = () => import("../components/console-skills.vue");
@@ -247,6 +248,19 @@ const router = createRouter({
       },
     },
     {
+      component: ConsoleSite,
+      name: "vitehub-console-site",
+      path: "/site",
+      meta: { consoleSection: "site", title: "Site access · ViteHub Console" },
+      props: {
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
+        sectionsBase,
+      },
+    },
+    {
       component: ConsoleKv,
       name: "vitehub-console-kv",
       path: "/kv",
@@ -391,6 +405,7 @@ function addContributedRoutes(navigation) {
         ...(section === "rate-limits" ? { rateLimitBase: "/_vitehub/api/rate-limit" } : {}),
         ...(section === "schedules" ? { scheduleRunBase: "/_vitehub/api/schedule-run" } : {}),
         ...(section === "workflows" ? { workflowBase: "/_vitehub/api/workflow" } : {}),
+        ...(details.view.kind === "workspace-browser" ? { workspaceFilesBase: "/_vitehub/api/workspace-files" } : {}),
         kvBase: "/_vitehub/api/kv",
         searchBase: "/_vitehub/api/search",
         sectionsBase,

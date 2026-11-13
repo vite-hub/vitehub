@@ -2,6 +2,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 
 import {
   KV_VIRTUAL_CONFIG_ID,
@@ -29,6 +30,7 @@ import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
 import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -71,10 +73,10 @@ export type KVVitePlugin = Plugin & {
     name: string
     setup: (nitro: { options: NitroCloudflareKVTarget }) => void
   }
-  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
+  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
-export function hubKvOptionalPeerResolver(): Plugin {
+export function hubKVOptionalPeerResolver(): Plugin {
   return {
     name: "@vite-hub/kv/optional-peers",
     enforce: "pre",
@@ -225,7 +227,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "function createKVStorage(name = \"default\") {",
     "  return {",
     "    async clear(base, options) { return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(base, options); }); },",
-    "    async del(key, options) { return kvResult(\"del\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
+    "    async delete(key, options) { return kvResult(\"delete\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
     "    async deleteIfEquals() { return unsupported(\"deleteIfEquals\", name); },",
     "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options), kvKeyLimitCodes); },",
     "    async getAndDelete() { return unsupported(\"getAndDelete\", name); },",
@@ -339,17 +341,17 @@ function configureNitroCloudflareKV(
 }
 
 export interface KVViteInput extends Pick<KVResolutionInput, "hosting"> {
-  /** The module that exports the app's `databases`, for the `database` driver. Default `@vite-hub/database/drizzle`. */
+  /** The module that exports the app's `databases`, for the `database` driver. Default `@vite-hub/database/runtime/registry`. */
   databaseImport?: string
 }
 
 /** `input.hosting` names the host preset for driver inference, as `vitehub()` passes it. Without it, KV reads the host from env. */
-export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugin {
+export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugin {
   let command: "build" | "serve" = "build"
   let mode = "development"
   let viteEnv: Record<string, string> | undefined
   let databasePlugin: DatabaseVitePlugin | undefined
-  const databaseImport = input.databaseImport ?? "@vite-hub/database/drizzle"
+  const databaseImport = input.databaseImport ?? "@vite-hub/database/runtime/registry"
   // The Database integration resolves its Definitions, server directories, layers, and contributions. Its config is
   // ready after its `configResolved`, which runs after this plugin's, so KV reads it again at `buildStart`.
   const postgresDatabase = () => databasePlugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"
@@ -377,6 +379,19 @@ export function hubKv(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       },
     },
     vitehub: {
+      durability: () => {
+        const kv = getConfig().kv
+        if (!kv) return []
+        const stores = Object.fromEntries(Object.entries({ default: kv.store, ...kv.stores }).map(([name, store]) => {
+          const database: unknown = Reflect.get(store, "database")
+          return [name, {
+            driver: store.driver,
+            ...("base" in store && store.base ? { base: store.base } : {}),
+            ...(typeof database === "string" ? { database } : {}),
+          }]
+        }))
+        return [{ export: "kvDurability", input: { stores }, module: durabilityModuleFile(import.meta.url), primitive: "kv" }]
+      },
       inspect: () => {
         const build = resolveKVViteConfig(options, { hosting: input.hosting, postgresDatabase: postgresDatabase() }).kv
         const dev = resolveKVViteConfig(options, { dev: true, env: viteEnv, hosting: input.hosting }).kv

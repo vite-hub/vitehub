@@ -6,7 +6,7 @@ export default defineConfig(({ command }) => ({
   environments: { nitro: { resolve: { external: ["@vite-hub/agent", "vite-hub/agent"] } } },
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       console: command === "serve" ? { auth: false, local: true } : false,
       observability: command === "serve"
         ? {

@@ -5,16 +5,30 @@ import { describeServerEnv } from "../src/server.ts"
 import { cloudflareRequest } from "./cloudflare-request.ts"
 
 describe("Server Env declaration inventory", () => {
+  it("reserves the deployment host selector from canonical application names", () => {
+    const error = expect.objectContaining({
+      code: "ENV_DECLARATION_INVALID",
+      cause: expect.objectContaining({ message: expect.stringContaining("VITEHUB_HOST is reserved for deployment host selection") }),
+    })
+    expect(() => createRuntimeRegistry({ host: env() })).toThrow(error)
+    expect(() => createRuntimeRegistry({ host: env({ source: env.source("APP_HOST") }) })).toThrow(error)
+    const registry = createRuntimeRegistry({ host: env({ source: env.source("APP_HOST", { canonical: false }) }) })
+    expect(registry.host).toMatchObject({ source: { name: "APP_HOST", canonical: false } })
+    expect(describeServerEnv(registry).entries[0]).not.toHaveProperty("canonicalName")
+    const prefixed = createRuntimeRegistry({ host: env() }, { prefix: "APP_" })
+    expect(describeServerEnv(prefixed).entries[0]).toMatchObject({ canonicalName: "APP_HOST" })
+  })
+
   it("describes host, provider and literal declarations without exposing their values or storage keys", () => {
     const registry = createRuntimeRegistry({
-      host: env({ secret: true, source: env.source("PRIVATE_HOST_NAME"), default: "private-default" }),
+      host: env({ secret: true, source: env.source("PRIVATE_HOST_NAME", { canonical: false }), default: "private-default" }),
       nested: { token: env({ secret: true, source: env.provider("vault", "private/storage/path") }) },
       label: "private-literal",
       optional: env({ optional: true }),
     })
     const description = describeServerEnv(registry)
     expect(description.entries).toEqual([
-      { path: "env.server.host", canonicalName: "VITEHUB_HOST", source: "env", secret: true, required: true, hasDefault: true, type: "string" },
+      { path: "env.server.host", source: "env", secret: true, required: true, hasDefault: true, type: "string" },
       { path: "env.server.nested.token", source: "provider", provider: "vault", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.label", source: "literal", secret: false, required: false, hasDefault: false },
       { path: "env.server.optional", canonicalName: "VITEHUB_OPTIONAL", source: "env", secret: false, required: false, hasDefault: false, type: "string" },

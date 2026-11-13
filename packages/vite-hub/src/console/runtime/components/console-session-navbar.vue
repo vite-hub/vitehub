@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { CopyButton } from "@vite-hub/ui";
 import { computed } from "vue";
+import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 
 const props = defineProps<{
   cost?: string;
@@ -26,8 +26,6 @@ const externalTarget = computed(() => {
   }
   return { icon: "i-lucide-external-link", label: "Open related page" };
 });
-
-const sessionLink = () => window.location.href;
 
 defineEmits<{
   openSessions: [];
@@ -68,9 +66,7 @@ defineEmits<{
       </UTooltip>
     </template>
     <template #right>
-      <UTooltip v-if="hasSelection" text="Copy session link">
-        <CopyButton :value="sessionLink" size="xs" aria-label="Copy session link" />
-      </UTooltip>
+      <ConsoleSessionCopyLink v-if="hasSelection" />
       <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
         <UButton
           :to="externalUrl"
@@ -92,7 +88,8 @@ defineEmits<{
           @click="$emit('refresh')"
         />
       </UTooltip>
-      <UTooltip :text="hasSelection ? 'Session details' : 'Select a session to inspect'">
+      <!-- The last header button, as in an editor. The header spans the details panel, so the toggle keeps its place. -->
+      <UTooltip :text="hasSelection ? (detailsOpen ? 'Hide session details' : 'Show session details') : 'Select a session to inspect'">
         <UButton
           data-slot="session-details-toggle"
           icon="i-lucide-panel-right"

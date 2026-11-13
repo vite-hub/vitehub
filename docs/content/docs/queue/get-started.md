@@ -27,7 +27,7 @@ In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloud
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare', queue: true },
 })
 ```
 ::::
@@ -40,7 +40,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
 })
 ```
 ::::
@@ -52,13 +52,13 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare', queue: true })],
 })
 ```
 ::::
 :::
 
-- `preset: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
+- `host: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
 - `queue: true` turns on Queue.
 
 For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.

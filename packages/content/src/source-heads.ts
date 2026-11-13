@@ -11,6 +11,7 @@ import { CommitMemory, commitJson, commitKey, decodeCommit, encodeCommit, parser
 import { checkContentDocuments, contentCheckReason, parseContentFiles } from "./check.ts"
 import { contentSource, contentSourceDefinition, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
 import { ACCESS_HOLD_MS, isPrivateRef, publicRule } from "./source-access.ts"
 import { openCommitSnapshot } from "./snapshots.ts"
@@ -18,6 +19,7 @@ import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentCheckInput, ContentCheckOptions } from "./check.ts"
 import type { ContentCommit, ContentCommitCacheStats } from "./commit-cache.ts"
+import type { ContentKV } from "./kv.ts"
 import type { ContentSourceCommits, ContentSourceInput } from "./content-source.ts"
 import type { ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 import type { BuiltContentCommit, ContentCommitSnapshot, ContentSnapshotLoader } from "./snapshots.ts"
@@ -283,24 +285,6 @@ function isGitHubDefinition(definition: Source<string, unknown, object> | undefi
   return definition?.name === "github" && "authenticated" in definition && typeof definition.authenticated === "function"
 }
 
-/** The part of a ViteHub KV store that Content uses, such as `kv` from `@vite-hub/kv`. */
-export interface ContentKV {
-  get<T>(key: string): Promise<readonly [unknown, T | null | undefined]>
-  set<T>(key: string, value: T): Promise<readonly [unknown, unknown]>
-}
-
-let installedKV: ContentKV | undefined
-/**
- * The build that registered KV. Plugin options can live in closures that the parser hash cannot read, so each build
- * gets its own commit cache keys.
- */
-let installedBuild: string | undefined
-
-/** The KV store that `registerContentKV()` installed, or undefined. */
-export function contentKV(): ContentKV | undefined {
-  return installedKV
-}
-
 /** The `CONTENT_R0022` errors of KV calls. Reads fall back on these and throw every other error. */
 const kvFailures = new WeakSet<object>()
 
@@ -314,15 +298,6 @@ function diagnosticOf(code: ContentSourceHeadDiagnostic["code"], error: Diagnost
 
 function isKVFailure(error: unknown): error is KVFailure {
   return error instanceof Error && kvFailures.has(error)
-}
-
-/**
- * Give Content the KV store that keeps the heads of `github()` Sources. When the app enables ViteHub KV, the build
- * calls it at the top of `server/content.ts`; you do not call it yourself. Without it, no Source is live.
- */
-export function registerContentKV(store: ContentKV | undefined, build?: string): void {
-  installedKV = store
-  installedBuild = build
 }
 
 /** The head state of one Content runtime. */
@@ -412,14 +387,15 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   async function isLive(state: HeadState): Promise<boolean> {
     state.live ??= state.definition.authenticated().then((authenticated) => {
       if (!authenticated) state.offline = diagnosticOf("CONTENT_R0020", contentErrorDiagnostics.CONTENT_R0020({ source: state.name }), true)
-      else if (!installedKV) state.offline = diagnosticOf("CONTENT_R0021", contentErrorDiagnostics.CONTENT_R0021({ source: state.name }), true)
+      else if (!contentKV()) state.offline = diagnosticOf("CONTENT_R0021", contentErrorDiagnostics.CONTENT_R0021({ source: state.name }), true)
       return !state.offline
     })
     return await state.live
   }
 
   function kv(state: HeadState): ContentKV {
-    if (installedKV) return installedKV
+    const store = contentKV()
+    if (store) return store
     throw contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
   }
 
@@ -489,7 +465,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
 
   function hashOf(state: HeadState): Promise<string> {
     const { prefix, schema } = contentSource(state.input)
-    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: installedBuild ?? null })
+    state.hash ??= parserHash({ parser, source: state.definition.fingerprint ?? null, prefix, schema, build: contentKVBuild() ?? null })
     return state.hash
   }
 
@@ -506,7 +482,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   async function readCommit(key: string): Promise<ContentCommit | undefined> {
-    const store = installedKV
+    const store = contentKV()
     if (!store) return
     let result: readonly [unknown, CacheArtifact | null | undefined]
     // A KV store that throws counts as a miss, so the page still loads the commit from GitHub.
@@ -526,7 +502,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   async function writeCommit(state: HeadState, key: string, commit: ContentCommit): Promise<void> {
-    const store = installedKV
+    const store = contentKV()
     if (!store) return
     let failure: unknown
     try {
@@ -699,8 +675,9 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   async function lastDelivery(state: HeadState): Promise<ContentSourceWebhookDelivery | null> {
-    if (!installedKV) return null
-    const [error, delivery] = await installedKV.get<ContentSourceWebhookDelivery>(webhookKey(state.name))
+    const store = contentKV()
+    if (!store) return null
+    const [error, delivery] = await store.get<ContentSourceWebhookDelivery>(webhookKey(state.name))
     if (error) throw error
     return delivery ?? null
   }
@@ -921,7 +898,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       if (typeof sha !== "string" || !fullSha.test(sha)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.pin() needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
       }
-      if (!await isLive(state)) throw installedKV ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
+      if (!await isLive(state)) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })
@@ -1102,6 +1079,12 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         },
       })
     },
+    onMove(work) {
+      onMoved.push(work)
+    },
+    async moved(name) {
+      await Promise.all(onMoved.map(work => work(name)))
+    },
     names: () => [...states.keys()],
     async read(ref, read) {
       assertActive()
@@ -1162,24 +1145,19 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       try {
         const before = await isLive(state) ? await read(state) : null
         const head = await api.advance(name)
-        if (!head.live) throw installedKV ? contentErrorDiagnostics.CONTENT_R0020({ source: name }) : contentErrorDiagnostics.CONTENT_R0021({ source: name })
+        if (!head.live) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: name }) : contentErrorDiagnostics.CONTENT_R0021({ source: name })
         const result = head.pinned ? "pinned" : sha && head.rejected?.sha === sha ? "rejected" : head.sha !== (before?.sha ?? null) ? "moved" : "kept"
         delivery = { id, at, sha, result }
       }
       catch (error) {
         delivery = { id, at, sha, result: "failed", error: error instanceof Error ? error.message : String(error) }
       }
-      if (installedKV) {
-        const [error] = await installedKV.set(webhookKey(name), delivery)
+      const store = contentKV()
+      if (store) {
+        const [error] = await store.set(webhookKey(name), delivery)
         if (error) throw error
       }
       return delivery
-    },
-    onMove(work) {
-      onMoved.push(work)
-    },
-    async moved(name) {
-      await Promise.all(onMoved.map(work => work(name)))
     },
   }
   runtimes.set(api, runtime)

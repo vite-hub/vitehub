@@ -23,7 +23,7 @@ export default defineConfig({
         }
       },
     }],
-    entry: ["src/cli.ts", "src/errors.ts", "src/index.ts", "src/operations.ts", "src/runtime/cloudflare-kv.ts", "src/runtime/cloudflare-request-env.ts", "src/runtime/nitro-cache.ts", "src/runtime/nitro-plugin.ts", "src/runtime/redis-driver.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
+    entry: ["src/cli.ts", "src/durability.ts", "src/errors.ts", "src/index.ts", "src/operations.ts", "src/runtime/cloudflare-kv.ts", "src/runtime/cloudflare-request-env.ts", "src/runtime/nitro-cache.ts", "src/runtime/nitro-plugin.ts", "src/runtime/redis-driver.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
     exports: {
       // Generated code imports these modules by path. They are not public API.
       exclude: ["errors", "operations", "runtime/cloudflare-kv", "runtime/cloudflare-request-env", "runtime/nitro-cache", "runtime/nitro-plugin"],
