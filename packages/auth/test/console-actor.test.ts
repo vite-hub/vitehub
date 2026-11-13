@@ -147,22 +147,17 @@ describe("one-time values and the app session", () => {
     expect(await api.consumeVerification("ticket:b")).toEqual([undefined, null]);
   });
 
-  it("reads, lists by prefix, updates, and deletes kept values", async () => {
+  it("lists kept values by prefix and deletes them", async () => {
     const fixture = await app();
     const api = createAuthConsole(fixture.auth, {}, fixture.store);
     const later = new Date(Date.now() + 60_000);
-    await api.saveVerification("pass:a", "value-a", later);
-    await api.saveVerification("pass:b", "value-b", later);
-    await api.saveVerification("pass:old", "value-old", new Date(Date.now() - 1));
+    await api.saveVerification("invite:a", "value-a", later);
+    await api.saveVerification("invite:old", "value-old", new Date(Date.now() - 1));
     await api.saveVerification("other:c", "value-c", later);
-    expect(await api.readVerification("pass:a")).toEqual([undefined, "value-a"]);
-    expect(await api.readVerification("pass:old")).toEqual([undefined, null]);
-    const [, listed] = await api.listVerifications("pass:");
-    expect(listed?.map((row) => [row.identifier, row.value]).sort()).toEqual([["pass:a", "value-a"], ["pass:b", "value-b"]]);
-    expect(await api.updateVerification("pass:a", "value-a2", later)).toEqual([undefined, undefined]);
-    expect(await api.readVerification("pass:a")).toEqual([undefined, "value-a2"]);
-    expect(await api.deleteVerification("pass:a")).toEqual([undefined, undefined]);
-    expect(await api.readVerification("pass:a")).toEqual([undefined, null]);
+    const [, listed] = await api.listVerifications("invite:");
+    expect(listed?.map((row) => [row.identifier, row.value])).toEqual([["invite:a", "value-a"]]);
+    expect(await api.deleteVerification("invite:a")).toEqual([undefined, undefined]);
+    expect((await api.listVerifications("invite:"))[1]).toEqual([]);
   });
 
   it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
@@ -183,5 +178,86 @@ describe("one-time values and the app session", () => {
       user: { id: fixture.operator.id, email: "operator@example.com" },
       impersonatedBy: null,
     }]);
+  });
+});
+
+describe("users and sessions that a host signs in", () => {
+  const browser = (cookie = "") => new Request(`${origin}/_vitehub/rpc?ticket=t`, { headers: { cookie, "user-agent": "Mozilla/5.0 (iPhone) Safari/605.1.15" } });
+
+  it("adds roles to the user with the email, and signs a browser in with a Better Auth session", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, user] = await api.hostUser({ email: "Ada@Example.com", name: "Ada", roles: ["console", "comments-read"] });
+    expect(error).toBeUndefined();
+    expect(user).toEqual({ id: fixture.member.id, roles: ["user", "console", "comments-read"] });
+    const [, headers] = await api.hostSession(fixture.member.id, browser());
+    const cookie = headers!.get("set-cookie")!;
+    expect(cookie).toMatch(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=\d+; HttpOnly; SameSite=Lax/);
+    const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: cookie.split(";")[0]! }) });
+    expect(session?.user).toMatchObject({ id: fixture.member.id, role: "user,console,comments-read" });
+  });
+
+  it("creates a guest without an email, lists the sessions of role holders, and revokes and removes them", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [, guest] = await api.hostUser({ name: "Ana", roles: ["guest", "comments-read", "comments-write"] });
+    await api.hostSession(guest!.id, browser());
+    const [, sessions] = await api.hostSessions(["guest", "console"]);
+    expect(sessions).toEqual([expect.objectContaining({ user: expect.objectContaining({ id: guest!.id, name: "Ana", email: expect.stringMatching(/^guest-.+@guests\.invalid$/) }), roles: ["guest", "comments-read", "comments-write"], device: "Safari · iOS" })]);
+    expect(await api.revokeHostSession(sessions![0]!.id)).toEqual([undefined, { userId: guest!.id, roles: ["guest", "comments-read", "comments-write"] }]);
+    expect((await api.hostSessions(["guest"]))[1]).toEqual([]);
+    expect((await api.revokeHostSession(sessions![0]!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
+    await api.removeHostUser(guest!.id);
+    expect(fixture.database.sqlite.prepare("SELECT id FROM user WHERE id = ?").get(guest!.id)).toBeUndefined();
+  });
+
+  it.each(["member", "guest"])("revokes a %s browser by its public session ID in secondary storage", async (kind) => {
+    const cache = new Map<string, string>();
+    const fixture = await app({ secondaryStorage: {
+      get: async (key) => cache.get(key) ?? null,
+      set: async (key, value) => { cache.set(key, value); },
+      delete: async (key) => { cache.delete(key); },
+      getAndDelete: async (key) => {
+        const value = cache.get(key) ?? null;
+        cache.delete(key);
+        return value;
+      },
+      increment: async (key) => {
+        const value = Number(cache.get(key) ?? 0) + 1;
+        cache.set(key, String(value));
+        return value;
+      },
+    } });
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const roles = kind === "member" ? ["console"] : ["guest", "comments-read"];
+    const [userError, user] = await api.hostUser({
+      ...(kind === "member" ? { email: "ada@example.com" } : {}),
+      name: "Browser owner",
+      roles,
+    });
+    expect(userError).toBeUndefined();
+    const [sessionError, headers] = await api.hostSession(user!.id, browser());
+    expect(sessionError).toBeUndefined();
+    const cookie = headers!.get("set-cookie")!.split(";")[0]!;
+    const session = () => fixture.auth.api.getSession({ headers: new Headers({ cookie }) });
+    const signedIn = await session();
+    expect(signedIn?.user.id).toBe(user!.id);
+    const [listError, sessions] = await api.hostSessions(roles);
+    expect(listError).toBeUndefined();
+    const listed = sessions!.find((row) => row.id === signedIn!.session.id);
+    expect(listed).toBeDefined();
+    expect(listed).not.toHaveProperty("token");
+    expect(await api.revokeHostSession(listed!.id)).toEqual([undefined, { userId: user!.id, roles: user!.roles }]);
+    expect(await session()).toBeNull();
+    expect((await api.hostSessions(roles))[1]?.some((row) => row.id === listed!.id)).toBe(false);
+    expect((await api.revokeHostSession(listed!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
+  });
+
+  it("needs admin(), which keeps the roles", async () => {
+    const fixture = await app();
+    const context = await fixture.auth.$context;
+    const api = createAuthConsole({ api: fixture.auth.api, $context: Promise.resolve({ ...context, options: { ...context.options, plugins: [] } }) });
+    const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
+    expect(error?.cause).toMatchObject({ message: expect.stringContaining("admin()") });
   });
 });

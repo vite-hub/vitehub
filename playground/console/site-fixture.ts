@@ -1,8 +1,8 @@
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
-import type { SiteGrant, SiteInvite, SitePass } from "../../packages/vite-hub/src/console/runtime/site-access.ts"
+import type { SiteGrant, SiteInvite, SiteSession } from "../../packages/vite-hub/src/console/runtime/site-access.ts"
 
 /**
- * Site access: three browsers with a pass and one open invite, in memory. A restart resets them. Links point at the
+ * Site access: three signed-in browsers and one open invite, in memory. A restart resets them. Links point at the
  * playground home, because the playground has no app that redeems them.
  */
 const hour = 3_600_000
@@ -11,19 +11,19 @@ const now = Date.now()
 const maxi = { id: "console-maxi", name: "Maxi" }
 const grants: SiteGrant[] = [
   { id: "console", label: "Console", description: "Open the app in the ViteHub Console. Members only.", membersOnly: true },
-  { id: "comments.read", label: "Read comments", description: "See the comments on every page." },
-  { id: "comments.write", label: "Write comments", description: "Start threads and reply." },
-  { id: "comments.resolve", label: "Resolve threads", description: "Resolve and reopen threads." },
-  { id: "comments.delete", label: "Delete comments", description: "Delete threads and messages." },
+  { id: "comments-read", label: "Read comments", description: "See the comments on every page." },
+  { id: "comments-write", label: "Write comments", description: "Start threads and reply." },
+  { id: "comments-resolve", label: "Resolve threads", description: "Resolve and reopen threads." },
+  { id: "comments-delete", label: "Delete comments", description: "Delete threads and messages." },
 ]
 const all = grants.map(grant => grant.id)
-let passes: SitePass[] = [
-  { id: "pass-laptop", kind: "member", person: { ...maxi, email: "maxi@example.com" }, grants: all, device: "Chrome on macOS", createdAt: new Date(now - 40 * day).toISOString(), lastSeenAt: new Date(now - 4 * 60_000).toISOString(), expiresAt: new Date(now + 90 * day).toISOString(), createdBy: maxi },
-  { id: "pass-phone", kind: "member", person: { ...maxi, email: "maxi@example.com" }, grants: all, device: "Safari on iPhone", createdAt: new Date(now - 12 * day).toISOString(), lastSeenAt: new Date(now - 3 * day).toISOString(), expiresAt: new Date(now + 87 * day).toISOString(), createdBy: maxi },
-  { id: "pass-ana", kind: "guest", person: { id: "pass:invite-ana", name: "Ana from design" }, grants: ["comments.read", "comments.write"], device: "Firefox on Windows", createdAt: new Date(now - 6 * day).toISOString(), lastSeenAt: new Date(now - 5 * hour).toISOString(), expiresAt: new Date(now + 90 * day).toISOString(), createdBy: maxi },
+let sessions: SiteSession[] = [
+  { id: "pass-laptop", kind: "member", person: { ...maxi, email: "maxi@example.com" }, grants: all, device: "Chrome · macOS", createdAt: new Date(now - 40 * day).toISOString(), lastSeenAt: new Date(now - 4 * 60_000).toISOString(), expiresAt: new Date(now + 7 * day).toISOString() },
+  { id: "pass-phone", kind: "member", person: { ...maxi, email: "maxi@example.com" }, grants: all, device: "Safari · iOS", createdAt: new Date(now - 12 * day).toISOString(), lastSeenAt: new Date(now - 3 * day).toISOString(), expiresAt: new Date(now + 4 * day).toISOString() },
+  { id: "pass-ana", kind: "guest", person: { id: "user-ana", name: "Ana from design" }, grants: ["comments-read", "comments-write"], device: "Firefox · Windows", createdAt: new Date(now - 6 * day).toISOString(), lastSeenAt: new Date(now - 5 * hour).toISOString(), expiresAt: new Date(now + 7 * day).toISOString() },
 ]
 let invites: SiteInvite[] = [
-  { id: "invite-leo", name: "Leo (QA)", grants: ["comments.read", "comments.write", "comments.resolve"], path: "/", expiresAt: new Date(now + 5 * day).toISOString(), createdBy: maxi },
+  { id: "invite-leo", name: "Leo (QA)", grants: ["comments-read", "comments-write", "comments-resolve"], path: "/", expiresAt: new Date(now + 5 * day).toISOString(), createdBy: maxi },
 ]
 let next = 0
 
@@ -38,7 +38,7 @@ function missing(what: string): ConsoleRpcResult {
 /** Answers a `site.*` operation, or undefined for any other operation. */
 export function siteFixture(origin: string, operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   switch (operation) {
-    case "site.passes": return { ok: true, value: { passes } }
+    case "site.sessions": return { ok: true, value: { sessions } }
     case "site.invites": return { ok: true, value: { invites } }
     case "site.grants": return { ok: true, value: { grants } }
     case "site.link": return { ok: true, value: input.qr ? link(origin, 10) : { url: "/", expiresAt: new Date(Date.now() + 60_000).toISOString() } }
@@ -48,10 +48,11 @@ export function siteFixture(origin: string, operation: string, input: Record<str
       invites = [invite, ...invites]
       return { ok: true, value: { ...link(origin, days * 24 * 60), expiresAt: invite.expiresAt, invite } }
     }
-    case "site.revoke-pass": {
-      if (!passes.some(pass => pass.id === input.id)) return missing("browser")
-      passes = passes.filter(pass => pass.id !== input.id)
-      return { ok: true, value: { revoked: true } }
+    case "site.revoke-session": {
+      const session = sessions.find(session => session.id === input.id)
+      if (!session) return missing("browser")
+      sessions = sessions.filter(other => other.id !== input.id)
+      return { ok: true, value: { revoked: true, removedUser: session.kind === "guest" } }
     }
     case "site.revoke-invite": {
       if (!invites.some(invite => invite.id === input.id)) return missing("invite")
