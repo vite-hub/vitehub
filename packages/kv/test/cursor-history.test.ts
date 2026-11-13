@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { createCursorHistory } from "../src/runtime/cursor-history.ts"
 
 it.each(["vhc:provider-cursor", "vhc:1:not-json", "vhc:1:%7B%7D", "vhc:1:%"])("preserves opaque provider cursor %s", (cursor) => {
@@ -113,4 +113,19 @@ it("keeps continuation size bounded for long cursor histories", () => {
   const history = new Set(Array.from({ length: 1_024 }, (_, index) => `${index}-${"x".repeat(200)}`))
   const cursor = createCursorHistory().store("provider", history)
   expect(cursor.length).toBeLessThan(128 * 1_024)
+})
+
+it("resumes a continuation in a fresh module instance", async () => {
+  const cursor = createCursorHistory("cloudflare-kv").store("provider", new Set(["first", "provider"]))
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  expect(fresh.createCursorHistory("cloudflare-kv").take(cursor)).toMatchObject({ providerCursor: "provider", history: new Set(["provider"]) })
+})
+
+it("keeps a token with a wrong tag as an opaque provider cursor", async () => {
+  const cursor = createCursorHistory().store("provider", new Set(["provider"]))
+  const tampered = cursor.replace("provider", "other")
+  vi.resetModules()
+  const fresh = await import("../src/runtime/cursor-history.ts")
+  expect(fresh.createCursorHistory().take(tampered)).toMatchObject({ providerCursor: tampered })
 })

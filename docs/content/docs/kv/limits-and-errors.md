@@ -70,7 +70,7 @@ The `ttl` option of `kv.set()` does not fail: on Cloudflare KV, ViteHub raises a
 
 ### KV_INVALID_CURSOR
 
-The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. In-process drivers keep cursors in memory, so a restart or `disposeKVStores()` expires them. List again without `cursor`.
+The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. `fs-lite` and Upstash keep some cursors in process memory, so a restart or `disposeKVStores()` expires them. Cloudflare KV and Deno KV cursors carry the provider cursor, so another isolate or a restarted process can continue the listing. List again without `cursor`.
 
 ### KV_INVALID_LIMIT
 
