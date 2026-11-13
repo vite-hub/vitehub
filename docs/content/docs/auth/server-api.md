@@ -96,7 +96,7 @@ const { data } = await client.admin.listUsers({ query: { limit: 10 } })
 - The client imports the file together with Better Auth, on first use, not when the app starts.
 - ViteHub writes the type of the file to `.vitehub/types/auth.d.ts`, so `client.admin` and the other plugin endpoints are typed. Restart the dev server after you add or remove the file.
 
-For a second client, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. A custom client must include the app base path in `basePath`, such as `/app/auth`.
+For a second client, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Without `basePath`, it uses the same path as the default client. A `basePath` that you set is used as it is, so include the app base path, such as `/app/auth`.
 
 The default client has the user and session fields of your Auth Definition. See [Typed user fields](#typed-user-fields).
 

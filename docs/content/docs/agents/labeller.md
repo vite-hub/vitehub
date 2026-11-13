@@ -61,7 +61,7 @@ Set `hideUnmanagedLabels: true` in `options` to also hide undeclared Gmail label
 
 ## Defaults
 
-The defaults are `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabels: false`, and `trashEnabled: false`. Set `dryRun: false` only when you want Gmail writes. Trash needs both `trashEnabled: true` and a rule or label action with `trash: true`.
+The defaults are `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabels: false`, and `trashEnabled: false`. Set `dryRun: false` only when you want Gmail writes. Trash needs `trashEnabled: true` and a rule or label action with `trash: true`, or a `cleanup` rule.
 
 ## Clean up old mail
 
@@ -98,7 +98,7 @@ export default defineSchedule({
 })
 ```
 
-For each rule, `cleanupLabeller()` searches `label:"<label>" older_than:<days>d -is:starred -in:trash` and returns the message IDs. It moves them to Trash only with `apply: true` and `dryRun: false` on the Agent. Otherwise it is a preview. `trashEnabled` does not affect cleanup. It controls only the `trash` action of rules and labels.
+For each rule, `cleanupLabeller()` searches `label:"<label>" older_than:<days>d -is:starred -in:trash` and returns the message IDs. It moves them to Trash only with `apply: true`, and `dryRun: false` and `trashEnabled: true` on the Agent. Otherwise it is a preview. `trashEnabled: false` stops every move to Trash: cleanup and the `trash` action of rules and labels.
 
 - Each run moves at most 500 messages per rule, so a large backlog takes several runs.
 - `manual: true` lets `vitehub schedule run cleanup` start a run now.
