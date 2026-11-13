@@ -76,6 +76,7 @@ the same behavior.
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/abilities` | [`defineAbilities()`, `guest()`, and `deny()`](/docs/auth/abilities) for permission rules shared by server and app. |
 | `vite-hub/auth/mcp` | OAuth sign-in, discovery, request checks, and unused-client cleanup for an app's MCP server. Needs `@better-auth/oauth-provider`. |
+| `vite-hub/auth/forward` | [`forwardAuth()`](/docs/auth/configure#sign-in-through-a-trusted-proxy) signs people in from a trusted reverse proxy's identity header. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and adds its tables to generated migrations. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
