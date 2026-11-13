@@ -119,7 +119,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without an `author` or `authorAssociation` rule, only authors with write access are selected. Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. Without them or `filter.labels`, `babysitter:skip` pauses a pull request. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). |
+| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady, bypassInheritedChecks }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). `bypassInheritedChecks` is off by default ([Failures from the base branch](#failures-from-the-base-branch)). |
 | `merge.markDraftsReady` | `[]` | Logins whose drafts the host marks ready for review once a pass has reviewed the head and no required check failed. Only drafts from a branch in the repository itself qualify, so a fork's draft stays a draft. |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
@@ -429,7 +429,7 @@ SIGTERM, such as `systemctl restart`, does not wait for running passes. It stops
 
 A draft never merges. With `merge.markDraftsReady`, the host marks a listed author's reviewed draft ready for review; the `ready_for_review` event wakes it and starts workflows that skip drafts. Other drafts wait for a person.
 
-Assessed feedback stays assessed on later heads, so a pull request whose push fixed every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment causes no pass. When the base branch has no required checks, the newest run of every check on the current head must finish before a merge; earlier runs of a rerun check are ignored.
+Assessed feedback stays assessed on later heads, so a pull request whose push fixed every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment causes no pass. When the base branch has no required checks, the newest run of every check on the current head must finish before a merge, and a failing GitHub Actions check outside `reviewChecks` blocks it; earlier runs of a rerun check are ignored, and so is a cancelled run beside a finished run of the same check. When a pass assessed the current head and every feedback item, failing `reviewChecks` alone no longer block the merge.
 
 A wait is bound to the head that the pass saw: a new head clears it, and closing the pull request stops work. Wake conditions come from structured evidence about checks, reviews, the base, and mergeability, never the model's text. A wait does not allow a merge. The inbox is private; read it through the health route.
 
@@ -442,6 +442,26 @@ The install in each pass workspace gets only the `PATH`, `HOME`, locale, package
 Two pull requests that change the same file can both pass checks and still break the base together. Before a direct merge, the host compares the changed files with files changed on the base since the checks ran. On overlap, or when the tested base is unknown, it updates the branch through GitHub and waits for checks on the new head instead. A head that already contains the base tip needs no update. A base that requires up-to-date branches gets the same update when the pull request is only behind it. When GitHub refuses the update, as it does for some stacked pull requests, the host merges the base into a head branch in the same repository through the merges API, after checking that the head did not move. Failed checks from an older base get one update and retest every six hours, when the current base tip has no failing check. Neither step starts a model pass.
 
 The queue claims, in order: pull requests whose head branch starts with `mainRepairBranchPrefix`, pull requests with one of `priorityLabels`, a pull request with a stored review on its current head, pull requests whose current-head checks all passed, stack parents, then the oldest work.
+
+### Failures from the base branch
+
+With `merge: 'direct'`, the host reads the logs of failing GitHub Actions jobs before a model pass. A job fails *the same way on the base* when the same job fails on the base branch tip in the same step, and the pull request's output names no failure that the base's lacks. A missing log proves nothing. When every failing required check fails the same way on the base, or stopped on a runner or network error, the pull request waits without a pass: it looks again every 15 minutes and is retested once the base passes. A runner or network error gets one branch update for a fresh run, once per head and base and at most hourly. A conflict, a person's feedback, a person's open review thread, or a head branch matching `mainRepairBranchPrefix` still starts a pass. A failing optional check still gets the pass that assesses it.
+
+A required check that never reported on a head whose checks finished 10 minutes ago gets a fresh run once per head every six hours: the host updates a branch that is behind its base, or reruns the head's Actions runs.
+
+`bypassInheritedChecks` lets the host merge past such failures. It maps a repository to the required checks it may skip:
+
+```ts [server/agents/babysitter/agent.ts] fragment
+export default defineAgent({
+  extends: babysitter,
+  options: {
+    filter: { repository: { allow: ['acme/app'] } },
+    merge: { strategy: 'direct', bypassInheritedChecks: { 'acme/app': ['ci'] } },
+  },
+})
+```
+
+Before the merge, the host rereads the head's checks, the base branch tip, the branch protection and rulesets, the review decision, and the review threads. It merges only when the named checks fail the same way on the tip, every other check passes, and every other branch rule is known and satisfied. The merge bypasses branch rules, so the GitHub App must be a bypass actor of the ruleset, or the classic protection must not apply to admins. The host records the head, base, and skipped checks in its inbox as `inherited-merge-proof:<repository>#<number>`.
 
 While GitHub still computes mergeability, the host rereads the pull request for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
 
