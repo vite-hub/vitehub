@@ -127,12 +127,13 @@ ViteHub adds the route only for an `import { github }` in `server/content.ts`. W
 
 The files of a commit never change. Content downloads each commit once per cache key, and keeps the files and the parsed documents in KV under `content:<parserHash>:<sha>:<source>`. A new head reads a new key, so nothing purges a cache, on any host.
 
-- A read tries memory first, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- A read tries memory first, then the build snapshot, then KV, then the GitHub archive. Validation and serving share one download: the first read of a commit downloads one archive, and a server instance with the commit in KV downloads none.
+- When the build has a GitHub token, such as `VITEHUB_GITHUB_TOKEN`, it resolves the branch of each `github()` Source, parses that commit, and ships it with the server, gzipped. While the head is that commit, a cold server reads it from the bundle and downloads nothing, even with an empty KV. The server inflates it on the first read that needs it, not at start, and only when the head is the build commit. When the head moved, the commit cache works as before. Without a token at build, the build ships no commit. A build commit that does not parse ships nothing, and the build warns.
 - `parserHash` hashes the Comark options, plugin source text, the Source fingerprint, its effective `prefix` and `schema`, and the build. Each build uses new keys.
 - The built-in parser reuses parsed documents from KV. With custom `markdown.plugins` or Content `plugins`, each new runtime parses the cached files again without a download. Function source text cannot identify captured plugin options or implementations. Within one runtime, memory holds the parsed result.
 - Content writes an artifact only after every document parses. A rollback with `pin()` to a valid commit reads it from the cache. A rejected load or failed download stays out of memory, so `advance()` can retry it.
 - Each server instance holds the last 4 commits in memory.
-- `head().cache` shows the key of the served commit, the reads from memory and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
+- `head().cache` shows the key of the served commit, the reads from memory, from the build snapshot (`build`), and from KV, and the misses. Each miss is one archive download. `vitehub kv get <key>` shows the stored commit. When KV refuses a value, for example one larger than 25 MiB on Cloudflare, Content logs `CONTENT_R0023` and other server instances download the commit again.
 
 ### Read a branch, a pull request, or a commit
 

@@ -1,5 +1,7 @@
 import type { ComarkContent, ContentFile, Manifest, ParsedSource, Source as ComarkContentSource } from "comark-content"
 
+import type { StoredCommit } from "./commit-cache.ts"
+
 /**
  * Build-time snapshots of read-only Content Sources. A ViteHub build parses each `glob()` or `files()` Source once and
  * ships the parsed documents in the server bundle, so a cold server reads them instead of parsing every Markdown file
@@ -8,6 +10,10 @@ import type { ComarkContent, ContentFile, Manifest, ParsedSource, Source as Coma
  * A snapshot is an index and body shards. The index holds the Source keys, Comark's manifest (every document without
  * its body), and the shard of each document. `list()` and `navigation()` read only the index, `get()` reads one shard,
  * and a full load, such as the first search, reads every shard.
+ *
+ * A `github()` Source gets a commit snapshot instead: the commit that the build resolved for its branch, in the format of
+ * the commit cache. Its index names the commit and its one shard holds the commit. The commit cache reads it when the
+ * head is that commit, so a cold server downloads no archive.
  */
 
 /** The index of a snapshot. */
@@ -17,6 +23,16 @@ export interface ContentSnapshotIndex {
   manifest: Manifest
   /** The shard of each document, by its key in the Source. */
   shards: Record<string, number>
+}
+
+/** The index of a commit snapshot of a `github()` Source. */
+export interface ContentCommitSnapshotIndex {
+  commit: {
+    sha: string
+    ref: string | null
+    /** The Source fingerprint, as the head stores it. A Source with another repository or ref ignores the snapshot. */
+    origin: string
+  }
 }
 
 /**
@@ -37,6 +53,27 @@ export interface ContentSnapshotTarget {
   instance: ComarkContent
   /** The keys of the instance's Source definition. */
   keys: () => Promise<string[]>
+  /**
+   * For a `github()` Source: resolve and parse the commit of its branch. Undefined without a GitHub token, and a string
+   * that says why when the commit does not load or parse.
+   */
+  commit?: () => Promise<BuiltContentCommit | string | undefined>
+}
+
+/** The commit of a `github()` Source that the build parsed. `json` is the text of `commitJson()`. */
+export interface BuiltContentCommit {
+  sha: string
+  ref: string | null
+  origin: string
+  json: string
+}
+
+/** A commit snapshot as the commit cache reads it. `read()` loads and inflates the commit. */
+export interface ContentCommitSnapshot {
+  sha: string
+  ref: string | null
+  origin: string
+  read: () => Promise<StoredCommit>
 }
 
 /** Bodies per shard, in JSON characters. A `get()` on a cold server parses one shard of about this size. */
@@ -67,7 +104,7 @@ export function setContentSnapshotTargets(runtime: object, list: ContentSnapshot
 }
 
 /** JSON text gzipped in base64, as the build writes it into the bundle. */
-async function readSnapshotJson<T>(base64: string): Promise<T> {
+export async function readSnapshotJson<T>(base64: string): Promise<T> {
   // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib and node:buffer. On Node they decode about 5 times faster than atob() and DecompressionStream.
   const zlib = globalThis.process?.getBuiltinModule?.("node:zlib")
   const buffer = globalThis.process?.getBuiltinModule?.("node:buffer")
@@ -136,6 +173,21 @@ export function withContentSnapshot(origin: ComarkContentSource, load: ContentSn
   }
 }
 
+/**
+ * Open the commit snapshot of a `github()` Source once. Only the index inflates here. The commit loads on `read()`, so a
+ * server whose head moved past the build commit never loads it. Undefined for a snapshot that is not a commit snapshot.
+ */
+export function openCommitSnapshot(load: ContentSnapshotLoader): () => Promise<ContentCommitSnapshot | undefined> {
+  let opened: Promise<ContentCommitSnapshot | undefined> | undefined
+  return () => opened ??= (async () => {
+    const snapshot = await load()
+    const { commit } = await readSnapshotJson<Partial<ContentCommitSnapshotIndex>>(snapshot.index)
+    const shard = snapshot.shards[0]
+    if (!commit || !shard) return
+    return { ...commit, read: async () => await readSnapshotJson<StoredCommit>(await shard()) }
+  })()
+}
+
 /** The JSON text of one instance's snapshot: its index and its shards. */
 export interface BuiltContentSnapshot {
   index: string
@@ -143,13 +195,28 @@ export interface BuiltContentSnapshot {
 }
 
 /**
- * Parse every read-only `glob()` or `files()` Source of a Content runtime, as the build does. Returns each snapshot by
- * instance name, and why an instance has none.
+ * Parse every read-only `glob()` or `files()` Source of a Content runtime, as the build does, and the branch commit of
+ * each `github()` Source when the build has a GitHub token. Returns each snapshot by instance name, and why an instance
+ * has none. A `github()` Source without a token has no snapshot and no warning: the server loads it as it would anyway.
  */
 export async function buildContentSnapshots(runtime: object): Promise<{ snapshots: Record<string, BuiltContentSnapshot>, skipped: Record<string, string> }> {
   const snapshots: Record<string, BuiltContentSnapshot> = {}
   const skipped: Record<string, string> = {}
-  for (const { name, instance, keys: sourceKeys } of targets.get(runtime) ?? []) {
+  for (const { name, instance, keys: sourceKeys, commit } of targets.get(runtime) ?? []) {
+    if (commit) {
+      try {
+        const built = await commit()
+        if (typeof built === "string") skipped[name] = built
+        else if (built) {
+          const index: ContentCommitSnapshotIndex = { commit: { sha: built.sha, ref: built.ref, origin: built.origin } }
+          snapshots[name] = { index: JSON.stringify(index), shards: [built.json] }
+        }
+      }
+      catch (error) {
+        skipped[name] = error instanceof Error ? error.message : String(error)
+      }
+      continue
+    }
     const { hooks } = instance
     const callHook = hooks.callHook
     // Index plugins, such as `sql-query`, build their tables from `file:bulk:load`. The build only parses, so they do not

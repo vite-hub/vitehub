@@ -402,6 +402,7 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 - `list()` entries carry the metadata of a full parse, such as `readingTime`, and their `meta.partial` is `false`.
 - `refresh()` parses the Source again.
 - A `glob()` whose options are not literals reads its files from disk at run time, so the server parses it.
+- A `github()` Source is parsed at build only when the build has a GitHub token. The build ships the latest commit of its branch, and the server serves it while the head of the Source is that commit. A head that moved loads its commit from KV or GitHub.
 
 The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
 

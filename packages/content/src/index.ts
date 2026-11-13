@@ -80,7 +80,7 @@ export type { ContentTypesHost, ContentTypesOptions } from "./types.ts"
 /** Comark's registry interfaces. Generated Content types extend them through this module. */
 export type { ContentListFile, ContentPathsRegistry, ContentRegistry, QueryRowBase } from "comark-content"
 export { buildContentSnapshots, registerContentSnapshots } from "./snapshots.ts"
-export type { BuiltContentSnapshot, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
+export type { BuiltContentCommit, BuiltContentSnapshot, ContentCommitSnapshotIndex, ContentSnapshot, ContentSnapshotIndex, ContentSnapshotLoader } from "./snapshots.ts"
 export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, contentRefTokenParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewHostLoader, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
@@ -481,7 +481,8 @@ export function defineContent<
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
-  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots. Collections stay editable, so they parse.
+  // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
+  // Source for the commit cache. Collections stay editable, so they parse.
   const snapshots = takeContentSnapshots()
   const snapshotTargets: ContentSnapshotTarget[] = []
   // Custom plugin factories can hide options and implementations in closures. Reuse their files, then parse locally.
@@ -490,9 +491,10 @@ export function defineContent<
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     const kind = contentSourceKind(input)
-    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input))
+    const instance = createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" }, kind === "files" ? snapshots?.[name] : undefined, heads.commits(name, input, snapshots?.[name]))
     heads.attach(name, instance)
     if (kind === "glob" || kind === "files") snapshotTargets.push({ name, instance, keys: () => contentSourceKeys(input) })
+    else if (heads.github(name)) snapshotTargets.push({ name, instance, keys: async () => [], commit: () => heads.snapshot(name) })
     return instance
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
