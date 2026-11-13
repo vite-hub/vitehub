@@ -1,6 +1,6 @@
 # @vite-hub/kit
 
-Headless parts for Vue and Nuxt: dialogs, menus, tabs, selects, date pickers, toasts, and more. The parts have behavior, focus, keyboard, and ARIA, and no styles. You style them through their `data-slot` attributes.
+Headless parts for Vue and Nuxt: dialogs, menus, tabs, selects, date pickers, toasts, and more. The parts have behavior, focus, keyboard, and ARIA, and no styles. You style them through their `data-slot` attributes, or load a [style family](#styles).
 
 The behavior comes from [ui-sdk](https://ui-sdk.dev). Each entry that has the name of an entry of `@ui-sdk/vue` re-exports it unchanged, with the same names, props, and types. The kit also adds [components that ui-sdk does not have](#components-we-add), built on ui-sdk. The package installs only `@ui-sdk/vue` and `@ui-sdk/core`, so it does not bring the editor, terminal, or highlighter dependencies of `@vite-hub/ui`.
 
@@ -19,6 +19,8 @@ Import each part from its own entry, so an app loads only the parts it uses. The
 | `@vite-hub/kit/<name>` | The parts and helpers of `@ui-sdk/vue/<name>`, for example `@vite-hub/kit/dialog`, `@vite-hub/kit/tabs`, and `@vite-hub/kit/date-picker`. Every entry of `@ui-sdk/vue` has one. |
 | `@vite-hub/kit/form`, `editable`, `tags-input`, `tag-group` | The components that the kit adds. See [Components we add](#components-we-add). |
 | `@vite-hub/kit/nuxt` | The Nuxt module |
+| `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light and dark |
+| `@vite-hub/kit/styles/default.css` | The `default` style family: plain CSS for every part |
 
 ```vue
 <script setup lang="ts">
@@ -74,6 +76,23 @@ Differences from Reka UI:
 - `Editable` saves on Enter and on blur by default (`submit-mode="both"`). Reka saves only on blur.
 - `TagsInput` keeps each tag once. It has no `duplicate` prop.
 - `TagGroup` keeps the selection in an array, also with `selection-mode="single"`.
+## Styles
+
+The parts have no styles until you load a style family. A family is one CSS file that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. It reads only the variables of `tokens.css`, which use the names of shadcn/ui.
+
+```css
+/* The app's global stylesheet. ui-sdk's own layer comes first, so the family wins over it. */
+@layer ui-sdk;
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
+```
+
+- **No Tailwind needed.** The family is plain CSS in the `components` cascade layer, so utility classes and your own CSS win over it. With Tailwind, keep these lines above `@import "tailwindcss"`.
+- **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`.
+- **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, cards 2 times, and menus and dialogs 3 times.
+- Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
+- **Variants** are attributes: `data-variant="solid"` for the main action, `data-variant="ghost"` for toolbar and row actions, and `data-variant="destructive"`.
+- **Motion:** dialogs, toasts, and panels fade in through `data-starting-style` and `data-ending-style`. Menus, selects, popovers, and tooltips appear at once. Under `prefers-reduced-motion`, only the fades stay.
 
 ## Nuxt
 
