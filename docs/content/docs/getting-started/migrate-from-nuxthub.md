@@ -105,6 +105,28 @@ has other unstorage methods. Check those calls against ViteHub's
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
+NuxtHub keeps Redis and Upstash keys at the root of the database. ViteHub keeps
+them under `vitehub:kv:<store>`, such as `vitehub:kv:default:settings`. Before
+the switch, move the keys once with the Redis or Upstash client:
+
+```ts [scripts/move-kv-keys.ts]
+import { Redis } from "@upstash/redis"
+
+const redis = Redis.fromEnv()
+let cursor = "0"
+do {
+  const [next, keys] = await redis.scan(cursor, { count: 1000 })
+  for (const key of keys) {
+    if (!key.startsWith("vitehub:")) await redis.renamenx(key, `vitehub:kv:default:${key}`)
+  }
+  cursor = String(next)
+} while (cursor !== "0")
+```
+
+The script moves every key that does not start with `vitehub:`, so run it only
+on a database that holds only NuxtHub KV keys. `RENAMENX` keeps a key that
+ViteHub already wrote.
+
 ## Move Blob calls
 
 Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `delete`, and
