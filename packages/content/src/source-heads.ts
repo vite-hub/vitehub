@@ -143,7 +143,7 @@ export interface ContentSourceHeads {
 }
 
 /** A `github()` Source definition. */
-export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "latest" | "changes" | "resolveRef" | "contains" | "pullsAt">>
+export type GitHubDefinition = Source<string, unknown, object> & Pick<GitHubSource, "authenticated"> & Partial<Pick<GitHubSource, "history" | "latest" | "changes" | "resolveRef" | "contains" | "pullsAt" | "pullChanges">>
 
 /** The KV value of a head. */
 interface StoredHead {

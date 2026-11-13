@@ -8,7 +8,7 @@ import { expect, it, vi } from "vitest"
 import { createDocsManifest } from "../src/manifest.ts"
 import * as navigation from "../src/navigation.ts"
 
-const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
+const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 const source = readFileSync(resolve(import.meta.dirname, "../runtime/app/middleware/docs-layout.ts"), "utf8")
 
 function route(fullPath: string, name = "docs-page") {

@@ -28,7 +28,7 @@ vi.mock("#docs/parser", () => ({
 }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
-  return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
+  return { default: await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
 })
 
 const { default: raw } = await import("../src/runtime/server/raw.ts")

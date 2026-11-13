@@ -364,7 +364,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })
     const moduleOptions: DocsNuxtOptions = nuxt.options
 
-    let manifest = createDocsManifest(manifestOptions)
+    let manifest = await createDocsManifest(manifestOptions)
     /**
      * Writes the agent copy of every page, with the links of its section at the end. `nuxi build` empties the build
      * folder after the modules load, so it runs before the build.
@@ -535,7 +535,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
             regeneration = regeneration.then(async () => {
               if (closed) return
               try {
-                const next = createDocsManifest(manifestOptions)
+                const next = await createDocsManifest(manifestOptions)
                 const changed = JSON.stringify(next) !== JSON.stringify(manifest)
                 await writeRaw(next)
                 manifest = next

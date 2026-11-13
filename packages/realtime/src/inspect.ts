@@ -5,12 +5,15 @@ import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub
 import type { ESTree, parseSync } from "vite"
 import type { DiscoveredRealtimeDefinition } from "./types.ts"
 
-export type RealtimeInspectionAuthority = "auto" | "cloudflare" | "memory" | "unsupported"
+export type RealtimeInspectionAuthority = "auto" | "cloudflare" | "memory" | "node" | "postgres" | "redis" | "unsupported"
 
 const authorityLabels: Record<RealtimeInspectionAuthority, string> = {
-  auto: "auto: Cloudflare Durable Objects on Cloudflare, memory in development, build error elsewhere",
+  auto: "auto: Cloudflare Durable Objects on Cloudflare, memory in development, shared rooms on a Node server, build error elsewhere",
   cloudflare: "cloudflare: one Durable Object per document, Yjs state in SQLite",
   memory: "memory: one Node process, rooms lost on restart",
+  node: "auto on Node: picked when the server starts. Redis with REDIS_URL, else Postgres on the Default Database or REALTIME_POSTGRES_URL, else memory in one process",
+  postgres: "postgres: a room in each Node instance, shared through Postgres LISTEN/NOTIFY on the Default Database or REALTIME_POSTGRES_URL",
+  redis: "redis: a room in each Node instance, shared through Redis pub/sub (REDIS_URL)",
   unsupported: "none: this host has no Realtime room authority",
 }
 

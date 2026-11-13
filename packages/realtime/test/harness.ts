@@ -7,7 +7,9 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { JSONContent } from "@tiptap/core"
+import type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "../src/bus-protocol.ts"
 import type { RealtimeControlMessage } from "../src/protocol.ts"
+import type { RealtimeHandlerOptions } from "../src/server.ts"
 import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeFieldValue, RealtimeIssue } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
@@ -110,8 +112,8 @@ export interface TestClient {
 }
 
 /** Drives the Realtime handler through its WebSocket hooks the way y-websocket clients do. */
-export function createTestServer(definition: RealtimeDefinition, options: { durable?: FakeSql } = {}) {
-  const handler = createRealtimeHandler(registryOf(definition) as never)
+export function createTestServer(definition: RealtimeDefinition, options: { durable?: FakeSql, handler?: RealtimeHandlerOptions } = {}) {
+  const handler = createRealtimeHandler(registryOf(definition) as never, options.handler)
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
 
   function request(path: string, init: RequestInit & { query?: Record<string, string> } = {}) {
@@ -122,12 +124,12 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
     return value
   }
 
-  async function connect(path: string, init: { doc?: Y.Doc, epoch?: string, headers?: Record<string, string> } = {}): Promise<TestClient> {
+  async function connect(path: string, init: { doc?: Y.Doc, epoch?: string, headers?: Record<string, string>, clientId?: boolean } = {}): Promise<TestClient> {
+    const doc = init.doc ?? new Y.Doc()
     const response = await handler.fetch(request(path, {
       headers: { upgrade: "websocket", ...init.headers },
-      query: init.epoch ? { epoch: init.epoch } : undefined,
+      query: { ...init.epoch ? { epoch: init.epoch } : {}, ...init.clientId ? { clientId: String(doc.clientID) } : {} },
     })) as Response & { crossws?: Hooks }
-    const doc = init.doc ?? new Y.Doc()
     const client: TestClient = {
       awareness: [],
       close: () => {
@@ -330,4 +332,122 @@ export class FakeSql {
     }
     throw new Error(`Unexpected SQL: ${query}`)
   })
+}
+
+export interface MemoryBus extends RealtimeBus {
+  /** Leaves the network without the goodbye that `close()` sends, as a process that crashed. */
+  crash(): void
+  published: RealtimeBusMessage[]
+}
+
+/**
+ * Buses of several instances in one process, with one shared room store. Messages arrive asynchronously and in order,
+ * and never at the sender, as with Postgres and Redis.
+ */
+export function createMemoryBusNetwork() {
+  const records = new Map<string, RealtimeRoomRecord>()
+  /** Every record write, in order. */
+  const writes: Array<{ room: string, epoch: string, digest: string | null }> = []
+  const locks = new Map<string, Promise<void>>()
+  const members = new Map<string, (message: RealtimeBusMessage) => void>()
+
+  function bus(authority: "postgres" | "redis" = "postgres"): MemoryBus {
+    const instance = crypto.randomUUID()
+    const hooks: Array<() => Promise<void>> = []
+    const listeners = new Set<(message: RealtimeBusMessage) => void | Promise<void>>()
+    let queue = Promise.resolve()
+    let stopped = false
+    const self: MemoryBus = {
+      authority,
+      instance,
+      published: [],
+      async publish(message) {
+        if (stopped) return
+        const sent = { ...message, instance, data: Uint8Array.from(message.data) }
+        self.published.push(sent)
+        for (const [member, deliver] of members) {
+          if (member !== instance) deliver(sent)
+        }
+      },
+      async subscribe(listener) {
+        listeners.add(listener)
+        members.set(instance, (message) => {
+          queue = queue.then(async () => {
+            for (const next of listeners) await next(message)
+          })
+        })
+      },
+      async readRoom(room) {
+        const record = records.get(room)
+        return record && { ...record, state: Uint8Array.from(record.state) }
+      },
+      async writeRoom(room, record, ifEpoch) {
+        if ((records.get(room)?.epoch ?? null) !== ifEpoch) return false
+        records.set(room, { ...record, state: Uint8Array.from(record.state) })
+        writes.push({ room, epoch: record.epoch, digest: record.digest })
+        return true
+      },
+      async withRoomLock(room, task) {
+        const previous = locks.get(room) ?? Promise.resolve()
+        let release = () => {}
+        const held = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        locks.set(room, previous.then(() => held))
+        await previous
+        try {
+          return await task()
+        }
+        finally {
+          release()
+        }
+      },
+      onClose(hook) {
+        hooks.push(hook)
+      },
+      async close() {
+        for (const hook of hooks) await hook()
+        stopped = true
+        members.delete(instance)
+      },
+      crash() {
+        stopped = true
+        members.delete(instance)
+      },
+    }
+    return self
+  }
+
+  return { bus, records, writes }
+}
+
+/** One y-websocket style awareness for a test client, which sends its own state changes to the server. */
+export function createClientAwareness(client: TestClient) {
+  const awareness = new awarenessProtocol.Awareness(client.doc)
+  const hooks = (client.response as Response & { crossws: Hooks }).crossws
+  return {
+    awareness,
+    set(state: Record<string, unknown> | null) {
+      awareness.setLocalState(state)
+      const encoder = encoding.createEncoder()
+      encoding.writeVarUint(encoder, messageAwareness)
+      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, [client.doc.clientID]))
+      hooks.message(client.peer, { uint8Array: () => encoding.toUint8Array(encoder) })
+    },
+  }
+}
+
+/** The presence that a test client sees: every awareness update it received, applied in order. */
+export function presence(client: TestClient): Map<number, Record<string, unknown>> {
+  const awareness = new awarenessProtocol.Awareness(new Y.Doc())
+  awareness.setLocalState(null)
+  try {
+    for (const update of client.awareness) awarenessProtocol.applyAwarenessUpdate(awareness, update, "test")
+    // SAFETY: test clients only send plain object states.
+    return new Map(awareness.getStates() as Map<number, Record<string, unknown>>)
+  }
+  finally {
+    awareness.destroy()
+    awareness.doc.destroy()
+  }
 }

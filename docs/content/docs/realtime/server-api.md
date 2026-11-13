@@ -97,16 +97,18 @@ export default defineRealtime({
 | --- | --- |
 | `load(context)` | Returns `{ body, fields?, digest }`. `digest: null` means the document does not exist yet. Called when a room opens and on `refresh()`. |
 | `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`. Else throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
-| `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. |
+| `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. An interrupted shared save can reset the room; see below. |
 | `issues` | Validation problems that did not block the save. They show in the room `status` map. |
 | `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
 | `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to hold a lease. A thrown error shows in the room `status` until a later call works. |
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
 
-`context` is `{ authority, definition, documentId }`. `authority` is `memory`
-or `cloudflare`, so an adapter can refuse a temporary store behind a durable
-room. `options` is `{ ifDigest, reason, user, editors }`:
+`context` is `{ authority, definition, documentId }`. `authority` is `memory`,
+`cloudflare`, `postgres`, or `redis`, so an adapter can refuse a temporary store
+behind a durable or shared room. With `postgres` or `redis`, several instances
+call `save()` for one room, one at a time, and `ifDigest` is the digest of the
+last save of any instance. `options` is `{ ifDigest, reason, user, editors }`:
 
 - `reason` is `idle`, `leave`, or `request`.
 - `user` is the latest identified editor.
@@ -115,6 +117,25 @@ room. `options` is `{ ifDigest, reason, user, editors }`:
 
 Adapters run inside the room authority. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
+
+### Interrupted normalizing saves
+
+On Postgres and Redis, the adapter save and the shared room-record write are
+separate operations. If the record write fails, the saving instance keeps the
+exact stored Yjs state and digest and retries that record before its next save.
+It does not use body equality to recognize its own completed save.
+An existing room on another instance retries for at least ten seconds before
+treating an unmatched pending save as an outside write.
+
+If that instance stops, or another instance recovers the pending record before
+the saver retries, only the submitted snapshot and the loaded document remain.
+A normalized body or changed fields cannot be distinguished from an outside
+write. Realtime then re-seeds with `source-changed`, rather than guessing and
+overwriting an outside change. The Vue reset event includes the old Y.Doc as
+`previous`; copy its contents in an `onReset` listener to recover edits made
+after the interrupted save. The composable destroys that Y.Doc after the
+listeners return. A pending save whose submitted body and fields match the
+loaded document recovers without a reset.
 
 ### Blob documents
 
