@@ -72,6 +72,7 @@ export type ConsoleSectionView =
   | ConsoleOperationView
   | { kind: "auth-management"; notice: string }
   | { kind: "definition-catalog", notice: string }
+  | { kind: "workspace-browser", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
   | { kind: "document-editor", notice: string }
 
@@ -273,7 +274,8 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   if (
     view.kind === "auth-management" ||
     view.kind === "definition-catalog" ||
-    view.kind === "document-editor"
+    view.kind === "document-editor" ||
+    view.kind === "workspace-browser"
   )
     return { kind: view.kind, notice: view.notice }
   if (view.kind === "operation-view") return parseConsoleOperationView(view)

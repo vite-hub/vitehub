@@ -32,6 +32,9 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
 }
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+  if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request." })
+  }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
   const accessKeyId = r2Credential(options, "accessKeyId")
   const secretAccessKey = r2Credential(options, "secretAccessKey")

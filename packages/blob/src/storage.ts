@@ -22,6 +22,7 @@ import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
 import { assertValidPathname, pathnameIssue } from "./internal/pathname.ts"
+import { blobSizeToBytes } from "./internal/size.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
 
@@ -332,12 +333,15 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
         throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
       }
+      if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
+        throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
+      }
       if (!driver.sign) {
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
       const normalizedPathname = normalizePathname(pathname)
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
-      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
     },
     async serve(request, pathname, options = {}) {
       const decodedPath = decodePathname(pathname)

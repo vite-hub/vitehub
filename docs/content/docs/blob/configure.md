@@ -567,10 +567,9 @@ The value must be in exactly one env variable at build time. When two variables 
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Local filesystem storage. |
 | `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
-| `defaultUrlExpiresIn` | `number` | Files SDK default | Default URL lifetime in seconds. |
-| `urlBaseUrl` | `string` | None | Base URL that the filesystem adapter returns. |
+| `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`. |
 
-Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared.
+Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 
 ### Cloudflare R2
 
@@ -613,15 +612,11 @@ A configured token that matches `BLOB_READ_WRITE_TOKEN` is hidden at build time 
 
 ### S3 and S3-compatible providers
 
-The `s3`, `akamai`, `digitalocean-spaces`, `hetzner`, `storj`, and `minio` drivers share options. Their required fields differ.
+The `s3` and `minio` drivers share options. Their required fields differ.
 
 | Driver | Required fields | ViteHub defaults |
 | --- | --- | --- |
 | `s3` | `bucket` | None |
-| `akamai` | `bucket`, `region` | None |
-| `digitalocean-spaces` | `bucket`, `region` | None |
-| `hetzner` | `bucket`, `region` | None |
-| `storj` | `bucket` | None |
 | `minio` | None | Bucket `vitehub-blob`, endpoint `http://localhost:9000`, region `us-east-1`, and `forcePathStyle: true` |
 
 | Option | Drivers | Type | Description |
@@ -629,15 +624,15 @@ The `s3`, `akamai`, `digitalocean-spaces`, `hetzner`, `storj`, and `minio` drive
 | `driver` | All | provider literal | One driver from the table above. |
 | `bucket` | All | `string` | Bucket name. Optional only for `minio`. |
 | `endpoint` | All | `string` | Overrides the provider endpoint. |
-| `region` | All | `string` | Provider region. Required for Akamai, DigitalOcean Spaces, and Hetzner. |
+| `region` | All | `string` | Provider region. |
 | `forcePathStyle` | All | `boolean` | Uses path-style bucket URLs instead of virtual-hosted URLs. |
 | `publicBaseUrl` | All | `string` | Public or CDN base URL for objects. |
 | `defaultUrlExpiresIn` | All | `number` | Default signed URL lifetime in seconds. |
 | `credentials` | `s3` | `{ accessKeyId, secretAccessKey, sessionToken? }` | AWS-compatible credential object. |
-| `accessKeyId` | Provider-specific drivers and `minio` | `string` | Access key. |
-| `secretAccessKey` | Provider-specific drivers and `minio` | `string` | Secret key. |
+| `accessKeyId` | `minio` | `string` | Access key. |
+| `secretAccessKey` | `minio` | `string` | Secret key. |
 
-MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. Other S3-compatible drivers also read their provider or SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
+MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. The `s3` driver also reads the SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
 
 ### Google Cloud Storage
 
@@ -664,83 +659,3 @@ MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_R
 | `endpoint` | `string` | No | Overrides the Blob service endpoint. |
 | `defaultUrlExpiresIn` | `number` | No | Default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | No | Public or CDN base URL for objects. |
-
-### Supabase Storage
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `driver` | `'supabase'` | Yes | Supabase Storage. |
-| `bucket` | `string` | Yes | Bucket name. |
-| `url` | `string` | No | Supabase project URL. |
-| `key` | `string` | No | Supabase API key. |
-| `public` | `boolean` | No | Treats the bucket as public. |
-| `publicBaseUrl` | `string` | No | Overrides the public URL base. |
-| `defaultUrlExpiresIn` | `number` | No | Default signed URL lifetime in seconds. |
-
-### UploadThing
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `driver` | `'uploadthing'` | Yes | UploadThing. |
-| `token` | `string` | No | UploadThing token. |
-| `acl` | `'private' \| 'public-read'` | No | ACL for uploaded files. |
-| `region` | `string` | No | Upload region. |
-| `slug` | `string` | No | UploadThing route or file slug. |
-| `downloadTimeoutMs` | `number` | No | Download timeout in milliseconds. |
-| `defaultUrlExpiresIn` | `number` | No | Default URL lifetime in seconds. |
-
-### Google Drive
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `driver` | `'google-drive'` | Yes | Google Drive. |
-| `credentials` | `{ client_email, private_key }` | No | Service-account credentials. |
-| `keyFilename` | `string` | No | File with service-account credentials. |
-| `subject` | `string` | No | Delegated Workspace user. |
-| `driveId` | `string` | No | Shared drive. |
-| `rootFolderId` | `string` | No | Keeps files inside this folder. |
-| `fileIdCacheSize` | `number` | No | Size of the path-to-file-id cache. |
-| `publicByDefault` | `boolean` | No | Makes new files public. |
-
-### OneDrive
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `driver` | `'onedrive'` | Yes | OneDrive or SharePoint storage. |
-| `accessToken` | `string` or async callback | No | Microsoft Graph access token, or a callback that returns one. |
-| `clientCredentials` | `{ tenantId, clientId, clientSecret }` | No | OAuth client-credentials flow. |
-| `oauth` | `{ clientId, clientSecret, refreshToken, tenantId? }` | No | OAuth refresh-token flow. |
-| `driveId` | `string` | No | Drive. |
-| `siteId` | `string` | No | SharePoint site. |
-| `userId` | `string` | No | User whose drive to use. |
-| `rootFolderPath` | `string` | No | Keeps files inside this folder path. |
-| `copyTimeoutMs` | `number` | No | Async copy timeout in milliseconds. |
-| `publicByDefault` | `boolean` | No | Makes new files public. |
-
-### Dropbox
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `driver` | `'dropbox'` | Yes | Dropbox. |
-| `accessToken` | `string` or async callback | No | Access token, or a callback that returns one. |
-| `appKey` | `string` | No | OAuth app key. |
-| `appSecret` | `string` | No | OAuth app secret. |
-| `refreshToken` | `string` | No | Refreshes OAuth access with the app credentials. |
-| `rootFolderPath` | `string` | No | Keeps files inside this folder path. |
-| `publicByDefault` | `boolean` | No | Creates shared links by default. |
-| `publicBaseUrl` | `string` | No | Your own public URL base. |
-| `defaultUrlExpiresIn` | `number` | No | Default URL lifetime in seconds. |
-
-### Box
-
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `driver` | `'box'` | Yes | Box. |
-| `developerToken` | `string` | No | Box developer token. |
-| `ccg` | `{ clientId, clientSecret, enterpriseId?, userId? }` | No | Box Client Credentials Grant auth. |
-| `jwt` | `{ configJsonString } \| { configFilePath }` | No | Box JWT app config. |
-| `oauth` | `{ clientId, clientSecret, refreshToken }` | No | OAuth refresh-token flow. |
-| `rootFolderId` | `string` | No | Keeps files inside this folder. |
-| `publicByDefault` | `boolean` | No | Creates shared links by default. |
-| `publicBaseUrl` | `string` | No | Your own public URL base. |
-| `defaultUrlExpiresIn` | `number` | No | Default URL lifetime in seconds. |
