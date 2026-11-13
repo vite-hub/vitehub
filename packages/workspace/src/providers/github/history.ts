@@ -431,9 +431,14 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
 
   /** Whether the history of `branch` has the commit `id`: the commit is the merge base of both. */
   async function branchContains(branch: string, id: string): Promise<boolean> {
+    if (!/^[0-9a-f]{40}$/i.test(id)) return false
+    const head = await readBranchHead(branch)
+    if (!head) return false
+    if (head.toLowerCase() === id.toLowerCase()) return true
+    // Compare immutable commits so the ancestry proof can be shared through the read cache.
     return await githubRequest(client(), async (provider, repo) => {
       try {
-        const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(branch)}...${encodeURIComponent(id)}`, { query: { per_page: 1 } })).data
+        const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(head)}...${encodeURIComponent(id)}`, { query: { per_page: 1 } })).data
         return String(Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha")).toLowerCase() === id.toLowerCase()
       }
       catch (error) {
