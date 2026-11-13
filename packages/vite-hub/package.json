@@ -562,6 +562,11 @@
       "import": "./dist/realtime/bus.js",
       "default": "./dist/realtime/bus.js"
     },
+    "./realtime/agent": {
+      "types": "./dist/realtime/agent.d.ts",
+      "import": "./dist/realtime/agent.js",
+      "default": "./dist/realtime/agent.js"
+    },
     "./realtime/client": {
       "types": "./dist/realtime/client.d.ts",
       "import": "./dist/realtime/client.js",

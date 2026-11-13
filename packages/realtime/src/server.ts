@@ -103,8 +103,8 @@ export { isRealtimeWorkspaceDocument, readRealtimeWorkspaceDocument, workspaceDo
 export type { RealtimeWorkspaceDocumentAdapter } from "./workspace-document.ts"
 
 export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
-export { agentRealtime, requestRealtimeRoom } from "./request.ts"
-export type { AgentRealtime, RealtimeDurableObjectNamespace, RealtimeRoomRequestOptions, RealtimeRoomRequestResult } from "./request.ts"
+export { requestRealtimeRoom } from "./request.ts"
+export type { RealtimeDurableObjectNamespace, RealtimeRoomRequestOptions, RealtimeRoomRequestResult } from "./request.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>

@@ -180,6 +180,7 @@ One browser answers: a room with two browsers returns `REALTIME_ROOM_CROWDED`. A
 | `@vite-hub/realtime` | `defineRealtime()` and portable Realtime types. |
 | `@vite-hub/realtime/vite` | `hubRealtime()` definition discovery and generated server wiring. |
 | `@vite-hub/realtime/vue` | `useRealtimeTiptap()` for Vue, TipTap, presence, status, and checkpoints. |
+| `@vite-hub/realtime/agent` | `agentRealtime`, the handle that ViteHub passes to the Agent `page()` Capability. Apps do not import it. |
 | `@vite-hub/realtime/client` | `connectRealtimeRoom()` to share presence without an editor, in any framework. |
 | `@vite-hub/realtime/server` | `requestRealtimeRoom()` to ask one browser in a room, and `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
 | `@vite-hub/realtime/bus` | `useRealtimeBus()` and `closeRealtimeBuses()`, the Postgres and Redis buses that the generated Node handler passes to `createRealtimeHandler({ bus })`. |

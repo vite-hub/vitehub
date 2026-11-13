@@ -317,7 +317,7 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "agentI18n", name: "i18n", packageName: "@vite-hub/i18n/server", pluginName: "@vite-hub/i18n/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
   // The `page()` Capability asks the person's page through a Realtime room.
-  { importName: "agentRealtime", name: "realtime", packageName: "@vite-hub/realtime/server", pluginName: "@vite-hub/realtime/vite" },
+  { importName: "agentRealtime", name: "realtime", packageName: "@vite-hub/realtime/agent", pluginName: "@vite-hub/realtime/vite" },
 ]
 
 function configuredGeneratedAgentRuntimeCapabilities(
