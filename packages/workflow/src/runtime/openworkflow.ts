@@ -109,7 +109,7 @@ export function setOpenWorkflowDatabaseUrl(resolve: (() => string | undefined) |
 function readDatabasePostgresUrl(): string | undefined {
   if (!databaseUrlResolver) return undefined
   const url = databaseUrlResolver()?.trim()
-  if (!url) throw workflowErrorDiagnostics.WORKFLOW_R0040()
+  if (!url) throw workflowErrorDiagnostics.WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING()
   return url
 }
 
@@ -159,7 +159,7 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   }
 
   if (/^postgres(?:ql)?:\/\//i.test(readEnv("DATABASE_URL") || "")) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0038()
+    throw workflowErrorDiagnostics.WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED()
   }
 
   return {
@@ -203,7 +203,7 @@ function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
  *   commits at once and tries again later, so a waiting server holds no connection.
  * - The server that gets it first checks that it can open a second connection. A pool of one connection, such as a
  *   pooler with one server connection, cannot run the migration while the lock holds that connection, so the server
- *   stops with `WORKFLOW_R0037` before the setup starts.
+ *   stops with `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` before the setup starts.
  * - Then it holds the lock until OpenWorkflow finished the setup.
  * A transaction lock also works through a pooler in transaction mode, such as PgBouncer.
  */
@@ -225,14 +225,14 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
           // Ending the probe while it waits destroys its socket, and postgres.js then rejects a promise that no code
           // handles. The rollback below frees the connection, so the probe gets its answer and ends after it.
           void answered.then(() => probe.end())
-          throw workflowErrorDiagnostics.WORKFLOW_R0037()
+          throw workflowErrorDiagnostics.WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE()
         }
         await probe.end()
         result = { value: await setup() }
       })
       if (result) return result.value
       if (Date.now() >= deadline) {
-        throw workflowErrorDiagnostics.WORKFLOW_R0039({ seconds: postgresSetupWaitMs / 1000 })
+        throw workflowErrorDiagnostics.WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT({ seconds: postgresSetupWaitMs / 1000 })
       }
       await sleep(Math.min(250 * attempt, 2_000))
     }

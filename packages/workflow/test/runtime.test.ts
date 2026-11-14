@@ -1543,7 +1543,7 @@ describe("workflow runtime", () => {
     try {
       const config = normalizeWorkflowOptions({ provider: "openworkflow" })!
       expect(() => describeOpenWorkflowStorage(config)).toThrow(/DATABASE_URL/)
-      await expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ code: "WORKFLOW_R0038" })
+      await expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ code: "WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED" })
       expect(openWorkflowMock.connect).not.toHaveBeenCalled()
       expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
     }
@@ -1615,7 +1615,7 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.postgres).toHaveBeenCalledWith("postgres://localhost/wait", expect.objectContaining({ idle_timeout: 1, max: 1 }))
   })
 
-  it("reports WORKFLOW_R0039 and releases the connection when another server keeps the setup lock", async () => {
+  it("reports WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT and releases the connection when another server keeps the setup lock", async () => {
     vi.useFakeTimers()
     try {
       openWorkflowMock.lockResults.push(...Array<boolean>(100).fill(false))
@@ -1625,7 +1625,7 @@ describe("workflow runtime", () => {
 
       await expect(failure).resolves.toMatchObject({
         code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-        cause: { code: "WORKFLOW_R0039" },
+        cause: { code: "WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT" },
       })
       expect(openWorkflowMock.connect).not.toHaveBeenCalled()
       expect(openWorkflowMock.lockQueries.at(-1)).toBe("commit")
@@ -1653,7 +1653,7 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.lockQueries.at(-1)).toBe("commit")
   })
 
-  it("stops with WORKFLOW_R0037 before the setup when the pool has no second connection", async () => {
+  it("stops with WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE before the setup when the pool has no second connection", async () => {
     vi.useFakeTimers()
     openWorkflowMock.probe.hangs = true
     const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/one" }, provider: "openworkflow" })!)
@@ -1663,7 +1663,7 @@ describe("workflow runtime", () => {
 
     const codes: unknown[] = []
     for (let error: unknown = await failure; error instanceof Error; error = error.cause) codes.push(Reflect.get(error, "code"))
-    expect(codes).toContain("WORKFLOW_R0037")
+    expect(codes).toContain("WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE")
     // The lock transaction rolled back, and OpenWorkflow never started a migration.
     expect(openWorkflowMock.lockQueries.at(-1)).toBe("rollback")
     expect(openWorkflowMock.connect).not.toHaveBeenCalled()
@@ -1684,7 +1684,7 @@ describe("workflow runtime", () => {
       // A Default Database without a URL does not send runs to a SQLite file of one host.
       delete process.env.OPENWORKFLOW_POSTGRES_URL
       setOpenWorkflowDatabaseUrl(() => undefined)
-      await expect(getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)).rejects.toMatchObject({ code: "WORKFLOW_R0040" })
+      await expect(getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)).rejects.toMatchObject({ code: "WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING" })
     }
     finally {
       delete process.env.DATABASE_URL
