@@ -170,7 +170,7 @@ export function contentLiveTarget(content: Pick<ContentLiveRuntime, "collection"
 /**
  * One Realtime Definition for every Markdown document of a Content runtime. Rooms are `<collection>/<id>`, or the
  * collection name of a singleton. Each collection gets its own codec from `contentRealtimeEditor()`, and the room holds
- * the edit lease as `kind: 'live'`. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs
+ * the edit lease as `kind: 'live'`. `authorize` maps to `content.can()`: reading a room needs `read-draft`, editing needs
  * `write`. ViteHub contributes it as the `content` definition when Content and Realtime are enabled on a host with a
  * room authority.
  */
@@ -231,7 +231,7 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
       const found = contentLiveTarget(content, context.documentId)
       if (!found) return false
       const user = options.user ? await options.user(context) : context.user && { ...context.user }
-      return await content.can({ user: user ?? null, collection: found.collection.name, action: context.mode === "write" ? "write" : "read", id: found.id })
+      return await content.can({ user: user ?? null, collection: found.collection.name, action: context.mode === "write" ? "write" : "read-draft", id: found.id })
     },
   }
 }
