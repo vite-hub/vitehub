@@ -124,6 +124,27 @@ export function findDocsPage<Page extends DocsAppPage = DocsPage>(manifest: Docs
   return page ? { page, section: null } : null
 }
 
+/** Loaders of the panels the app manifest leaves out, by the URL of each panel's Overview. */
+export type DocsPanelLoaders = Record<string, () => Promise<{ default: DocsAppPage[] }>>
+
+/**
+ * Adds the pages of every panel that holds `path` to the app manifest, so the panel's sidebar and its pages resolve.
+ * Pages that the manifest already has stay as they are, so loading twice, or a full manifest, changes nothing.
+ */
+export async function loadDocsPanels(manifest: DocsManifest<DocsAppPage>, path: string, loaders: DocsPanelLoaders): Promise<void> {
+  const normalized = normalizeDocsPath(path)
+  const section = docsSectionForPath(manifest, normalized)
+  if (!section) return
+  for (const panel of section.pages.filter(page => page.panel && (normalized === page.path || normalized.startsWith(`${page.path}/`)))) {
+    const load = loaders[panel.path]
+    if (!load) continue
+    // The browser and the server keep each loaded module, so a second visit does not fetch the panel again.
+    const { default: pages } = await load()
+    const known = new Set(section.pages.map(page => page.path))
+    section.pages.push(...pages.filter(page => !known.has(page.path)))
+  }
+}
+
 /** The section that owns a path, such as `kv` for `/docs/kv/configure`. */
 export function docsSectionForPath<Page extends DocsAppPage = DocsPage>(manifest: DocsManifest<Page>, path: string): DocsSection<Page> | null {
   const normalized = normalizeDocsPath(path)
@@ -317,7 +338,7 @@ export function docsSectionPanels<Page extends DocsAppPage = DocsPage>(section: 
   return section.pages
     // A panel inside another panel belongs to that panel's sidebar, not to the section's.
     .filter(page => page.panel && page.navigation && !section.pages.some(outer => outer.panel && page.id.startsWith(`${outer.id}/`)))
-    .map(page => ({ page, count: docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }))
+    .map(page => ({ page, count: page.panelSize ?? docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }))
 }
 
 /**
