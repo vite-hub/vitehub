@@ -1174,3 +1174,96 @@ it("retries a lazy import and honors the editor exit guard", async () => {
   await exited()
   expect(document.querySelector("vitehub-pill")).toBeNull()
 })
+
+describe("the account item", () => {
+  const ada = { name: "Ada Lovelace", email: "ada@example.com", via: "console", signOut: "/api/auth/sign-out" }
+
+  function account() {
+    const host = document.querySelector("vitehub-pill vitehub-account")!
+    const shadow = host.shadowRoot!
+    return {
+      host,
+      shadow,
+      button: shadow.querySelector<HTMLButtonElement>("button.who")!,
+      menu: shadow.querySelector<HTMLElement>("[role=menu]")!,
+      items: () => [...shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter(item => !item.hidden).map(item => item.textContent),
+    }
+  }
+
+  it("draws no account item without a signed-in person", async () => {
+    page("/?vitehub")
+    session({ tools: [comments] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().slots).toEqual(["tab", "comments"])
+    expect(document.querySelector("vitehub-account")).toBeNull()
+  })
+
+  it("shows the initials after the tools, as a menu button with the person's name, email, and how they signed in", async () => {
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().slots).toEqual(["tab", "comments", "console", "vitehub-account"])
+    const { button, menu, items } = account()
+    expect(button.textContent).toBe("AL")
+    expect(button.getAttribute("aria-label")).toBe("Account: Ada Lovelace")
+    expect([button.getAttribute("aria-haspopup"), button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")]).toEqual(["menu", "false", menu.id])
+    expect(menu.querySelector(".me")?.textContent).toBe("ALAda Lovelaceada@example.com")
+    expect(menu.querySelector(".via")?.textContent).toBe("Signed in with ViteHub Console")
+    expect(items()).toEqual(["Open in the Console", `Sign out of ${location.host}`])
+  })
+
+  it("opens with the focus on the first item, and Escape closes it and gives the focus back", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    const { button, menu, shadow } = account()
+    button.click()
+    await new Promise(resolve => setTimeout(resolve))
+    expect(menu.hidden).toBe(false)
+    expect(button.getAttribute("aria-expanded")).toBe("true")
+    expect(shadow.activeElement?.textContent).toBe("Open in the Console")
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+    expect(shadow.activeElement?.textContent).toBe(`Sign out of ${location.host}`)
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    await new Promise(resolve => setTimeout(resolve))
+    expect(menu.hidden).toBe(true)
+    expect(button.getAttribute("aria-expanded")).toBe("false")
+    expect(shadow.activeElement).toBe(button)
+  })
+
+  it("leaves out the Console item and the line for a guest", async () => {
+    page("/?vitehub")
+    session({ tools: [comments], account: { name: "Ana", signOut: "/api/auth/sign-out" } })
+    await loadViteHubPageTools({ load: modules().load })
+    const { menu, items } = account()
+    account().button.click()
+    await new Promise(resolve => setTimeout(resolve))
+    expect(menu.querySelector(".via")).toBeNull()
+    expect(items()).toEqual([`Sign out of ${location.host}`])
+  })
+
+  it("signs out of the app with Auth's sign-out route, then reloads the page without the tools query", async () => {
+    page("/guide?vitehub&tab=2")
+    const fetch = session({ tools: [comments], account: { ...ada, signOut: "/portal/api/auth/sign-out" } })
+    await loadViteHubPageTools({ load: modules().load })
+    const replace = vi.fn()
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload: vi.fn() })
+    fetch.mockImplementation(async () => new Response("{}", { status: 200 }))
+    const item = [...account().shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].at(-1)!
+    item.click()
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce())
+    expect(fetch).toHaveBeenLastCalledWith("/portal/api/auth/sign-out", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
+    expect(String(replace.mock.calls[0]![0])).toBe("http://localhost:3000/guide?tab=2")
+  })
+
+  it("keeps the session and says so when the sign-out fails", async () => {
+    page("/?vitehub")
+    const fetch = session({ tools: [comments], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    fetch.mockImplementation(async () => new Response("{}", { status: 403 }))
+    const item = [...account().shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].at(-1)!
+    item.click()
+    await vi.waitFor(() => expect(item.textContent).toBe("Could not sign out. Try again"))
+    expect(item.hasAttribute("aria-disabled")).toBe(false)
+  })
+})
