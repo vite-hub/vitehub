@@ -480,8 +480,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
     transform: {
       filter: { code: /use (?:step|workflow)/, id: /\.(?:c|m)?[jt]sx?$/ },
-      async handler(code, id) {
-        if (!vercelModuleTransform || id.startsWith("\0") || id.includes("?") || this.environment?.config.consumer !== "server") return
+      async handler(code, id, options) {
+        if (!vercelModuleTransform || id.startsWith("\0") || id.includes("?") || (this.environment?.config.consumer !== "server" && !options?.ssr)) return
         return await vercelModuleTransform(code, id)
       },
     },

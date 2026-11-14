@@ -1087,6 +1087,29 @@ describe("ViteHub Nuxt integration", () => {
     expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
   })
 
+  it("initializes Workflow and forwards its server transform in Nitro-only replay", async () => {
+    const configResolved = vi.fn()
+    const transform = vi.fn(() => ({ code: "native-with-workflow-id" }))
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/workflow/vite",
+      configResolved,
+      transform: { filter: { code: /use workflow/ }, handler: transform },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    nuxt.options.experimental = { nitroViteEnvironment: false }
+    await viteHubNuxtModule({ workflow: true, host: "vercel" }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    expect(configResolved).toHaveBeenCalled()
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/workflow/vite")
+    const hook = resolver?.transform
+    if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered Workflow transform.")
+    expect(hook.filter).toEqual({ code: /use workflow/ })
+    const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
+    expect(result).toEqual({ code: "native-with-workflow-id" })
+    expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { ssr: true })
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
