@@ -142,6 +142,7 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
+    async getMany(keys, options) { return runKVOperation("getMany", name, storage => storage.getMany(keys, options), kvKeyLimitCodes) },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
@@ -156,6 +157,7 @@ function createKVStorage(name = "default"): KVStorage {
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options), kvWriteLimitCodes) },
+    async setMany(entries, options) { return runKVOperation("setMany", name, async storage => storage.setMany(entries, options), kvWriteLimitCodes) },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })

@@ -16,7 +16,7 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
   codes: {
     BLOB_CONFLICT: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
-      fix: "Use a free pathname or an empty folder. `media.move()` replaces an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
+      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
     },
     BLOB_NOT_FOUND: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation found no object in the "${store}" store.`,
