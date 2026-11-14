@@ -116,7 +116,7 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 | --- | --- | --- |
 | `id` | `string` | Static provider id for the workflow. |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
-| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
+| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. On OpenWorkflow, the handler runs outside a step with the same retry policy, so `context.step.sleep()` works in it. After a sleep, OpenWorkflow runs the handler again from the start, and code outside steps runs again. |
 
 The handler gets `(payload, context)`. Annotate `payload` to type it. `context` is a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
 
