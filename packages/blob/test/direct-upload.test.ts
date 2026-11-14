@@ -81,7 +81,7 @@ describe("direct uploads on the fs driver", () => {
     const onCompleted = vi.fn()
     const head = vi.spyOn(b, "head")
     const remove = vi.spyOn(b, "delete")
-    for (const ensure of [undefined, { maxSize: "1B" }]) {
+    for (const ensure of [undefined, { maxSize: "1B" as const }]) {
       await expect(complete(b, signed.ticket, { ensure, onCompleted })).rejects.toMatchObject({ statusCode: 403 })
     }
     expect(head).not.toHaveBeenCalled()

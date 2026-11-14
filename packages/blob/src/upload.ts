@@ -248,8 +248,9 @@ async function signDirectUpload(
   if (typeof name !== "string" || typeof declaredType !== "string" || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
     throw badRequest("The `sign` step needs the file `name`, its `contentType`, and its `size` in bytes.")
   }
-  const { access, contentLength, customMetadata, ...put } = options.put ?? {}
-  if (access !== undefined || contentLength !== undefined || (customMetadata && Object.keys(customMetadata).length)) {
+  const uploadPut = options.put ?? {}
+  const { contentLength, customMetadata, ...put } = uploadPut
+  if (("access" in uploadPut && uploadPut.access !== undefined) || contentLength !== undefined || (customMetadata && Object.keys(customMetadata).length)) {
     throw blobErrorDiagnostics.BLOB_R0046({ message: "A direct upload cannot set `put.access`, `put.contentLength`, or `put.customMetadata`." })
   }
   if (options.ensure) {
