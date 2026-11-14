@@ -101,6 +101,13 @@ function assertWritablePath(pathname: string) {
   }
 }
 
+// `access` was a put() option that only Vercel Blob read. Other drivers dropped it and served the object anyway.
+function assertNoPutAccess(options: object) {
+  if (Object.hasOwn(options, "access")) {
+    throw blobErrorDiagnostics.BLOB_R0045({ message: "`access` is not a Blob put() option. One object cannot be private on its own: the store and `blob.serve` decide who may read it." })
+  }
+}
+
 function blobErrorResponse(request: Request, status: 400 | 404, error: string): Response {
   const response = Response.json({ error }, { status })
   return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
@@ -306,6 +313,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     },
     async createMultipartUpload(pathname, options = {}) {
       if (!driver.createMultipartUpload) throw unsupportedMultipart(driver)
+      assertNoPutAccess(options)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
       const contentType = options.contentType || guessContentType(normalizedPath)
@@ -348,6 +356,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       }))
     },
     async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
+      assertNoPutAccess(options)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
       const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)

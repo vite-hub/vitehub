@@ -54,10 +54,10 @@ interface EnvNamespace {
    * The server build imports the module, so refinements and transforms run on every resolution.
    */
   schemaFrom: (module: string, exportName?: string) => EnvSchemaModuleReference
-  source: (name: string | string[], options?: { canonical?: boolean, skipEmpty?: boolean }) => EnvSource
+  source: (name: string | string[], options?: { canonical?: boolean }) => EnvSource
 }
 
-function source(name: string | string[], options: { canonical?: boolean, skipEmpty?: boolean } = {}): EnvSource {
+function source(name: string | string[], options: { canonical?: boolean } = {}): EnvSource {
   const names = Array.isArray(name) ? name : [name]
   if (!names.length || names.some(value => typeof value !== "string" || !value.trim())) {
     throw envErrorDiagnostics.ENV_R0002({ message: "env.source() requires one or more non-empty env variable names." })
@@ -69,7 +69,6 @@ function source(name: string | string[], options: { canonical?: boolean, skipEmp
     name: normalized[0]!,
     ...(options.canonical === false ? { canonical: false as const } : {}),
     ...(normalized.length > 1 ? { names: normalized } : {}),
-    ...(options.skipEmpty ? { skipEmpty: true } : {}),
     serializable: true,
   }
 }

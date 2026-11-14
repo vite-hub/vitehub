@@ -123,6 +123,17 @@ describe.each(targets)("$name", (target) => {
     expect(await storage!.getKeys()).toEqual([])
   })
 
+  it("reads and writes many keys in one call", async () => {
+    const [storage] = await target.stores(1)
+    const entries = Array.from({ length: 450 }, (_, index) => ({ key: `item:${index}`, value: { index } }))
+    await storage!.setMany([...entries, { key: "item:0", value: "last" }], { ttl: 60 })
+    const values = await storage!.getMany([...entries.map(entry => entry.key), "missing", "item:1"])
+    expect(values).toEqual(["last", ...entries.slice(1).map(entry => entry.value), null, { index: 1 }])
+    await expect(storage!.getMany(["item:2"], { type: "text" })).resolves.toEqual(["{\"index\":2}"])
+    await storage!.setMany([{ key: "item:0", value: undefined }])
+    await expect(storage!.getMany(["item:0"])).resolves.toEqual([null])
+  })
+
   it("keeps the stores of two namespaces apart", async () => {
     const [left] = await target.stores(1)
     const [right] = await target.stores(1)
