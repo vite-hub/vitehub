@@ -32,7 +32,7 @@ The response carries one reply. `r` holds the value. The HTTP status is `200`, o
 
 A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
 
-The sections are Auth, Env, Agents, Skills, Served skills, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
+The sections are Auth, Env, Agents, Skills, Served skills, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Cache, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
 
 The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
 
@@ -43,6 +43,7 @@ The build and the development server include only the Console routes and server 
 - **Blob** lists stores and pages of object metadata. It uploads (up to 8 MiB) and deletes objects with `blob.put` and `blob.delete`.
 - **Database** lists found Definitions (the files that declare each resource), their source, definition mode, and table names, without connecting to a database.
 - **KV** lists stores and keys. It fetches a value only when you select its key. It edits and deletes with `kv.set` and `kv.delete`.
+- **Cache** lists the entries of Nitro's `cache` mount with group, name, size, and expiry. It shows one value when you select its entry, and invalidates one entry or a prefix with `cache.delete`. The app must set `cache`.
 - **Rate Limit** lists policies. It reads or resets the counter of a key you enter with `rate-limit.peek` and `rate-limit.reset`.
 - **Sandbox**, **Workspace**, **Workflow**, and **Queue** list Definitions and their source without starting runtime resources.
 - **Schedule** lists Schedule Definitions with their cron expression and time zone. It runs a Definition that sets `manual: true`.
