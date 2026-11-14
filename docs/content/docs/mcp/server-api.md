@@ -1,12 +1,12 @@
 ---
 title: MCP server API
-description: Every option of defineMcpTool(), defineMcpPrompt(), and defineMcpResource(), what a handler gets and returns, and how it reports an error to the Agent.
+description: Every option of defineMcpTool(), defineMcpPrompt(), defineMcpResource(), and defineMcpHooks(), and what a handler gets and returns.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Import `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` from `vite-hub/mcp`. It re-exports `@vite-hub/mcp`.
+Import `defineMcpTool()`, `defineMcpPrompt()`, `defineMcpResource()`, and `defineMcpHooks()` from `vite-hub/mcp`. It re-exports `@vite-hub/mcp`.
 
 ## Define a tool
 
@@ -133,10 +133,42 @@ A thrown error with a 4xx `status` gets JSON-RPC `-32602` with its message. Othe
 
 The server advertises the `prompts` and `resources` capabilities only when the app has prompts or resources.
 
+## Resolve the caller and log tool calls
+
+Put one `defineMcpHooks()` default export in `server/mcp.ts`. The server calls its functions for each request:
+
+```ts [server/mcp.ts]
+import { defineMcpHooks } from 'vite-hub/mcp'
+import { HTTPError } from 'h3'
+
+const members = new Map([['user-1', { teamId: 'core' }]])
+const findMember = async (userId: string) => members.get(userId)
+
+export default defineMcpHooks({
+  async resolveCaller({ caller }) {
+    const member = caller && await findMember(caller.user.id)
+    if (!member) throw new HTTPError({ message: 'Join a team first.', status: 403 })
+    return member
+  },
+  onToolCall({ name, caller, durationMs, result }) {
+    console.info('mcp tool', { name, team: caller?.teamId, durationMs, failed: result.isError })
+  },
+})
+```
+
+| Function | Use |
+| --- | --- |
+| `resolveCaller` | Maps the caller to the app's own identity. It gets `{ event, caller }`, where `caller` is the signed-in caller of `mcpOAuth()`, else `undefined`. Its return value is `caller` in every tool, prompt, and resource handler. |
+| `onToolCall` | Runs after each tool call with `name`, `input`, `caller`, `event`, `durationMs`, `result`, and `error`. |
+
+`resolveCaller` runs once per request, when the first handler runs, so `initialize` and `tools/list` read no app data. A thrown error with a 4xx `status` refuses the call with its message. ViteHub writes `.vitehub/types/mcp.d.ts`, so `caller` in the handlers has the type that `resolveCaller` returns.
+
+`onToolCall` runs for each call whose arguments passed `input`, before the server sends the answer. `durationMs` is the time of the handler. `result` is what the Agent reads, with `isError: true` for a failed call. `error` is what the handler or `resolveCaller` threw, and is absent when nothing threw. An error that `onToolCall` throws is logged, and the result does not change.
+
 ## Public imports
 
 | Import | Use |
 | --- | --- |
-| `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, `defineMcpResource()`, and their types. |
+| `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, `defineMcpResource()`, `defineMcpHooks()`, and their types. |
 | `@vite-hub/mcp/vite` | `hubMcp()`, the Vite plugin that `vitehub({ mcp })` adds, and `discoverMcpTools()`. |
 | `@vite-hub/mcp/runtime` | `createMcpHandler()` and `createMcpOAuthDiscoveryHandler()`, which the generated server entry imports. |

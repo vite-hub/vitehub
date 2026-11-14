@@ -554,9 +554,13 @@ export function featurePackages(id: FeatureId, value: unknown, enabled: readonly
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  // A Sandbox Task host loads its provider SDK at build time (Cloudflare) or at run time (Vercel).
+  if (id === "sandboxTask" && (host === "vercel" || host === "cloudflare")) selected.push(sandboxProviderPackages[host])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
+
+const sandboxProviderPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {

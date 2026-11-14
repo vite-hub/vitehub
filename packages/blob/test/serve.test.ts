@@ -363,6 +363,30 @@ describe("Blob response transforms", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it("reads storage for each edgeCache request on a host without Cloudflare's cache", async () => {
+    // Deno has a standard `caches` without Cloudflare's `default` cache.
+    const open = vi.fn()
+    vi.stubGlobal("caches", { open })
+    try {
+      const get = vi.spyOn(driver, "get")
+      for (let index = 0; index < 2; index++) {
+        const response = await storage.serve(request(), "private/original", { edgeCache: { maxAge: 60 } })
+        expect(await response.text()).toBe("public:private-camera-data")
+      }
+      expect(get).toHaveBeenCalledTimes(2)
+      expect(open).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("rejects an edgeCache maxAge that is not a positive integer", async () => {
+    for (const maxAge of [0, -1, 1.5, Number.NaN]) {
+      await expect(storage.serve(request(), "private/original", { edgeCache: { maxAge } })).rejects.toMatchObject({ code: "BLOB_R0047" })
+    }
+  })
+
   it("answers 404 with a JSON body for a missing object", async () => {
     const app = new H3().get("/files/**", event => storage.serve(event.req, "missing.txt"))
     const response = await app.fetch(new Request("https://example.test/files/missing.txt"))

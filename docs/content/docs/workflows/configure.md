@@ -136,4 +136,4 @@ async function inlineOnboard(payload: OnboardPayload) {
 export default defineWorkflow('onboard-user', inlineOnboard, { native: durableOnboard })
 ```
 
-ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.
+ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.

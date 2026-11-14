@@ -3566,10 +3566,16 @@ describe("workflow runtime", () => {
     await expect(getWorkflowRun("welcome", "state-run")).resolves.toMatchObject({ status })
   })
 
-  it("treats terminated Cloudflare workflow runs as failed", async () => {
+  it.each([
+    { providerStatus: "waiting", status: "running" },
+    { providerStatus: "waitingForPause", status: "running" },
+    { providerStatus: "paused", status: "running" },
+    { providerStatus: "terminated", status: "cancelled" },
+    { providerStatus: "errored", status: "failed" },
+  ])("reports a Cloudflare $providerStatus instance as $status", async ({ providerStatus, status }) => {
     const get = vi.fn(async (id: string) => ({
       id,
-      status: vi.fn(async () => ({ status: "terminated" })),
+      status: vi.fn(async () => ({ status: providerStatus })),
     }))
 
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
@@ -3585,9 +3591,28 @@ describe("workflow runtime", () => {
       },
     })
 
-    await expect(getWorkflowRun("welcome", "terminated-1")).resolves.toMatchObject({
+    await expect(getWorkflowRun("welcome", "state-1")).resolves.toMatchObject({
+      metadata: { status: providerStatus },
       provider: "cloudflare",
-      status: "failed",
+      status,
+    })
+  })
+
+  it.each([
+    { label: "deployed", message: "instance.not_found" },
+    { label: "local", message: "(instance.not_found) Instance does not exist" },
+  ])("reports an unknown Cloudflare instance id as unknown ($label)", async ({ message }) => {
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: vi.fn(), get: async () => { throw new Error(message) } },
+      } } } },
+    })
+
+    await expect(getWorkflowRun("welcome", "missing-1")).resolves.toEqual({
+      id: "missing-1",
+      provider: "cloudflare",
+      status: "unknown",
     })
   })
 })
