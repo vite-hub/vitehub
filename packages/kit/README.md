@@ -19,7 +19,7 @@ Import each part from its own entry. There is no root entry.
 | `@vite-hub/kit/tags-input` | `TagsInput` and its parts. See [Components we add](#components-we-add). |
 | `@vite-hub/kit/nuxt` | The Nuxt module for the parts above |
 | `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light and dark |
-| `@vite-hub/kit/styles/default.css` | The `default` style family: plain CSS for every ui-sdk part and every kit part |
+| `@vite-hub/kit/styles/default.css` | The `default` style family: ui-sdk's `web.css` on the tokens above, and the rules for the kit parts. Only for apps without Nuxt UI. |
 
 ## Migrate from `@vite-hub/kit/<name>`
 
@@ -126,21 +126,28 @@ What to use in ViteHub UI for each Reka UI 2.11 component.
 
 ## Styles
 
-The parts have no styles until you load a style family. A family is one CSS file that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. It reads only the variables of `tokens.css`, which use the names of shadcn/ui.
+The parts have no styles until you load a style family. A family is CSS that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. The `default` family is ui-sdk's own stylesheet, `@ui-sdk/core/web.css`, with the variables of `tokens.css` mapped onto its `--ui-*` variables. The variables use the names of shadcn/ui.
 
 ```css
-/* The app's global stylesheet. ui-sdk's own layer comes first, so the family wins over it. */
-@layer ui-sdk;
+/* The app's global stylesheet. */
 @import "@vite-hub/kit/styles/tokens.css";
 @import "@vite-hub/kit/styles/default.css";
 ```
 
-- **No Tailwind needed.** The family is plain CSS in the `components` cascade layer, so utility classes and your own CSS win over it. With Tailwind, keep these lines above `@import "tailwindcss"`.
+`default.css` has three parts:
+
+1. `@import "@ui-sdk/core/web.css"`. Vite and Nuxt resolve it from the kit's own dependency, so you do not install anything else.
+2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`.
+3. The rules for the kit's `TagsInput`, and for `<span data-slot="visually-hidden">`, in web.css's `ui-sdk` cascade layer.
+
+**Load it only in apps without Nuxt UI.** web.css and Nuxt UI restyle each other: web.css has global rules on plain `a`, `kbd`, and `button`, 8 `data-slot` names are the same in both, and the alias sheet sets `--ui-border`, `--ui-primary`, and `--ui-radius`, which Nuxt UI also owns. `--ui-radius` is the whole radius in web.css but the base step in Nuxt UI. With Nuxt UI, use `@vite-hub/ui/theme.css` and Nuxt UI's components. See [Installation](https://vitehub.dev/docs/ui/installation).
+
+- **No Tailwind needed.** web.css is plain CSS in the `ui-sdk` cascade layer, so utility classes and your own CSS win over it. With Tailwind, put the `ui-sdk` layer after `base`, or Preflight resets the parts: `@layer theme, base, ui-sdk, components, utilities;` above the imports.
 - **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`.
-- **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, cards 2 times, and menus and dialogs 3 times.
+- **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, and menus and dialogs 2.25 times.
+- **Focus** is shadcn's: a border in `--ring` and a 4px halo at half of it.
 - Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
-- **Variants** are attributes: `data-variant="solid"` for the main action, `data-variant="ghost"` for toolbar and row actions, and `data-variant="destructive"`.
-- **Motion:** dialogs, toasts, and panels fade in through `data-starting-style` and `data-ending-style`. Menus, selects, popovers, and tooltips appear at once. Under `prefers-reduced-motion`, only the fades stay.
+- **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (13px by default), after the import.
 
 ## Nuxt
 
