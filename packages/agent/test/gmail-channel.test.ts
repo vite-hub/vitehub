@@ -8,7 +8,7 @@ import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { gmail, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { gmail, gmailChannelStatus, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineAgent, runAgentTrigger, agentWorkflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
@@ -1505,6 +1505,34 @@ describe("gmail() Channel", () => {
     await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ runtime: "cloudflare-agents", cloudflare: { env } })
+  })
+
+  it("reads the Channel status of the Agent that uses the Channel, with ambient Cloudflare bindings", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const env = { GMAIL_CLIENT_ID: "client-id", GMAIL_CLIENT_SECRET: "client-secret", GMAIL_REFRESH_TOKEN: "refresh-token" }
+    const agents = {
+      other: defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: () => "ok" } }),
+      poller: defineAgent({ channels: { mail: inbox }, driver: { run: () => "ok" } }),
+    }
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-status-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents,
+      handlers: { other: createChannelWebhookRouteHandler(agents.other), poller: createChannelWebhookRouteHandler(agents.poller) },
+      options: (name, env) => {
+        if (!env) throw new Error("Cloudflare env missing")
+        return { agentName: name, cloudflare: { env }, webhookState: () => state }
+      },
+    })
+    await expect(runWithActiveCloudflareEnv(env, () => gmailChannelStatus(inbox))).resolves.toEqual({ failures: 0, retrying: [], skipped: [], status: "ok" })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    await expect(runWithActiveCloudflareEnv(env, () => gmailChannelStatus(inbox))).resolves.toMatchObject({ failures: 0, status: "ok", syncedAt: expect.any(String) })
+    await expect(gmailChannelStatus(inbox, { agent: "other" })).resolves.toBeUndefined()
+    await expect(gmailChannelStatus(gmail({ fetch: google.fetch }))).resolves.toBeUndefined()
   })
 
   it("polls every Agent sharing a Channel before reporting dispatch failures", async () => {
