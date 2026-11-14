@@ -1,6 +1,8 @@
 node_modules
-/.agents/
-/.claude/
+/.agents/*
+!/.agents/skills/
+/.claude/*
+!/.claude/skills
 /.codex/
 .vite-hooks
 .zed
