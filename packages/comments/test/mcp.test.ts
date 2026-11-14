@@ -200,13 +200,19 @@ describe("Comments MCP tools", () => {
     })
 
     const list = await call("comments_list_threads", {})
-    expect(list.text).toBe(`- ${thread!.id} /pricing: The price is cut off (Ada, 0 replies, in PricingCard)`)
+    expect(list.text).toBe(`- #${thread!.n} ${thread!.id} /pricing: The price is cut off (Ada, 0 replies, in PricingCard)`)
     expect(list.structured).toMatchObject({ threads: [{ id: thread!.id, components: ["PricingCard"] }] })
     expect((await call("comments_list_threads", { search: "nothing" })).text).toBe("No open threads.")
 
     const read = await call("comments_get_thread", { id: thread!.id })
     expect(read.text).toContain("Files: app/components/PricingCard.vue")
     expect(read.text).toContain("Ada, ")
+
+    // An agent learns which part of the element an area marks, and which files a message carries.
+    const [, area] = await comments.create({ page: "/pricing", anchor: { kind: "area", selector: "iframe", x: 5, y: 4, width: 973, height: 977 }, body: "Too busy", attachments: ["comments/shot.png"], author: ada })
+    const areaText = (await call("comments_get_thread", { id: area!.id })).text
+    expect(areaText).toContain("Anchor: an area of iframe, 97.3% wide and 97.7% high, from 0.5% left and 0.4% top of its box")
+    expect(areaText).toContain("Attachments: comments/shot.png")
 
     const replied = await call("comments_reply", { id: thread!.id, body: "Fixed the width" })
     expect(replied.isError).toBeUndefined()
