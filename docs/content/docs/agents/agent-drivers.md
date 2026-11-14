@@ -301,8 +301,23 @@ The provider reads Skills from two places. It reads the Skills of its working di
 - Agent-owned Skills from `server/agents/<name>/skills/`.
 - Workspace Skills under a skill root that the provider does not read, such as an `.agents/skills` Skill for Claude Code.
 - Skills of the outer Workspace root when the provider runs in a nested pull request checkout.
+- Skills inside mounted Sources, such as `portal/.agents/skills/customer-deploy` for a Source mounted at `portal`.
 
 Codex loads the folder as an extra skill root through `skills/extraRoots/set`. Claude Code reads its `.claude/skills` through `--add-dir`. A Skill name that the provider already reads in its working directory is not added again. The folder is next to the Invocation's temporary directory and is removed with it. A `launch` wrapper that starts the provider on another host must make the temporary directory of the ViteHub host (`os.tmpdir()`) available at the same path, as it does for the working directory. A Sandbox Invocation writes the same Skills to the provider's Home skill root instead.
+
+Precedence by name: the working directory, then Agent-owned Skills, then the outer Workspace root, then the Sources in declaration order. An Agent-owned Skill replaces a Source Skill with the same name, with all its files.
+
+A Source with `materialize: 'none'` still gives its Skills. ViteHub adds startup Sources named `__vitehubSourceSkills:<key>:<skill-root>` that fetch only the `.agents/skills`, `.codex/skills`, and `.claude/skills` folders of the Source and mount each at its Skill directory, so the Console file tree shows them under the Source's mount. A GitHub Source fetches only those paths. A Source whose type has no `subset()` method gives Skills only when it is materialized. Set `skills: false` on a Source binding to keep its Skills out:
+
+```ts [server/agents/support/agent.ts] fragment
+workspace: {
+  materialize: 'none',
+  sources: {
+    portal: github({ repo: 'acme/portal' }),
+    k8s: { source: github({ repo: 'acme/k8s' }), skills: false },
+  },
+},
+```
 
 > [!WARNING]
 > Breaking change: earlier releases wrote Skills into the working directory and copied each Skill to `.agents/skills`, `.codex/skills`, and `.claude/skills`. A pull request checkout now keeps only its own files. Codex must support `skills/extraRoots/set` in `codex app-server`.

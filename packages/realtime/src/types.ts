@@ -178,20 +178,48 @@ export interface RealtimePersistenceOptions {
   maxWait?: number
 }
 
-export interface RealtimeDefinition {
-  /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
-  auth?: boolean
+interface RealtimeDefinitionIdentity {
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
   /**
-   * Let a page on another origin connect to a definition with `identify`, such as a script that sites load from the
-   * app. Return `true` to accept `origin`. Without it, only the app's own origin connects. The browser sends cookies
-   * with a cross-site handshake too, so `identify` must then trust only what the page sends on purpose, such as a
-   * ticket in `params`, never the session cookie.
+   * Let a page on another origin connect, such as a script that sites load from the app. Return `true` to accept
+   * `origin`. Without it, only the app's own origin connects. The browser sends cookies with a cross-site handshake
+   * too, so `identify` and `authorize` must then trust only what the page sends on purpose, such as a ticket in
+   * `params`, never the session cookie. `auth: true` without `identify` rejects it: the Auth session is a cookie.
    */
   origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
-  /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
-  authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+}
+
+type RealtimeAuthorize = (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+
+/**
+ * Who can use the rooms. Set one: `auth: true` requires an identified user, `authorize()` decides each request, and
+ * `access: "public"` lets anyone read and write.
+ */
+export type RealtimeDefinitionAccess = RealtimeDefinitionIdentity & (
+  | {
+    access?: never
+    /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
+    auth: true
+    /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
+    authorize?: RealtimeAuthorize
+  }
+  | {
+    access?: never
+    /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
+    auth?: boolean
+    /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
+    authorize: RealtimeAuthorize
+  }
+  | {
+    /** Let anyone who can reach the app read and write every room of this definition. */
+    access: "public"
+    auth?: never
+    authorize?: never
+  }
+)
+
+interface RealtimeDocumentFields {
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
   /**
    * Editor schema and Markdown codec. Defaults to the built-in Markdown kit. A function picks the codec of each
@@ -204,6 +232,37 @@ export interface RealtimeDefinition {
   /** Idle saves. `false` saves only when a client calls `save()` or `history.checkpoint()`. */
   persistence?: RealtimePersistenceOptions | false
 }
+
+/** A definition whose rooms edit one stored document each. */
+export type RealtimeDocumentDefinition = RealtimeDocumentFields & RealtimeDefinitionAccess
+
+interface RealtimePresenceFields {
+  document: false
+  editor?: never
+  history?: never
+  persistence?: never
+  /**
+   * Lets server code ask the one browser in a room with `requestRealtimeRoom()` from `@vite-hub/realtime/server`. The
+   * browser answers with `room.onRequest()`. Default `false`: rooms without it refuse request frames.
+   */
+  requests?: boolean
+  /**
+   * `"user"`: each person gets their own rooms. A room is keyed by the identity of whoever joins it, so the same room id
+   * for two people is two rooms, and `requestRealtimeRoom()` must name the person with `{ user }`. The identity is the
+   * ViteHub Auth session when the app has Auth, read without requiring one; everyone without a session shares one
+   * `anonymous` scope. With `identify` or `auth: true`, those decide the identity.
+   */
+  scope?: "user"
+}
+
+/**
+ * A definition whose rooms hold no document, only presence: who is in the room and the awareness fields each client
+ * sets, such as a cursor. Nothing loads or saves, and `authorize()` is asked only for `read`. Join its rooms with
+ * `connectRealtimeRoom()` from `@vite-hub/realtime/client`.
+ */
+export type RealtimePresenceDefinition = RealtimePresenceFields & RealtimeDefinitionAccess
+
+export type RealtimeDefinition = RealtimeDocumentDefinition | RealtimePresenceDefinition
 
 /** Server-written save state, mirrored in the read-only `status` Y.Map. */
 export interface RealtimeDocumentStatus {
@@ -267,6 +326,16 @@ export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeD
 /**
  * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
  */
+/** The codes that `requestRealtimeRoom()` returns in `[error, undefined]`. */
+export type RealtimeRoomRequestErrorCode =
+  | "REALTIME_ROOM_ABORTED"
+  | "REALTIME_ROOM_CROWDED"
+  | "REALTIME_ROOM_ELSEWHERE"
+  | "REALTIME_ROOM_EMPTY"
+  | "REALTIME_ROOM_REFUSED"
+  | "REALTIME_ROOM_REQUESTS_OFF"
+  | "REALTIME_ROOM_TIMEOUT"
+
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"

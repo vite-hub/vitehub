@@ -4,11 +4,11 @@ import type { SecondaryStorage } from "better-auth"
 
 import { authDatabase } from "../src/database.ts"
 import { defineAuth } from "../src/definition.ts"
-import { createAuthForRequest, createAuthHandler, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/server.ts"
+import { createAuthForRequest, createAuthHandler, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
-const definition = defineAuth(() => ({ emailAndPassword: { enabled: true }, secret }))
+const definition = defineAuth(() => ({ database: "memory" as const, emailAndPassword: { enabled: true }, secret }))
 let ipCounter = 0
 
 /** A fresh client address, because Better Auth keeps memory counters in one module-level map. */
@@ -71,7 +71,7 @@ describe("Auth rate limiting", () => {
 
   it("keeps an explicit rateLimit.enabled", async () => {
     workerRuntime()
-    const auth = createAuthForRequest(defineAuth(() => ({ rateLimit: { enabled: false }, secret })), signIn())
+    const auth = createAuthForRequest(defineAuth(() => ({ database: "memory" as const, rateLimit: { enabled: false }, secret })), signIn())
     expect((await auth.$context).rateLimit.enabled).toBe(false)
   })
 

@@ -216,7 +216,7 @@ const openWorkflowStartDelayMs = 500
  * Errors that a new attempt cannot fix, because the configuration must change first. `WORKFLOW_R0037` is not one: a
  * pool that is full with other traffic when the server starts gives a second connection later.
  */
-const permanentSetupErrorCodes = new Set(["WORKFLOW_R0036", "WORKFLOW_R0038"])
+const permanentSetupErrorCodes = new Set(["WORKFLOW_R0040", "WORKFLOW_R0038"])
 
 function hasPermanentSetupError(error: unknown): boolean {
   for (let current: unknown = error, depth = 0; current && typeof current === "object" && depth < 8; depth++) {
@@ -275,7 +275,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
  *
  * The worker registers the discovered Workflow Definitions of the registry, which every server of the build has.
  * When the storage is not ready, setup runs again until it works, with a delay that grows to 30 seconds. Each failure
- * is reported. A failure that only a configuration change fixes, such as `WORKFLOW_R0036`, stops the retries. The server keeps serving requests, and queued runs wait in storage until the worker starts.
+ * is reported. A failure that only a configuration change fixes, such as `WORKFLOW_R0040`, stops the retries. The server keeps serving requests, and queued runs wait in storage until the worker starts.
  * The returned promise resolves to `true` when the worker runs, and to `false` when it is off or the server closed
  * first. When the plugin runs again in the same process, as `vite dev` does after a file changes, the previous worker
  * stops taking runs, finishes the runs that it executes on its own backend, and the new one uses the changed definitions.

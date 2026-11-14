@@ -18,6 +18,8 @@ describe("@vite-hub/auth package contract", () => {
       "./console",
       "./console-runtime",
       "./database",
+      "./forward",
+      "./internal/server",
       "./mcp",
       "./nuxt",
       "./package.json",
@@ -31,6 +33,29 @@ describe("@vite-hub/auth package contract", () => {
     ])
   })
 
+  it("keeps setters, factories, and access helpers out of the server API", async () => {
+    expect(Object.keys(await import("../src/server.ts")).sort()).toEqual([
+      "AbilityError",
+      "aggregateAuthEvents",
+      "auth",
+      "can",
+      "createAuthHandler",
+      "default",
+      "getAuth",
+      "getAuthConsoleForRequest",
+      "getAuthEvents",
+      "handleAuth",
+      "listAuthEvents",
+      "requireAbility",
+      "requireAuth",
+      "requireAuthorization",
+      "useAuth",
+      "withAnonymousAuthorization",
+      "withAuth",
+      "withAuthorization",
+    ])
+  })
+
   // Give each fresh Node process its own timeout and report the failing entrypoint.
   it.each([
     ".",
@@ -39,6 +64,8 @@ describe("@vite-hub/auth package contract", () => {
     "./console",
     "./console-runtime",
     "./database",
+    "./forward",
+    "./internal/server",
     "./mcp",
     "./nuxt",
     "./presets",

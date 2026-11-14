@@ -123,20 +123,23 @@ export default defineConfig({ plugins: [vitehub({ host: 'node' }), nitro(), repo
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import type { OperationContributingPlugin } from 'vite-hub/operations'
 
 const reports = {
   name: 'reports',
   vitehub: {
     operations: [{ module: 'my-app/operations', export: 'reportOperations' }],
   },
-}
+} satisfies OperationContributingPlugin
 
 export default defineConfig({ plugins: [vitehub({ host: 'node' }), reports] })
 ```
 :::
 ::
 
-`module` is a specifier your app can import. `export` is one operation or a list. Two operations with the same name fail the build with `INTERNAL_B0048`, naming both plugins.
+A library that does not install `vite-hub` imports `defineOperation` and the same types from `@vite-hub/runtime/operations`.
+
+The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.
 
 Run `vitehub inspect definitions --kind operation` to list the app's operations.
 
@@ -228,7 +231,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 
 | Package | Operations |
 | --- | --- |
-| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
+| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
 | [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
 | [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
 | [Email](/docs/development/cli#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
+import { createGitHubPullRequestOperations, reviewerLabeledSevere, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
 
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
@@ -40,6 +40,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     threadFailure: undefined as "reply-result-lost" | "resolve-failed" | "resolve-result-lost" | undefined,
     merged: false,
     beforeRead: () => {},
+    compare: { status: "ahead", behind_by: 0 },
   }
   const route = (request: GitHubTestRequest): unknown => {
     switch (request.operationName) {
@@ -75,6 +76,10 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
       if (!state.protection) return { name: "main", protected: false }
       return { name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: state.protection.contexts, checks: state.protection.contexts.map(context => ({ context, app_id: null })) } } }
     }
+    if (path.startsWith("/repos/acme/app/compare/")) return state.compare
+    if (/^\/repos\/acme\/app\/commits\/[a-f\d]{40}\/check-runs$/.test(path)) return { total_count: 0, check_runs: [] }
+    if (/^\/repos\/acme\/app\/commits\/[a-f\d]{40}\/status(es)?$/.test(path)) return path.endsWith("statuses") ? [] : { state: "success", statuses: [], total_count: 0 }
+    if (path === "/repos/acme/app/actions/runs") return { total_count: 0, workflow_runs: [] }
     if (path === "/repos/acme/app/actions/runs/123") return state.run
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
@@ -553,6 +558,53 @@ describe("host-owned repair operations", () => {
     expect(f.mutations()).toHaveLength(1)
   })
 
+  it("refuses to decline a P0 or P1 finding", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    for (const reason of ["P1: the review push budget is spent.", "**P0**: out of scope."]) {
+      await expect(f.operations.resolveThread("THREAD_1", { outcome: "declined", reason })).rejects.toMatchObject({ code: "PRESETS_REVIEW_SEVERE_DECLINED" })
+    }
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(0)
+    expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("posts a downgraded decline of a reviewer's P0 or P1 and leaves the thread open until a person replies", async () => {
+    const f = await fixture()
+    const codex = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Verify ownership before granting admin**"
+    f.state.threadComments = [{ ...reviewComment, body: codex, author: { login: "chatgpt-codex-connector", __typename: "Bot" } }]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.mutations()).toHaveLength(0)
+    // A retry posts nothing new and keeps holding.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    // Any other outcome resolves it.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("resolves a downgraded decline once a person replied in the thread", async () => {
+    const f = await fixture()
+    f.state.threadComments = [
+      { ...reviewComment, body: "**P1 · Class: lost MAIL_KEY.**", author: { login: "pullfrog", __typename: "Bot" } },
+      { ...reviewComment, databaseId: 504, body: "Fine as P2, ship it.", author: { login: "maintainer", __typename: "User" } },
+    ]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: the maintainer accepted it." })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it.each([
+    ["**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Title", true],
+    ["**P0 · Class: data loss.**", true],
+    ["P1: broken contract", true],
+    ["**P2 · Class: alias.**", false],
+    ["**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Title", false],
+    ["P10 is a page size", false],
+    ["This breaks the P1 path.", false],
+  ])("reads a reviewer's severity label from %j", (body, severe) => {
+    expect(reviewerLabeledSevere(body)).toBe(severe)
+  })
+
   it("requires a reason for every outcome except fixed", async () => {
     const f = await fixture()
     f.state.threadComments = [reviewComment]
@@ -678,3 +730,29 @@ it("refreshes dependencies only while the assigned PR head is current", async ()
   await expect(f.operations.refreshDependencies()).rejects.toThrow();
   expect(refreshDependencies).toHaveBeenCalledTimes(1);
 });
+
+describe("base CI evidence on a moving base", () => {
+  const assigned = "b".repeat(40)
+  const moved = "c".repeat(40)
+
+  it("reads the assigned base after the base branch moved forward from it", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: moved })
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...${moved}`)).toBe(true)
+  })
+
+  it("refuses when the base no longer contains the assigned commit", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: moved })
+    f.state.compare = { status: "diverged", behind_by: 2 }
+    await expect(f.operations.readBaseCheckEvidence()).rejects.toThrow("Pull request base changed")
+  })
+
+  it("needs no comparison while the base is unchanged", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: assigned })
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
+    expect(f.calls.some(call => call.path.startsWith("/repos/acme/app/compare/"))).toBe(false)
+  })
+})

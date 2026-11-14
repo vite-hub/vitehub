@@ -4,7 +4,7 @@ export { chunkParameters } from "./runtime/chunk-parameters.ts"
 export { db, ensureMigrations, getPostgresConnectionUrl, schema, useDatabase, useDatabaseBinding } from "@vite-hub/database/runtime/registry"
 export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
 export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.ts"
-export type { DatabaseRegistry, RuntimeDatabaseEntry } from "@vite-hub/database/runtime/registry"
+export type { DatabaseRegistry, DatabaseSeed, RuntimeDatabaseEntry } from "@vite-hub/database/runtime/registry"
 export type {
   CloudflareD1BindingConfig,
   CloudflareD1HttpConfig,
@@ -23,6 +23,7 @@ export type {
   DatabaseOptions,
   DiscoveredDatabaseDefinition,
   MergeDatabaseRelations,
+  MigrationBackupOptions,
   PostgresConnectionConfig,
   PostgresDatabaseDefinition,
   PostgresDatabaseDefinitionOptions,

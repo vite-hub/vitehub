@@ -21,6 +21,13 @@ describe("localBrowser", () => {
     await expect(provider.open()).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
   })
 
+  it("rejects idleTimeoutMs, which a local Chromium cannot honor", async () => {
+    const provider = localBrowser({ executablePath: "/vitehub/does-not-exist/chromium" })
+
+    await expect(provider.open({ idleTimeoutMs: 120_000 })).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+    await expect(provider.open({ idleTimeoutMs: 120_000 })).rejects.toThrow("configure an idle timeout for a local Chromium")
+  })
+
   it("applies startupTimeout while the Chromium endpoint is unresponsive", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-test-"))
     tempDirectories.push(root)

@@ -3,7 +3,7 @@ export type { ViteHubContext } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import {
@@ -115,13 +115,14 @@ export async function deriveSecret(purpose: string, options: DeriveSecretOptions
   return await deriveViteHubSecret(root, purpose)
 }
 
-function hasRuntimeName(entry: RuntimeEnvEntry, env: RuntimeEnv, name: string): boolean {
-  return Object.hasOwn(env, name) && env[name] !== undefined && !(entry.source.skipEmpty && env[name] === "")
+/** An empty variable counts as missing, so it never shadows a later name or satisfies a required value. */
+function hasRuntimeName(env: RuntimeEnv, name: string): boolean {
+  return Object.hasOwn(env, name) && env[name] !== undefined && env[name] !== ""
 }
 
 function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, name?: string, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    if (hasRuntimeName(entry, env, name)) return { found: true, name, value: env[name] }
+    if (hasRuntimeName(env, name)) return { found: true, name, value: env[name] }
   }
   return { found: false }
 }
@@ -132,7 +133,7 @@ function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { 
   if (!source.found || canonical === undefined || canonical === false) return {}
   if (source.name !== canonical) return { via: "conventional" }
   const conflict = (entry.source.names || [entry.source.name])
-    .some(name => name !== canonical && hasRuntimeName(entry, env, name) && env[name] !== source.value)
+    .some(name => name !== canonical && hasRuntimeName(env, name) && env[name] !== source.value)
   return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 

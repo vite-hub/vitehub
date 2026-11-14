@@ -9,7 +9,8 @@ vi.mock("#vitehub/auth/definition", () => ({
 
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
-import { assertAuthOrigin, resetAuth } from "../src/server.ts"
+import { assertAuthOrigin, resetAuth } from "../src/internal/server.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -57,68 +58,18 @@ describe("Auth behind a TLS-terminating proxy", () => {
     expect(callback).toHaveBeenCalledOnce()
   })
 
-  it.each([true, false])("uses runtime proxy trust (%s) over the static Definition", (trustedProxyHeaders) => {
-    const runtime = vi.fn(({ requestOrigin }: AuthRuntimeContext) => ({
-      advanced: { trustedProxyHeaders },
-      baseURL: requestOrigin,
-      secret,
-    }))
-    const definition = defineAuth({ advanced: { trustedProxyHeaders: !trustedProxyHeaders }, runtime })
-    const resolved = resolveAuthOptions(definition, { request: proxiedRequest() })
-    const origin = trustedProxyHeaders ? "https://app.example.com" : "http://127.0.0.1:3000"
-
-    expect(runtime.mock.lastCall![0].requestOrigin).toBe(origin)
-    expect(resolved.providerOptions).toMatchObject({ advanced: { trustedProxyHeaders }, baseURL: origin, trustedOrigins: [origin] })
-    if (!trustedProxyHeaders) {
-      expect(runtime.mock.calls.every(([context]) => context.requestOrigin === origin)).toBe(true)
-    }
-  })
-
-  it.each([true, false])("uses caller proxy trust (%s) over a callback Definition", (trustedProxyHeaders) => {
+  it.each([true, false])("uses proxy trust (%s) from the callback result", (trustedProxyHeaders) => {
     const callback = vi.fn(({ requestOrigin }: AuthRuntimeContext) => ({
-      advanced: { trustedProxyHeaders: !trustedProxyHeaders },
+      advanced: { cookiePrefix: "acme", trustedProxyHeaders },
       baseURL: requestOrigin,
       secret,
     }))
-    const resolved = resolveAuthOptions(defineAuth(callback), {
-      request: proxiedRequest(),
-      runtimeOptions: { advanced: { trustedProxyHeaders } },
-    })
+    const resolved = resolveAuthOptions(defineAuth(callback), { request: proxiedRequest() })
     const origin = trustedProxyHeaders ? "https://app.example.com" : "http://127.0.0.1:3000"
 
     expect(callback.mock.lastCall![0].requestOrigin).toBe(origin)
-    expect(resolved.providerOptions).toMatchObject({ advanced: { trustedProxyHeaders }, baseURL: origin, trustedOrigins: [origin] })
+    expect(resolved.providerOptions).toMatchObject({ advanced: { cookiePrefix: "acme", trustedProxyHeaders }, baseURL: origin, trustedOrigins: [origin] })
     if (!trustedProxyHeaders) expect(callback).toHaveBeenCalledOnce()
-  })
-
-  it.each([true, false])("uses caller proxy trust (%s) over a runtime callback", (trustedProxyHeaders) => {
-    const runtime = vi.fn(({ requestOrigin }: AuthRuntimeContext) => ({
-      advanced: { trustedProxyHeaders: !trustedProxyHeaders },
-      baseURL: requestOrigin,
-      secret,
-    }))
-    const definition = defineAuth({ advanced: { trustedProxyHeaders: true }, runtime })
-    const resolved = resolveAuthOptions(definition, {
-      request: proxiedRequest(),
-      runtimeOptions: { advanced: { trustedProxyHeaders } },
-    })
-    const origin = trustedProxyHeaders ? "https://app.example.com" : "http://127.0.0.1:3000"
-
-    expect(runtime.mock.lastCall![0].requestOrigin).toBe(origin)
-    expect(resolved.providerOptions).toMatchObject({ advanced: { trustedProxyHeaders }, baseURL: origin, trustedOrigins: [origin] })
-    if (!trustedProxyHeaders) expect(runtime).toHaveBeenCalledOnce()
-  })
-
-  it("treats a caller advanced object as a replacement for the Definition's advanced options", () => {
-    const callback = vi.fn(({ requestOrigin }: AuthRuntimeContext) => ({
-      advanced: { trustedProxyHeaders: true },
-      baseURL: requestOrigin,
-      secret,
-    }))
-    const resolved = resolveAuthOptions(defineAuth(callback), { request: proxiedRequest(), runtimeOptions: { advanced: {} } })
-
-    expect(callback).toHaveBeenCalledOnce()
-    expect(resolved.providerOptions).toMatchObject({ baseURL: "http://127.0.0.1:3000", trustedOrigins: ["http://127.0.0.1:3000"] })
   })
 
   it("discards forwarded values if the callback revokes proxy trust on its second run", () => {
@@ -137,8 +88,8 @@ describe("Auth behind a TLS-terminating proxy", () => {
     })
   })
 
-  it("resolves request-scoped providers when a static runtime object enables proxy trust", async () => {
-    definition.current = defineAuth({ advanced: { trustedProxyHeaders: false }, runtime: { advanced: { trustedProxyHeaders: true }, secret } })
+  it("resolves request-scoped providers when a callback enables proxy trust", async () => {
+    definition.current = defineFixedAuth({ advanced: { trustedProxyHeaders: true }, secret })
     const auth = await assertAuthOrigin(proxiedRequest({ origin: "https://app.example.com" }))
     expect((await auth.$context).options.baseURL).toBe("https://app.example.com")
 
@@ -147,29 +98,31 @@ describe("Auth behind a TLS-terminating proxy", () => {
   })
 
   it("keeps the request host when the proxy sends only X-Forwarded-Proto", () => {
-    const definition = defineAuth({ advanced: { trustedProxyHeaders: true }, runtime: { secret } })
+    const definition = defineFixedAuth({ advanced: { trustedProxyHeaders: true }, secret })
     const request = new Request("http://app.example.com/api/auth/session", { headers: { "x-forwarded-proto": "https" } })
     expect(resolveAuthOptions(definition, { request }).options.baseURL).toBe("https://app.example.com")
   })
 
   it("prefers the configured public URL over proxy headers", () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://public.example.com" })
-    const definition = defineAuth({ advanced: { trustedProxyHeaders: true }, runtime: { secret } })
+    const definition = defineFixedAuth({ advanced: { trustedProxyHeaders: true }, secret })
     expect(resolveAuthOptions(definition, { request: proxiedRequest() }).options.baseURL).toBe("https://public.example.com")
   })
 
-  it("preserves an explicit caller baseURL and trustedOrigins", () => {
+  it("preserves an explicit baseURL and trustedOrigins", () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://public.example.com" })
-    const definition = defineAuth({ advanced: { trustedProxyHeaders: true }, runtime: { secret } })
-    const resolved = resolveAuthOptions(definition, {
-      request: proxiedRequest(),
-      runtimeOptions: { baseURL: "https://auth.example.com", trustedOrigins: ["https://trusted.example.com"] },
+    const definition = defineFixedAuth({
+      advanced: { trustedProxyHeaders: true },
+      baseURL: "https://auth.example.com",
+      secret,
+      trustedOrigins: ["https://trusted.example.com"],
     })
+    const resolved = resolveAuthOptions(definition, { request: proxiedRequest() })
     expect(resolved.providerOptions).toMatchObject({ baseURL: "https://auth.example.com", trustedOrigins: ["https://trusted.example.com"] })
   })
 
   it("checks request origins against the forwarded origin in assertAuthOrigin", async () => {
-    definition.current = defineAuth({ advanced: { trustedProxyHeaders: true }, runtime: { secret } })
+    definition.current = defineFixedAuth({ advanced: { trustedProxyHeaders: true }, secret })
     const auth = await assertAuthOrigin(proxiedRequest({ origin: "https://app.example.com" }))
     expect((await auth.$context).options.baseURL).toBe("https://app.example.com")
 

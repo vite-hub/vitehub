@@ -1,4 +1,6 @@
 import { getActiveCloudflareBinding, getActiveCloudflareRequestScope } from "@vite-hub/internal/runtime/cloudflare-env"
+// The postgres.js driver already loads this module. The `drizzle-orm/pg-core` index would load every column type at startup.
+import { withReplicas } from "drizzle-orm/pg-core/async/db"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 
@@ -9,7 +11,11 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { readPostgresEnvKey } from "./postgres-env.ts"
 
 import type { AnyRelations } from "drizzle-orm"
+import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import type { DatabaseConfigValue, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "../types.ts"
+
+/** A Drizzle database without `$replica`. The client proxy adds it. */
+export type PostgresDrizzle<TRelations extends AnyRelations> = PgAsyncDatabase<PgQueryResultHKT, TRelations>
 
 /** Build-time values that apply when the evaluated Definition omits them. */
 export interface PostgresDatabaseDefaults {
@@ -17,24 +23,27 @@ export interface PostgresDatabaseDefaults {
   url?: DatabaseConfigValue
 }
 
-interface PostgresInstance<TSchema extends Record<string, unknown>, TRelations extends AnyRelations> {
-  client: ReturnType<typeof postgres>
-  db: RuntimePostgresDatabase<TSchema, TRelations>
+interface PostgresInstance<TRelations extends AnyRelations> {
+  /** The primary client, then one client per replica. */
+  clients: Array<ReturnType<typeof postgres>>
+  db: PostgresDrizzle<TRelations>
   key: string
 }
 
 /** A connection URL, or `undefined` when postgres.js reads its PG* environment variables. */
 interface PostgresConnection {
   key: string
+  /** Read replica URLs. Empty under Hyperdrive. */
+  replicas: string[]
   url?: string
 }
 
 /** A database that serves a Postgres Definition without a server. The development runtime passes PGlite. */
-export interface LocalPostgresDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations> {
+export interface LocalPostgresDatabase<TRelations extends AnyRelations> {
   /** True for `driver: "pglite"`: the local database serves every query, even with a URL or PG* variables. */
   always: boolean
   /** Returns the database for the current query. In app tests, it changes after each reset. */
-  get: () => RuntimePostgresDatabase<TSchema, TRelations>
+  get: () => PostgresDrizzle<TRelations>
 }
 
 function readHyperdriveConnectionString(binding: unknown) {
@@ -55,29 +64,26 @@ function printPostgresWarning(notice: postgres.Notice) {
 /**
  * Creates the Drizzle client for a Postgres Database Definition.
  *
- * A Cloudflare Hyperdrive binding takes precedence over `connection.url`. Inside a Cloudflare
+ * A Cloudflare Hyperdrive binding takes precedence over `connection.url`. With `connection.replicas`, the database
+ * comes from Drizzle's `withReplicas()`, and `db.$replica` reads from one replica. Hyperdrive has one origin, so it
+ * skips the replicas, and so does the local database. Then `db.$replica` is the database itself. Inside a Cloudflare
  * request, each request gets its own client because Workers cannot reuse a socket across requests.
  * Outside a Cloudflare request, one client pool serves the process. Without any connection, `local` serves the queries.
  */
 export function createPostgresDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   defaults: PostgresDatabaseDefaults,
-  local?: LocalPostgresDatabase<TSchema, TRelations>,
+  local?: LocalPostgresDatabase<TRelations>,
 ): RuntimePostgresDatabase<TSchema, TRelations> {
   const bindingName = definition.cloudflare?.binding?.trim() || defaults.binding
-  const requestInstances = new WeakMap<object, PostgresInstance<TSchema, TRelations>>()
-  let sharedInstance: PostgresInstance<TSchema, TRelations> | undefined
+  const requestInstances = new WeakMap<object, PostgresInstance<TRelations>>()
+  let sharedInstance: PostgresInstance<TRelations> | undefined
+  let warnedHyperdriveReplicas = false
   // Every table of the schema, with the relations of the Definition, so `db.query.<table>` reads each one.
   const { relations } = definition
 
-  function resolveConnection(requestScoped: boolean): PostgresConnection | undefined {
-    const hyperdriveUrl = readHyperdriveConnectionString(getActiveCloudflareBinding<unknown>(bindingName))
-    if (hyperdriveUrl) return { key: hyperdriveUrl, url: hyperdriveUrl }
-    const url = resolveConfigValue(definition.connection?.url ?? defaults.url)?.trim()
-    if (url) return { key: url, url }
-    // The Workers build of postgres.js does not read process.env, so PG* variables apply only outside Cloudflare.
-    const envKey = requestScoped ? undefined : readPostgresEnvKey()
-    if (envKey) return { key: envKey }
+  function resolveReplicas(): string[] {
+    return (definition.connection?.replicas ?? []).map(replica => resolveConfigValue(replica)?.trim()).filter((url): url is string => !!url)
   }
 
   function missingConnection(requestScoped: boolean) {
@@ -87,13 +93,37 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>, 
     return databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs })
   }
 
-  function createInstance(connection: PostgresConnection, requestScoped: boolean): PostgresInstance<TSchema, TRelations> {
+  function resolveConnection(requestScoped: boolean): PostgresConnection | undefined {
+    const hyperdriveUrl = readHyperdriveConnectionString(getActiveCloudflareBinding<unknown>(bindingName))
+    if (hyperdriveUrl) {
+      if (!warnedHyperdriveReplicas && resolveReplicas().length) {
+        warnedHyperdriveReplicas = true
+        console.warn(`[vitehub] Database "${definition.name}" uses the Hyperdrive binding "${bindingName}", which has one origin, so it ignores \`connection.replicas\`. \`db.$replica\` queries the Hyperdrive origin.`)
+      }
+      return { key: hyperdriveUrl, replicas: [], url: hyperdriveUrl }
+    }
+    const replicas = resolveReplicas()
+    // Replicas change the client, so they are part of the cache key.
+    const replicaKey = replicas.length ? `\n${replicas.join("\n")}` : ""
+    const url = resolveConfigValue(definition.connection?.url ?? defaults.url)?.trim()
+    if (url) return { key: `${url}${replicaKey}`, replicas, url }
+    // The Workers build of postgres.js does not read process.env, so PG* variables apply only outside Cloudflare.
+    const envKey = requestScoped ? undefined : readPostgresEnvKey()
+    if (envKey) return { key: `${envKey}${replicaKey}`, replicas }
+  }
+
+  function createInstance(connection: PostgresConnection, requestScoped: boolean): PostgresInstance<TRelations> {
     // Cloudflare limits concurrent connections per request. Hyperdrive pools the origin connections.
     // Type discovery stays on, because array columns need the type metadata that postgres.js reads.
     const options = { onnotice: printPostgresWarning, ...requestScoped ? { max: 5 } : {} }
+    const open = (client: ReturnType<typeof postgres>): PostgresDrizzle<TRelations> => keepOwnClient(drizzle({ client: trackPostgresClient(client), relations }), client)
     const client = connection.url ? postgres(connection.url, options) : postgres(options)
-    const db: RuntimePostgresDatabase<TSchema, TRelations> = keepOwnClient(drizzle({ client: trackPostgresClient(client), relations }), client)
-    return { client, db, key: connection.key }
+    const replicaClients = connection.replicas.map(url => postgres(url, options))
+    const primary = open(client)
+    const [first, ...rest] = replicaClients.map(open)
+    // `withReplicas()` inherits from the primary. Its own `$client` keeps the proxy from binding the postgres.js client.
+    const db = first ? keepOwnClient(withReplicas(primary, [first, ...rest]), client) : primary
+    return { clients: [client, ...replicaClients], db, key: connection.key }
   }
 
   function getDb() {
@@ -115,8 +145,8 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>, 
     if (sharedInstance?.key === connection.key) return sharedInstance.db
     const previous = sharedInstance
     sharedInstance = createInstance(connection, false)
-    // end() lets queries that already started finish before it closes the superseded pool.
-    void previous?.client.end()
+    // end() lets queries that already started finish before it closes the superseded pools.
+    for (const client of previous?.clients ?? []) void client.end()
     return sharedInstance.db
   }
 
@@ -132,6 +162,8 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>, 
       // The database is not a promise. `await` reads `then`, which must not open a client.
       if (property === "then") return
       const instance = getDb()
+      // Without replicas, `$replica` is the database itself, so code that reads from replicas runs everywhere.
+      if (property === "$replica" && !Reflect.has(instance, "$replica")) return instance
       const value: unknown = Reflect.get(instance, property)
       // Bind Drizzle methods. Own function values such as the postgres.js `$client` keep their properties.
       return typeof value === "function" && !Object.hasOwn(instance, property) ? value.bind(instance) : value

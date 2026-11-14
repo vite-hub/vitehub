@@ -18,7 +18,7 @@ The command finds every module in the app that a codemod supports and runs those
 
 The report lists, for each codemod, why it ran and what it did, then the files it changed, a numbered list of manual follow-ups with `file:line`, notes, and the commands to run next. A codemod that cannot migrate the app changes nothing and says why; the others still run. The report also warns when `package.json` requires a Nuxt version before 5, because ViteHub supports Nuxt 5 and Nitro 3 only. The codemods do not upgrade Nuxt or install packages. Nuxt 5 also stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
 
-The migration uses a unique scratch directory and preserves existing `.vitehub-migrate` directories. If a codemod would edit a symbolic link or a file inside a linked directory, it stops without applying that codemod's edits. Replace the link with a local file or directory before retrying.
+The migration uses a unique scratch directory and preserves existing `.vitehub-migrate` directories. If a codemod would edit a symbolic link or a file inside a linked directory, it stops without applying that codemod's edits. `vitehub migrate <codemod>` does the same. Replace the link with a local file or directory before retrying.
 
 The command exits with `0` when every codemod completes, also when they report follow-ups. It exits with `1` when a codemod could not migrate, or when the app has no `nuxt.config`.
 
@@ -38,12 +38,30 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive. `vitehub migrate` runs it. |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
 | `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
 | `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+
+## `runtime-contracts`
+
+ViteHub moved the request context helpers to `vite-hub/runtime`, made private runtime and Auth entries private, and changed `checkRateLimit()` to return a Result. `runtime-contracts` rewrites an app:
+
+| Old code | New code |
+| --- | --- |
+| `getRuntimeContext`, `getStandardContext`, and the Standard Context types from `vite-hub/runtime/h3` | `vite-hub/runtime`. `H3RuntimeContext` and `H3RuntimeContextOptions` become `RequestRuntimeContext` and `RuntimeContextOptions`. |
+| `nodeRuntimeResources` from `vite-hub/runtime/node` | `vite-hub/agent/capabilities` |
+| `initLogger`, `useLogger`, and the other Evlog names from `vite-hub/logs` | `evlog`. The LogSource names stay in `vite-hub/logs`. |
+| `const decision = await checkRateLimit(...)` | `const [checkRateLimitError, decision] = await checkRateLimit(...)`, then `if (checkRateLimitError) throw checkRateLimitError`, which keeps the old behavior |
+
+The `@vite-hub/runtime/*` forms move to the same places. The report lists what needs a person: `installStandardContext()`, the other names of `vite-hub/runtime/node`, `@vite-hub/runtime/shutdown`, the Auth setters, factories, and access helpers that left `vite-hub/auth/server`, the `vite-hub/auth/runtime/server`, `vite-hub/auth/console`, and `vite-hub/auth/console-runtime` entries, and a `checkRateLimit()` call that is not a `const` declaration.
+
+```sh
+npx @vite-hub/codemods runtime-contracts [dir] [--dry-run]
+```
 
 ## `renamed-apis`
 
@@ -170,7 +188,7 @@ The codemod does not move local data or baseline the database. The follow-ups li
 The codemod reads one of the two schema sources of the module:
 
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.
-- `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. For Zod 4 before 4.2, the codemod calls `toJSONSchema()` from the app's own Zod. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. A `process.env.NAME || fallback` value reads `NAME` with a source that skips empty values, as `||` did, and keeps `fallback` as the default. Literal `runtimeConfig` values, including empty strings, become defaults, and keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
+- `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. For Zod 4 before 4.2, the codemod calls `toJSONSchema()` from the app's own Zod. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. A `process.env.NAME || fallback` value reads `NAME` with `env.source()` and keeps `fallback` as the default. Env treats an empty variable as unset, as `||` did. Literal `runtimeConfig` values, including empty strings, become defaults, and keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
 
 When `safeRuntimeConfig` declares neither and the app has no layers, the module validates nothing, so the codemod removes it from `modules`, `nuxt.config`, and `package.json`. It stops instead when code still calls `useSafeRuntimeConfig()`. Schema-free removal also stops when the config extends layers, uses a root spread, or has automatic `layers/` directories: inherited schemas and composable calls are unknown. Review those layers and remove the module by hand, or declare the schema in the app config before retrying.
 

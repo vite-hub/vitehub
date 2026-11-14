@@ -21,7 +21,7 @@ interface RenderDatabaseRuntimeModuleOptions {
  */
 export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModuleOptions): string {
   return [
-    `import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
+    `import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError, pingDatabaseEntries } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
     `import { createUseDatabase } from ${JSON.stringify(options.useDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
     `import { readPostgresConnectionUrl } from ${JSON.stringify(options.postgresConnectionImport)}`,
@@ -72,6 +72,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "}",
     "export const useDatabaseBinding = createDatabaseBindingLookup(databases)",
     "export const agentDb = createAgentDatabase(databases)",
+    "export function pingDatabases() { return pingDatabaseEntries(databases, Object.keys(configured())) }",
     "export const db = deferred(() => resolved().default.db, true)",
     "export const schema = deferred(() => resolved().default.schema)",
     "export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }",

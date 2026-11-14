@@ -108,7 +108,7 @@ export function setOpenWorkflowDatabaseUrl(resolve: (() => string | undefined) |
 function readDatabasePostgresUrl(): string | undefined {
   if (!databaseUrlResolver) return undefined
   const url = databaseUrlResolver()?.trim()
-  if (!url) throw workflowErrorDiagnostics.WORKFLOW_R0036()
+  if (!url) throw workflowErrorDiagnostics.WORKFLOW_R0040()
   return url
 }
 

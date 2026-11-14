@@ -1,5 +1,5 @@
 import { operationAccessAllows, operationListed } from "@vite-hub/internal/operations"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 

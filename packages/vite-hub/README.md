@@ -91,7 +91,7 @@ Choose the result that matches the application you are building:
 Both guides use `vite-hub`, include complete files and commands, and need no provider credentials. Do not treat the configuration fragment above as a successful runtime check by itself.
 
 Custom H3 and Nuxt routes can import `getRuntimeContext` from
-`vite-hub/runtime/h3`. Call it once per invocation to read the event's
+`vite-hub/runtime`. Call it once per invocation to read the event's
 Standard Context (`event["~standard"]`): request, bindings, host `waitUntil`,
 and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
@@ -152,6 +152,10 @@ A successful build proves that ViteHub discovered the configured definitions and
 Generated files are for inspection and deployment. Application code must not import `.vitehub/**`, provider output directories, or Vite virtual module IDs. Use the public paths in the [import reference](https://vitehub.dev/docs/reference/import-paths).
 
 Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled request error as `[vitehub] Unhandled error in <method> <path>` with the thrown error's message, stack, status, and cause chain, while the response stays sanitized. Without it, Cloudflare Workers log only `{"status":500,"unhandled":true,"message":"HTTPError"}`. `vitehub({ observability })` replaces it with evlog.
+
+`vitehub({ health: true })` adds `/api/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, commit }`, where `commit` is the commit of the build from the CI or host variables, else from Git, else `null`. With `database`, it also runs `SELECT 1` on each Database and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, databases: { default: false } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
+
+`vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 

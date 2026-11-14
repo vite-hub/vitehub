@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
-import { createBetterAuthOptions, getAuthConsoleForRequest, getAuthEvents, handleAuthRequest } from "../src/server.ts"
+import { createBetterAuthOptions, getAuthConsoleForRequest, getAuthEvents, handleAuthRequest } from "../src/internal/server.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthEventsConfiguration, AuthEventStore } from "../src/events.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const state = vi.hoisted(() => ({ events: false as false | AuthEventsConfiguration, resolved: vi.fn() }))
 vi.mock("#vitehub/auth/definition", () => ({ default: { options: (context: unknown) => { state.resolved(context); return { events: state.events }; } } }))
@@ -41,8 +42,8 @@ it("rejects malformed event configuration before an auth operation", () => {
 
 it("does not break completed auth when logging fails and does not expose a reader by default", async () => {
   const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
-  const definition = defineAuth({
-    emailAndPassword: { enabled: true }, runtime: { secret: "auth-events-test-secret-12345678901234567890" },
+  const definition = defineFixedAuth({
+    emailAndPassword: { enabled: true }, secret: "auth-events-test-secret-12345678901234567890",
     events: { store: { append: async () => { throw new Error("private provider diagnostic") }, list: async () => ({ events: [] }), aggregate: async () => { throw new Error("unused") } } },
   })
   const response = await handleAuthRequest(definition, new Request("http://localhost:3000/api/auth/sign-up/email", {

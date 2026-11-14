@@ -10,7 +10,7 @@ icon: i-lucide-cloud-cog
 
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. |
+| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
 | Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
 | OpenWorkflow | Inferred on Node and Docker, or `workflow: { provider: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow and starts its worker. | Uses the Postgres Default Database or `OPENWORKFLOW_POSTGRES_URL`, else a SQLite file. Set `postgres.url` or `sqlite.path`, not both. |
 
@@ -49,7 +49,7 @@ OpenWorkflow resolves storage at runtime in this order:
 1. `sqlite.path` selects SQLite, and `postgres.url` selects Postgres. Set only one. If its environment value is missing or empty, startup fails. It does not fall back to another store.
 2. With neither set, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
 3. Else `OPENWORKFLOW_POSTGRES_URL` selects Postgres.
-4. Else, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_R0036`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
+4. Else, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_R0040`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
 5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see the upgrade step below).
 
 ### Upgrade from DATABASE_URL storage

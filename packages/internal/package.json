@@ -113,6 +113,11 @@
       "import": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./operation-definition": {
+      "types": "./dist/operation-definition.d.ts",
+      "import": "./dist/operation-definition.js",
+      "default": "./dist/operation-definition.js"
+    },
     "./operation-registry": {
       "types": "./dist/operation-registry.d.ts",
       "import": "./dist/operation-registry.js",
@@ -347,6 +352,11 @@
       "types": "./dist/build/user-entry.d.ts",
       "import": "./dist/build/user-entry.js",
       "default": "./dist/build/user-entry.js"
+    },
+    "./build/revision": {
+      "types": "./dist/build/revision.d.ts",
+      "import": "./dist/build/revision.js",
+      "default": "./dist/build/revision.js"
     },
     "./build/vite": {
       "types": "./dist/build/vite.d.ts",

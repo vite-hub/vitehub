@@ -4,9 +4,9 @@ import { createAccessControl } from "better-auth/plugins/access";
 import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
-import { defineAuth } from "../src/index.ts";
-import { createAuthForRequest } from "../src/server.ts";
+import { createAuthForRequest } from "../src/internal/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
@@ -161,7 +161,7 @@ describe("one-time values and the app session", () => {
   });
 
   it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
-    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } });
+    const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
     const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));
     const [saveError] = await consoles[0]!.saveVerification("ticket:memory", "value", new Date(Date.now() + 60_000));
     expect(saveError).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });

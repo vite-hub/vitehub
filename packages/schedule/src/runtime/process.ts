@@ -1,4 +1,4 @@
-export { onShutdown } from "@vite-hub/runtime/shutdown"
+export { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 export { scheduleLeaseStoreFromDatabase } from "./database-leases.ts"
 
 import { hostname } from "node:os"

@@ -1677,7 +1677,7 @@ describe("workflow runtime", () => {
       // A Default Database without a URL does not send runs to a SQLite file of one host.
       delete process.env.OPENWORKFLOW_POSTGRES_URL
       setOpenWorkflowDatabaseUrl(() => undefined)
-      await expect(getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)).rejects.toMatchObject({ code: "WORKFLOW_R0036" })
+      await expect(getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)).rejects.toMatchObject({ code: "WORKFLOW_R0040" })
     }
     finally {
       delete process.env.DATABASE_URL

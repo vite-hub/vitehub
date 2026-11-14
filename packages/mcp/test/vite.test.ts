@@ -54,9 +54,19 @@ describe("hubMcp", () => {
     return { config, plugin }
   }
 
-  it("serves the tools at /mcp and lists them for `vitehub inspect`", async () => {
+  it("checks the access token by default", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
-    const { config, plugin } = configure(root)
+    const { config } = configure(root)
+    expect(config.nitro?.handlers).toEqual([
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+    ])
+    expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
+  })
+
+  it("serves the tools at /mcp to anyone with auth: false and lists them for `vitehub inspect`", async () => {
+    const root = app({ "server/mcp/tools/add.ts": tool })
+    const { config, plugin } = configure(root, { auth: false })
     const handler = join(root, ".vitehub/nitro/mcp/handler.ts")
     expect(config.nitro?.handlers).toEqual([{ handler, route: "/mcp" }])
     const entry = readFileSync(handler, "utf8")
@@ -88,7 +98,7 @@ describe("hubMcp", () => {
 
   it("does not import or inspect tools excluded by the host", async () => {
     const root = app({ "server/mcp/tools/excluded.ts": tool })
-    const { plugin } = configure(root, {}, { [VITEHUB_SERVER_DIRS]: [] })
+    const { plugin } = configure(root, { auth: false }, { [VITEHUB_SERVER_DIRS]: [] })
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).not.toContain("excluded")
     const inspect = plugin.vitehub.inspect as () => ViteHubInspectionContributor
     expect(await inspect().definitions?.[0]?.list()).toEqual([])
@@ -112,13 +122,19 @@ describe("hubMcp", () => {
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp/account" },
       { handler: join(root, ".vitehub/nitro/mcp/public.ts"), route: "/mcp" },
     ])
-    expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
+    const protectedEntry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    expect(protectedEntry).toContain("verify: request => verifyMcpRequest(request)")
+    expect(protectedEntry).toContain('publicRoute: "/portal/mcp"')
     const entry = readFileSync(join(root, ".vitehub/nitro/mcp/public.ts"), "utf8")
     expect(entry).not.toContain("verifyMcpRequest")
     expect(entry).toContain('route: "/portal/mcp"')
     expect(entry).toContain("filter(([, tool]) => tool.public === true)")
     const inspect = plugin.vitehub.inspect as () => ViteHubInspectionContributor
     expect((await inspect().definitions?.[0]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/portal/mcp (tools with public: true)" })
+  })
+
+  it("rejects publicRoute without auth, because every tool on route is public then", () => {
+    expect(() => hubMcp({ auth: false, publicRoute: "/mcp", route: "/mcp/account" })).toThrow(expect.objectContaining({ name: "MCP_B0003" }))
   })
 
   it("rejects a route that is not a path", () => {

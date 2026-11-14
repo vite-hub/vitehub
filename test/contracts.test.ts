@@ -103,8 +103,8 @@ describe("package manifest contracts", () => {
         }
       }
       expect(manifest.type).toBe("module")
-      // Presets have one subpath per preset and no root entry.
-      const subpathOnly = packageName === "presets"
+      // Presets and kit expose only subpaths, with no root entry.
+      const subpathOnly = packageName === "presets" || packageName === "kit"
       expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
       expect(manifest.scripts?.build).toEqual(expect.any(String))

@@ -19,7 +19,7 @@ it.each(["default-expression", "default-binding", "default-reexport", "named-cha
   vi.stubGlobal("__vitehubScheduleColocatedSkillsProof", seen)
   try {
     await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
-    for (const name of ["agent", "channels", "schedule"]) {
+    for (const name of ["agent", "channels", "runtime", "schedule"]) {
       await symlink(resolve(import.meta.dirname, `../../${name}`), join(root, "node_modules", "@vite-hub", name), "dir")
     }
     const agentDir = join(root, "server", "agents", "reporter")

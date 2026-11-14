@@ -2,11 +2,10 @@ import { runInNewContext } from "node:vm"
 import { Window } from "happy-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
-import { H3 } from "h3"
 import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/server.ts"
+import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 
 import type { AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"
@@ -397,12 +396,12 @@ describe("server authentication provider boundaries", () => {
     expect(origin).toBe("https://example.com")
   })
 
-  it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
+  it("resolves the Definition callback once for an Auth request", async () => {
     const resolve = vi.fn(() => ({
       baseURL: "https://example.com",
       secret: "abcdefghijklmnopqrstuvwxyz0123456789",
     }))
-    const requestDefinition = kind === "definition" ? defineAuth(resolve) : defineAuth({ runtime: resolve })
+    const requestDefinition = defineAuth(resolve)
     const response = new Response("ok")
     providerMocks.handler.mockResolvedValue(response)
 

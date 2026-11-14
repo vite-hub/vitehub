@@ -17,8 +17,8 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 
 /** Replaces the Auth Console of a request when a test sets it. */
 const authServer = vi.hoisted(() => ({ console: undefined as ((request: Request) => unknown) | undefined }))
-vi.mock("@vite-hub/auth/server", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@vite-hub/auth/server")>()
+vi.mock("@vite-hub/auth/internal/server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vite-hub/auth/internal/server")>()
   return {
     ...original,
     getAuthConsoleForRequest: (...args: Parameters<typeof original.getAuthConsoleForRequest>) => authServer.console ? authServer.console(args[0]) : original.getAuthConsoleForRequest(...args),
@@ -204,9 +204,9 @@ describe("one-time links", () => {
 
   it("fails closed in production when Auth has only the memory database that it adds for one process", async () => {
     const { defineAuth } = await import("@vite-hub/auth")
-    const { createAuthForRequest } = await import("@vite-hub/auth/server")
+    const { createAuthForRequest } = await import("@vite-hub/auth/internal/server")
     const { createAuthConsole } = await import("@vite-hub/auth/console-runtime")
-    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-tickets-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } })
+    const definition = defineAuth(() => ({ baseURL: origin, emailAndPassword: { enabled: true }, secret: "console-tickets-memory-secret-abcdefghijklmnopqrstuvwxyz" }))
     authServer.console = request => createAuthConsole(createAuthForRequest(definition, request))
     installConsoleSections(root, ["content", "auth"])
     contentSection()

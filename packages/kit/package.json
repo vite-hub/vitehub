@@ -1,0 +1,97 @@
+{
+  "name": "@vite-hub/kit",
+  "version": "0.1.0",
+  "description": "The headless Vue parts that ui-sdk does not have, a Nuxt module that auto-imports them, and a plain CSS style family. Import every other part from @ui-sdk/vue.",
+  "keywords": [
+    "a11y",
+    "headless",
+    "nuxt",
+    "nuxt-module",
+    "ui-sdk",
+    "unstyled",
+    "vitehub",
+    "vue"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/kit"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "./dist/styles/default.css",
+    "./dist/styles/tokens.css"
+  ],
+  "exports": {
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./tags-input": {
+      "types": "./dist/tags-input.d.ts",
+      "import": "./dist/tags-input.js",
+      "default": "./dist/tags-input.js"
+    },
+    "./package.json": "./package.json",
+    "./styles/default.css": "./dist/styles/default.css",
+    "./styles/tokens.css": "./dist/styles/tokens.css"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/kit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run --cache -t @vite-hub/kit#build && vp test",
+    "test:styles": "node --test test/browser/styles.browser.mjs"
+  },
+  "dependencies": {
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2"
+  },
+  "devDependencies": {
+    "@fontsource-variable/geist": "catalog:ui",
+    "@fontsource-variable/geist-mono": "catalog:ui",
+    "@nuxt/kit": "4.6.2",
+    "@nuxt/schema": "4.6.4",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "happy-dom": "21.0.3",
+    "nuxt": "catalog:nuxt",
+    "playwright-core": "catalog:browser",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
+  },
+  "peerDependencies": {
+    "@nuxt/kit": "^4.0.0 || ^5.0.0-0",
+    "@nuxt/schema": "^4.0.0 || ^5.0.0-0",
+    "nuxt": "^4.0.0 || ^5.0.0-0",
+    "vue": "catalog:vue-compat"
+  },
+  "peerDependenciesMeta": {
+    "@nuxt/kit": {
+      "optional": true
+    },
+    "@nuxt/schema": {
+      "optional": true
+    },
+    "nuxt": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

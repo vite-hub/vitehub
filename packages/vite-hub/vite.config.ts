@@ -57,6 +57,10 @@ const distributionEntries = [
 const runtimeEntries = [
   ...distributionEntries,
   // Generated code imports these modules by path. They are not package exports.
+  "src/_internal/auth/internal/server.ts",
+  "src/_internal/auth/runtime/server.ts",
+  "src/_internal/runtime/internal/h3.ts",
+  "src/_internal/runtime/request-policy.ts",
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
@@ -352,6 +356,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-page-changes.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-session-copy-link.vue",
           to: "dist/console/runtime/components",
         },
@@ -591,7 +599,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
-          for (const key of Object.keys(exports)) if (key.startsWith("./internal/")) delete exports[key];
+          for (const key of Object.keys(exports)) if (/^\.\/_?internal\//.test(key)) delete exports[key];
           delete exports["./task/operations"];
           delete exports["./durability/operations"];
           delete exports["./comments/realtime"];

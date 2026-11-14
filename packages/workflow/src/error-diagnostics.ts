@@ -62,7 +62,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0033: dynamicError,
     WORKFLOW_R0034: dynamicError,
     WORKFLOW_R0035: dynamicError,
-    WORKFLOW_R0036: {
+    WORKFLOW_R0040: {
       why: "OpenWorkflow uses the Postgres Default Database of the app, but that Database has no connection URL outside a request. It connects through PG* environment variables, which OpenWorkflow cannot read.",
       fix: "Set `connection.url` on the Database Definition, or set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url`.",
     },
@@ -77,6 +77,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0039: {
       why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
       fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
+    },
+    WORKFLOW_R0036: {
+      why: ({ binding, name }: { binding: string, name: string }) => `[vitehub] The Cloudflare Workflow ${JSON.stringify(name)} needs the binding ${JSON.stringify(binding)}, and the Worker has no binding of that name. ViteHub does not run the Workflow inline outside a development server, because an inline run is not durable.`,
+      fix: "Deploy with the Wrangler config that the build writes, or add the Workflow binding to your own Wrangler config. Set `workflow.binding` when the binding has another name.",
     },
     WORKFLOW_B0001: dynamicError,
     WORKFLOW_B0002: {

@@ -7,6 +7,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
+import { reviewerLabeledSevere } from "../github/index.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -89,13 +90,23 @@ export interface BabysitterMergeEvidence {
    * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
    */
   automatedReviewSettled?: boolean;
+  /**
+   * The PR spent twice its review push budget. Until then, bot findings that their reviewer labeled P0
+   * or P1 still need an assessment after `automatedReviewSettled`.
+   */
+  severeReviewSettled?: boolean;
+  /**
+   * Review threads a worker declined while their reviewer labeled them P0 or P1. While one is
+   * unresolved, the PR waits for a person.
+   */
+  heldThreads?: ReadonlySet<string>;
   /** Current-head checks that fail the same way on the base tip. They are the base's failures, not this PR's. */
   inheritedCheckIds?: ReadonlySet<number>;
   /** Unresolved review threads with only bot comments do not block once their comments are assessed. */
   ignoreAssessedBotThreads?: boolean;
 }
 
-type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
+type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled" | "severeReviewSettled">;
 
 function feedbackAuthor(value: GitHubEvidence): string {
   return String(value.user?.login ?? value.author?.login ?? "").toLowerCase();
@@ -120,7 +131,7 @@ export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: Reado
  */
 function ignoredFeedback(value: GitHubEvidence, policy: FeedbackPolicy): boolean {
   if (value.deleted) return true;
-  if (policy.automatedReviewSettled && botAuthor(value)) return true;
+  if (policy.automatedReviewSettled && botAuthor(value) && (policy.severeReviewSettled || !reviewerLabeledSevere(value.body))) return true;
   if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
   const author = feedbackAuthor(value);
   if (hasGitHubLogin(policy.workerAuthors, author) || hasGitHubLogin(policy.ignoreFeedbackAuthors, author)) return true;
@@ -304,8 +315,12 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
+  const held = (thread: GitHubReviewThread) => assessment.heldThreads?.has(String(thread.node_id ?? thread.id)) === true;
   const botThreadsSettled = settled || assessment.ignoreAssessedBotThreads === true;
-  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && !held(thread) && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  // Checked last, so a pass still runs for any other open work.
+  const waiting = snapshot.threads.filter(thread => thread.isResolved !== true && held(thread)).length;
+  if (waiting) return no(`a person to resolve ${waiting === 1 ? "a review thread" : `${waiting} review threads`} the worker declined although the reviewer labeled ${waiting === 1 ? "it" : "them"} P0 or P1`);
   return { ready: true, head };
 }
 

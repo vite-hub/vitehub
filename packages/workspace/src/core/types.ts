@@ -102,9 +102,13 @@ export type WorkspaceWriteValidatorResult = boolean | void | WorkspaceWriteInput
 export type WorkspaceWriteValidator =
   (input: WorkspaceWriteInput) => WorkspaceWriteValidatorResult | Promise<WorkspaceWriteValidatorResult>
 
+/**
+ * Limits writes to the paths that match the rule pattern. Every matching rule applies, from the least to the most
+ * specific. A more specific rule replaces a field only when it sets that field, and the validators of every matching
+ * rule run. Rules do not limit reads.
+ */
 export interface WorkspaceRule {
   commit?: boolean | string
-  read?: boolean
   write?: WorkspaceWriteMode
   maxBytes?: number | `${number}kb` | `${number}mb`
   mediaType?: string | string[]
@@ -723,8 +727,15 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
   /** Stable provider name used for inspection and diagnostics. */
   name?: string
+  /**
+   * The key of the one item of a file Source. Without a mount path, the Workspace places that item at this path.
+   * Other Sources mount under their binding key.
+   */
+  key?: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
@@ -739,6 +750,11 @@ export interface WorkspaceSource {
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
+  /**
+   * Returns a Source that holds only the items that match `include`, inside the items this Source holds.
+   * GitHub Sources fetch only the matching paths.
+   */
+  subset?(include: readonly string[]): WorkspaceSource
 }
 
 export interface WorkspaceSourceSyncPolicy {
@@ -757,6 +773,8 @@ type WorkspaceSourceBindingOptions = Pick<
 
 export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {
   source: WorkspaceSourceInput
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
 }
 
 export type WorkspaceCustomSourceInput = WorkspaceSourceDefinition & WorkspaceSourceBindingOptions

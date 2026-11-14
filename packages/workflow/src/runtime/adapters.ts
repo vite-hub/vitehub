@@ -1,6 +1,7 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
@@ -72,15 +73,29 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
   })
 }
 
+/**
+ * True on a development server: `vite dev` installs the run history. Code that ViteHub did not start, such as a test
+ * runner, has no history, so `NODE_ENV` decides there.
+ */
+function isDevelopmentServer(): boolean {
+  if (getWorkflowDevRecorder()) return true
+  const mode = globalThis.process?.env?.NODE_ENV
+  return mode === "development" || mode === "test"
+}
+
+/**
+ * The Cloudflare Workflow binding of `name`. Only a development server runs the Workflow inline without it. Elsewhere,
+ * a missing binding fails, because an inline run is not durable.
+ */
 function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string, definition?: { internalAgentInvocationRecovery?: true }) {
   const env = getCloudflareEnv(event)
   const bindingName = definition?.internalAgentInvocationRecovery
     ? getCloudflareWorkflowBindingName(name)
     : binding || getCloudflareWorkflowBindingName(name)
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
-  return env && Object.hasOwn(env, bindingName)
-    ? env[bindingName] as CloudflareWorkflowBinding
-    : undefined
+  if (env && Object.hasOwn(env, bindingName)) return env[bindingName] as CloudflareWorkflowBinding
+  if (isDevelopmentServer()) return undefined
+  throw workflowErrorDiagnostics.WORKFLOW_R0036({ binding: bindingName, name })
 }
 
 function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {

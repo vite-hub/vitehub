@@ -764,6 +764,36 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("applies the D1 migrations before the Cloudflare deploy with migrateOnDeploy", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-migrate-deploy-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases/default/migrations"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })")
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDatabase({ driver: "d1", databaseId: "existing-id", databaseName: "existing", migrateOnDeploy: true })(undefined, nuxt)
+      const config: Record<string, unknown> = { preset: "cloudflare_module" }
+      await callHook(hooks, "nitro:config", config)
+      const buildBefore = async (preset: string) => {
+        const callbacks: Array<() => void> = []
+        const commands: Record<string, unknown> = { deploy: "npx wrangler deploy --config ./server/wrangler.json" }
+        const nitro = {
+          hooks: { hook: (name: string, callback: () => void) => { if (name === "build:before") callbacks.push(callback) } },
+          options: { commands, output: { dir: join(rootDir, ".output"), serverDir: join(rootDir, ".output/server") }, preset },
+        }
+        for (const module of config.modules as Array<(nitro: unknown) => void>) module(nitro)
+        for (const callback of callbacks) callback()
+        return commands.deploy
+      }
+      await expect(buildBefore("cloudflare_module")).resolves.toBe("npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json")
+      // Nuxt's prerender build has its own Nitro, with the same modules.
+      await expect(buildBefore("nitro-prerender")).resolves.toBe("npx wrangler deploy --config ./server/wrangler.json")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
   it.each(["absolute", "../../server/databases/default/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unsafe-d1-"))
     try {

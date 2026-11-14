@@ -187,7 +187,7 @@ export const pillBarStyles = `
 .divider { width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
 .count { min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--vitehub-pill-hover); font-size: 10px; line-height: 17px; text-align: center; }
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
-/* The colors stay one row of square buttons, also when the pill docks to a side and stacks the other controls. */
+/* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
 .swatch, .icon { width: 28px; padding: 0; justify-content: center; }
 .icon { align-self: flex-start; }

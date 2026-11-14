@@ -1,0 +1,8 @@
+/* The page loads the files the way an app does: the ui-sdk layer first, then the fonts, the tokens, and the family. */
+@layer ui-sdk;
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
+/* The demo helpers sit below the family, as an app's base styles do. */
+@import "./demo.css" layer(base);

@@ -1,21 +1,24 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { describe, expect, it } from "vitest"
-import { defineAuth } from "../src/index.ts"
-import { createAuth, getAuthForDefinition, handleAuthRequest } from "../src/server.ts"
+import { createAuth, getAuthForDefinition, handleAuthRequest } from "../src/internal/server.ts"
 import { authSessionMarkerCookie } from "../src/session-marker.ts"
 
-import type { AuthDefinition } from "../src/index.ts"
+import type { AuthDefinition, AuthRuntimeOptions } from "../src/index.ts"
 import type { BetterAuthPlugin } from "better-auth"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "https://app.example.com"
 const secret = "vitehub-session-marker-test-secret-2f8a9c1e7b"
 
-function createDefinition(plugins: BetterAuthPlugin[] = []): AuthDefinition {
-  return defineAuth({
+function createDefinition(plugins: BetterAuthPlugin[] = [], options: Pick<AuthRuntimeOptions, "advanced" | "baseURL"> = {}): AuthDefinition {
+  return defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins,
-    runtime: { baseURL: origin, database: memoryAdapter({ account: [], session: [], user: [], verification: [] }), secret },
+    baseURL: origin,
+    database: memoryAdapter({ account: [], session: [], user: [], verification: [] }),
+    secret,
     session: { expiresIn: 3600 },
+    ...options,
   })
 }
 
@@ -60,13 +63,13 @@ describe("session marker cookie", () => {
   })
 
   it.each(["headers", "fallback"] as const)("resolves dynamic session cookies for direct API calls using %s", async (mode) => {
-    const auth = createAuth(createDefinition(), {
+    const auth = createAuth(createDefinition([], {
       advanced: {
         cookies: { session_token: { name: "app_session" } },
         crossSubDomainCookies: { enabled: true },
       },
       baseURL: { allowedHosts: ["app.example.com"], protocol: "auto", ...(mode === "fallback" ? { fallback: origin } : {}) },
-    })
+    }))
     const headers = new Headers(mode === "headers" ? { host: "app.example.com" } : {})
     const signUp = await auth.api.signUpEmail({ asResponse: true, body: account, headers })
     expect(signUp.status).toBe(200)
@@ -137,8 +140,8 @@ describe("session marker cookie", () => {
   })
 
   it("preserves Partitioned on session creation and clearing", async () => {
-    const definition = createDefinition()
-    const auth = createAuth(definition, { advanced: { defaultCookieAttributes: { partitioned: true, secure: true, sameSite: "none" } } })
+    const definition = createDefinition([], { advanced: { defaultCookieAttributes: { partitioned: true, secure: true, sameSite: "none" } } })
+    const auth = createAuth(definition)
     const signUp = await post(definition, "sign-up/email", account, undefined, auth.handler)
     expect(signUp.status).toBe(200)
     const token = signUp.headers.getSetCookie().find(cookie => /session_token=/.test(cookie))!
@@ -152,14 +155,14 @@ describe("session marker cookie", () => {
   })
 
   it("uses the request's resolved cookie name with a dynamic cross-subdomain configuration", async () => {
-    const definition = createDefinition([{ id: "passthrough", onResponse: async response => ({ response }) }])
-    const auth = createAuth(definition, {
+    const definition = createDefinition([{ id: "passthrough", onResponse: async response => ({ response }) }], {
       advanced: {
         cookies: { session_token: { name: "app_session" } },
         crossSubDomainCookies: { enabled: true },
       },
       baseURL: { allowedHosts: ["app.example.com"], protocol: "auto" },
     })
+    const auth = createAuth(definition)
     const signUp = await post(definition, "sign-up/email", account, undefined, auth.handler)
     expect(signUp.status).toBe(200)
     expect(find(signUp, "__Secure-app_session")).toBeDefined()
@@ -198,9 +201,11 @@ describe("session marker cookie", () => {
   })
 
   it("clears the page tools hint when a session starts or ends, and keeps it on a session refresh", async () => {
-    const definition = defineAuth({
+    const definition = defineFixedAuth({
       emailAndPassword: { enabled: true },
-      runtime: { baseURL: origin, database: memoryAdapter({ account: [], session: [], user: [], verification: [] }), secret },
+      baseURL: origin,
+      database: memoryAdapter({ account: [], session: [], user: [], verification: [] }),
+      secret,
       // Refresh the session on every read, so get-session sets the session cookie again with the same token.
       session: { expiresIn: 3600, updateAge: 0 },
     })

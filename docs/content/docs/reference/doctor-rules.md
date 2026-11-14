@@ -425,14 +425,14 @@ export default defineEventHandler(async (event) => {
 
 **Check `decision.allowed` from a Rate Limit.** Rule `vitehub/check-rate-limit-decision`.
 
-`checkRateLimit()` and `consume()` of a `createRateLimiter()` limiter use a token and return a decision object. They do not stop the request. The object is always truthy, so `if (await checkRateLimit(...))` never sees the limit. An ignored decision lets the operation run.
+`checkRateLimit()` uses a token and returns an `[error, decision]` Result. The `consume()` method of a limiter from `createRateLimiter()` returns a decision object. They do not stop the request. A Result and a decision object are always truthy, so `if (await checkRateLimit(...))` never sees a reached limit. A Result that the code ignores lets the operation run.
 
 ```ts [server/api/og.get.ts]
 import { defineEventHandler } from 'h3'
 import { checkRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
-  // Invalid: the decision is always truthy.
+  // Invalid: the Result is always truthy.
   if (!(await checkRateLimit(event, 'og', { limit: 10, window: '1m' }))) return
 })
 ```
@@ -443,8 +443,8 @@ import { checkRateLimit } from 'vite-hub/rate-limit'
 
 export default defineEventHandler(async (event) => {
   // Valid
-  const decision = await checkRateLimit(event, 'og', { limit: 10, window: '1m' })
-  if (!decision.allowed) return
+  const [error, decision] = await checkRateLimit(event, 'og', { limit: 10, window: '1m' })
+  if (error || !decision.allowed) return
 })
 ```
 
@@ -875,6 +875,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Invalid
 export default defineRealtime({
+  auth: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 5000, maxWait: 1000 },
 })
@@ -885,6 +886,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Valid
 export default defineRealtime({
+  auth: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 500, maxWait: 5000 },
 })

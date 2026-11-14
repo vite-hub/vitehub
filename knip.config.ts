@@ -114,14 +114,16 @@ const bundledInternal: Record<string, string[]> = {
   forms: ["birpc"],
   kv: ["@valibot/to-json-schema", "birpc"],
   "rate-limit": ["@valibot/to-json-schema", "birpc"],
+  // Operation definitions are bundled from the private owner into Runtime.
+  runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
-  "vite-hub": ["@valibot/to-json-schema", "birpc", "semver"],
+  "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
-const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
+const packsWithPublint = ["forge", "gateways", "kit", "presets", "runtime", "shell"];
 
 // Settings that no manifest, config or script states.
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
@@ -156,7 +158,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     ignoreDependencies: [
       // The module installs these Nuxt modules by name from `moduleDependencies`.
       "nuxt-agent-discovery",
-      "nuxt-llms",
       "nuxt-og-image",
       "nuxt-site-config",
       // nuxt-og-image renders the `*.takumi.vue` share images with it.
@@ -192,6 +193,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   "vite-hub": {
     // `console.vite.config.ts` aliases `shiki/wasm` to this file by path.
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
+    // `test/agent-page.browser.mjs` writes fixture apps that import ui-sdk, as source text.
+    ignoreDependencies: ["@ui-sdk/core", "@ui-sdk/vue"],
   },
 };
 
@@ -242,7 +245,7 @@ const config: KnipConfiguration = {
   ignoreDependencies: ["cloudflare"],
   // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, the docs Nuxt module serves `#docs/*`,
   // and the Console app's Vite plugin supplies its built account page as `#console-page`.
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
   // A CLI that people install on their own machine. The Sandbox runs it when they choose the Crabbox provider.
   ignoreBinaries: ["crabbox"],
   ignoreIssues: {
@@ -319,6 +322,26 @@ const config: KnipConfiguration = {
         "@vite-hub/source",
         "h3",
         "vue-tsc",
+      ],
+    },
+    "packages/docs/playground": {
+      entry: [
+        ...appEntries("packages/docs/playground"),
+        // Markdown and Nuxt auto-import these components and their helpers.
+        "app/components/**/*.vue",
+        "app/utils/*.ts",
+        // Maintainers run these content and illustration tools directly.
+        "scripts/*.mjs",
+        "illustrations/*.mjs",
+        ".claude/skills/illustration-isometric-mono/scripts/*.mjs",
+      ],
+      ignoreDependencies: [
+        // Nuxt Icon loads icon collections by name from the app and the docs layer.
+        /^@iconify-json\//,
+        // The docs MCP endpoint loads agents/mcp on Cloudflare.
+        "agents",
+        // The README runs Wrangler directly for local migrations and Worker previews.
+        "wrangler",
       ],
     },
     "playground/logs": { entry: appEntries("playground/logs"), vite: false },

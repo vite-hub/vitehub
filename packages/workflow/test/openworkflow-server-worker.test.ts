@@ -314,7 +314,7 @@ describe("installOpenWorkflow", () => {
     consoleWarn.mockRestore()
   })
 
-  it.each(["WORKFLOW_R0036", "WORKFLOW_R0038"])("stops trying when only a configuration change can fix the setup: %s", async (code) => {
+  it.each(["WORKFLOW_R0040", "WORKFLOW_R0038"])("stops trying when only a configuration change can fix the setup: %s", async (code) => {
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     fake.state.connectErrors = [Object.assign(new Error("No connection URL."), { code })]

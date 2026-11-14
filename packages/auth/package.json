@@ -34,6 +34,10 @@
       "types": "./dist/runtime/empty-abilities.d.ts",
       "default": "./dist/runtime/empty-abilities.js"
     },
+    "#vitehub/auth/client": {
+      "types": "./dist/runtime/empty-client.d.ts",
+      "default": "./dist/runtime/empty-client.js"
+    },
     "#vitehub/auth/definition": {
       "types": "./dist/runtime/empty-definition.d.ts",
       "default": "./dist/runtime/empty-definition.js"
@@ -74,6 +78,16 @@
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
       "default": "./dist/database.js"
+    },
+    "./forward": {
+      "types": "./dist/forward.d.ts",
+      "import": "./dist/forward.js",
+      "default": "./dist/forward.js"
+    },
+    "./internal/server": {
+      "types": "./dist/internal/server.d.ts",
+      "import": "./dist/internal/server.js",
+      "default": "./dist/internal/server.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",

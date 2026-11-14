@@ -1,4 +1,4 @@
-import { installRequestStandardContext } from "@vite-hub/runtime"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 

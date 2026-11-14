@@ -197,7 +197,7 @@ export default defineWorkspace({
 | `refs` | `{ published?: string, draft?: string }` | none | Branches for the history refs `published` and `draft`. |
 | `database` | `unknown` | none | A value the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store ignores it. |
 
-A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` saves the lookup of the installation. The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
+A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` with `VITEHUB_GITHUB_APP_OWNER` saves the lookup of the installation ([Installations](/docs/forge/configure#installations)). The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
 
 The Store reads the repository and token at the first request, not at creation. A missing one throws `WORKSPACE_R0072` then, so a build that loads the Workspace Definition needs no token.
 
@@ -239,10 +239,16 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
 | `bindings` | `Record<string, WorkspaceInstructionBinding>` | Values that Agent instructions can read: `string`, `number`, `boolean`, `null`, or a file as `{ path: string }`. |
 | `sources` | `Record<string, WorkspaceSourceInput>` | Source Bindings (where each Source appears). |
-| `rules` | `WorkspaceRules` | Read, write, media type, max size, commit, and validation rules by path pattern. |
+| `rules` | `WorkspaceRules` | Write, media type, max size, commit, and validation rules by path pattern. Rules do not limit reads. |
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Packaged rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
+
+Every rule whose pattern matches a path applies, from the least to the most specific. A more specific rule changes only the fields that it sets. With `{ '**': { write: false }, 'docs/**': { maxBytes: '1mb' } }`, writes in `docs/` stay denied. Set `write: true` in the `docs/**` rule to allow them. The validators of all matching rules run. Plugin rules and your rules on the same pattern combine in the same way.
+
+`mediaType` checks the media type that the write passes. When the write passes none, it checks the type of the file extension, or `application/octet-stream` when the extension has no type.
+
+Rules limit writes only. A rule with `read` fails with `WORKSPACE_R0075`. To keep a file from readers, do not put it in the Workspace.
 
 Instructions read value bindings with `{{ data.workspace.<name> }}` and file bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys in `bindings` are available. Other Workspace files stay hidden from instructions. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 
@@ -326,6 +332,24 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+### Default mount
+
+Without a `mount` path, ViteHub picks the mount from the Source kind. The
+import does not change it:
+
+- A file Source puts its one file at its own key. This applies to `file()` and
+  `markdown()` from `vite-hub/workspace` or `vite-hub/source`, and to the
+  `'README.md'` and `{ path }` shorthands. `readme: file('README.md')` appears
+  at `README.md`.
+- `fetch()` also puts its one file at its own path.
+- Every other Source mounts under its binding key. `docs: glob({ ... })` puts
+  the key `intro.md` at `docs/intro.md`.
+
+Set `mount` to move a file Source, for example
+`readme: { source: file('README.md'), mount: 'docs' }` puts it at
+`docs/README.md`. A file Source in `vite-hub/source` has a `key` property, so
+you can check the path in code.
+
 For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
 to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
 have it. See [Source configuration](/docs/source/configure) for the loader options.
@@ -338,6 +362,7 @@ have it. See [Source configuration](/docs/source/configure) for the loader optio
 | `cache` | `false or WorkspaceCacheOptions` | `false` turns caching off. `{ maxAge }` sets a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation for API-backed Sources: `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Turns on explicit Source Sync: `true`, `false`, or a sync policy. |
+| `skills` | `false` | Keeps the Skills in this Source out of a Provider Agent's skill roots. See [Give the provider its Skills](/docs/agents/agent-drivers#give-the-provider-its-skills). |
 | `probeKeys` | `string[]` | Known item keys. ViteHub uses them to check that a bundled Source is complete and to match path-scoped access without listing the whole Source. File helpers infer them when possible. |
 
 ### Prepare startup Sources

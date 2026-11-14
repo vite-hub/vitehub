@@ -9,6 +9,13 @@ export {
 export {
   browser,
 } from "./browser.ts"
+export {
+  page,
+} from "./page.ts"
+export type {
+  PageCallFailure,
+  PageCapabilityOptions,
+} from "./page.ts"
 export type {
   BrowserCapabilityOptions,
 } from "./browser.ts"
@@ -120,6 +127,9 @@ export {
 export {
   diagnostics,
 } from "./diagnostics.ts"
+/** The Node inspector for `diagnostics({ resources })`. It reads the process, the host, and Linux cgroup v2. */
+export { nodeRuntimeResources } from "@vite-hub/runtime/internal/node"
+export type { NodeRuntimeResourceInspectorOptions } from "@vite-hub/runtime/internal/node"
 export type {
   DiagnosticsCapabilityOptions,
 } from "./diagnostics.ts"

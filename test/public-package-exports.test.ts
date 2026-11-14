@@ -158,7 +158,7 @@ describe("public package export contracts", () => {
 
   it("classifies the Logs Evlog boundary for isolated consumers", () => {
     for (const [specifier, declarations, runtime] of [
-      ["vite-hub/logs", ["evlog"], ["evlog"]],
+      ["vite-hub/logs", ["evlog"], []],
       ["vite-hub/logs/memory", ["evlog"], []],
       ["vite-hub/logs/source", [], []],
       ["vite-hub/logs/host", [], []],

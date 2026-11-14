@@ -12,6 +12,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/agent.ts",
       "src/bus.ts",
       "src/client.ts",
       "src/durability.ts",

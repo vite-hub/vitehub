@@ -4,10 +4,11 @@ import { createAuthEndpoint, sessionMiddleware } from "better-auth/api"
 import { organization } from "better-auth/plugins"
 import { getMigrations } from "better-auth/db/migration"
 import { afterEach, expect, it } from "vitest"
-import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
-import { createBetterAuthOptions, handleAuthRequest } from "../src/server.ts"
+import { createDatabaseAuthEventStore } from "../src/index.ts"
+import { createBetterAuthOptions, handleAuthRequest } from "../src/internal/server.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { BetterAuthPlugin } from "better-auth"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 // Exercise the public adapter contract used by OAuth Provider 1.7.7, without a remote OAuth server.
 // https://github.com/better-auth/better-auth/blob/v1.7.7/packages/oauth-provider/src/consent.ts
@@ -37,8 +38,8 @@ afterEach(() => databases.splice(0).forEach(db => db.sqlite.close()))
 it("records actual consent writes and deletion, with no events for denied or rejected requests", async () => {
   const database = eventDatabase(); databases.push(database)
   const store = createDatabaseAuthEventStore({ db: database.db })
-  const definition = defineAuth({
-    runtime: { database: database.sqlite, secret: "auth-events-test-secret-12345678901234567890" },
+  const definition = defineFixedAuth({
+    database: database.sqlite, secret: "auth-events-test-secret-12345678901234567890",
     emailAndPassword: { enabled: true }, plugins: [consentPlugin, organization()], events: { store },
   })
   await (await getMigrations(createBetterAuthOptions(definition))).runMigrations()
