@@ -46,6 +46,17 @@ describe("examples catalog", () => {
         startPath: "server/agents/calories/agent.ts",
       }),
       expect.objectContaining({
+        name: "Email labeller",
+        kind: "template",
+        status: "published",
+        action: {
+          kind: "use",
+          label: "Use template",
+          to: "https://github.com/vite-hub/email-labeller/generate",
+        },
+        startPath: "labeller.config.ts",
+      }),
+      expect.objectContaining({
         name: "My Pull Requests",
         kind: "template",
         status: "published",

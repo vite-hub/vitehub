@@ -110,6 +110,8 @@ Report the observed user result, exact commands, failures, and unverified parts.
 
 ## Load relevant guidance
 
+Use the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md) for every change to this repository. It holds the judgment behind these rules: when to add a primitive, how to keep the public API small, when to break a contract, and what proof a pull request needs. Agents find it in `.agents/skills/`, Claude Code through the `.claude/skills` link, and every agent through `AGENTS.md`. Add repository skills to `.agents/skills/` only.
+
 Use the [ViteHub skill](docs/skills/vitehub/SKILL.md) when building or debugging a consuming application. Its reference table selects guidance for Agent Definitions, Workspaces, Channels, providers, and other features. Load only the matching references. For repository changes, current source and local user docs are the contract; use the skill's installed-package checks when reproducing a consumer problem.
 
 For package-specific contracts, read the affected package README and [user reference](docs/content/docs/reference/index.md). Do not copy those contracts into contributor instructions. Keep skill purposes separate from repository rules and from Skills loaded by product Agents.
@@ -140,9 +142,9 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
 2. Definition and config errors throw, at build time, at define time, or when an operation starts.
-3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
-5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
 
 ### Documentation structure
 
