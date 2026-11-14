@@ -61,11 +61,31 @@ export default defineConfig({
 
 Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on Vercel. On other hosts, such as Node, Docker, and Deno, it picks OpenWorkflow when you set `postgres.url` or `sqlite.path`. Without them, the build fails with `WORKFLOW_C0020`. Add the provider and storage:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts] fragment
+export default defineNuxtConfig({
+  vitehub: { workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts] fragment
 vitehub({
   workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts] fragment
+vitehub({
+  workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
+})
+```
+:::
+::
 
 Then [start an OpenWorkflow worker](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker). Netlify cannot infer a provider, so set `provider` or turn Workflow off there.
 
