@@ -546,7 +546,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
     expect(sessionInspector).toContain('<TabsList class="session-inspector__tablist">');
-    expect(sessionInspector).toContain('import { Tabs, TabsList, TabsTab } from "@vite-hub/kit/tabs";');
+    expect(sessionInspector).toContain('import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";');
     expect(sessionInspector).toMatch(
       /<TabsTab[\s\S]*?<\/TabsTab>[\s\S]*?<UButton[\s\S]*?:aria-label="`Close \$\{item\.label\}`"/,
     );

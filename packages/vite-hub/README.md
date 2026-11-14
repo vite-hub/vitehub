@@ -155,6 +155,8 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ health: true })` adds `/api/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, commit }`, where `commit` is the commit of the build from the CI or host variables, else from Git, else `null`. With `database`, it also runs `SELECT 1` on each Database and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, databases: { default: false } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
 
+`vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
+
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Run tasks

@@ -3,6 +3,8 @@
 - Wrangler 4.158.0 (the npx cache; the `wrangler` catalog entry in `pnpm-workspace.yaml` pins 4.147.0): `wrangler-deploy.txt`, `wrangler-versions-upload.txt`.
   - `--temporary` is a global flag that the help does not list. Wrangler's source names it in `WRANGLER_CLI.temporaryAccountFlag`, and a failed login suggests "rerun this command with `--temporary`". It prints `Claim within: <duration>` and `Claim URL: <url>`. Docs: https://developers.cloudflare.com/workers/wrangler/commands/#deploy
   - `WRANGLER_OUTPUT_FILE_PATH` gets one JSON object per line: `{ type: "deploy", version_id, targets }` or `{ type: "version-upload", version_id, preview_url }`.
+- Wrangler 4.157.0 (the workspace install), recorded on 2026-11-13: `wrangler-d1-migrations-apply.txt`, for the `database.migrateOnDeploy` steps.
+  - Without a terminal or with `CI` set, Wrangler skips the confirmation and applies. A failed migration exits with an error and keeps the migrations before it.
 - Vercel CLI 65.11.0: `vercel-deploy.txt`.
   - `deploy --json` prints `{ id, url, productionUrl }`, or `{ status, deployment }` without a terminal.
   - `deploy --temporary` keeps `{ projectId, token, claimUrl, expiresAt }` in `.vercel/anonymous.json`. It refuses in CI and in a folder with `.vercel/project.json`.

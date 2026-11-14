@@ -13,7 +13,7 @@ export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
@@ -1721,6 +1721,12 @@ function requiredString(value: unknown, name: string): string {
   return string
 }
 
+/** A Server Env value that can be a number, as text. */
+function envNumberText(value: unknown): string | undefined {
+  const plain = unseal(value)
+  return typeof plain === "number" ? String(plain) : cleanSecret(plain)
+}
+
 function requiredNumber(value: unknown, name: string): number {
   const number = typeof value === "number" ? value : Number(cleanSecret(value))
   if (!Number.isFinite(number)) throw agentDiagnostics.AGENT_R0346({ message: `[vitehub] Missing GitHub App ${name}.` })
@@ -1766,7 +1772,13 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const configuredInstallation = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
-    ?? await githubAppSetting(options, env, "installationId", "installationId", context)
+    ?? await resolveGithubAppOption(options.installationId, context)
+    // Server Env routes by repository owner, the same way as useForge().
+    ?? githubInstallationFor(githubInstallationRouting({
+      installationId: envNumberText(env.installationId),
+      appOwner: cleanSecret(env.appOwner),
+      appInstallations: cleanSecret(env.appInstallations),
+    }), repository)
   const credentials = githubAppCredentials({
     appId,
     privateKey: await githubAppPrivateKey(options, env, context),
@@ -3841,6 +3853,7 @@ export function channelAdapter<
   }
   validateChannelMessageDefinition(kind, options.message)
   validateChannelHistoryDefinition(kind, options.history, options.triggers)
+  assertChannelWebhookVerification(kind, options)
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
     // SAFETY: An omitted message configuration selects the default settings object.
     options.messages === undefined ? {} as AgentMessageChannelSettings<TRuntimeConfig> : options.messages
@@ -3877,8 +3890,30 @@ function simulatedChannelOptions<
     adapter: () => createSimulatedChatAdapter(kind),
     webhooks: Array.isArray(webhooks)
       ? webhooks.map(registration => ({ ...registration, secretToken: false }))
-      : webhooks && typeof webhooks === "object" ? { ...webhooks, secretToken: false } : true,
+      : webhooks && typeof webhooks === "object" ? { ...webhooks, secretToken: false } : { secretToken: false },
   }
+}
+
+/**
+ * Every webhook registration of a Channel that ViteHub verifies must declare how: a secret, a secret header, or a
+ * signature. `secretToken: false` accepts unsigned requests on purpose. A Chat SDK adapter verifies its own message
+ * webhooks, so the Channel's `webhooks` are checked only with `messages: false`. A trigger's own `webhooks` never
+ * reach a Chat SDK adapter, so they are always checked.
+ */
+function assertChannelWebhookVerification<TRuntimeConfig extends AgentRuntimeConfig>(
+  kind: string,
+  options: Pick<AgentChannelDefinitionOptions<TRuntimeConfig, unknown, never, unknown>, "messages" | "triggers" | "webhooks">,
+): void {
+  const check = (owner: string, webhooks: AgentChannelDefinition<TRuntimeConfig>["webhooks"]) => {
+    if (webhooks === undefined || webhooks === false) return
+    const registrations: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[] = webhooks === true ? [{}] : Array.isArray(webhooks) ? webhooks : [webhooks]
+    for (const registration of registrations) {
+      if (registration.secretToken !== undefined || registration.signature !== undefined || registration.secretHeader !== undefined) continue
+      throw agentDiagnostics.AGENT_R1044({ registration: registration.id || owner })
+    }
+  }
+  if (options.messages === false) check(kind, options.webhooks)
+  for (const [name, trigger] of Object.entries(options.triggers || {})) check(`${kind}.${name}`, trigger.webhooks)
 }
 
 /** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
@@ -3925,7 +3960,8 @@ function webhookAdapterRegistration<TRuntimeConfig extends AgentRuntimeConfig>(w
   return {
     ...(webhook.path === undefined ? {} : { path: webhook.path }),
     ...(webhook.aliases === undefined ? {} : { aliases: [...webhook.aliases] }),
-    ...(signature === undefined ? {} : { signature }),
+    // `token` compares the header with the secret, which a registration without `signature` does.
+    ...(signature === undefined || signature === "token" ? {} : { signature }),
     ...(webhook.secret === undefined ? {} : { secretToken: webhook.secret as AgentWebhookSecretToken<TRuntimeConfig> }),
     ...(header === undefined ? {} : { secretHeader: header }),
     ...(webhook.stateScope === undefined ? {} : { stateScope: webhook.stateScope }),

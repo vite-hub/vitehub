@@ -246,12 +246,15 @@ function isPlacementLiteral(expression: Expression | undefined, keys: ReadonlySe
   return object !== undefined && readObjectEntries(object).every(entry => keys.has(entry.key))
 }
 
-/** `database` and `secondaryStorage` take Better Auth adapters only. A static Definition can hold only `authDatabase()`. */
+/**
+ * `database` and `secondaryStorage` take Better Auth adapters only. A static Definition can hold only `authDatabase()` or
+ * `"memory"`.
+ */
 function assertAuthStorageConfig(body: ObjectExpression | undefined, callback: boolean, authDatabase: ReadonlySet<string>): void {
-  if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase)) {
-    const database = readObjectPropertyValue(body, "database")
+  const database = readObjectPropertyValue(body, "database")
+  if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase) && staticString(database) !== "memory") {
     if (!callback || isPlacementLiteral(database, new Set(["dedicated", "name"]))) {
-      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
     }
   }
   if (hasObjectProperty(body, "secondaryStorage")) {
@@ -292,5 +295,6 @@ export function resolveAuthViteConfig(
     rootDir,
     route: readAuthRouteConfig(body),
     tables: readAuthTablesConfig(body, definitionObject.authDatabase),
+    ...(!definitionObject.callback && !["database", "preset"].some(key => hasObjectProperty(body, key)) ? { implicitMemory: true as const } : {}),
   }
 }

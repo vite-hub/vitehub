@@ -270,6 +270,8 @@ import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
 
 export { agentInvocationId, agentInvocationRerunInput } from "./invocations.ts"
+export { invocationPageChanges } from "./invocations/page-changes.ts"
+export type { InvocationPageApproval, InvocationPageChange } from "./invocations/page-changes.ts"
 
 export type {
   AgentInvocationAnnotationValue,
