@@ -114,7 +114,7 @@ import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, G
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
-import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
+import type { Adapter, AdapterPostableMessage, CardElement, FileUpload } from "chat"
 import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
@@ -2415,6 +2415,11 @@ async function deliveryArtifactFiles<TRuntimeConfig extends AgentRuntimeConfig>(
   return files
 }
 
+/** A Chat SDK card is a plain object with `type: "card"`. The adapter draws or rejects its children. */
+function isCardElement(value: unknown): value is CardElement {
+  return isRecord(value) && value.type === "card" && Array.isArray(value.children)
+}
+
 async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
@@ -2459,7 +2464,8 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   const originalFinalText = context.effect.intent === chatFinalReplyIntent ? undefined : chatFinalReplyText(context.context)
   const finalText = originalFinalText === undefined ? undefined : formatChannelCitationText(originalFinalText)
   const payload = context.effect.payload
-  const textOnly = !artifacts.length && (!isRecord(payload) || (payload.attachments === undefined && payload.files === undefined))
+  const card = isRecord(payload) && isCardElement(payload.card) ? payload.card : undefined
+  const textOnly = !artifacts.length && !card && (!isRecord(payload) || (payload.attachments === undefined && payload.files === undefined))
   if (!stream && textOnly && finalText !== undefined && body?.trim() === finalText) {
     setMessageChannelDeliveredReplyBody(context, body)
     setMessageChannelDeferredReplyTrace(context, (callback) => {
@@ -2474,12 +2480,14 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   if (body !== undefined) body = formatChannelCitationText(body)
   body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(body, artifacts), artifacts)
   setMessageChannelDeliveredReplyBody(context, body)
-  if (!body && !attachments.length && !files.length) return
-  const message: AgentChatMessage = {
-    markdown: body || "",
-    ...(attachments.length ? { attachments } : {}),
-    ...(files.length ? { files } : {}),
-  }
+  if (!body && !attachments.length && !files.length && !card) return
+  const message: AgentChatMessage = card
+    ? { card, ...(body ? { fallbackText: body } : {}), ...(files.length ? { files } : {}) }
+    : {
+        markdown: body || "",
+        ...(attachments.length ? { attachments } : {}),
+        ...(files.length ? { files } : {}),
+      }
   const chat = context.finish
     ? chatFinishExtensionFromUnknown(context.finish.extensions.get("chat")) || chatFinishExtension(context.input)
     : undefined

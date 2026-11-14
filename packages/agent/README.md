@@ -424,6 +424,12 @@ With inline `messages.concurrency: "steer"`, only the same invoker steers the ac
 
 Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel to answer human replies without an @mention in subscribed threads. The default is `false`. Mentions subscribe the conversation. Programmatically created bot threads must be subscribed through the same Agent chat state before replies can be admitted. Unmentioned messages in other threads and messages from other bots remain ignored. `messages.filter` receives `deliveryKind: "subscribed"` for these replies. Provider permissions must still allow the bot to receive channel messages.
 
+## Forms in chat
+
+`forms({ expense })` from `@vite-hub/agent/capabilities` gives the Agent one `ask_<name>` tool for each form. A form is a `defineForm()` result from `@vite-hub/forms` (install it), or a flat Standard Schema object. Pass `{ form, title }` to set the title.
+
+Slack opens a modal only after a person clicks, so the tool cannot open it. In a chat Channel, the tool adds a card with a **Fill in <title>** button to the reply. The click opens a Slack modal or a Teams dialog from `toChatModal()`. ViteHub checks the values with `readChatModal()` and answers bad values with `chatModalErrors()`, so each error shows under its input. Good values start the next turn: a message from the person who filled in the form, with the checked values as JSON. A chat without modals, such as Telegram, posts the list of fields instead. Web chat, durable Workflow turns, and runs outside a chat Channel get `{ status: "unavailable", fields }` from the tool, so the Agent asks in its reply. The button and the modal carry the form name and the tool call id, so no state is stored. Chat SDK drops a second answer to the same tool call as a duplicate message. `forms()` throws `AGENT_FORMS_INVALID` for an invalid form or name. See [Agent Channels](../../docs/content/docs/agents/channels.md#ask-a-person-to-fill-in-a-form).
+
 ## Chat state
 
 Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there.

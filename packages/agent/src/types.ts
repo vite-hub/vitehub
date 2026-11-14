@@ -8,7 +8,7 @@ import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
 import type { JSONSchema7 } from "json-schema"
-import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { Adapter, AdapterPostableMessage, CardElement, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
 import type {
   MaybePromise,
@@ -503,6 +503,8 @@ export interface AgentChannelDeliveryEffectIntentOptions {
 export interface AgentChannelDeliveryReplyPayload {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   body?: string
+  /** A Chat SDK card, such as a card with buttons. Chat Channels post it, with the text as the fallback text. */
+  card?: CardElement
   markdown?: string
 }
 

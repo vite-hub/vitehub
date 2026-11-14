@@ -1284,6 +1284,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_B0022: dynamicError,
     AGENT_B0023: dynamicError,
     AGENT_B0024: dynamicError,
+    AGENT_FORMS_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] forms() has an invalid form. ${problem}`,
+      fix: "Pass forms by name, such as `forms({ expense })`, where each value is a defineForm() result, a Standard Schema object, or `{ form, title }`.",
+    },
     AGENT_R0872: dynamicError,
     AGENT_R0873: dynamicError,
     AGENT_R0874: dynamicError,

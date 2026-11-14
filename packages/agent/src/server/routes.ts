@@ -77,6 +77,7 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { channelFormsOf, registerChannelForms } from "../internal/channel-forms.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
@@ -7755,6 +7756,7 @@ async function createChannelChat(
     workflowCustodySupported: "workflowCustodySupported" in resolvedState ? resolvedState.workflowCustodySupported : undefined,
   }
   const deliveryContext = async () => (resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context)
+  registerChannelForms(chat, channelFormsOf(getAgentCapabilities(agent)), state.reconciliationWaitUntil)
   chat.onDirectMessage(async (chatThread, message, _channel, messageContext) => {
     const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
