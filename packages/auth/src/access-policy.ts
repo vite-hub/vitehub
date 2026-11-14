@@ -87,7 +87,7 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
           const bearer = ctx.context.options.plugins?.find(plugin => plugin.id === "bearer")
           for (const hook of bearer?.hooks?.before ?? []) {
             if (!hook.matcher(ctx)) continue
-            const result = await hook.handler({ ...ctx, returnHeaders: false, returnStatus: false, asResponse: false })
+            const result = await hook.handler({ ...ctx, returnHeaders: false })
             if (typeof result !== "object" || result === null || !("context" in result)) continue
             const replacement = result.context
             if (typeof replacement === "object" && replacement !== null && "headers" in replacement && replacement.headers instanceof Headers) {
@@ -97,7 +97,9 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
           const { sessionData, sessionToken } = ctx.context.authCookies
           // Do not forward the dispatcher's response flags or cookie helpers: the latter
           // close over the original headers, and returnHeaders wraps the token in a response.
-          const token = await readToken({ headers, context: ctx.context })
+          // Better Call forwards the runtime context, although its middleware input type omits it.
+          const tokenContext = { headers, context: ctx.context }
+          const token = await readToken(tokenContext)
           if (!token) return
           const stored = await ctx.context.internalAdapter.findSession(token)
           const live = stored && new Date(stored.session.expiresAt).getTime() > Date.now()
