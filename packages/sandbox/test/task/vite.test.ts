@@ -841,6 +841,10 @@ describe("hubSandboxTask", () => {
     await configHook(userConfig, { command: "build", mode: "production" })
     await configResolved({ ...userConfig, resolve: { alias: [] } })
 
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toContainEqual(
+      expect.objectContaining({ kind: "cloudflare-container", name: "application-owned" }),
+    )
+
     expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
     expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
       class_name: "Sandbox",

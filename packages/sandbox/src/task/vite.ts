@@ -5,7 +5,7 @@ import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative, resolve } from 'pathe'
 
-import { configureCloudflareSandboxNitro, type CloudflareSandboxEntrypointOptions } from './cloudflare'
+import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName, type CloudflareSandboxEntrypointOptions } from './cloudflare'
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
@@ -345,13 +345,16 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       cloudflareSandbox = undefined
       return false
     }
-    cloudflareSandbox = prepared.cloudflare
-    config.nitro = await configureCloudflareSandboxNitro(
+    const nitro = await configureCloudflareSandboxNitro(
       mutableSandboxTaskNitroTarget(config.nitro),
       prepared.rootDir,
       prepared.cloudflare,
       finalizeWrangler,
     )
+    config.nitro = nitro
+    const className = prepared.cloudflare.className || defaultCloudflareSandboxClassName
+    const container = nitro.cloudflare?.wrangler?.containers?.find(entry => entry.class_name === className)
+    cloudflareSandbox = { ...prepared.cloudflare, name: container?.name }
     return true
   }
 
