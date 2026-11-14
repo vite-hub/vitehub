@@ -219,7 +219,7 @@ describe("hubKV", () => {
 
   it("keeps arbitrary store names in distinct, isolated mount segments", async () => {
     const { hubKV } = await import("../src/vite.ts")
-    const names = ["a", "a/b", "a:b", "a\\b", "?", "%", "", "%3F"]
+    const names = ["default", "a", "a/b", "a:b", "a\\b", "?", "%", "", "%3F"]
     const stores = Object.fromEntries(names.map(name => [name, { driver: "fs-lite" as const }]))
     const config = { nitro: {} as { kv?: Record<string, { store?: string }> } }
     await testHook(hubKV({ stores }).config, (_value: typeof config): void | Promise<void> => undefined)(config)
