@@ -9720,7 +9720,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      if (!deliveryState) throw agentDiagnostics.AGENT_R0842({ message: "[vitehub] Agent Channel delivery state did not resolve." })
+      // Internal invariant: chatDeliveryState is set whenever webhookDeliveryState is not used, so deliveryState always resolves.
+      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       const channelState = webhookDeliveryState || deliveryState
       if (registration.durableState && (!isDurableAgentState(deliveryState.state) || !isDurableAgentState(channelState.state))) {
         return createJsonErrorResponse(503, "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
