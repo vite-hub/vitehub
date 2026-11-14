@@ -585,7 +585,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0010: {
       ...dynamicError,
-      fix: "Set output.maxAttempts in defineAgent() to a positive whole number, or remove it to use 3.",
+      fix: "Set driver.output.maxAttempts in defineAgent() to a positive whole number, or remove it to use 3.",
     },
     AGENT_R0011: {
       ...dynamicError,
