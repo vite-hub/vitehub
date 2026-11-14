@@ -66,7 +66,7 @@ export default defineSandboxTask({
 | `env` | `defineSandboxTask()` | `Record<string, string>` | Environment variables for the run. |
 | `project` | `defineSandboxTask()` | `boolean` | Turn package-project packaging on or off. Omit it to let ViteHub detect it. |
 
-Each timeout must be a positive integer up to `2_147_483_647`. `defineSandboxTask()` options must be static JSON values, because ViteHub reads them at build time.
+Each timeout must be a positive integer up to `2_147_483_647`. Without a timeout, a run stops after 5 minutes (`300_000`) on every provider. Vercel also has a plan maximum, see [Limits and errors](/docs/sandbox/limits-and-errors#timeouts). `defineSandboxTask()` options must be static JSON values, because ViteHub reads them at build time.
 
 ## Package entry point
 

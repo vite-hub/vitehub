@@ -14,6 +14,8 @@ vi.mock("@vercel/sandbox", () => ({
   Sandbox: {
     async create(options: { timeout?: number }) {
       vercel.createOptions.push(options)
+      if ((options.timeout ?? 0) > 45 * 60_000)
+        throw new Error("Status code 400 is not ok: `timeout` restricted to <= 45m on Hobby plans")
       const stopsAt = Date.now() + (options.timeout ?? 300_000)
       const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
       const stopped = () => delay(Math.max(0, stopsAt - Date.now()))
@@ -49,7 +51,18 @@ vi.mock("#vitehub-sandbox-task-provider-loader", async () => {
 import { runSandboxTaskRuntime } from "../../src/task/runtime/runtime.ts"
 import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
 
+function registerTask(options: { timeout?: number }) {
+  setSandboxTaskRuntimeConfig({ provider: "vercel", token: "token", teamId: "team", projectId: "project" })
+  setSandboxTaskRuntimeRegistry({
+    slow: {
+      bundle: { entry: "index.mjs", modules: { "index.mjs": "export default () => new Promise(() => {})" } },
+      options,
+    },
+  })
+}
+
 afterEach(() => {
+  vi.useRealTimers()
   resetSandboxTaskRuntimeState()
   vercel.createOptions.length = 0
   vercel.setupLatency = 0
@@ -58,18 +71,43 @@ afterEach(() => {
 describe("Vercel Sandbox Task timeout", () => {
   it("reports a task timeout as SANDBOX_TASK_TIMEOUT when Sandbox setup takes time", async () => {
     vercel.setupLatency = 60
-    setSandboxTaskRuntimeConfig({ provider: "vercel", token: "token", teamId: "team", projectId: "project" })
-    setSandboxTaskRuntimeRegistry({
-      slow: {
-        bundle: { entry: "index.mjs", modules: { "index.mjs": "export default () => new Promise(() => {})" } },
-        options: { timeout: 1_000 },
-      },
-    })
+    registerTask({ timeout: 1_000 })
 
     const response = await runSandboxTaskRuntime("slow")
 
     expect(response.status).toBe(504)
     expect(await response.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT" } })
     expect(vercel.createOptions[0]?.timeout).toBe(31_000)
+  })
+
+  it("ends a task with no timeout at the 5 minute default with SANDBOX_TASK_TIMEOUT", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
+    vercel.setupLatency = 60
+    registerTask({})
+
+    let response: Response | undefined
+    const pending = runSandboxTaskRuntime("slow").then(result => (response = result))
+    // Setup awaits real I/O between fake timers, so let the event loop turn on every step.
+    for (let elapsed = 0; !response && elapsed < 400_000; elapsed += 1_000) {
+      await new Promise(resolve => setImmediate(resolve))
+      await vi.advanceTimersByTimeAsync(1_000)
+    }
+    await pending
+
+    expect(response?.status).toBe(504)
+    expect(await response?.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT", details: { timeout: 300_000 } } })
+    expect(vercel.createOptions[0]?.timeout).toBe(330_000)
+  })
+
+  it("reports a timeout above the Vercel plan maximum with a stable code and the limit", async () => {
+    registerTask({ timeout: 3_600_000 })
+
+    const response = await runSandboxTaskRuntime("slow")
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toMatchObject({ error: {
+      code: "SANDBOX_TASK_R0077",
+      message: expect.stringContaining("Vercel rejected the Sandbox session timeout of 3630000ms: `timeout` restricted to <= 45m on Hobby plans."),
+    } })
   })
 })

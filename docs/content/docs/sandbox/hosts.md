@@ -24,7 +24,6 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 | Option | Default | Description |
 | --- | --- | --- |
 | `runtime` | `'node24'` | Runtime image. |
-| `timeout` | - | Session timeout in milliseconds. A task timeout wins: the session then gets the task timeout plus 30 seconds for Sandbox setup and cleanup. |
 | `cpu` | - | vCPU count. |
 | `ports` | - | Ports to expose. |
 | `source` | - | Source to load. |

@@ -173,7 +173,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenNthCalledWith(2, { id: "per-run" })
   })
 
-  it("forwards an invocation signal to Sandbox startup and execution", async () => {
+  it("forwards an invocation signal and the default timeout to Sandbox startup and execution", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
@@ -183,10 +183,11 @@ describe("Sandbox runtime lifecycle", () => {
 
     expect(result.ok).toBe(true)
     expect(runtimeMocks.open).toHaveBeenCalledWith({ id: expect.any(String), signal })
+    expect(runtimeMocks.resolveTaskSandbox).toHaveBeenCalledWith(expect.objectContaining({ local: { timeout: 300_000 } }))
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledWith(
       expect.anything(),
       "example",
-      undefined,
+      { timeout: 300_000 },
       definition.bundle,
       undefined,
       undefined,
@@ -473,7 +474,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledWith(
       expect.anything(),
       "example",
-      undefined,
+      { timeout: 300_000 },
       packageDefinition.bundle,
       undefined,
       undefined,
