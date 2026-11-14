@@ -22,7 +22,9 @@ export function consoleDevAccessNotice(mode: ConsoleAccessMode | undefined, addr
   if (!mode || !address || typeof address === "string") return
   const keyless = mode === "token" && !Object.keys(env).some(name => name.startsWith(consolePublicKeyPrefix) && String(env[name] ?? "").trim())
   if (mode === "token" && !keyless) return
-  const fix = keyless ? `Set a ${consolePublicKeyPrefix}<NAME> variable` : "Remove console.auth"
+  // Only a key makes a dev server take signed calls alone, so every fix ends with one.
+  const key = `${consolePublicKeyPrefix}<NAME> variable`
+  const fix = keyless ? `Set a ${key}` : mode === "open" ? `Remove console.auth and set a ${key}` : `Set console: true and a ${key}`
   if (isViteHubLoopbackAddress(address.address)) {
     return { level: "info", message: `[vitehub] The Console endpoint takes calls without a signature and answers only this machine. ${fix} before you share this dev server through a tunnel or a proxy: ${guide}` }
   }
