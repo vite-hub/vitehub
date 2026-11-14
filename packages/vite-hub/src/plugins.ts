@@ -1172,6 +1172,8 @@ function hostBlobOptions(
 ): BlobOptions {
   if (hasExplicitBlobStore(options)) return options as BlobOptions
   const configured = options && typeof options === "object" ? options : {}
+  // NuxtHub's `S3_*` variables select a bucket before the host, so Blob infers the store from env.
+  if (requireOptionalOwner(ownerModules.blobVite, "blob").hasS3BlobEnv(process.env)) return configured
   const fromHost = (blob: Exclude<BlobOptions, false>) => {
     hostBlobConfigs.add(blob)
     return blob
