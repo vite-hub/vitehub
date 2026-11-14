@@ -106,6 +106,27 @@ function thenable<TValue>(key: SyncKey, promise: Promise<TValue | undefined>, st
   }
 }
 
+function sameRow(a: SyncRow, b: SyncRow): boolean {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every(key => Object.is(a[key], b[key]) && Object.hasOwn(b, key))
+}
+
+/**
+ * Keeps the row objects of `previous` where a row has the same fields, so a view that compares rows by identity, such
+ * as a Vue child component, renders only the rows that changed. Only rows that a write or a pull touched can differ.
+ */
+function stabilize(next: SyncView, previous: SyncView, put: readonly SyncKey[]): void {
+  // SAFETY: `buildView` returns a map that this store owns, either a copy or the confirmed rows.
+  const rows = next.rows as Map<SyncKey, SyncRow>
+  for (const keys of [next.pending, previous.pending, put]) {
+    for (const key of keys) {
+      const row = rows.get(key)
+      const old = previous.rows.get(key)
+      if (row && old && row !== old && sameRow(row, old)) rows.set(key, old)
+    }
+  }
+}
+
 function freezeRow(row: SyncRow): SyncRow {
   return Object.isFrozen(row) ? row : Object.freeze(row)
 }
@@ -164,7 +185,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let loaded = false
   let error: SyncError | null = null
   let live = false
-  let state: SyncState<SyncRow>
+  let state!: SyncState<SyncRow>
 
   // Each change in memory moves `version`, so a storage read that started before it does not overwrite it.
   let version = 0
@@ -198,8 +219,20 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     console.error(`The optimistic function of the Sync action ${JSON.stringify(write.op === "action" ? write.name : write.op)} of ${JSON.stringify(name)} failed. The server still runs the action.`, cause)
   }
 
-  function publish(): void {
+  // Keys that storage changes put since the last view. Their rows get new objects, and the view keeps the old ones
+  // when equal.
+  let changedKeys: SyncKey[] = []
+  // The view and the state are built when read, so many writes in one tick build them once.
+  let dirty = true
+
+  /** Builds the view and the state after a change, once. */
+  function current(): SyncState<SyncRow> {
+    if (!dirty) return state
+    dirty = false
+    const previous = view
     view = buildView(confirmed, [...writes, ...local], { meta, where, actions: optimistic, report })
+    stabilize(view, previous, changedKeys)
+    changedKeys = []
     const account = meta?.account
     const failures: SyncFailure[] = []
     let queued = 0
@@ -221,6 +254,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       persisted: loaded && storage.persisted,
       live,
     })
+    return state
+  }
+
+  function publish(): void {
+    dirty = true
     settlePending()
     for (const listener of listeners) listener()
   }
@@ -348,13 +386,15 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     if (passGeneration !== generation) throw cancelled
     // A pull that brought nothing keeps the same state object, so a view does not render again for it.
     if (isUnchanged(meta, change)) {
-      if (state.status !== status || state.error !== error) publish()
+      const shown = current()
+      if (shown.status !== status || shown.error !== error) publish()
       return
     }
     await storage.write(id, change)
     if (passGeneration !== generation) throw cancelled
     meta = change.meta ?? meta
     confirmed = applyRowChange(confirmed, change)
+    if (!change.reset) changedKeys.push(...change.put?.map(([key]) => key) ?? [])
     writes = applyQueueChange(writes, change, [])
     version++
     publish()
@@ -729,13 +769,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   return {
     // SAFETY: the rows are the JSON rows of the table of `TRow`.
-    getState: () => state as SyncState<TRow>,
+    getState: () => current() as SyncState<TRow>,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    get: key => view.rows.get(key) as TRow | undefined,
-    pending: key => view.pending.has(key),
+    get: key => (current(), view.rows.get(key) as TRow | undefined),
+    pending: key => (current(), view.pending.has(key)),
     insert(value) {
       const fields: SyncRow = { ...value }
       const given = fields[keyColumnOf(meta)]

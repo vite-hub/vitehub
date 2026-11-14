@@ -1,4 +1,4 @@
-import { computed, getCurrentScope, markRaw, onScopeDispose, reactive, shallowRef, toValue, watch } from "vue"
+import { computed, getCurrentScope, markRaw, onScopeDispose, reactive, shallowRef, toValue, triggerRef, watch } from "vue"
 
 import { createSync } from "./client.ts"
 import { whereKey } from "./client/view.ts"
@@ -45,10 +45,14 @@ interface UseSyncReturn<TRow, TArgs = Record<string, never>> extends Readonly<Sy
 function useSync<TName extends SyncName>(name: TName, options: UseSyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>> = {}): UseSyncReturn<SyncRowOf<TName>, SyncActionsOf<TName>> {
   const open = () => createSync(name, { ...options, where: toValue(options.where) })
   const store = shallowRef(open())
-  const state = shallowRef(store.value.getState())
-  let stop = store.value.subscribe(() => {
-    state.value = store.value.getState()
+  // A change only marks the state. The store builds it when a render or a script reads it, once for many writes.
+  const changed = shallowRef(0)
+  const state = computed(() => {
+    void changed.value
+    return store.value.getState()
   })
+  const mark = () => triggerRef(changed)
+  let stop = store.value.subscribe(mark)
   function close(): void {
     stop()
     store.value.destroy()
@@ -59,10 +63,7 @@ function useSync<TName extends SyncName>(name: TName, options: UseSyncOptions<Sy
       const next = open()
       close()
       store.value = next
-      state.value = next.getState()
-      stop = next.subscribe(() => {
-        state.value = next.getState()
-      })
+      stop = next.subscribe(mark)
     })
   }
   if (getCurrentScope()) onScopeDispose(close)
