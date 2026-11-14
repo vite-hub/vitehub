@@ -368,6 +368,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
+| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards. `"sm"` is Drop's small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
 
 ### CommentPin
 
