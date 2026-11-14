@@ -49,7 +49,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 <!-- support-matrix:application-features:start -->
 | Feature | Local Vite | Cloudflare | Vercel | Netlify | Deno | Nitro and UnJS | Node and self-hosted |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Agent | Nitro | Nitro | Nitro | Nitro | Nitro + OpenWorkflow | Agent routes | Nitro + OpenWorkflow |
+| Agent | Nitro | Nitro | Nitro | Nitro | Nitro + OpenWorkflow | Agent routes | Nitro |
 | Auth | Better Auth | Better Auth | Better Auth | Better Auth | Better Auth | Auth route | Better Auth |
 | Channels | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
 | Comments | Database | Database | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Host database | Database |
