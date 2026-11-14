@@ -11,6 +11,7 @@ import type { MigrationPlan } from "./internal/migration-plan.ts"
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -222,42 +223,45 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
     writeSeedUsage(context)
     return 1
   }
-  const config = await getConfig?.({ strict: false })
-  if (!config?.databaseNames.length) {
-    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
-    return 1
-  }
-  if (parsed.database && !config.databases[parsed.database]) {
-    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: parsed.database }))}\n`)
-    return 1
-  }
-  const projectRoot = config.rootDir
-  const cwd = context.cwd ?? process.cwd()
-  let env = context.env ?? process.env
-  if (parsed.stage) {
-    const { loadEnv } = await import("vite")
-    env = { ...loadEnv(parsed.stage, projectRoot, ""), ...env }
-  }
-  const { findSeedFile, seedDatabase } = await import("./internal/seed.ts")
-  const seeds = (parsed.database ? [parsed.database] : config.databaseNames).map(name => ({ database: config.databases[name]!, ...findSeedFile(config.databases[name]!, projectRoot) }))
-  // Without `--database`, a database without a seed file has nothing to seed. Fail only when none has one.
-  const missing = parsed.database ? seeds.filter(seed => !seed.exists) : seeds.every(seed => !seed.exists) ? seeds : []
-  for (const seed of missing) {
-    const file = relative(cwd, seed.file) || seed.file
-    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_SEED_NOT_FOUND({ database: seed.database.name, file }))}\n`)
-  }
-  if (missing.length) return 1
-  for (const seed of seeds.filter(seed => seed.exists)) {
-    try {
-      const target = await seedDatabase(seed.database, seed.file, { alias: getAlias?.(), env, fetch: context.fetch, projectRoot, remote: parsed.remote })
-      context.stdout.write(`[vitehub] Database "${seed.database.name}" (${target}): ran ${relative(cwd, seed.file) || seed.file}.\n`)
+  let env = { ...(context.env ?? process.env) }
+  return await withViteStageEnvironment(env, async () => {
+    if (parsed.stage) {
+      const { loadEnv } = await import("vite")
+      env = { ...loadEnv(parsed.stage, context.rootDir, ""), ...env }
+      Object.assign(process.env, env)
     }
-    catch (error) {
-      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    const config = await getConfig?.({ strict: false })
+    if (!config?.databaseNames.length) {
+      context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
       return 1
     }
-  }
-  return 0
+    if (parsed.database && !config.databases[parsed.database]) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: parsed.database }))}\n`)
+      return 1
+    }
+    const projectRoot = config.rootDir
+    const cwd = context.cwd ?? process.cwd()
+    const { findSeedFile, seedDatabase } = await import("./internal/seed.ts")
+    const seeds = (parsed.database ? [parsed.database] : config.databaseNames).map(name => ({ database: config.databases[name]!, ...findSeedFile(config.databases[name]!, projectRoot) }))
+    // Without `--database`, a database without a seed file has nothing to seed. Fail only when none has one.
+    const missing = parsed.database ? seeds.filter(seed => !seed.exists) : seeds.every(seed => !seed.exists) ? seeds : []
+    for (const seed of missing) {
+      const file = relative(cwd, seed.file) || seed.file
+      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_SEED_NOT_FOUND({ database: seed.database.name, file }))}\n`)
+    }
+    if (missing.length) return 1
+    for (const seed of seeds.filter(seed => seed.exists)) {
+      try {
+        const target = await seedDatabase(seed.database, seed.file, { alias: getAlias?.(), env, fetch: context.fetch, projectRoot, remote: parsed.remote })
+        context.stdout.write(`[vitehub] Database "${seed.database.name}" (${target}): ran ${relative(cwd, seed.file) || seed.file}.\n`)
+      }
+      catch (error) {
+        context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+        return 1
+      }
+    }
+    return 0
+  })
 }
 
 const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--schema-snapshot"])

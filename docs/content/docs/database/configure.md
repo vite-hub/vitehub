@@ -78,6 +78,7 @@ export default defineConfig({
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
 | `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files. `false` turns it off. See [Migrate when the server starts](#migrate-when-the-server-starts). |
+| `database.migrateOnDeploy` | `boolean` | `false` | Applies the pending migrations of each Cloudflare D1 binding in the deploy command, before the Worker deploys. See [Migrate when you deploy](#migrate-when-you-deploy). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
 With `vitehub()`, a Definition file alone does not turn Database on. Without the `database` option, importing `vite-hub/database` fails the build or `vite dev` with `VITE_HUB_B0013`, and `vitehub database generate` and `migrate` exit with an error. Set `database`, or add `hubDatabase()` yourself.
@@ -366,6 +367,56 @@ export default (async ({ db, schema }) => {
   await seed(db, schema, { count: 100 })
 }) satisfies DatabaseSeed
 ```
+## Migrate when you deploy
+
+A Cloudflare Worker reads D1 through a binding, so it cannot migrate when it starts. When a deploy ships code before its migrations, the new code queries tables or columns that do not exist yet. Set `migrateOnDeploy: true` to apply the migrations as part of the deploy:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', database: { migrateOnDeploy: true } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', database: { migrateOnDeploy: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', database: { migrateOnDeploy: true } })],
+})
+```
+:::
+::
+
+The build then puts one `wrangler d1 migrations apply <binding> --remote` for each D1 binding before `wrangler deploy` in the deploy command of `.output/nitro.json`:
+
+```bash [.output/nitro.json commands.deploy]
+npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json
+```
+
+- **Order.** `pnpm exec nitro deploy --prebuilt`, which Workers Builds runs, and `vitehub deploy` apply the migrations first. When a migration fails, the command stops and the Worker does not deploy.
+- **Ledger.** Wrangler applies the migration files that the build copies into the server output, and records them in Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`). `vitehub database migrate` reads the same table, so you can still run it by hand.
+- **Old code.** The Worker that serves traffic runs on the new tables until the deploy finishes. Write migrations that the previous code can use, for example add a column before you drop the old one.
+- **Prompt.** In CI, Wrangler applies the migrations without a question. In a terminal, `nitro deploy --prebuilt` asks first. If you answer no, the deploy continues without them.
+- **Preview.** `vitehub deploy --preview` and `--temporary` do not apply migrations, so a preview version does not change the production database.
+- **Limits.** The option works only for a Cloudflare build where each Database has a D1 binding. Another host, D1 over HTTP, or Postgres fails the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`. Your own `nitro.commands.deploy` gets the same migrate steps in front of it.
 
 ## Export a database
 
@@ -639,6 +690,7 @@ export default defineDatabase({
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `connection.url` | `DatabaseConfigValue` | No | Postgres URL for Node, Vercel, local development, and `vitehub database migrate`. |
+| `connection.replicas` | `DatabaseConfigValue[]` | No | Read replica URLs. `db.$replica` reads from them. See [Read from replicas](#read-from-replicas). |
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
 | `driver` | `'pglite'` | No | Runs the Database on PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
@@ -648,6 +700,47 @@ A Postgres Definition has its own connection. It ignores the top-level `connecti
 The client drops the notices of the server, such as `relation already exists, skipping` for each `CREATE ... IF NOT EXISTS`, and prints each Postgres warning with `console.warn`. Errors still reject the query.
 
 Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.
+
+### Read from replicas
+
+Set `connection.replicas` to the URLs of read replicas. ViteHub opens one postgres.js client for each one, and gives you Drizzle's [`withReplicas()`](https://orm.drizzle.team/docs/read-replicas) database:
+
+```ts [server/databases/replicas.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, pgTable, text } from 'drizzle-orm/pg-core'
+
+export default defineDatabase({
+  name: 'replicas',
+  dialect: 'postgresql',
+  connection: {
+    url: process.env.DATABASE_URL,
+    replicas: [process.env.DATABASE_REPLICA_1_URL, process.env.DATABASE_REPLICA_2_URL],
+  },
+  schema: {
+    notes: pgTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
+```ts [server/api/notes.get.ts]
+import { defineEventHandler } from 'h3'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineEventHandler(() => {
+  const { db, schema } = useDatabase('replicas')
+  return db.$replica.select().from(schema.notes)
+})
+```
+
+- `db.$replica` sends a query to one replica, picked at random for each read. Drizzle 1.0 sends every other query, and every write and transaction, to `connection.url`. A replica can lag behind the primary, so read your own writes from `db`.
+- Empty entries are skipped, so an unset variable turns its replica off.
+- Without replicas, `db.$replica` is `db`. Code that reads from replicas runs on every host.
+- A Cloudflare Hyperdrive binding has one origin. When it serves the Database, ViteHub ignores `connection.replicas` and prints one warning. PGlite ignores them too. In both cases `db.$replica` is `db`.
+- Migrations and `vitehub database` commands use `connection.url` only.
+- `vitehub inspect definitions --kind database` shows the number of replicas in the `Read replicas` field, without the URLs.
 
 ### Run Postgres locally with PGlite
 

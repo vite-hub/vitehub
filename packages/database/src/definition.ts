@@ -11,7 +11,7 @@ const allowedDefinitionKeys = new Set(["cloudflare", "connection", "name", "rela
 const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect", "driver"])
 const allowedPostgresKeys = {
   cloudflare: new Set(["binding", "hyperdriveId"]),
-  connection: new Set(["url"]),
+  connection: new Set(["replicas", "url"]),
 }
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {

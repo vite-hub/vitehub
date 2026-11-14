@@ -136,6 +136,8 @@ On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_loc
 
 With `migrateOnStart: true`, another host, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a SQLite file or a Postgres database must not have one folder name with different SQL; otherwise startup refuses all changes with that error. SQLite has no lock across processes: run one server process per database file.
 
+A Cloudflare Worker cannot migrate D1 when it starts. With `migrateOnDeploy: true`, a Cloudflare build puts `npx wrangler d1 migrations apply <binding> --remote --config <wrangler.json> && ` before the deploy command in `nitro.json`, once for each D1 binding whose migrations it copies into the server output. `nitro deploy --prebuilt`, Workers Builds, and `vitehub deploy` then apply the pending migrations with Wrangler's ledger before `wrangler deploy`, and a failed migration stops the deploy. `vitehub deploy --preview` and `--temporary` apply none. Another host, D1 over HTTP, and Postgres fail the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`.
+
 `ensureMigrations(name?)` from `@vite-hub/database` applies the same migrations from server code, for example a Nitro task, a Nitro plugin, or an app test. It runs the start path, with the Postgres lock, once for each Database in the process: parallel calls and later calls share the run, and the start plugin shares it too. A failed run is forgotten, so the next call tries again. A new run waits for the run before it, so Definitions that share a SQLite file apply each migration once. It works in a build with `migrateOnStart: false`. A Cloudflare or Vercel build ships no migrations, and the call rejects with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. In app tests, it skips SQLite Databases, which already have their migrations.
 
 ## Contributed tables
@@ -241,6 +243,8 @@ export default defineDatabase({
 ```
 
 ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. The client drops server notices, such as `relation already exists, skipping`, and prints each Postgres warning with `console.warn`. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
+
+`connection.replicas` takes read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. ViteHub opens one postgres.js client for each one and returns Drizzle's `withReplicas()` database. `db.$replica` reads from one replica, picked at random. Other queries, writes, and transactions use `connection.url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore the replicas, and then `db.$replica` is `db`. Inspection shows their number, not their URLs.
 
 Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
 

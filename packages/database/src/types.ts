@@ -80,6 +80,13 @@ export interface DatabaseIntegrationOptions {
     /** Apply migrations that drop tables or columns or delete rows. */
     allowDataLoss?: boolean
   }
+  /**
+   * Applies the pending migrations of each Cloudflare D1 binding as part of the deploy, before the Worker deploys. The
+   * generated deploy command in `nitro.json` runs `wrangler d1 migrations apply <binding> --remote` first, so
+   * `nitro deploy --prebuilt`, Workers Builds and `vitehub deploy` stop when a migration fails. The build fails with
+   * `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED` for another host, or for a database without a D1 binding.
+   */
+  migrateOnDeploy?: boolean
   projectRoot?: string
 }
 
@@ -118,6 +125,11 @@ export interface CloudflareHyperdriveConfig {
 
 export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
+  /**
+   * Read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. `db.$replica` sends a query to one of them, picked at
+   * random. Other queries use `url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore them.
+   */
+  replicas?: Array<DatabaseConfigValue | undefined>
 }
 
 /**
@@ -184,7 +196,13 @@ export type MergeDatabaseRelations<TSchema extends Record<string, unknown>, TPar
 export type RuntimePostgresDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = PgAsyncDatabase<PgQueryResultHKT, TRelations>
+> = PgAsyncDatabase<PgQueryResultHKT, TRelations> & {
+  /**
+   * The database on one read replica of `connection.replicas`, picked at random for each read. It is the primary
+   * database when there are no replicas, or when Hyperdrive or PGlite serves the database. Writes belong on `db`.
+   */
+  readonly $replica: PgAsyncDatabase<PgQueryResultHKT, TRelations>
+}
 
 export interface DatabaseDefinition<
   TSchema extends Record<string, unknown> = Record<string, unknown>,

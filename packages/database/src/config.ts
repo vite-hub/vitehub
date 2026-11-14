@@ -242,6 +242,18 @@ export function readDatabaseDefinitionReadReplication(file: string): boolean | u
 }
 
 /**
+ * The read replicas of a Postgres Definition's `connection.replicas`: the number of entries of an array literal, or
+ * `true` when the source sets it in another form, such as a spread or a variable. Undefined when it does not set it.
+ */
+export function readDatabaseDefinitionReplicas(file: string): number | true | undefined {
+  const connection = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"), file)
+  const replicas = resolveModuleExpression(readObjectPropertyValue(connection, "replicas"), file)
+  if (replicas === undefined || (replicas.type === "Identifier" && replicas.name === "undefined")) return
+  if (replicas.type !== "ArrayExpression") return true
+  return replicas.elements.some(element => element === null || element.type === "SpreadElement") ? true : replicas.elements.length
+}
+
+/**
  * Whether `vite dev` queries the real D1 database: the Definition's source sets `remote: true`, or sets
  * `cloudflare.http` and not `remote: false`. Undefined when the source does not show it with literals.
  */

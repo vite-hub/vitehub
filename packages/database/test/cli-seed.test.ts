@@ -117,6 +117,27 @@ describe("vitehub database seed", () => {
     await expect(project.titles()).resolves.toEqual(["first", "second"])
   }, 120_000)
 
+  it("exposes stage env during module evaluation and execution, and restores it after failure", async () => {
+    const project = await createProject()
+    const key = "VITEHUB_SEED_STAGE_REGRESSION"
+    const previous = process.env[key]
+    await writeFile(join(project.rootDir, ".env.staging"), `${key}=staging-value\n`)
+    await writeFile(join(project.databaseDir, "seed.ts"), [
+      `const evaluated = process.env.${key}`,
+      "export default async ({ db, schema }) => {",
+      `  await db.insert(schema.notes).values([{ title: evaluated }, { title: process.env.${key} }])`,
+      "}",
+    ].join("\n"))
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("seed", ["--stage", "staging"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.titles()).resolves.toEqual([previous ?? "staging-value", previous ?? "staging-value"])
+    expect(process.env[key]).toBe(previous)
+    await writeFile(join(project.databaseDir, "seed.ts"), "export default () => { throw new Error('seed failed') }")
+    expect((await project.run("seed", ["--stage", "staging"])).exitCode).toBe(1)
+    expect(process.env[key]).toBe(previous)
+  }, 120_000)
+
   it("seeds the named database that --database picks", async () => {
     const project = await createProject("analytics")
     await writeFile(join(project.databaseDir, "seed.ts"), seedFile)
