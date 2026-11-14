@@ -142,6 +142,48 @@ comments.people.value; // The people that the state knows, for mention names.
 | `subjectUrl` | The page URL of a subject, for thread links. Page subjects use their id as the path. Other subjects link to the current page unless you give it. |
 | `autoStart` | Load threads and listen for keys on mount. Default `true`. When `false`, call `start()` yourself. |
 | `can` | What the user may do in a thread. See [Permissions](#permissions). |
+| `visibility` | `"all"` or `"hidden"`. Default `"all"`. Pass a ref to keep the reader's choice. See [Hide comments](#hide-comments). |
+| `flashMs` | How long a comment just sent shows while comments are hidden. Default `2500`. |
+
+## Hide comments
+
+A reader can hide the comments on the page and still write them. Set `visibility` to `"hidden"`. Pins, areas, and highlights then show only:
+
+- the open thread, such as one opened from the list,
+- the comment being written,
+- a comment or reply just sent, for `flashMs`. Then it pops out: it shrinks and fades in 180 ms, or only fades under `prefers-reduced-motion`.
+
+Writing or opening a comment never changes `visibility`. Pass a ref to keep the choice, such as one saved in `localStorage`:
+
+```ts fragment
+import { useComments } from "@vite-hub/ui/headless";
+import { ref, watch } from "vue";
+
+const visibility = ref(localStorage.getItem("comments") === "hidden" ? "hidden" : "all");
+watch(visibility, (value) => localStorage.setItem("comments", value));
+
+const comments = useComments({ client, subject, visibility });
+comments.shown.value; // The ids of the threads of this page that get a pin.
+comments.leaving.value; // The ids that just stopped showing, for their pop-out.
+comments.flash(id); // Show a thread for a moment. send(), create(), and reply() do it.
+```
+
+`CommentLayer` follows the state: a pin that stops showing keeps its place for 180 ms with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
+
+To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:
+
+```ts fragment
+import { createCommentVisibility } from "@vite-hub/ui/headless";
+
+const visibility = createCommentVisibility({ visibility: "hidden", flashMs: 2500 });
+visibility.subscribe(() => frame.postMessage({ only: visibility.only, leaving: visibility.leaving }));
+visibility.open(threadId); // The open thread shows. open(null) closes it.
+visibility.flash(sent.id); // A comment just sent shows for flashMs.
+visibility.set("all"); // Every comment shows again.
+visibility.stop(); // Clears the timers.
+```
+
+`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last 180 ms. `isShown(id)` answers for one id.
 
 ## Side panel
 
@@ -375,7 +417,8 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
-- Under `prefers-reduced-motion` the composer does not shake. Its border flashes.
+- Under `prefers-reduced-motion` the composer does not shake. Its border flashes. A pin that stops showing fades without shrinking.
+- A pin that stops showing is `inert` during its pop-out.
 
 ## API Reference
 

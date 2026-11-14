@@ -16,7 +16,7 @@ import { overlayStyles, panelStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentCan } from "@vite-hub/ui/headless"
+import type { CommentCan, CommentVisibility } from "@vite-hub/ui/headless"
 import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
 import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
@@ -171,6 +171,28 @@ const editIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", f
 
 const closeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M18 6 6 18M6 6l12 12" }))
 
+const eyeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, [h("path", { d: "M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0" }), h("circle", { cx: 12, cy: 12, r: 3 })])
+
+const eyeOffIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M10.73 5.08A10.43 10.43 0 0 1 12 5c4.97 0 8.9 3.06 9.94 6.65a1 1 0 0 1 0 .7 10.8 10.8 0 0 1-1.44 2.49M14.08 14.16a3 3 0 0 1-4.24-4.24M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14M2 2l20 20" }))
+
+/** Whether this reader hid the comments on the page with the eye of the pill. It stays across pages and visits. */
+const visibilityKey = "vitehub-comments-visibility"
+function readVisibility(): CommentVisibility {
+  try {
+    return localStorage.getItem(visibilityKey) === "hidden" ? "hidden" : "all"
+  }
+  catch {
+    return "all"
+  }
+}
+function saveVisibility(value: CommentVisibility) {
+  try {
+    if (value === "hidden") localStorage.setItem(visibilityKey, value)
+    else localStorage.removeItem(visibilityKey)
+  }
+  catch {}
+}
+
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
 /**
@@ -260,6 +282,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const selected = shallowRef<Selected>()
   /** Counts the DOM changes of the page, so the highlights find their text again after one. */
   const pageChanges = ref(0)
+  /** The eye of the pill. Writing or opening a comment does not change it. */
+  const hidden = ref(readVisibility() === "hidden")
   let room: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
@@ -282,6 +306,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const pageCan = shallowRef(session?.can)
   const canComment = computed(() => Boolean(pageCan.value?.comment))
   const needsName = computed(() => canComment.value && !me.value)
+  /** Only people who may comment get the eye, so a reader always sees every comment. */
+  const visibility = computed<CommentVisibility>({
+    get: () => hidden.value && canComment.value ? "hidden" : "all",
+    set: (value) => {
+      hidden.value = value === "hidden"
+      saveVisibility(value)
+    },
+  })
 
   /**
    * What this person may do in a thread, for the parts' controls. Each thread from the API carries `can` for its own
@@ -606,7 +638,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const opened = state.opened.value
     if (opened && opened.subject.kind === subject.value.kind && opened.subject.id === subject.value.id && !threads.includes(opened)) threads.push(opened)
     for (const thread of threads) {
-      if (thread.anchor.kind !== "text") continue
+      // Hidden comments lose their highlight too, as their pins.
+      if (thread.anchor.kind !== "text" || !state.isShown(thread.id)) continue
       const range = anchorRange(thread.anchor)
       if (range) groups[active.has(thread.id) ? "active" : thread.status === "resolved" ? "resolved" : "open"].push(range)
     }
@@ -655,6 +688,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         can,
         uiRoot: () => shadow,
         autoStart: Boolean(session?.can.read),
+        visibility,
       })
       // Page styles read the mode class at once, as the toolbar button changes it.
       watch(mode, value => options.onMode(value), { immediate: true, flush: "sync" })
@@ -682,7 +716,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }, { flush: "sync" })
       // A range follows its text when the page scrolls. A change to the page's DOM can replace the text, so the ranges
       // are found again then.
-      watch([pageChanges, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor], paintHighlights, { flush: "post" })
+      watch([pageChanges, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor, state.shown], paintHighlights, { flush: "post" })
       watch(() => state.draft.value, trackSelection)
       // The strokes go once their comment is sent or closed.
       watch(() => state.draft.value, (draft) => {
@@ -854,6 +888,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             title: "Show comments",
             type: "button",
           }, [commentIcon(), "Comments", badge(true)]),
+      // Against Comments, the thing it hides. Pressed means hidden: the state that changes the page.
+      canComment.value
+        ? h("button", {
+            "aria-label": "Hide comments",
+            "aria-pressed": String(visibility.value === "hidden"),
+            class: "eye",
+            onClick: () => (visibility.value = visibility.value === "hidden" ? "all" : "hidden"),
+            title: visibility.value === "hidden" ? "Show comments" : "Hide comments",
+            type: "button",
+          }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
+        : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),
@@ -882,12 +927,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const box = (key: string, kind: CommentAnchor["kind"], marks: { status?: string, active?: boolean, draft?: boolean }) => {
       const position = state.positions.value.get(key)
       if (!position || position.detached || position.clipped || (kind !== "area" && kind !== "image") || !position.width || !position.height) return
+      // While comments are hidden, only the ones that still show, and for a moment the ones that stop showing.
+      const leaving = key !== "draft" && state.leaving.value.has(key)
+      if (key !== "draft" && !leaving && !state.isShown(key)) return
       nodes.push(h("div", {
         key,
         "data-active": marks.active ? "true" : undefined,
         "data-draft": marks.draft ? "true" : undefined,
         "data-slot": "comment-mark-area",
         "data-status": marks.status,
+        "data-leaving": leaving ? "true" : undefined,
         style: { left: `${position.x}px`, top: `${position.y}px`, width: `${position.width}px`, height: `${position.height}px` },
       }))
     }

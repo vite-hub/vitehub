@@ -173,7 +173,7 @@ export const pillBarStyles = `
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
-.swatch, .icon { width: 28px; padding: 0; justify-content: center; }
+.swatch, .icon, .eye { width: 28px; padding: 0; justify-content: center; }
 .icon { align-self: flex-start; }
 .swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
 .swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }
