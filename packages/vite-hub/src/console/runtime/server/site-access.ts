@@ -6,6 +6,7 @@ import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { appBase, appOrigin, authConsole, authFailure, base64url, consoleInvitePrefix, consoleRecordStore, issueConsoleTicket, seeOther, ticketProblem, type ConsoleTicket, type ConsoleTicketRecord } from "./tickets.ts"
 
 import type { ViteHubPageGrant } from "@vite-hub/internal/runtime/page-tools"
+import { siteStateCookie } from "../site-access.ts"
 import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
 
 /**
@@ -83,6 +84,10 @@ function targetPath(record: ConsoleTicketRecord): string | undefined {
 export async function openSiteSession(record: ConsoleTicketRecord, request: Request, event: ConsoleRequestEvent): Promise<Response> {
   const location = targetPath(record)
   if (!location) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
+  const bound = record.target.state
+  if (bound && bound !== await stateHash(readCookie(request, siteStateCookie) ?? "")) {
+    return ticketProblem(403, "CONSOLE_TICKET_MISMATCH", "This link was made for another browser. Open /_vitehub again in this browser.")
+  }
   const guest = record.purpose === "page.guest"
   const name = guest ? record.target.name : record.person.name ?? record.person.email
   if (!name) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
@@ -94,6 +99,7 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)
   headers.append("set-cookie", viteHubPageToolsResetCookie)
+  if (bound) headers.append("set-cookie", `${siteStateCookie}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`)
   return seeOther(location, headers)
 }
 
@@ -104,10 +110,26 @@ function pagePath(path: string | undefined): string {
   return path
 }
 
-/** `site.link`: a one-time link that signs the browser that opens it in as you. With `qr`, it lasts 10 minutes. */
-export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean }): Promise<ConsoleTicket> {
+function readCookie(request: Request, name: string): string | undefined {
+  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
+    const [key, ...value] = part.trim().split("=")
+    if (key === name) return value.join("=")
+  }
+  return undefined
+}
+
+async function stateHash(state: string): Promise<string> {
+  return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(state))))
+}
+
+/**
+ * `site.link`: a one-time link that signs the browser that opens it in as you. With `qr`, it lasts 10 minutes. With
+ * `state`, from `GET /_vitehub`, it works only in the browser that has that state cookie.
+ */
+export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean, state?: string }): Promise<ConsoleTicket> {
   await auth(contextRequest(context), context.event)
-  return await issueConsoleTicket(context, "page.member", { path: pagePath(input.path).slice(1) }, input.qr ? { lifetime: qrLinkLifetime } : {})
+  const target = { path: pagePath(input.path).slice(1), ...(input.state ? { state: await stateHash(input.state) } : {}) }
+  return await issueConsoleTicket(context, "page.member", target, input.qr ? { lifetime: qrLinkLifetime } : {})
 }
 
 function readGrants(grants: readonly string[]): string[] {
