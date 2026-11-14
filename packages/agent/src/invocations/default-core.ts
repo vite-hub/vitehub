@@ -62,6 +62,12 @@ export interface DefaultAgentInvocationsOptions {
   d1?: DefaultAgentInvocationsD1
   /** Runtime env vars. Defaults to `process.env`. */
   env?: Readonly<Record<string, string | undefined>>
+  /**
+   * A `file:` Agent State URL. Without `databaseUrl` or the env var, the journal is `agent-invocations.sqlite` next to
+   * the State database. `VITEHUB_AGENT_STATE_URL` replaces it, as it does for State. A relative path resolves from
+   * the working directory, as State does.
+   */
+  stateUrl?: string
   observations?: AgentInvocationObservationOptions
   /**
    * Limits for terminal records. The SQLite and libSQL journal keeps every terminal record by default.
@@ -109,7 +115,15 @@ type DefaultAgentInvocationsTarget =
   | { kind: "d1", url: string }
   | { kind: "memory", url: "memory:" }
   | { authToken?: string, kind: "remote", url: string }
-  | { kind: "file", url?: string }
+  | { cwd?: true, kind: "file", url?: string }
+
+/** `agent-invocations.sqlite` in the directory of a `file:` State URL. Undefined for remote and in-memory State. */
+function besideStateUrl(stateUrl: string | undefined): { cwd?: true, url: string } | undefined {
+  const path = stateUrl && /^file:([^?#]*)/i.exec(stateUrl)?.[1]
+  if (!path || path === ":memory:" || /[?&]mode=memory(?:&|$)/.test(stateUrl)) return
+  const url = `file:${path.slice(0, path.lastIndexOf("/") + 1)}agent-invocations.sqlite`
+  return /^file:\//i.test(url) ? { url } : { cwd: true, url }
+}
 
 function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observations" | "retention">): DefaultAgentInvocationsTarget {
   const env = runtimeEnv(options)
@@ -125,13 +139,15 @@ function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observation
     if (url) throw agentDiagnostics.AGENT_R1029()
     return { kind: "memory", url: "memory:" }
   }
-  return { kind: "file", url }
+  const beside = url || !options.stateUrl ? undefined : besideStateUrl(env.VITEHUB_AGENT_STATE_URL?.trim() || options.stateUrl)
+  return beside ? { kind: "file", ...beside } : { kind: "file", url }
 }
 
 async function resolveTarget(projectRoot: string, target: DefaultAgentInvocationsTarget): Promise<DefaultAgentInvocationsLocation & { file?: string }> {
   if (target.kind !== "file") return target.kind === "remote" && target.authToken ? { authToken: target.authToken, url: target.url } : { url: target.url! }
   const { resolveLocalJournalFile } = await import("./default-file.ts")
-  return resolveLocalJournalFile(projectRoot, target.url)
+  // State opens a relative path from the working directory, so a journal next to it does too.
+  return resolveLocalJournalFile(target.cwd ? globalThis.process.cwd() : projectRoot, target.url)
 }
 
 /**

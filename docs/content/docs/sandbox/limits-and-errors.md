@@ -16,7 +16,7 @@ icon: i-lucide-circle-alert
 
 ## SANDBOX_R0165
 
-The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM` to `kill()`. On Vercel, pass `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL`, `SIGTERM`, `SIGCONT`, `SIGSTOP`, or a signal number.
+The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM` to `kill()`. On Vercel, pass `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL`, `SIGTERM`, `SIGCONT`, `SIGSTOP`, or a signal number. On Cloudflare, pass `SIGALRM`, `SIGHUP`, `SIGINT`, `SIGKILL`, `SIGQUIT`, `SIGTERM`, `SIGUSR1`, `SIGUSR2`, or a signal number.
 
 ## Cleanup failures
 

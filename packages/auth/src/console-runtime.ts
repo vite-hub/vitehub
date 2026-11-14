@@ -84,7 +84,8 @@ export interface AuthConsole {
   /**
    * The user that a host signs in without a password, such as a Console member or a guest that a member invited, with
    * `roles` added to the comma-separated `user.role` of Better Auth's `admin()` plugin. With `email`, an existing user
-   * keeps their account and gets the roles; without it, a new user gets a placeholder email. Needs `admin()` and a
+   * with that verified email keeps their account and gets the roles, and an unverified one is refused; without it, a new
+   * user gets a placeholder email. Needs `admin()` and a
    * database. Better Auth runs the app's `databaseHooks.user.create` for a new user.
    */
   hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
@@ -1221,6 +1222,9 @@ export function createAuthConsole(
     const ctx = await hostContext();
     const email = input.email?.trim().toLowerCase();
     const existing = email ? await find("user", equality("email", email)) : null;
+    // Anyone can sign up with an email they do not own. Only a verified address proves that the account is this person's.
+    if (existing && existing.emailVerified !== true)
+      throw new AuthConsoleError(403, `The app has an account with ${email}, and its email is not verified. Verify the email of that account, or delete the account, then open the site again.`);
     if (existing) {
       const roles = [...new Set([...roleList(existing.role || string(adminPlugin(ctx.options).settings.defaultRole) || "user"), ...input.roles])];
       await ctx.internalAdapter.updateUser(string(existing.id), { role: roles.join(",") });
@@ -1230,6 +1234,8 @@ export function createAuthConsole(
     const user = await ctx.internalAdapter.createUser(
       {
         email: email || `guest-${crypto.randomUUID()}@guests.invalid`,
+        // The host vouches for the email of its member, so the next sign-in from the host adopts this account.
+        emailVerified: Boolean(email),
         name: input.name,
         ...(input.image ? { image: input.image } : {}),
         role: roles.join(","),
