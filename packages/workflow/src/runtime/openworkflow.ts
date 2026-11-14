@@ -5,7 +5,7 @@ import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provi
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
-import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStartOptions, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
@@ -17,6 +17,7 @@ type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
 type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>> | ReturnType<OpenWorkflowSqliteModule["BackendSqlite"]["connect"]>
 type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
+type OpenWorkflowStepAttempt = Awaited<ReturnType<OpenWorkflowBackend["listStepAttempts"]>>["data"][number]
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
@@ -268,16 +269,54 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
   // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
   const result = (isSerializedResponse(run.output) ? deserializeResponse(run.output) : run.output) as TResult | undefined
   return {
+    ...(run.finishedAt ? { completedAt: run.finishedAt } : {}),
+    createdAt: run.createdAt,
+    ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     id: run.id,
     metadata: run.error || {
       namespaceId: run.namespaceId,
       version: run.version,
       workflowName: run.workflowName,
     },
+    payload: run.input,
     provider: "openworkflow",
     result,
     status: normalizeOpenWorkflowStatus(run.status),
   }
+}
+
+/** OpenWorkflow stores `name`, `message`, and `stack`. The stack has server paths, so the step keeps the message only. */
+function toWorkflowRunStepError(error: unknown): WorkflowRunStep["error"] {
+  const message: unknown = typeof error === "object" && error !== null ? Reflect.get(error, "message") : undefined
+  return { message: typeof message === "string" && message ? message : "Workflow step failed." }
+}
+
+/** OpenWorkflow stores one row per step attempt. A run reports each step once, with its latest attempt. */
+function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunStep[] {
+  const steps = new Map<string, WorkflowRunStep>()
+  for (const attempt of attempts) {
+    steps.set(attempt.stepName, {
+      attempt: (steps.get(attempt.stepName)?.attempt ?? 0) + 1,
+      ...(attempt.finishedAt ? { completedAt: attempt.finishedAt } : {}),
+      ...(attempt.status === "failed" ? { error: toWorkflowRunStepError(attempt.error) } : {}),
+      id: attempt.id,
+      name: attempt.stepName,
+      ...(attempt.startedAt ? { startedAt: attempt.startedAt } : {}),
+      status: normalizeOpenWorkflowStatus(attempt.status),
+    })
+  }
+  return [...steps.values()]
+}
+
+async function listOpenWorkflowStepAttempts(backend: OpenWorkflowBackend, workflowRunId: string): Promise<OpenWorkflowStepAttempt[]> {
+  const attempts: OpenWorkflowStepAttempt[] = []
+  let after: string | undefined
+  do {
+    const page = await backend.listStepAttempts({ workflowRunId, limit: 100, ...(after ? { after } : {}) })
+    attempts.push(...page.data)
+    after = page.pagination.next ?? undefined
+  } while (after)
+  return attempts
 }
 
 export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
@@ -322,15 +361,11 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   const runtime = await getOpenWorkflowRuntime(config)
   return await runWorkflowProviderOperation("openworkflow", "get", async () => {
     const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
-    const serialized = serializeOpenWorkflowRun(run, name)
-    return serialized.id
-      // SAFETY: The caller's Workflow Definition supplies the payload and result types retained by this provider run.
-      ? serialized as WorkflowRun<TPayload, TResult>
-      : {
-          id,
-          provider: "openworkflow" as const,
-          status: "unknown" as const,
-        }
+    if (!run) return { id, provider: "openworkflow" as const, status: "unknown" as const }
+    // SAFETY: The caller's Workflow Definition supplies the payload and result types retained by this provider run.
+    const serialized = serializeOpenWorkflowRun(run, name) as WorkflowRun<TPayload, TResult>
+    if (run.workflowName !== name) return serialized
+    return { ...serialized, steps: toWorkflowRunSteps(await listOpenWorkflowStepAttempts(runtime.backend, run.id)) }
   })
 }
 

@@ -34,12 +34,19 @@ import type { VercelRun, VercelStep, VercelWorkflowRuntime } from "../src/runtim
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
   const definitions = new Map<string, any>()
-  const connect = vi.fn(async (_url: string, _options?: unknown) => ({
+  // Other tests replace the backend with one that cannot list step attempts.
+  const connect = vi.fn(async (_url: string, _options?: unknown): Promise<{
+    getWorkflowRun: ReturnType<typeof vi.fn>
+    listStepAttempts?: ReturnType<typeof vi.fn>
+    stop: ReturnType<typeof vi.fn>
+  }> => ({
     getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
+    listStepAttempts: vi.fn(async () => ({ data: [], pagination: { next: null, prev: null } })),
     stop: vi.fn(),
   }))
   const sqliteConnect = vi.fn((_path: string, _options?: unknown) => ({
     getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
+    listStepAttempts: vi.fn(async () => ({ data: [], pagination: { next: null, prev: null } })),
     stop: vi.fn(),
   }))
   const newWorker = vi.fn((options?: unknown) => ({
