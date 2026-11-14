@@ -66,12 +66,12 @@ The [Console editor](/docs/content/console) and the [Content Agent Capability](/
 export default defineContent({
   extends: cms,
   collections: { posts },
-  // Editors do everything. Other signed-in users read drafts.
-  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
+  // Everyone reads /api/content/**. Editors do everything. Other signed-in users read drafts.
+  authorize: ({ user, action }) => action === 'read' || user?.role === 'editor' || (action === 'read-draft' && Boolean(user)),
 })
 ```
 
-`action` is `read` for drafts, `write` for save, remove, and restore, or `publish`. Published documents stay public through `/api/content/**`.
+`action` is `read` for a request to `/api/content/**`, `read-draft` for drafts, `write` for save, remove, and restore, or `publish`. With a policy, `/api/content/**` serves only the requests that it allows for `read`. The CMS roles allow `read` only to users with a role, so a site whose visitors read `/api/content/**` sets `access: 'public'`. The roles still decide `read-draft`, `write`, and `publish`.
 
 - [Access](/docs/content/configure#access) lists every field that `authorize` gets, and shows how to give Agents less access than their user.
 - [Give editors only the Content section](/docs/content/console#give-editors-only-the-content-section) keeps editors out of other Console sections.
