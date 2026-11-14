@@ -11,7 +11,7 @@ import type { SyncRow, SyncValues } from "./protocol.ts"
 import type { SyncStorage } from "./client/storage.ts"
 import type { SyncOptimisticAction, SyncStoreWithReset } from "./client/store.ts"
 import type { SyncOptions, SyncState, SyncStore } from "./client/types.ts"
-import type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
+import type { SyncActionsOf, SyncName, SyncRowOf, SyncSubsetOf } from "./types.ts"
 
 declare const __VITEHUB_APP_BASE_URL__: string | undefined
 
@@ -125,7 +125,7 @@ function createIdleStore<TRow, TArgs>(): SyncStore<TRow, TArgs> {
  * ```
  * @experimental
  */
-function createSync<TName extends SyncName>(name: TName, options: SyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>> = {}): SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>> {
+function createSync<TName extends SyncName>(name: TName, options: SyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>, SyncSubsetOf<TName>> = {}): SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>> {
   if (!isBrowser()) return createIdleStore()
   const url = routeOf(name, options.baseURL)
   const where: Record<string, unknown> = { ...options.where }
@@ -218,4 +218,4 @@ export { clearSync, createSync, SyncError }
 export { syncRoute } from "./protocol.ts"
 export type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
 export type { SyncActionCalls, SyncClientErrorCode, SyncFailure, SyncLocal, SyncOptimisticActions, SyncOptions, SyncState, SyncStatus, SyncStore, SyncWrite } from "./client/types.ts"
-export type { SyncActionsOf, SyncJsonRow, SyncName, SyncRowOf } from "./types.ts"
+export type { SyncActionsOf, SyncJsonRow, SyncName, SyncRowOf, SyncSubsetOf } from "./types.ts"

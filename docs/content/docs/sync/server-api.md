@@ -125,6 +125,8 @@ const comments = useSync('comments', { where: () => ({ issueId: String(route.par
 - A column of `subsets` narrows the rows.
 - A subset outside `where` gets 403 `SYNC_OUT_OF_SCOPE`. A subset on a column that is not in `subsets` or `where` gets 400 `SYNC_BAD_REQUEST`, and the message tells you to add it to `subsets`. A subset with a list, an object, or an unknown column gets 400 `SYNC_BAD_REQUEST` too.
 
+The generated types know `subsets`, so `useSync('comments', { where })` accepts only these columns, with the JSON type of each. A wrong column fails in the editor.
+
 Inserts in a subset get its values, like the single values of `where`. Each subset has its own scope id, cursor, and local copy. When a write changes a column of `subsets`, such as a comment that moves to another issue, the row leaves the subsets that held it.
 
 Each subset reads its rows with the column in the filter, so add an index on each column of `subsets`:

@@ -13,6 +13,7 @@ declare global {
   interface ViteHubSyncMap {
     todos: SyncDefinition<unknown, Todo, { complete: { id: string }, add: { id?: string, title: string } }>
     meetings: SyncDefinition<unknown, { id: string, at: Date, count: bigint }>
+    comments: SyncDefinition<unknown, { id: string, issueId: string, body: string }, Record<string, never>, "issueId">
   }
 }
 
@@ -35,6 +36,17 @@ test("useSync() and createSync() type rows, inserts and updates as JSON, so a Da
   meetings.insert({ at: new Date() })
   // @ts-expect-error The browser sends JSON, so a bigint column takes text.
   createSync("meetings").update("a", { count: 1n })
+})
+
+test("useSync() and createSync() take only the `subsets` columns in `where`", () => {
+  useSync("comments", { where: () => ({ issueId: "i1" }) })
+  createSync("comments", { where: { issueId: "i1" } })
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: { body: "x" } })
+  // @ts-expect-error `body` is not in `subsets`.
+  createSync("comments", { where: { body: "x" } })
+  // @ts-expect-error A subset value has the type of its column.
+  createSync("comments", { where: { issueId: 1 } })
 })
 
 test("useSync() and createSync() type the subset, the actions and their optimistic functions", () => {

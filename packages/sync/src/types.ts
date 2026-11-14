@@ -66,7 +66,7 @@ export type SyncActionFunction<TRow, TArgs> = (context: SyncActionContext<TRow>,
 export type SyncActions<TRow, TArgs> = { [TName in keyof TArgs]: SyncActionFunction<TRow, TArgs[TName]> }
 
 /** Options of `defineSync()`. `TTable` is a Drizzle SQLite table with one text primary key column. */
-export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TArgs = Record<string, never>> {
+export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TArgs = Record<string, never>, TSubset extends string = keyof TRow & string> {
   /** The Drizzle table to sync. */
   table: TTable
   /** The rows the caller may see and write. Required, so that no table is public by mistake. */
@@ -87,7 +87,7 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
    *
    * @experimental
    */
-  subsets?: readonly (keyof TRow & string)[]
+  subsets?: readonly TSubset[]
   /**
    * The user of a request, for apps with their own sign-in. It replaces the ViteHub Auth user: `where`, `write`, and
    * actions get this user. Return `null` for a visitor. Queued writes belong to the account of the caller, which is
@@ -106,9 +106,11 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
 }
 
 /** A Sync definition, the default export of `server/sync/<name>.ts`. */
-export interface SyncDefinition<TTable = unknown, TRow = InferSyncTableRow<TTable>, TArgs = Record<string, never>> {
+export interface SyncDefinition<TTable = unknown, TRow = InferSyncTableRow<TTable>, TArgs = Record<string, never>, TSubset extends string = keyof TRow & string> {
   readonly "~sync": true
-  readonly options: DefineSyncOptions<TTable, TRow, TArgs>
+  readonly options: DefineSyncOptions<TTable, TRow, TArgs, TSubset>
+  /** Types only: the columns of `subsets`. */
+  readonly "~subsets"?: TSubset
   /** Types only. */
   readonly "~row"?: TRow
   /** Types only: the arguments of each action, by name. */
@@ -123,6 +125,9 @@ export type InferSyncRow<TDefinition> = TDefinition extends { "~row"?: infer TRo
 
 /** The arguments of each action of a Sync definition, by action name. */
 export type InferSyncActions<TDefinition> = TDefinition extends { "~actions"?: infer TArgs } ? Exclude<TArgs, undefined> : never
+
+/** The columns of `subsets` of a Sync definition. */
+export type InferSyncSubsets<TDefinition> = TDefinition extends { "~subsets"?: infer TSubset } ? Exclude<TSubset, undefined> : never
 
 declare global {
   /**
@@ -144,6 +149,14 @@ export type SyncRowOf<TName extends string> = TName extends keyof ViteHubSyncMap
 
 /** The arguments of each action for a Sync name, by action name. Without the generated types, no action is known. */
 export type SyncActionsOf<TName extends string> = TName extends keyof ViteHubSyncMap ? InferSyncActions<ViteHubSyncMap[TName]> : Record<string, never>
+
+/**
+ * The `where` of `useSync(name, { where })`: values of the `subsets` columns, as JSON. Without the generated types, any
+ * column is accepted.
+ */
+export type SyncSubsetOf<TName extends string> = TName extends keyof ViteHubSyncMap
+  ? Partial<Pick<SyncRowOf<TName>, InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>>>
+  : Partial<SyncRowOf<TName>>
 
 /** A Sync name of the app, or any string when the map is empty. */
 export type SyncName = keyof ViteHubSyncMap extends never ? string : Extract<keyof ViteHubSyncMap, string>

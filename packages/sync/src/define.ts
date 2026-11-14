@@ -88,7 +88,7 @@ const actionName = /^[a-zA-Z]\w*$/
  * the server applies each write once, in order, as the authority. Put it in `server/sync/<name>.ts` as the default
  * export, and read it with `useSync("<name>")`.
  */
-export function defineSync<const TTable, TArgs = Record<string, never>>(options: DefineSyncOptions<TTable, InferSyncTableRow<TTable>, TArgs>): SyncDefinition<TTable, InferSyncTableRow<TTable>, TArgs> {
+export function defineSync<const TTable, TArgs = Record<string, never>, const TSubset extends keyof InferSyncTableRow<TTable> & string = never>(options: DefineSyncOptions<TTable, InferSyncTableRow<TTable>, TArgs, TSubset>): SyncDefinition<TTable, InferSyncTableRow<TTable>, TArgs, TSubset> {
   if (!options || typeof options !== "object") throw invalid("Pass an object with `table` and `where`.")
   const table = describeSyncTable(options.table)
   if (typeof options.where !== "function") throw invalid("`where` must be a function that returns the column values of the caller's rows, such as `({ user }) => user ? { ownerId: user.id } : false`. Return `{}` for every row.")
