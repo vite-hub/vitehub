@@ -451,6 +451,7 @@ The drivers are `auto`, `sqlite`, `libsql`, `cloudflare`, and `memory`. Only `au
 For hosted libSQL, declare the auth token with `env()`. ViteHub reads it at runtime and does not write it into the server bundle. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
 
 ```ts
+import { hubAgent } from "@vite-hub/agent/vite"
 import { env } from "@vite-hub/env"
 
 hubAgent({
