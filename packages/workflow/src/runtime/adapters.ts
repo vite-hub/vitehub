@@ -214,7 +214,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     },
     async run({ definition, event, id, name, options, payload }) {
       // Check in `vite dev` too, where the run can be inline, so the id fails before deployment.
-      if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_R0037({ id })
+      if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_CLOUDFLARE_RUN_ID_INVALID({ id })
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         resolveDispatchObserver(event)?.()

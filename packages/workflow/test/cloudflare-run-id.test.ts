@@ -46,7 +46,7 @@ it.each([
   const binding = cloudflareBinding("checkout")
 
   await expect(startWorkflow("checkout", { orderId: "1042" }, { id })).rejects.toMatchObject({
-    code: "WORKFLOW_R0037",
+    code: "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID",
     message: expect.stringContaining("up to 100 characters"),
   })
   expect(binding.createBatch).not.toHaveBeenCalled()
@@ -86,7 +86,7 @@ it("rejects the id in vite dev, where the run is inline", async () => {
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: {} } } } })
 
-  await expect(startWorkflow("checkout", {}, { id: "checkout:1042" })).rejects.toMatchObject({ code: "WORKFLOW_R0037" })
+  await expect(startWorkflow("checkout", {}, { id: "checkout:1042" })).rejects.toMatchObject({ code: "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID" })
 })
 
 it("derives a Cloudflare instance id from createWorkflow({ id }) for a long Workflow name", async () => {
