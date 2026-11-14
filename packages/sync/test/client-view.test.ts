@@ -176,7 +176,7 @@ describe("readError", () => {
     expect(readError(403, { code: "SYNC_FORBIDDEN", message: "No.", why: "No." })).toMatchObject({ code: "SYNC_FORBIDDEN", message: "No.", status: 403 })
     expect(readError(400, { code: "SYNC_INVALID", message: "Bad.", issues: [{ path: "title", message: "Short." }] })).toMatchObject({ issues: [{ path: "title", message: "Short." }] })
     expect(readError(401, "<html>")).toMatchObject({ code: "SYNC_UNAUTHORIZED", status: 401 })
-    expect(readError(409, undefined)).toMatchObject({ code: "SYNC_SCOPE_CHANGED" })
+    expect(readError(409, undefined)).toMatchObject({ code: "SYNC_ACCOUNT_CHANGED" })
     expect(readError(502, { code: "SYNC_BAD_REQUEST", message: "Proxy." })).toMatchObject({ code: "SYNC_SERVER_ERROR", status: 502 })
     expect(readError(418, { code: "NOT_SYNC" })).toMatchObject({ code: "SYNC_BAD_REQUEST", status: 418 })
   })

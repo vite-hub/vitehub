@@ -61,7 +61,7 @@ icon: i-lucide-refresh-cw
 | Subsets | `useSync('comments', { where: { issueId } })` syncs a part of the rows, with its own local copy, on the columns that `subsets` lists. A second visit shows it from the device. |
 | Actions | Named writes with server logic, such as `cards.actions.rate({ id, stars })`, on the same queue and change log as row writes. `refuse(message)` stops one. |
 | Live | One tab keeps a live stream open, so other people's changes show within about a second. |
-| Account guard | Each write keeps the account that made it. After a sign-in as another person, old writes wait until their account signs in again. An app with its own sign-in returns the user id from `account`. |
+| Account guard | Each write keeps the account that made it. After a sign-in as another person, old writes wait until their account signs in again. An app with its own sign-in returns the user from `identify`. |
 | Once only | Each write has an id. When an answer is lost and the client sends the write again, the server does not apply it twice. |
 | Fresh rows | The client pulls on start, when the page shows again, when the network comes back, and after each write, besides the live stream. Other tabs see a change at once. When the table changes, the browser drops its stored rows and keeps its queued writes. |
 | Inspection | `vitehub sync list` and `vitehub sync changes <name>`, and the `sync.list` and `sync.changes` operations. |
@@ -70,7 +70,7 @@ The client needs no framework. Vue gets `useSync()`, and other frameworks use th
 
 ## Sync, Database, or Realtime
 
-Does each person or team work on their own rows, and must the page work offline? Then use Sync. Does only server code read and write the table? Then use [Database](/docs/database). Do people send short messages or show who is online in a room? Then use [Realtime](/docs/realtime).
+Does each person or team work on their own rows in the browser? Then use Sync. Does only server code read and write the table? Then use [Database](/docs/database). Do people send short messages or show who is online in a room? Then use [Realtime](/docs/realtime).
 
 ## Next
 

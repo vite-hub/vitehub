@@ -12,11 +12,11 @@ import type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncWireError } fro
 type SyncStatus = "idle" | "loading" | "ready" | "offline" | "error"
 
 /**
- * The codes of a `SyncError`: the `SYNC_*` codes of the server, plus `SYNC_NETWORK` when no answer came, and
- * `SYNC_SERVER_ERROR` for a status of 500 or more.
+ * The codes of a `SyncError`: the `SYNC_*` codes of the server, plus `SYNC_NETWORK` when no answer came,
+ * `SYNC_SERVER_ERROR` for a status of 500 or more, and `SYNC_CLEARED` for a write that `clearSync()` dropped.
  * @experimental
  */
-type SyncClientErrorCode = SyncErrorCode | "SYNC_NETWORK" | "SYNC_SERVER_ERROR"
+type SyncClientErrorCode = SyncErrorCode | "SYNC_NETWORK" | "SYNC_SERVER_ERROR" | "SYNC_CLEARED"
 
 /**
  * An error of a pull, a push, or one write. A refused write rejects with it.

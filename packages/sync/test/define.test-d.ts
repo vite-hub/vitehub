@@ -1,11 +1,26 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { blob, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { expectTypeOf, it } from "vitest"
 
 import { defineSync } from "../src/index.ts"
 
-import type { InferSyncActions, InferSyncRow, SyncRowOf } from "../src/index.ts"
+import type { InferSyncActions, InferSyncRow, SyncDefinition, SyncJsonRow, SyncRowOf } from "../src/index.ts"
 
 const todos = sqliteTable("todos", { id: text("id").primaryKey(), ownerId: text("owner_id").notNull(), done: integer("done", { mode: "boolean" }).notNull() })
+
+const events = sqliteTable("events", {
+  id: text("id").primaryKey(),
+  at: integer("at", { mode: "timestamp" }).notNull(),
+  endsAt: integer("ends_at", { mode: "timestamp_ms" }),
+  count: blob("count", { mode: "bigint" }).notNull(),
+  tags: text("tags", { mode: "json" }).$type<string[]>().notNull(),
+  done: integer("done", { mode: "boolean" }).notNull(),
+})
+
+declare global {
+  interface ViteHubSyncMap {
+    events: SyncDefinition<typeof events>
+  }
+}
 
 it("infers the row from the table", () => {
   const definition = defineSync({
@@ -44,4 +59,10 @@ it("infers the arguments of each action from its annotation", () => {
     // @ts-expect-error `update` takes columns of the table.
     actions: { wrong: ({ update }, { id }: { id: string }) => update(id, { color: "red" }) },
   })
+})
+
+it("types the browser row as JSON: a Date and a bigint arrive as text", () => {
+  interface EventJson { id: string, at: string, endsAt: string | null, count: string, tags: string[], done: boolean }
+  expectTypeOf<SyncJsonRow<typeof events.$inferSelect>>().toEqualTypeOf<EventJson>()
+  expectTypeOf<SyncRowOf<"events">>().toEqualTypeOf<EventJson>()
 })

@@ -26,10 +26,14 @@ export const syncChanges = sqliteTable("vitehub_sync_changes", {
   index("vitehub_sync_changes_seq").on(table.name, table.seq),
 ])
 
-/** The ids of the applied mutations, so that a retried push applies each mutation once. */
+/**
+ * The ids of the applied mutations, so that a retried push applies each mutation once. `result` is the JSON return
+ * value of an action, so a retry gets the same result.
+ */
 export const syncMutations = sqliteTable("vitehub_sync_mutations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  result: text("result"),
   createdAt: integer("created_at").notNull(),
 }, table => [
   index("vitehub_sync_mutations_created").on(table.createdAt),
@@ -51,7 +55,7 @@ export const syncTables: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS `vitehub_sync_changes` (`seq` integer PRIMARY KEY AUTOINCREMENT, `name` text NOT NULL, `key` text NOT NULL, `op` text NOT NULL, `row` text, `created_at` integer NOT NULL)",
   "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_sync_changes_put` ON `vitehub_sync_changes` (`name`,`key`) WHERE op = 'put'",
   "CREATE INDEX IF NOT EXISTS `vitehub_sync_changes_seq` ON `vitehub_sync_changes` (`name`,`seq`)",
-  "CREATE TABLE IF NOT EXISTS `vitehub_sync_mutations` (`id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `created_at` integer NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_sync_mutations` (`id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `result` text, `created_at` integer NOT NULL)",
   "CREATE INDEX IF NOT EXISTS `vitehub_sync_mutations_created` ON `vitehub_sync_mutations` (`created_at`)",
   "CREATE TABLE IF NOT EXISTS `vitehub_sync_state` (`name` text PRIMARY KEY NOT NULL, `floor` integer NOT NULL)",
 ]

@@ -3,7 +3,8 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { SyncKey } from "./protocol.ts"
 
 /**
- * The caller of a Sync request. `user` and `session` come from ViteHub Auth when the app has it, else they are `null`.
+ * The caller of a Sync request. `user` comes from `identify` when the definition has it, else from ViteHub Auth when the
+ * app has it, else it is `null`. `session` is the ViteHub Auth session, or `null`.
  */
 export interface SyncContext {
   request: Request
@@ -71,8 +72,9 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
   /** The rows the caller may see and write. Required, so that no table is public by mistake. */
   where: SyncWhere<TRow>
   /**
-   * Who may write. `true` (the default) lets the caller write every row it can see. `false` makes the table read-only
-   * in the browser; actions still run. A function decides for each write.
+   * Who may write. Without this option, a signed-in caller may write every row it can see, and a caller without a user
+   * may not write (`SYNC_FORBIDDEN`). `true` lets every caller write every row it can see, also visitors. `false` makes
+   * the table read-only in the browser; actions still run. A function decides for each write.
    */
   write?: boolean | ((context: SyncWriteContext<TRow>) => boolean | Promise<boolean>)
   /** Checks the whole row on insert and update, on the server. */
@@ -87,14 +89,13 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
    */
   subsets?: readonly (keyof TRow & string)[]
   /**
-   * The caller's own account. Return the caller's user id when the app has its own sign-in, not ViteHub Auth. Queued
-   * writes belong to the account, and the server refuses writes of another account with `SYNC_SCOPE_CHANGED`. Without
-   * this option, the account is `user.id` from ViteHub Auth, else the scope of `where`, which changes when the caller
-   * joins or leaves a team. Return `null` for a caller without an account: the scope is then the account.
+   * The user of a request, for apps with their own sign-in. It replaces the ViteHub Auth user: `where`, `write`, and
+   * actions get this user. Return `null` for a visitor. Queued writes belong to the account of the caller, which is
+   * `user.id`, else the scope of `where`. The server refuses writes of another account with `SYNC_ACCOUNT_CHANGED`.
    *
    * @experimental
    */
-  account?: (context: SyncContext) => string | null | Promise<string | null>
+  identify?: (context: { request: Request }) => SyncUser | null | Promise<SyncUser | null>
   /** Named writes with server logic, called from the browser as `todos.actions.<name>(args)`. */
   actions?: SyncActions<TRow, TArgs>
   /**
@@ -102,8 +103,6 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
    * pulls on focus, on reconnect, on a timer and after writes.
    */
   live?: boolean
-  /** The ViteHub Database that holds `table`. Defaults to `"default"`. */
-  database?: string
 }
 
 /** A Sync definition, the default export of `server/sync/<name>.ts`. */
@@ -134,8 +133,14 @@ declare global {
   interface ViteHubSyncMap {}
 }
 
-/** The row type for a Sync name. */
-export type SyncRowOf<TName extends string> = TName extends keyof ViteHubSyncMap ? InferSyncRow<ViteHubSyncMap[TName]> : Record<string, unknown>
+/** A column value as JSON sends it: a `Date` becomes its ISO text, and a `bigint` its decimal text. */
+export type SyncJsonValue<TValue> = TValue extends Date | bigint ? string : TValue
+
+/** A Drizzle row as the browser gets it and sends it over JSON. */
+export type SyncJsonRow<TRow> = { [TColumn in keyof TRow]: SyncJsonValue<TRow[TColumn]> }
+
+/** The row type for a Sync name, as the browser gets it over JSON. */
+export type SyncRowOf<TName extends string> = TName extends keyof ViteHubSyncMap ? SyncJsonRow<InferSyncRow<ViteHubSyncMap[TName]>> : Record<string, unknown>
 
 /** The arguments of each action for a Sync name, by action name. Without the generated types, no action is known. */
 export type SyncActionsOf<TName extends string> = TName extends keyof ViteHubSyncMap ? InferSyncActions<ViteHubSyncMap[TName]> : Record<string, never>

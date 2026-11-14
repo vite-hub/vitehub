@@ -1,4 +1,4 @@
-import { isSyncDefinition } from "./define.ts"
+import { describeSyncTable, isSyncDefinition } from "./define.ts"
 import { syncErrors } from "./errors.ts"
 import { handleSyncRequest, recordChanges } from "./handler.ts"
 import { wakeLiveStreams } from "./live.ts"
@@ -11,15 +11,15 @@ import type { SyncDefinition } from "./types.ts"
 export { handleSyncRequest } from "./handler.ts"
 export type { SyncCaller, SyncChanges, SyncServices } from "./handler.ts"
 
-/** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
-export type SyncDatabaseRegistry = Record<string, { db: unknown } | undefined>
-
 /** What the generated route of a ViteHub app passes. */
 export interface SyncRuntimeOptions {
   /** The default export of each `server/sync/<name>.ts`, by name. */
   definitions: Record<string, unknown>
-  /** The Database registry. Each definition uses its `database`, else `default`. */
-  databases: SyncDatabaseRegistry
+  /**
+   * The default Database of the app, else its only one, as `useDatabase().db` of `@vite-hub/database/runtime/registry`
+   * gives it. Every definition uses it. A function, because the Database can connect for each request, as D1 does.
+   */
+  db: () => unknown
   /** The signed-in caller of a request, from ViteHub Auth. */
   session?: (request: Request) => Promise<SyncCaller | null>
 }
@@ -46,11 +46,9 @@ function hasBatch(db: unknown): db is SyncDatabase {
   return typeof Reflect.get(Object(db), "batch") === "function"
 }
 
-function selectDatabase(databases: SyncDatabaseRegistry, name: string): SyncDatabase {
-  const db = databases[name]?.db
-  if (!db) throw syncErrors.SYNC_NO_DATABASE({ message: `[vitehub] Sync has no Database named ${JSON.stringify(name)}.` })
+function selectDatabase(db: unknown): SyncDatabase {
   if (!hasBatch(db)) {
-    throw syncErrors.SYNC_NO_DATABASE({ message: `[vitehub] The Database ${JSON.stringify(name)} has no atomic \`batch()\`. Sync supports SQLite Databases (libSQL, D1, and the local default) only. Postgres support comes later.` })
+    throw syncErrors.SYNC_NO_DATABASE({ message: "[vitehub] The Database of Sync has no atomic `batch()`. Sync supports SQLite Databases (libSQL, D1, and the local default) only. Postgres support comes later." })
   }
   return db
 }
@@ -61,16 +59,24 @@ function selectDatabase(databases: SyncDatabaseRegistry, name: string): SyncData
  */
 export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
   const definitions = new Map<string, SyncDefinition>()
+  // The change log is kept by Sync name, so two names on one table would not see each other's writes.
+  const tables = new Map<string, string>()
   for (const [name, definition] of Object.entries(options.definitions)) {
     if (!isSyncDefinition(definition)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
+    const table = describeSyncTable(definition.options.table).name
+    const other = tables.get(table)
+    if (other !== undefined) {
+      throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${other} and server/sync/${name} both sync the table "${table}". Use one definition whose \`where\` returns different values for each kind of caller.` })
+    }
+    tables.set(table, name)
     definitions.set(name, definition)
   }
-  const db = (name: string) => selectDatabase(options.databases, definitions.get(name)?.options.database ?? "default")
+  const db = () => selectDatabase(options.db())
   // One services object for each definition, so compaction runs at most once an hour for each name in this process,
   // and its `db` function is the key that wakes the live streams of the name.
   const services = new Map<string, SyncServices>()
   for (const name of definitions.keys()) {
-    services.set(name, { db: () => db(name), ...(options.session ? { identify: options.session } : {}) })
+    services.set(name, { db: () => db(), ...(options.session ? { identify: options.session } : {}) })
   }
   const wake = (name: string) => {
     const found = services.get(name)

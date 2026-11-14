@@ -9,7 +9,7 @@ import type { SyncClientErrorCode, SyncLocal } from "./types.ts"
 const wireCodes = {
   SYNC_UNAUTHORIZED: true,
   SYNC_FORBIDDEN: true,
-  SYNC_SCOPE_CHANGED: true,
+  SYNC_ACCOUNT_CHANGED: true,
   SYNC_READ_ONLY: true,
   SYNC_INVALID: true,
   SYNC_NOT_FOUND: true,
@@ -280,7 +280,7 @@ function readIssues(value: unknown): { path?: string, message: string }[] | unde
 const statusCodes: Record<number, SyncErrorCode> = {
   401: "SYNC_UNAUTHORIZED",
   403: "SYNC_FORBIDDEN",
-  409: "SYNC_SCOPE_CHANGED",
+  409: "SYNC_ACCOUNT_CHANGED",
   413: "SYNC_TOO_MANY_MUTATIONS",
 }
 

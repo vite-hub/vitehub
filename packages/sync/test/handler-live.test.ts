@@ -132,7 +132,7 @@ describe("live", () => {
 it("wakes a stream of the installed handler at once after recordSyncChanges()", async () => {
   const app = await setup(undefined)
   // The installed handler checks the change log every second, and has its own services object, as in a ViteHub app.
-  const handler = createSyncHandler({ definitions: { notes: app.definition }, databases: { default: { db: app.db } }, session: app.services.identify! })
+  const handler = createSyncHandler({ definitions: { notes: app.definition }, db: () => app.db, session: app.services.identify! })
   const held = await app.start(alice)
   const controller = new AbortController()
   const url = new URL(`/api/_vitehub/sync/notes?live=1&cursor=${held.cursor}&scope=${held.scope}&version=${held.version}`, "https://app.test")

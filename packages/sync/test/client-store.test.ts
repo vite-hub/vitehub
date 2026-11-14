@@ -433,13 +433,13 @@ describe("accounts", () => {
     const { store } = h.open()
     await store.refresh()
     const fetch: typeof globalThis.fetch = async (input, init) => init?.method === "POST"
-      ? new Response(JSON.stringify({ code: "SYNC_SCOPE_CHANGED", message: "Another account." }), { status: 409 })
+      ? new Response(JSON.stringify({ code: "SYNC_ACCOUNT_CHANGED", message: "Another account." }), { status: 409 })
       : h.server.fetch(input, init)
     const tab = h.open({ fetch, storage: createMemoryStorage() })
     await tab.store.refresh()
     tab.store.insert({ title: "Milk" })
     await until(() => tab.store.getState().status === "error")
-    expect(tab.store.getState()).toMatchObject({ queued: 1, failures: [], error: { code: "SYNC_SCOPE_CHANGED" } })
+    expect(tab.store.getState()).toMatchObject({ queued: 1, failures: [], error: { code: "SYNC_ACCOUNT_CHANGED" } })
   })
 })
 

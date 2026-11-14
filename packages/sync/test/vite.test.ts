@@ -42,10 +42,11 @@ describe("discoverSync", () => {
 })
 
 describe("renderSyncHandler", () => {
-  it("passes the Database registry, and the session only with Auth", () => {
+  it("passes the default or only Database, and the session only with Auth", () => {
     const definitions = [{ name: "todos", file: "/app/server/sync/todos.ts" }]
     const bare = renderSyncHandler(definitions, { imports })
-    expect(bare).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
+    expect(bare).toContain("import { useDatabase } from \"@vite-hub/database/runtime/registry\"")
+    expect(bare).toContain("db: () => useDatabase().db")
     expect(bare).toContain("import sync0 from \"/app/server/sync/todos.ts\"")
     expect(bare).toContain("definitions: { \"todos\": sync0 }")
     expect(bare).not.toContain("useAuth")

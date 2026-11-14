@@ -14,15 +14,14 @@ icon: i-lucide-code
 | --- | --- | --- |
 | `table` | required | A Drizzle SQLite table with one primary key column of text type. |
 | `where` | required | `({ request, user, session }) => values \| {} \| false`. The rows that the caller may see. See below. |
-| `write` | `true` | `false` makes the table read-only in the browser. Actions still run. A function `({ request, user, session, op, row }) => boolean` decides each write. `row` is the row after the write, or the deleted row. |
+| `write` | users only | Without it, a caller with a user writes every row it can see, and a visitor gets `SYNC_FORBIDDEN`. `true` lets visitors write too. `false` makes the table read-only in the browser. Actions still run. A function `({ request, user, session, op, row }) => boolean` decides each write. `row` is the row after the write, or the deleted row. |
 | `schema` | none | A Standard Schema, such as Valibot or Zod. The server checks the whole row after each insert and update. |
 | `subsets` | none | The columns that the browser may load a part of the rows by, such as `['issueId']`. See [Subsets](#subsets). |
-| `account` | Auth's `user.id` | `({ request, user, session }) => id \| null`. The caller's own user id, when the app has its own sign-in. See [Account and team changes](#account-and-team-changes). |
+| `identify` | Auth's user | `({ request }) => user \| null`. The caller's user, when the app has its own sign-in. It replaces the Auth user. See [Account and team changes](#account-and-team-changes). |
 | `actions` | none | Named writes with server logic. See [Actions](#actions). |
 | `live` | `true` | `false` turns off [live pulls](#live-pulls) for this table. |
-| `database` | `"default"` | The [Database](/docs/database) that holds `table`. |
 
-`user` and `session` come from [Auth](/docs/auth) when the app has it, else they are `null`.
+`user` comes from `identify`, else from [Auth](/docs/auth) when the app has it, else it is `null`. `session` is the Auth session, or `null`. Sync keeps its tables and reads `table` in the default [Database](/docs/database), else in the only one. Two definitions cannot sync the same table: the server does not start, with `SYNC_INVALID_DEFINITION`. Use one definition whose `where` returns different values for each kind of caller.
 
 ### `where`
 
@@ -74,10 +73,10 @@ The server records the row as it is when the write applies, not as the writer re
 
 Each pull has an `account`: a fingerprint of the user id. The browser keeps each write with the account that made it.
 
-- A push of another account, such as after a sign-in as another person, gets 409 `SYNC_SCOPE_CHANGED` and writes nothing. The browser keeps those writes for when that account signs in again.
+- A push of another account, such as after a sign-in as another person, gets 409 `SYNC_ACCOUNT_CHANGED` and writes nothing. The browser keeps those writes for when that account signs in again.
 - A push of the same account after the user joined or left a team applies under the current `where`, and the pull in the answer is a full snapshot.
 
-The user id comes from [Auth](/docs/auth). When your app has its own sign-in, return the caller's user id from `account`. Without it, the account is the scope of `where`: it changes when the caller joins or leaves a team, and the browser then holds back its queued writes. In development, the server warns once when `where` returns a list and there is no user and no `account`.
+The user comes from [Auth](/docs/auth). When your app has its own sign-in, return the caller's user from `identify`. `where`, `write`, and actions then get this user. Without a user, the account is the scope of `where`: it changes when the caller joins or leaves a team, and the browser then holds back its queued writes. In development, the server warns once when `where` returns a list and there is no user.
 
 ```ts [server/sync/projects.ts] fragment
 import { defineSync } from 'vite-hub/sync'
@@ -86,16 +85,16 @@ import { projects } from '../databases/default'
 
 export default defineSync({
   table: projects,
-  where: async ({ request }) => {
-    const session = await getSession(request)
-    return session ? { teamId: session.teamIds } : false
-  },
   // The app's own sign-in: the account stays the same when the person joins a team
-  account: async ({ request }) => (await getSession(request))?.userId ?? null,
+  identify: async ({ request }) => {
+    const session = await getSession(request)
+    return session ? { id: session.userId, teamIds: session.teamIds } : null
+  },
+  where: ({ user }) => user ? { teamId: user.teamIds as string[] } : false,
 })
 ```
 
-`null` makes the scope the account, as for a visitor.
+Return `null` for a visitor.
 
 ## Subsets
 
@@ -187,10 +186,11 @@ Rules:
 - Call `refuse(message)` to refuse the action. It needs no import. Do not import `createError` from `h3` for this: a pnpm app often cannot import `h3`, because it is not a direct dependency.
 - A thrown error refuses the action too, with `SYNC_ACTION_REFUSED`. The message of the error goes to the browser when it is a ViteHub error, an error with an HTTP `status` below 500, or a schema error with `issues` (such as from `v.parse()`). Any other error gives "The action failed.", and the server log gets the error and its stack.
 - One refused write, such as an insert into a team the caller is not in, refuses the whole action with the code of that write.
-- `write: false` does not stop actions.
-- An action id applies once. A retry with the same id is a `duplicate`, and the action does not run again.
+- `write: false` does not stop actions. Without `write`, the writes of a visitor's action are refused with `SYNC_FORBIDDEN`, as browser writes are.
+- An action id applies once. A retry with the same id is a `duplicate`, the action does not run again, and the browser gets the result of the first run. The server keeps write ids and results for 7 days.
+- The action function can run more than once for one call: when another write changes a row that the action read before its writes apply, the server runs it again, up to 3 times. Only its writes apply once. Put effects outside its writes, such as an email, in a [Queue](/docs/queue) job.
 - The return value goes to the browser as JSON. A value that has no JSON form, such as a function, is left out.
-- Reads and writes are not one transaction: D1 has no interactive transactions. When two callers change one row at the same time, the last write wins.
+- Reads and writes are not one transaction: D1 has no interactive transactions. The writes apply only when the rows that the action read did not change, else the action runs again.
 - Call `insert`, `update`, and `delete` before the action returns. A call after it returns throws.
 
 ## Live pulls
@@ -265,12 +265,12 @@ Both read the `sync.list` and `sync.changes` operations, which the Console and A
 
 ## Tables
 
-Sync adds three tables to the Database of each definition:
+Sync adds three tables to the default Database, else the only one:
 
 | Table | Holds |
 | --- | --- |
 | `vitehub_sync_changes` | The newest change of each key, with its cursor. For each delete or move, an exit with the row as it was before, to check who may learn about it. |
-| `vitehub_sync_mutations` | The ids of applied writes and actions, so each applies once. |
+| `vitehub_sync_mutations` | The ids of applied writes and actions, so each applies once, and the result of each action. |
 | `vitehub_sync_state` | The oldest cursor that the server still keeps for each name. |
 
 The server removes write ids after 7 days and exits after 30 days. A browser with an older cursor gets every row again.

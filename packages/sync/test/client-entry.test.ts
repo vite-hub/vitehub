@@ -58,7 +58,7 @@ describe("createSync in the browser", () => {
     await until(() => store.getState().queued === 1)
     await clearSync()
     expect(store.getState()).toMatchObject({ rows: [], queued: 0, failures: [] })
-    await expect(write).rejects.toMatchObject({ code: "SYNC_SCOPE_CHANGED" })
+    await expect(write).rejects.toMatchObject({ code: "SYNC_CLEARED" })
     server.offline = false
     server.user = "bob"
     await store.refresh()

@@ -19,16 +19,20 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
       fix: "Sign in, then pull again. To make the table public, return `{}` from `where`.",
     },
     SYNC_FORBIDDEN: {
-      why: ({ reason }: { reason: "where" | "write" | "origin" }) => ({
+      why: ({ reason }: { reason: "where" | "write" | "visitor" | "origin" }) => ({
         where: "`where` of this Sync definition refused the signed-in caller.",
         write: "`write` of this Sync definition refused the write.",
+        visitor: "The caller is not signed in, and this Sync definition lets only signed-in callers write. Sign in, or set `write: true` to let visitors write.",
         origin: "The push came from another origin. Only pages of the app may write.",
       })[reason],
-      fix: ({ reason }: { reason: "where" | "write" | "origin" }) => reason === "origin"
-        ? "Send the push from a page of the app. Behind a proxy, forward `X-Forwarded-Proto` and `X-Forwarded-Host`."
-        : "Check the `where` and `write` functions of `server/sync/<name>.ts` for this user.",
+      fix: ({ reason }: { reason: "where" | "write" | "visitor" | "origin" }) => ({
+        where: "Check the `where` and `write` functions of `server/sync/<name>.ts` for this user.",
+        write: "Check the `where` and `write` functions of `server/sync/<name>.ts` for this user.",
+        visitor: "Sign in, then write again. To let visitors write, set `write: true` in `server/sync/<name>.ts`.",
+        origin: "Send the push from a page of the app. Behind a proxy, forward `X-Forwarded-Proto` and `X-Forwarded-Host`.",
+      })[reason],
     },
-    SYNC_SCOPE_CHANGED: {
+    SYNC_ACCOUNT_CHANGED: {
       why: "The writes were made for another account, such as before a sign-in as another user. The server wrote nothing.",
       fix: "Keep the writes for their account and send them when that account signs in again. Call `clearSync()` on sign-out to drop them.",
     },
@@ -77,6 +81,10 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
     SYNC_BROWSER_ONLY: {
       why: "Sync writes run in the browser only, and this write ran on the server.",
       fix: "Call `insert`, `update`, `delete`, and `retry` from an event handler or after mount.",
+    },
+    SYNC_CLEARED: {
+      why: "`clearSync()` dropped this write before the server confirmed it.",
+      fix: "Call `clearSync()` on sign-out only, after the writes that must reach the server resolved.",
     },
     SYNC_STORE_DESTROYED: {
       why: ({ name }: { name: string }) => `The Sync store ${JSON.stringify(name)} was destroyed.`,

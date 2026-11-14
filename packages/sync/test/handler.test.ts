@@ -113,7 +113,7 @@ describe("pull", () => {
 
     // 520 rows that server code wrote, with a few of another owner in between.
     await app.db.insert(todos).values(Array.from({ length: 520 }, (_, index) => ({ id: `s${String(index).padStart(3, "0")}`, ownerId: index % 50 === 0 ? "bob" : "alice", title: "y" })))
-    await createSyncHandler({ definitions: { todos: app.definition }, databases: { default: { db: app.db } } })
+    await createSyncHandler({ definitions: { todos: app.definition }, db: () => app.db })
     const [error, recorded] = await recordSyncChanges("todos", { put: Array.from({ length: 520 }, (_, index) => `s${String(index).padStart(3, "0")}`) })
     expect(error).toBeUndefined()
     expect(recorded).toEqual({ recorded: 520 })
@@ -128,7 +128,7 @@ describe("pull", () => {
 
   it("shows writes that server code recorded with recordSyncChanges()", async () => {
     const app = await setup()
-    createSyncHandler({ definitions: { todos: app.definition }, databases: { default: { db: app.db } } })
+    createSyncHandler({ definitions: { todos: app.definition }, db: () => app.db })
     const alice = await app.start("alice")
     const bob = await app.start("bob")
     await app.db.insert(todos).values({ id: "srv", ownerId: "alice", title: "From the server" })
@@ -254,7 +254,7 @@ describe("push", () => {
     // Writes that a client queued while Bob was signed in, sent after Alice signed in.
     const { status, body } = await app.push("alice", { ...as(bob), mutations: [insert("m1", { id: "b1", title: "Bob's note" })] })
     expect(status).toBe(409)
-    expect(body.code).toBe("SYNC_SCOPE_CHANGED")
+    expect(body.code).toBe("SYNC_ACCOUNT_CHANGED")
     expect(await app.rows()).toEqual([])
     expect(await app.db.select().from(syncMutations)).toEqual([])
     expect(await app.db.select().from(syncChanges)).toEqual([])
@@ -289,6 +289,29 @@ describe("push", () => {
     expect(body.results[2]).toMatchObject({ status: "rejected", error: { code: "SYNC_FORBIDDEN" } })
     expect(body.results[3]).toMatchObject({ status: "rejected", error: { code: "SYNC_FORBIDDEN" } })
     expect((await checked.rows()).map(row => row.id)).toEqual(["a1"])
+  })
+
+  it("refuses writes of a visitor without `write`, also the writes of an action, and allows them with `write: true`", async () => {
+    const closed = await setup({ where: () => ({}), actions: { add: ({ insert }, args: { id: string }) => void insert({ id: args.id, ownerId: "v", title: "From an action" }) } })
+    const visitor = await closed.start(null)
+    const { body } = await closed.push(null, { ...as(visitor), mutations: [insert("m1", { id: "v1", ownerId: "v", title: "x" }), { id: "m2", op: "action", name: "add", args: { id: "v2" } }] })
+    expect(body.results).toEqual([
+      { id: "m1", status: "rejected", error: expect.objectContaining({ code: "SYNC_FORBIDDEN", message: expect.stringContaining("set `write: true` to let visitors write") }) },
+      { id: "m2", status: "rejected", error: expect.objectContaining({ code: "SYNC_FORBIDDEN" }) },
+    ])
+    const alice = await closed.start("alice")
+    expect((await closed.push("alice", { ...as(alice), mutations: [insert("m3", { id: "a1", ownerId: "alice", title: "x" })] })).body.results).toEqual([{ id: "m3", status: "applied" }])
+    expect((await closed.rows()).map(row => row.id)).toEqual(["a1"])
+
+    const open = await setup({ where: () => ({}), write: true })
+    const guest = await open.start(null)
+    expect((await open.push(null, { ...as(guest), mutations: [insert("m1", { id: "v1", ownerId: "v", title: "x" })] })).body.results).toEqual([{ id: "m1", status: "applied" }])
+  })
+
+  it("does not start when two definitions sync the same table", async () => {
+    const app = await setup()
+    const everyone = defineSync({ table: todos, where: () => ({}), write: false })
+    expect(() => createSyncHandler({ definitions: { todos: app.definition, everyone }, db: () => app.db })).toThrow(expect.objectContaining({ code: "SYNC_INVALID_DEFINITION", message: expect.stringContaining("both sync the table \"todos\". Use one definition whose `where` returns different values") }))
   })
 
   it("refuses cross-site, oversized, and malformed pushes", async () => {

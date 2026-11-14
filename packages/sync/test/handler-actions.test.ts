@@ -123,6 +123,17 @@ describe("actions", () => {
     expect((await app.db.select().from(syncMutations)).map(row => row.id)).toEqual(["m1"])
   })
 
+  it("answers a duplicate of an action with the result of its first run", async () => {
+    const app = await setup()
+    await app.db.insert(cards).values({ id: "c1", teamId: "a", title: "Card", rating: 4, reviews: 1 })
+    const held = await app.start(dave)
+    const push = async () => (await app.push(dave, { ...as(held), mutations: [action("m1", "rate", { id: "c1", rating: 2 })] })).body.results
+    expect(await push()).toEqual([{ id: "m1", status: "applied", result: { average: 3 } }])
+    // The answer was lost, and the client sends the action again.
+    expect(await push()).toEqual([{ id: "m1", status: "duplicate", result: { average: 3 } }])
+    expect(await app.rows()).toMatchObject([{ rating: 6, reviews: 2 }])
+  })
+
   it("keeps the key that the client passed, and answers a second run of the same id with duplicate", async () => {
     const app = await setup()
     const held = await app.start(dave)

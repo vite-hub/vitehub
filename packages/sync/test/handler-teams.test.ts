@@ -131,40 +131,52 @@ describe("team scopes", () => {
 
     // Another person on the same device: the writes stay out.
     const other = await app.push({ user: "bob", teams: ["a"] }, { ...as(before), mutations: [insert("m2", { id: "i2", teamId: "a", title: "x" })] })
-    expect(other).toMatchObject({ status: 409, body: { code: "SYNC_SCOPE_CHANGED" } })
+    expect(other).toMatchObject({ status: 409, body: { code: "SYNC_ACCOUNT_CHANGED" } })
     expect((await app.rows()).map(row => row.id)).toEqual(["i1"])
   })
 })
 
-describe("accounts of apps with their own sign-in", () => {
-  /** An app that reads the user and the teams from its own session: here, from headers. */
-  async function ownSignIn(name: string, account?: DefineSyncOptions<typeof issues>["account"]) {
+describe("users of apps with their own sign-in", () => {
+  /** An app that reads the teams from its own session: here, from headers. */
+  async function ownSignIn(name: string, options: Partial<DefineSyncOptions<typeof issues>> = {}) {
     const definition = defineSync({
       table: issues,
       where: ({ request }) => ({ teamId: (request.headers.get("x-app-teams") ?? "").split(",").filter(Boolean) }),
-      ...(account ? { account } : {}),
+      ...options,
     })
     return await createHarness({ name, definition, ddl: [ddl] })
   }
   const session = (user: string, teams: string) => ({ "x-app-user": user, "x-app-teams": teams })
+  const identify = ({ request }: { request: Request }) => {
+    const id = request.headers.get("x-app-user")
+    return id ? { id, teams: (request.headers.get("x-app-teams") ?? "").split(",") } : null
+  }
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it("keeps the account of the `account` option when the caller joins a team", async () => {
+  it("gives `where` and `write` the user of `identify`, and keeps its account when the caller joins a team", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const app = await ownSignIn("own-account", ({ request }) => request.headers.get("x-app-user"))
-    const held = await app.start(null, undefined, session("u1", "a"))
+    const writers: unknown[] = []
+    const app = await ownSignIn("own-user", {
+      identify,
+      where: ({ user }) => user ? { teamId: teamsOf(user) } : false,
+      write: ({ user }) => (writers.push(user?.id), true),
+    })
+    // The ViteHub Auth user of the harness (`x-user`) is replaced.
+    const held = await app.start("auth-user", undefined, session("u1", "a"))
     expect(held.account).toBe(await fingerprint("account\nu1"))
-    const joined = await app.push(null, { ...as(held), cursor: held.cursor, mutations: [insert("m1", { id: "i1", teamId: "b", title: "In b" })] }, session("u1", "a,b"))
+    const joined = await app.push("auth-user", { ...as(held), cursor: held.cursor, mutations: [insert("m1", { id: "i1", teamId: "b", title: "In b" })] }, session("u1", "a,b"))
     expect(joined.status).toBe(200)
     expect(joined.body.results).toEqual([{ id: "m1", status: "applied" }])
     expect(joined.body.pull).toMatchObject({ reset: true, account: held.account })
+    expect(writers).toEqual(["u1"])
     // Another user on the same device: the writes stay out.
-    expect(await app.push(null, { ...as(held), mutations: [insert("m2", { id: "i2", teamId: "a", title: "x" })] }, session("u2", "a"))).toMatchObject({ status: 409, body: { code: "SYNC_SCOPE_CHANGED" } })
-    // `null` makes the scope the account.
-    const anonymous = await ownSignIn("own-anonymous", () => null)
+    expect(await app.push(null, { ...as(held), mutations: [insert("m2", { id: "i2", teamId: "a", title: "x" })] }, session("u2", "a"))).toMatchObject({ status: 409, body: { code: "SYNC_ACCOUNT_CHANGED" } })
+    // `null` is a visitor, and the scope is its account.
+    expect((await app.pull(null)).status).toBe(401)
+    const anonymous = await ownSignIn("own-anonymous", { identify: () => null })
     const { body } = await anonymous.pull(null, {}, session("", "a"))
     expect(body.account).toBe(body.scope.id)
     expect(warn).not.toHaveBeenCalled()
@@ -175,16 +187,16 @@ describe("accounts of apps with their own sign-in", () => {
     const app = await ownSignIn("own-scope")
     const held = await app.start(null, undefined, session("u1", "a"))
     expect(held.account).toBe(held.scope)
-    expect(await app.push(null, { ...as(held), mutations: [insert("m1", { id: "i1", teamId: "b", title: "In b" })] }, session("u1", "a,b"))).toMatchObject({ status: 409, body: { code: "SYNC_SCOPE_CHANGED" } })
+    expect(await app.push(null, { ...as(held), mutations: [insert("m1", { id: "i1", teamId: "b", title: "In b" })] }, session("u1", "a,b"))).toMatchObject({ status: 409, body: { code: "SYNC_ACCOUNT_CHANGED" } })
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0]?.[0])).toContain("Return the caller's own user id from `account` in server/sync/own-scope.ts")
+    expect(String(warn.mock.calls[0]?.[0])).toContain("Return the caller's user from `identify` in server/sync/own-scope.ts")
   })
 
-  it("refuses an `account` that is not a function or returns no text", async () => {
-    // @ts-expect-error `account` is a function.
-    expect(() => defineSync({ table: issues, where: () => ({}), account: "u1" })).toThrow("`account` must be a function")
-    // @ts-expect-error `account` returns text or `null`.
-    const app = await ownSignIn("own-number", () => 42)
+  it("refuses an `identify` that is not a function or returns a user without a text id", async () => {
+    // @ts-expect-error `identify` is a function.
+    expect(() => defineSync({ table: issues, where: () => ({}), identify: "u1" })).toThrow("`identify` must be a function")
+    // @ts-expect-error `identify` returns a user with a text `id`, or `null`.
+    const app = await ownSignIn("own-number", { identify: () => ({ id: 42 }) })
     await expect(app.pull(null, {}, session("u1", "a"))).rejects.toMatchObject({ code: "SYNC_INVALID_DEFINITION" })
   })
 })
@@ -220,7 +232,7 @@ describe("rows that leave a scope", () => {
 
   it("sends a move by server code with recordSyncChanges({ moved })", async () => {
     const app = await setup()
-    createSyncHandler({ definitions: { issues: app.definition }, databases: { default: { db: app.db } } })
+    createSyncHandler({ definitions: { issues: app.definition }, db: () => app.db })
     await app.db.insert(issues).values({ id: "i1", teamId: "a", title: "Server" })
     expect(await recordSyncChanges("issues", { put: ["i1"] })).toEqual([undefined, { recorded: 1 }])
     const [a, b, c] = [await app.start(alice), await app.start(bob), await app.start(carol)]
@@ -380,7 +392,7 @@ describe("subsets", () => {
       actions: { annotate: ({ update }, { id, note }: { id: string, note: string }) => update(id, { note }) },
     })
     const app = await createHarness({ name: "issues", definition, ddl: [ddl] })
-    createSyncHandler({ definitions: { issues: definition }, databases: { default: { db: app.db } } })
+    createSyncHandler({ definitions: { issues: definition }, db: () => app.db })
     const full = await app.start(dave)
     await app.push(dave, { ...as(full), mutations: [
       insert("m1", { id: "i1", teamId: "a", title: "One", note: "x", createdAt: new Date(5).toISOString() }),

@@ -143,7 +143,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
         return json(pull(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined))
       }
       if (!body) return error(400, { code: "SYNC_BAD_REQUEST", message: "No body." })
-      if (body.account !== account) return error(409, { code: "SYNC_SCOPE_CHANGED", message: "The writes were made for another account." })
+      if (body.account !== account) return error(409, { code: "SYNC_ACCOUNT_CHANGED", message: "The writes were made for another account." })
       const results = body.mutations.map(mutation => apply(mutation, scope.values, user))
       const answer = json({ results, pull: pull(scope, account, body.cursor, body.scope, body.version) })
       if (server.loseNextResponse) {

@@ -56,8 +56,8 @@ export interface SyncPullResponse {
   key: string
   scope: SyncScope
   /**
-   * The account that the writes of the client belong to: a fingerprint of `user.id` when the app has ViteHub Auth,
-   * else of the scope. Writes carry it, and the server refuses writes of another account with `SYNC_SCOPE_CHANGED`.
+   * The account that the writes of the client belong to: a fingerprint of `user.id` when the caller has a user
+   * (from `identify` or ViteHub Auth), else of the scope. Writes carry it, and the server refuses writes of another account with `SYNC_ACCOUNT_CHANGED`.
    * The client keeps such writes for when that account comes back.
    */
   account: string
@@ -121,8 +121,11 @@ export interface SyncPushRequest {
 export type SyncMutationResult =
   /** `result` is the JSON return value of an action, when it returned one. */
   | { id: string, status: "applied", result?: unknown }
-  /** The server applied this `id` before, for example when the client did not get the first answer. */
-  | { id: string, status: "duplicate" }
+  /**
+   * The server applied this `id` before, for example when the client did not get the first answer. `result` is the
+   * result of the first run of an action, when it returned one. The server keeps it for 7 days.
+   */
+  | { id: string, status: "duplicate", result?: unknown }
   /** The server refused the write. The other mutations of the push still apply. */
   | { id: string, status: "rejected", error: SyncWireError }
 
@@ -159,7 +162,7 @@ export interface SyncWireError {
  * The codes that the client acts on.
  *
  * - `SYNC_UNAUTHORIZED` (401) and `SYNC_FORBIDDEN` (403): `where` returned `false` for this caller.
- * - `SYNC_SCOPE_CHANGED` (409): the push was made for another account. The client must not send these writes with
+ * - `SYNC_ACCOUNT_CHANGED` (409): the push was made for another account. The client must not send these writes with
  *   this caller's session. It keeps them for when that account signs in again.
  * - `SYNC_READ_ONLY`, `SYNC_INVALID`, `SYNC_NOT_FOUND`, `SYNC_KEY_EXISTS`, `SYNC_OUT_OF_SCOPE`, `SYNC_ACTION_REFUSED`:
  *   one mutation was refused. `SYNC_OUT_OF_SCOPE` also refuses a pull whose subset is outside `where`.
@@ -168,7 +171,7 @@ export interface SyncWireError {
 export type SyncErrorCode =
   | "SYNC_UNAUTHORIZED"
   | "SYNC_FORBIDDEN"
-  | "SYNC_SCOPE_CHANGED"
+  | "SYNC_ACCOUNT_CHANGED"
   | "SYNC_READ_ONLY"
   | "SYNC_INVALID"
   | "SYNC_NOT_FOUND"

@@ -47,7 +47,7 @@ If your app already has `server/databases/default.ts`, add `todos` to its `schem
 ::tutorial-step{title="Sync the table"}
 ## Sync the table
 
-Create `server/sync/todos.ts`. The file name is the Sync name. `where` returns the rows that the caller may see. `{}` is every row:
+Create `server/sync/todos.ts`. The file name is the Sync name. `where` returns the rows that the caller may see. `{}` is every row. By default, a caller without a user cannot write, so `write: import.meta.dev` lets visitors write on the dev server only. A production build of this step is read-only:
 
 ```ts [server/sync/todos.ts] fragment
 import { defineSync } from 'vite-hub/sync'
@@ -56,6 +56,7 @@ import { todos } from '../databases/default'
 export default defineSync({
   table: todos,
   where: () => ({}),
+  write: import.meta.dev,
 })
 ```
 
@@ -134,7 +135,7 @@ A change shows the key, `put`, `delete` or `move`, and the time. It does not sho
 ::tutorial-step{title="Give each person their rows"}
 ## Give each person their rows
 
-Turn on [Auth](/docs/auth). Then return the rows of the signed-in person, and refuse a visitor:
+Turn on [Auth](/docs/auth). Then return the rows of the signed-in person, refuse a visitor, and remove `write`. Without it, only a signed-in person writes:
 
 ```ts [auth/server/sync/todos.ts] fragment
 import { defineSync } from 'vite-hub/sync'
@@ -172,7 +173,7 @@ export default defineSync({
 })
 ```
 
-If your app has its own sign-in instead of Auth, also return the person's user id from `account`, such as `account: async ({ request }) => (await getSession(request))?.userId ?? null`. Then joining a team does not hold back the writes that wait.
+If your app has its own sign-in instead of Auth, return the person from `identify`, such as `identify: async ({ request }) => { const session = await getSession(request); return session ? { id: session.userId } : null }`. `where` then gets that user, and joining a team does not hold back the writes that wait.
 
 A new todo must say its team: `todos.insert({ title, teamId: 'design' })`. A todo of another team is refused with `SYNC_OUT_OF_SCOPE`. When a person moves a todo to another team with `todos.update(id, { teamId: 'web' })`, it leaves the devices of the old team and shows on the devices of the new team. See [Server API](/docs/sync/server-api#where).
 

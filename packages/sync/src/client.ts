@@ -151,7 +151,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
 /**
  * Forgets every Sync row and queued write in this browser, in every tab, also the writes that wait for another
  * account. Call it on sign-out, so the next person on the device does not see them. Writes that wait reject with
- * `SYNC_SCOPE_CHANGED`.
+ * `SYNC_CLEARED`.
  * @experimental
  */
 async function clearSync(): Promise<void> {
@@ -166,4 +166,4 @@ export { clearSync, createSync, SyncError }
 export { syncRoute } from "./protocol.ts"
 export type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
 export type { SyncActionCalls, SyncClientErrorCode, SyncFailure, SyncLocal, SyncOptimisticActions, SyncOptions, SyncState, SyncStatus, SyncStore, SyncWrite } from "./client/types.ts"
-export type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
+export type { SyncActionsOf, SyncJsonRow, SyncName, SyncRowOf } from "./types.ts"

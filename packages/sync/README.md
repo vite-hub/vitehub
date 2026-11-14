@@ -20,14 +20,14 @@ export default defineSync({
 | Option | Does |
 | --- | --- |
 | `table` | A Drizzle SQLite table with one `text()` primary key column. Clients make new keys with `crypto.randomUUID()`. |
-| `where` | Required. Returns the column values that every row of the caller has, such as `{ ownerId: user.id }`, `{}` for every row, or `false` to refuse the caller. It gets `{ request, user, session }`; `user` and `session` come from ViteHub Auth, else they are `null`. |
-| `write` | `true` (default), `false` for a read-only table, or a function of `{ request, user, session, op, row }` that returns a boolean. |
+| `where` | Required. Returns the column values that every row of the caller has, such as `{ ownerId: user.id }`, `{}` for every row, or `false` to refuse the caller. It gets `{ request, user, session }`; `user` comes from `identify`, else from ViteHub Auth, else it is `null`. |
+| `write` | Without it, only a caller with a user writes (`SYNC_FORBIDDEN` for visitors). `true` lets visitors write too, `false` makes the table read-only in the browser, and a function of `{ request, user, session, op, row }` decides for each write. |
+| `identify` | `({ request }) => user \| null` for apps with their own sign-in. It replaces the ViteHub Auth user. The account of queued writes is `user.id`. |
 | `schema` | A Standard Schema that checks the whole row after each insert and update. |
 | `actions` | Named writes with server logic, such as `{ complete: async ({ get, update }, { id }: { id: string }) => update(id, { done: true }) }`. The browser calls them as `store.actions.complete({ id })`. |
 | `live` | `true` (default) lets browsers keep a live stream open. `false` leaves only pulls. |
-| `database` | The Database name. Default `default`. |
 
-`defineSync()` throws `SYNC_UNSUPPORTED_TABLE` for a Postgres table, an integer key, or a composite key, and `SYNC_INVALID_DEFINITION` for other wrong options.
+Sync uses the default Database, else the only one. `defineSync()` throws `SYNC_UNSUPPORTED_TABLE` for a Postgres table, an integer key, a composite key, or a `blob({ mode: "buffer" })` column, and `SYNC_INVALID_DEFINITION` for other wrong options.
 
 A value of `where` is one value, or a list that matches any of its values, such as the teams of the caller: `{ teamId: teamIds }`. `where` does three things:
 
@@ -48,8 +48,8 @@ Each definition has one route, `syncRoute(name)`: `/api/_vitehub/sync/<name>`. `
 What the server guarantees:
 
 - The cursor is the `seq` of the change log, never a clock time. A full snapshot reads the newest `seq` and the rows in one atomic batch.
-- Each mutation applies in one atomic batch that starts with its id in the ledger. A retried mutation, such as after a lost answer, is a `duplicate` and writes nothing.
-- A push made for another account, such as before a sign-in as another user, gets 409 `SYNC_SCOPE_CHANGED` and writes nothing. The account is a fingerprint of the user id, so a push of the same user after a team change applies under the current `where`.
+- Each mutation applies in one atomic batch that starts with its id in the ledger. A retried mutation, such as after a lost answer, is a `duplicate` and writes nothing. A duplicate of an action has the `result` of its first run.
+- A push made for another account, such as before a sign-in as another user, gets 409 `SYNC_ACCOUNT_CHANGED` and writes nothing. The account is a fingerprint of the user id, so a push of the same user after a team change applies under the current `where`.
 - The change log keeps a copy of each row that left a scope, because it was deleted or moved. A pull sends the key in `deleted` only to callers whose `where` matched that row and does not match the row now, so keys do not leak to other callers.
 - An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them.
 - Unknown columns and a changed primary key are refused with `SYNC_INVALID`.

@@ -132,8 +132,7 @@ function rowJson(row: Record<string, unknown>): Record<string, unknown> {
  * `where` refuses the caller, and 403 `SYNC_OUT_OF_SCOPE` when the subset is outside `where`.
  */
 async function resolveScope(resolved: Resolved, request: Request, services: SyncServices, subset: SyncValues): Promise<[Response, undefined] | [undefined, Scoped]> {
-  const caller = services.identify ? await services.identify(request) : null
-  const context: SyncContext = { request, user: caller?.user ?? null, session: caller?.session ?? null }
+  const context = await callerContext(resolved, request, services)
   const where: unknown = await resolved.definition.options.where(context)
   if (where === false) {
     return context.user
@@ -154,9 +153,26 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   const [outside, values] = mergeSubset(whereValues, subset)
   if (outside !== undefined) return [fail(403, syncErrors.SYNC_OUT_OF_SCOPE({ column: outside })), undefined]
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
-  const id = await accountId(resolved, context, whereValues)
+  const id = accountId(resolved, context, whereValues)
   const account = id === null ? scope.id : await fingerprint(`account\n${id}`)
   return [undefined, { ...resolved, context, scope, account }]
+}
+
+/** The caller: the user of the definition's `identify`, else the ViteHub Auth user and session. */
+async function callerContext(resolved: Resolved, request: Request, services: SyncServices): Promise<SyncContext> {
+  const { identify } = resolved.definition.options
+  if (!identify) {
+    const caller = services.identify ? await services.identify(request) : null
+    return { request, user: caller?.user ?? null, session: caller?.session ?? null }
+  }
+  const user: unknown = await identify({ request })
+  if (user === null || user === undefined) return { request, user: null, session: null }
+  const id: unknown = typeof user === "object" ? Reflect.get(user, "id") : undefined
+  if (typeof id !== "string" || !id) {
+    throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`identify\` must return a user with an \`id\` text, such as \`{ id: session.userId }\`, or \`null\`.` })
+  }
+  // SAFETY: an object with a text `id` is a `SyncUser`.
+  return { request, user: user as SyncUser, session: null }
 }
 
 /** The Sync names that warned about their account in this process. */
@@ -168,22 +184,15 @@ function isDevelopment(): boolean {
 }
 
 /**
- * The id of the caller's account: the `account` option, else `user.id` from ViteHub Auth. `null` makes the scope the
- * account. Queued writes belong to the account, so it must not change when the caller joins or leaves a team.
+ * The id of the caller's account: `user.id`. `null` makes the scope the account. Queued writes belong to the account,
+ * so it must not change when the caller joins or leaves a team.
  */
-async function accountId(resolved: Resolved, context: SyncContext, where: SyncValues): Promise<string | null> {
-  const option = resolved.definition.options.account
-  if (option) {
-    const id: unknown = await option(context)
-    if (id !== null && (typeof id !== "string" || !id)) {
-      throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`account\` must return the caller's user id as text, or \`null\`.` })
-    }
-    return id
-  }
+function accountId(resolved: Resolved, context: SyncContext, where: SyncValues): string | null {
   if (context.user) return context.user.id
-  if (Object.values(where).some(Array.isArray) && !accountWarnings.has(resolved.name) && isDevelopment()) {
+  // With `identify`, a caller without a user is a visitor on purpose.
+  if (!resolved.definition.options.identify && Object.values(where).some(Array.isArray) && !accountWarnings.has(resolved.name) && isDevelopment()) {
     accountWarnings.add(resolved.name)
-    console.warn(`[vitehub] server/sync/${resolved.name}: \`where\` returns a list, such as teams, and the app has no ViteHub Auth user, so the account of the queued writes is the scope. When the caller joins or leaves a team, the scope changes, and the browser holds back its queued writes. Return the caller's own user id from \`account\` in server/sync/${resolved.name}.ts, such as \`account: ({ request }) => getUserId(request)\`.`)
+    console.warn(`[vitehub] server/sync/${resolved.name}: \`where\` returns a list, such as teams, and the caller has no user, so the account of the queued writes is the scope. When the caller joins or leaves a team, the scope changes, and the browser holds back its queued writes. Return the caller's user from \`identify\` in server/sync/${resolved.name}.ts, such as \`identify: ({ request }) => getUser(request)\`.`)
   }
   return null
 }
@@ -272,16 +281,11 @@ function keyIs(table: SyncTable, key: SyncKey): SQL {
   return eq(column(table, table.key), key)
 }
 
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("").toUpperCase()
-}
-
 /**
- * The SQL of a column in an exit row: the value that the column stores. A blob is stored as hex or as its text, because
- * JSON cannot hold a blob.
+ * The SQL of a column in an exit row: the value that the column stores. A blob (JSON or bigint) is stored as its text,
+ * because JSON cannot hold a blob.
  */
 function storedSql(target: SQLiteColumn): SQL {
-  if (target.columnType === "SQLiteBlobBuffer") return sql`hex(${target})`
   if (target.getSQLType() === "blob" || target.columnType.startsWith("SQLiteNumeric")) return sql`cast(${target} as text)`
   return sql`${target}`
 }
@@ -291,7 +295,7 @@ function storedValue(table: SyncTable, name: string, value: unknown): unknown {
   if (value === null || value === undefined) return null
   const target = column(table, name)
   const stored: unknown = target.mapToDriverValue(decode(table, name, value))
-  if (stored instanceof Uint8Array) return target.columnType === "SQLiteBlobBuffer" ? hex(stored) : new TextDecoder().decode(stored)
+  if (stored instanceof Uint8Array) return new TextDecoder().decode(stored)
   if (typeof stored === "boolean") return stored ? 1 : 0
   if (typeof stored === "bigint") return Number.isSafeInteger(Number(stored)) ? Number(stored) : stored.toString()
   return toJson(stored) ?? null
@@ -386,12 +390,14 @@ function guardSql(scoped: Scoped, reads: Reads): SQL | undefined {
 }
 
 /**
- * The ledger entry of a mutation. With a guard, it stores no name when a read changed: the `NOT NULL` column then fails
- * the statement, and with it the whole batch, so no write of the mutation applies.
+ * The ledger entry of a mutation, with the JSON result of an action, so a retry gets the same result. With a guard, it
+ * stores no name when a read changed: the `NOT NULL` column then fails the statement, and with it the whole batch, so
+ * no write of the mutation applies.
  */
-function ledgerStatement({ db, name, now }: Scoped, id: string, guard: SQL | undefined): Statement {
-  if (!guard) return db.insert(syncMutations).values({ id, name, createdAt: now })
-  return db.run(sql`INSERT INTO ${syncMutations} (${sql.identifier("id")}, ${sql.identifier("name")}, ${sql.identifier("created_at")}) VALUES (${id}, CASE WHEN ${guard} THEN ${name} END, ${now})`)
+function ledgerStatement({ db, name, now }: Scoped, id: string, guard: SQL | undefined, result: unknown): Statement {
+  const text = result === undefined ? null : JSON.stringify(result)
+  if (!guard) return db.insert(syncMutations).values({ id, name, result: text, createdAt: now })
+  return db.run(sql`INSERT INTO ${syncMutations} (${sql.identifier("id")}, ${sql.identifier("name")}, ${sql.identifier("result")}, ${sql.identifier("created_at")}) VALUES (${id}, CASE WHEN ${guard} THEN ${name} END, ${text}, ${now})`)
 }
 
 async function guardHolds(scoped: Scoped, guard: SQL): Promise<boolean> {
@@ -447,6 +453,8 @@ function readColumns(scoped: Scoped, input: SyncRow, key: SyncKey | undefined): 
 
 async function check(scoped: Scoped, op: "insert" | "update" | "delete", row: Record<string, unknown>): Promise<Refusal | undefined> {
   const { schema, write } = scoped.definition.options
+  // Safe by default: a visitor writes only when `write` allows it.
+  if (write === undefined && !scoped.context.user) return { error: syncErrors.SYNC_FORBIDDEN({ reason: "visitor" }) }
   if (schema && op !== "delete") {
     const result = await schema["~standard"].validate(row)
     if (result.issues) {
@@ -524,9 +532,11 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
   ]]
 }
 
-async function applied(scoped: Scoped, id: string): Promise<boolean> {
-  const [done] = await scoped.db.select({ id: syncMutations.id }).from(syncMutations).where(eq(syncMutations.id, id)).limit(1)
-  return Boolean(done)
+/** The answer for a mutation id that the server applied before, with the stored result of an action, or `undefined`. */
+async function duplicate(scoped: Scoped, id: string): Promise<SyncMutationResult | undefined> {
+  const [done] = await scoped.db.select({ result: syncMutations.result }).from(syncMutations).where(eq(syncMutations.id, id)).limit(1)
+  if (!done) return undefined
+  return done.result === null ? { id, status: "duplicate" } : { id, status: "duplicate", result: JSON.parse(done.result) }
 }
 
 /** An action as the handler calls it, with a loose row type. */
@@ -637,7 +647,8 @@ const maxConflicts = 3
  */
 async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutationResult> {
   const { id } = mutation
-  if (await applied(scoped, id)) return { id, status: "duplicate" }
+  const before = await duplicate(scoped, id)
+  if (before) return before
   // An action is server code, so `write: false` stops only the writes of the browser.
   if (mutation.op !== "action" && scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
   for (let attempt = 1; ; attempt++) {
@@ -657,12 +668,13 @@ async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutati
     }
     const guard = guardSql(scoped, reads)
     try {
-      await scoped.db.batch([ledgerStatement(scoped, id, guard), ...statements])
+      await scoped.db.batch([ledgerStatement(scoped, id, guard, result), ...statements])
       return result === undefined ? { id, status: "applied" } : { id, status: "applied", result }
     }
     catch (error) {
       // A push that runs at the same time applied the same id first.
-      if (await applied(scoped, id)) return { id, status: "duplicate" }
+      const raced = await duplicate(scoped, id)
+      if (raced) return raced
       if (guard && !await guardHolds(scoped, guard)) {
         if (attempt < maxConflicts) continue
         throw syncErrors.SYNC_SERVER_ERROR({ message: `Other writes changed the rows of the mutation ${JSON.stringify(id)} ${maxConflicts} times while it was checked. Send it again.` })
@@ -837,7 +849,7 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
   if (stopped) return stopped
   // Writes made for another account, such as before a sign-in as another user, must not apply with this caller's
   // rights. Writes of the same account apply under the current `where`, also after the caller joined or left a team.
-  if (account !== scoped.account) return fail(409, syncErrors.SYNC_SCOPE_CHANGED())
+  if (account !== scoped.account) return fail(409, syncErrors.SYNC_ACCOUNT_CHANGED())
   const results: SyncMutationResult[] = []
   for (const mutation of mutations) results.push(await apply(scoped, mutation))
   if (results.some(result => result.status === "applied")) {

@@ -17,17 +17,17 @@ icon: i-lucide-circle-alert
 | Live streams per browser | One per synced table or subset, in a tab that shows. |
 | Pull while the page shows | Every 30 seconds. Set `interval` in `useSync()`. Every 5 minutes at most while the live stream is open. |
 | Retry after a network or server error | 1 second, doubling to 30 seconds, with a random part. At once when the network comes back. |
-| Write ids that the server keeps | 7 days |
+| Write ids and action results that the server keeps | 7 days. A retry after that applies the write again. |
 | Deletes and moves that the server keeps | 30 days. An older cursor gets every row again. |
 
 ## Not in Sync yet
 
 - **Relations.** A row of one definition does not load the rows that it points to in another definition. Use one `useSync()` for each table, with a subset where it helps.
 - **Postgres.** Sync works with SQLite: libSQL, Cloudflare D1, and the local default Database.
-- **Relations across definitions.** Each definition syncs one table. Sync does not follow references to rows of another definition.
 - **Conflicts.** The last write wins for each column, in the order that the server got them. There is no conflict check beyond that.
 - **Text merge.** Two people who edit one text field at the same time do not merge: the last write wins. There are no CRDT text fields.
-- **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions.
+- **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions. When another write changes a row that the action read, the server runs the action function again, up to 3 times. Only its writes apply once, so put effects outside them, such as an email, in a [Queue](/docs/queue) job.
+- **Two definitions of one table.** Each table has one definition. The server does not start when two definitions sync the same table. Use one definition whose `where` returns different values for each kind of caller.
 - **Moves that the writer cannot see.** A move reaches the old scope when the moved column is in the `where` of the caller that writes it, such as `teamId`, when it is in `subsets`, or when server code passes the row in `recordSyncChanges({ moved })`. If your `where` uses other columns for other callers, such as `ownerId` for people and `{}` for admins, add those columns to `subsets`.
 - **Queries.** The browser gets every row of its scope or subset. There is no paging or filter beyond `where` and subsets.
 - **Offline files.** Sync keeps rows, not files. Use [Blob](/docs/blob) for files.
@@ -52,9 +52,9 @@ A pull, push, or live stream error shows in `error` and `status`. A refused writ
 
 ### SYNC_FORBIDDEN
 
-`where` returned `false` for a signed-in user. Check `where`, or show the page only to people who may use it.
+`where` returned `false` for a signed-in user, `write` refused the write, or a visitor wrote to a definition without `write`. Without `write`, only a caller with a user writes: sign the person in, or set `write: true` to let visitors write. Check `where`, or show the page only to people who may use it.
 
-### SYNC_SCOPE_CHANGED
+### SYNC_ACCOUNT_CHANGED
 
 The push had writes of another account, such as after a sign-in as another person in another tab. The server wrote nothing. The client keeps the writes in IndexedDB, pulls the rows of the new account, and sends the writes when their account signs in again. They are not in `rows`, `queued`, or `failures` meanwhile. `clearSync()` drops them. A push of the same account after a team change is not refused: it applies under the current `where`.
 
@@ -93,6 +93,10 @@ The request is not a valid pull or push, its subset is not single column values,
 ### SYNC_NETWORK
 
 The client got no answer. `status` is `offline`, and the client tries again later. Only the browser makes this code.
+
+### SYNC_CLEARED
+
+`clearSync()` dropped the write before the server confirmed it. Only the browser makes this code.
 
 ### SYNC_SERVER_ERROR
 

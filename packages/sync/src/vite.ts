@@ -94,13 +94,13 @@ export function renderSyncHandler(definitions: readonly DiscoveredSync[], option
   const auth = options.auth && imports.auth
   return [
     `import { createSyncHandler } from ${JSON.stringify(imports.runtime)}`,
-    `import { databases } from ${JSON.stringify(imports.databases)}`,
+    `import { useDatabase } from ${JSON.stringify(imports.databases)}`,
     ...auth ? [`import { useAuth } from ${JSON.stringify(auth)}`] : [],
     ...definitions.map((definition, index) => `import sync${index} from ${JSON.stringify(moduleSpecifier(definition.file))}`),
     "",
     "export default createSyncHandler({",
     `  definitions: { ${definitions.map((definition, index) => `${JSON.stringify(definition.name)}: sync${index}`).join(", ")} },`,
-    "  databases,",
+    "  db: () => useDatabase().db,",
     ...auth
       ? [
           "  session: async (request) => {",

@@ -626,7 +626,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
     if (!answer.ok) {
       const reason = answer.error
-      if (reason.code === "SYNC_SCOPE_CHANGED") {
+      if (reason.code === "SYNC_ACCOUNT_CHANGED") {
         // The session belongs to another account now. The writes wait in the outbox for their account, and the pull
         // shows the rows of the new one.
         if (!(await pull())) return false
@@ -930,7 +930,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   function forget(): void {
     generation++
     version++
-    rejectPending(new SyncError("SYNC_SCOPE_CHANGED", "The Sync data was cleared before the server confirmed this write."))
+    rejectPending(new SyncError("SYNC_CLEARED", "The Sync data was cleared before the server confirmed this write."))
     meta = undefined
     confirmed = new Map()
     writes = []
