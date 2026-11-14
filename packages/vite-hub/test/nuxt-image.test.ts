@@ -7,10 +7,10 @@ const { getImage } = blobImageProvider()
 
 describe("Nuxt Image application mount", () => {
   it.each([
-    [true, "/portal/api/_vitehub/blob"],
-    [{ route: "/media/" }, "/portal/media"],
-    [{ publicBaseUrl: "https://cdn.example/", route: "/media/" }, "https://cdn.example/media"],
-    [{ publicBaseUrl: "/cdn/", route: "/media/" }, "/cdn/media"],
+    [{ access: "public" }, "/portal/api/_vitehub/blob"],
+    [{ access: "public", route: "/media/" }, "/portal/media"],
+    [{ access: "public", publicBaseUrl: "https://cdn.example/", route: "/media/" }, "https://cdn.example/media"],
+    [{ access: "public", publicBaseUrl: "/cdn/", route: "/media/" }, "/cdn/media"],
   ] as const)("aligns served image URLs with configuration %j", (serve, baseURL) => {
     const dependency = nuxtImageProviderDependency({
       app: { baseURL: "/portal/" },

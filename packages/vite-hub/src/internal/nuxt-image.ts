@@ -20,7 +20,7 @@ function usesNuxtImage(modules: unknown[] | undefined): boolean {
 export function nuxtImageProviderDependency(options: { app?: { baseURL?: string }, modules?: unknown[], vitehub?: { blob?: boolean | BlobOptions } }): NuxtImageProviderDependency | undefined {
   const blob = options.vitehub?.blob
   if (!blob || blob === true || !blob.serve || !usesNuxtImage(options.modules)) return undefined
-  const serve = blob.serve === true ? {} : blob.serve
+  const serve = blob.serve
   // The default of `blob.serve.route`. A value import from `@vite-hub/blob` would load the optional owner in every app.
   const route = `/${(serve.route?.trim() || "/api/_vitehub/blob").replace(/^\/+|\/+$/g, "")}`
   const publicBaseUrl = serve.publicBaseUrl?.trim()

@@ -395,7 +395,7 @@ With [`@nuxt/image`](https://image.nuxt.com) in `modules` and `blob.serve` set, 
 export default defineNuxtConfig({
   modules: ['@nuxt/image', 'vite-hub/nuxt'],
   vitehub: {
-    blob: { driver: 'fs', serve: true },
+    blob: { driver: 'fs', serve: { access: 'public' } },
   },
 })
 ```

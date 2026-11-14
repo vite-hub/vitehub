@@ -732,14 +732,14 @@ describe("ViteHub Nuxt integration", () => {
 
   it("registers the vitehub Nuxt Image provider for a served Blob Store", async () => {
     const options = (blob: BlobOptions, modules: unknown[] = ["vite-hub/nuxt", ["@nuxt/image", {}]]) => ({ options: { modules, vitehub: { blob } } })
-    const served: BlobOptions = { driver: "fs", serve: { publicBaseUrl: "https://cdn.example/", route: "/media/" }, images: { sizes: [320, 960] } }
+    const served: BlobOptions = { driver: "fs", serve: { access: "public", publicBaseUrl: "https://cdn.example/", route: "/media/" }, images: { sizes: [320, 960] } }
     expect(await viteHubNuxtModule.getModuleDependencies(options(served))).toMatchObject({
       "@nuxt/image": {
         optional: true,
         defaults: { providers: { vitehub: { options: { baseURL: "https://cdn.example/media", imageSizes: [320, 960] }, provider: "vite-hub/blob/nuxt-image" } } },
       },
     })
-    expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs", serve: true }))).toMatchObject({
+    expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs", serve: { access: "public" } }))).toMatchObject({
       "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/api/_vitehub/blob" } } } } },
     })
     // No served store, or no Nuxt Image module: Nuxt must not try to resolve @nuxt/image.
