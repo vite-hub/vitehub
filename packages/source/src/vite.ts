@@ -11,6 +11,7 @@ import {
 } from "@vite-hub/internal/build/vite"
 import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import { reportViteHubHint } from "@vite-hub/internal/hints"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import type { Plugin, UserConfig } from "vite"
@@ -974,7 +975,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     transform: {
       filter: { id: { exclude: /\/node_modules\// }, code: /\bvite-hub\/source["'`]/ },
-      handler(code, _id, options) {
+      handler(code, id, options) {
         const environment = this.environment?.config
         const server = environment
           ? environment.consumer === "server"
@@ -982,10 +983,14 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         if (!server || (environment && environment.command !== "build")) return
         const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
-          this.warn({
-            message: "[vitehub] glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
-            pos: call.start,
-          })
+          const hint = sourceErrorDiagnostics.SOURCE_B0011()
+          if (!environment) {
+            this.warn({ message: `[vitehub] ${hint.why}`, pos: call.start })
+            continue
+          }
+          const lines = code.slice(0, call.start).split("\n")
+          hint.sources = [`${relative(environment.root, id)}:${lines.length}:${lines.at(-1)!.length + 1}`]
+          reportViteHubHint(environment, hint)
         }
         if (calls.some(call => call.input !== undefined)) return { code: rewriteGlobCalls(code, calls), map: null }
       },
