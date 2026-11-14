@@ -2,7 +2,7 @@
 title: Local development
 description: Run ViteHub locally, inspect generated files, and verify the behavior you changed.
 navigation.order: 30
-navigation.group: Local tools
+navigation.group: Build state
 icon: i-lucide-terminal
 ---
 
