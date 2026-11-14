@@ -282,7 +282,7 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
   let queue: Promise<unknown> = Promise.resolve()
   const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
     const next = queue.then(() => {
-      if (lifetime.signal.aborted) throw new Error("This page is closed.")
+      if (lifetime.signal.aborted) throw agentDiagnostics.AGENT_R1054()
       return run()
     })
     queue = next.catch(() => {})

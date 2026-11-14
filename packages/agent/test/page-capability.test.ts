@@ -260,7 +260,7 @@ describe("connectPage()", () => {
     const active = fake.ask({ method: "act", input: { steps: [{ ref: "Save changes", action: "press" }, { ref: "Default region", action: "setValue", args: ["fra"] }] }, rules })
     await vi.waitFor(() => expect(allow).toHaveBeenCalledOnce())
     const queued = fake.ask({ method: "act", input: { steps: [{ ref: "Default region", action: "setValue", args: ["fra"] }] }, rules })
-    const rejected = expect(queued).rejects.toThrow("This page is closed")
+    const rejected = expect(queued).rejects.toMatchObject({ code: "AGENT_R1054" })
     connected.close()
     // Closing settles the call even if the person's UI never answers.
     await expect(active).resolves.toMatchObject({ result: { ok: false }, changes: [] })

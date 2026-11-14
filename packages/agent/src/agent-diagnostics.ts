@@ -1586,6 +1586,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
       fix: ({ use }: { use: string }) => `Pass ${use}.`,
     },
+    AGENT_R1054: {
+      why: "[vitehub] This page is closed. Its queued calls cannot run.",
+      fix: "Reload the page or call connectPage() again to create a new connection before sending more page calls.",
+    },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
