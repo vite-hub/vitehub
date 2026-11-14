@@ -4,15 +4,13 @@ import { createInterface } from "node:readline/promises"
 import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
-import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { isSecretInspectionKey, redactInspectionText, redactedInspectionValue } from "@vite-hub/internal/inspect"
 import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { AnyOperation, OperationFailure, OperationResult } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
 
 type JsonSchema = Record<string, unknown>
 
@@ -135,7 +133,7 @@ function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
     "  --input <json|@file>  Pass the whole input as JSON or from a file. Flags override it.",
     "  --json         Print JSON.",
     ...(operation.kind === "destructive" ? ["  --yes          Run without asking. This operation changes or removes data."] : []),
-    "  --url <origin> Call a deployed app. Without it the command calls the running dev server.",
+    "  --url <origin> The app URL, such as https://app.example.com. Without it the command calls the running dev server.",
     "  --timeout <ms> Wait this long for the answer. Default 30000.",
     "  -h, --help     Show this help.",
     "",
@@ -353,57 +351,18 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
     if (base.username || base.password || base.search || base.hash) {
       return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
     }
+    // The command adds the Console path itself, so a pasted Console URL would call `/_vitehub/_vitehub/rpc`.
+    const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(base.pathname)
+    if (consolePath) {
+      const app = `${base.origin}${base.pathname.slice(0, consolePath.index).replace(/\/$/, "")}`
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: `--url is the app URL, not the Console URL. Pass --url ${app}.` })) }
+    }
     return { target: parsed.url }
   }
   const found = findViteHubDevServerUrl(acceptedRoots(context.rootDir), context.env)
   if (found) return { target: found }
   const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${context.rootDir}.` })
   return { failure: failureOf(error, 503) }
-}
-
-/**
- * Posts a signed dispatch to the route of an operation on a deployed app. Returns undefined when no dispatch key is set,
- * so the command falls back to the RPC with Console credentials.
- */
-async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
-  const base = new URL(url)
-  let key: string | undefined
-  try {
-    key = await resolveViteHubDispatchKey(context.env)
-  }
-  catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
-  }
-  if (!key) return undefined
-  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
-  const target = new URL(route.slice(1), base)
-  const body = JSON.stringify(input ?? {})
-  const actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
-  const headers = new Headers({ accept: "application/json", "content-type": "application/json", ...await signViteHubDispatch({ actor, body, key, operation }) })
-  if (context.env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", context.env.CF_ACCESS_CLIENT_ID)
-  if (context.env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", context.env.CF_ACCESS_CLIENT_SECRET)
-  let response: Response
-  let text: string
-  try {
-    response = await (context.fetch ?? fetch)(target.href, { body, headers, method: "POST", redirect: "manual", signal: AbortSignal.timeout(timeout ?? 30_000) })
-    text = await response.text()
-  }
-  catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${redactInspectionText(error instanceof Error ? error.message : String(error))}` }), 502), ok: false }
-  }
-  let json: unknown
-  try {
-    // Share inspection's secret-key policy without its output size limits.
-    json = text ? JSON.parse(text, (key, value: unknown) => isSecretInspectionKey(key) ? redactedInspectionValue : typeof value === "string" ? redactInspectionText(value) : value) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (response.ok && json !== undefined) return { ok: true, value: json }
-  const message = Reflect.get(Object(json), "message")
-  const failure = failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request failed with HTTP ${response.status}${typeof message === "string" && message ? `: ${message}` : "."}` }), response.status)
-  if (response.status === 401) failure.fix = "Set VITEHUB_DISPATCH_KEY to the key of the app (`vitehub secret derive vitehub:dispatch` prints it), and keep the clock of this machine correct."
-  return { ...failure, ok: false }
 }
 
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
@@ -446,8 +405,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         confirmed = true
       }
       // The server parses the original input once and verifies confirmation against that result.
-      const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
-      const result = dispatch ?? await callOperation({
+      const result = await callOperation({
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),

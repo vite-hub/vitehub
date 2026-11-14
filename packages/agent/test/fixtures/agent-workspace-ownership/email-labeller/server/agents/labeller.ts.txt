@@ -1,0 +1,39 @@
+import { defineAgent } from 'vite-hub/agent'
+import { ask, vercel } from 'vite-hub/gateways'
+import { gmail } from 'vite-hub/agent/channels'
+import { labeller } from 'vite-hub/presets/labeller'
+import config from '../../labeller.config'
+import { gmailClient } from '../lib/gmail'
+import { settings } from '../lib/settings'
+
+export const gmailChannel = gmail({
+  client: gmailClient,
+  labels: config.labels,
+  bodyLimit: 4000,
+  maxAttempts: 3,
+  dryRun: settings.LABELLER_DRY_RUN,
+})
+
+export default defineAgent({
+  extends: labeller,
+  runtime: false,
+  messages: { transcripts: false },
+  options: {
+    ...config,
+    client: gmailClient,
+    bodyLimit: 4000,
+    dryRun: settings.LABELLER_DRY_RUN,
+    trashEnabled: settings.LABELLER_TRASH_ENABLED,
+    minConfidence: settings.LABELLER_MIN_CONFIDENCE,
+  },
+  channels: { gmail: gmailChannel },
+  driver: {
+    gateway: vercel({ model: 'model' }),
+    ask: {
+      label: ask.choice('Which Gmail label fits this email? Choose "none" if no label clearly fits.', {
+        ...Object.fromEntries(Object.entries(config.labels).flatMap(([name, label]) => 'description' in label ? [[name, label.description]] : [])),
+        none: 'No label clearly fits this email.',
+      }),
+    },
+  },
+})

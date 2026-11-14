@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 import { workflowRuntimeModule, type WorkflowRuntimeModuleName } from "./runtime-modules.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
@@ -12,7 +12,6 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
-import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
@@ -100,17 +99,17 @@ async function readVercelNativeWorkflowOwnership(ownershipFile: string): Promise
   try {
     const value = parseJsonRecord(await readFile(ownershipFile, "utf8"), "Vercel Workflow ownership")
     if (value.version !== 1 || !isRuntimeRecord(value.files) || !Array.isArray(value.routes)) return
-    if (value.cleanup !== undefined && !hasRuntimeType(value.cleanup, "boolean")) return
+    if (value.cleanup !== undefined && typeof value.cleanup !== "boolean") return
     const files: Record<string, string> = {}
     for (const [file, digest] of Object.entries(value.files)) {
-      if (isAbsolute(file) || !hasRuntimeType(digest, "string")) return
+      if (isAbsolute(file) || typeof digest !== "string") return
       files[file] = digest
     }
-    if (value.routes.some(route => !hasRuntimeType(route, "string"))) return
+    if (value.routes.some(route => typeof route !== "string")) return
     return {
       ...(value.cleanup === true ? { cleanup: true } : {}),
       files,
-      routes: value.routes.filter((route): route is string => hasRuntimeType(route, "string")),
+      routes: value.routes.filter((route): route is string => typeof route === "string"),
       version: 1,
     }
   }
@@ -127,10 +126,6 @@ const cloudflareWorkflowWrapperImport = `import worker, { runViteHubWorkflowDefi
 const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
 const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
-// SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
-// SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
@@ -563,11 +558,11 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     const ownedFiles = Object.fromEntries(Object.entries(generatedFiles)
       .filter(([file, digest]) => previousFiles[file] !== digest || previousFiles[file] === previousOwnership?.files[file]))
     const routeTargetsOwnedFunction = (route: unknown) => {
-      if (!route || !hasRuntimeType(route, "object")) return false
+      if (!route || typeof route !== "object") return false
       return ["dest", "src"]
         // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
         .map(key => (route as Record<string, unknown>)[key])
-        .filter((value): value is string => hasRuntimeType(value, "string"))
+        .filter((value): value is string => typeof value === "string")
         .some((target) => {
           const functionPath = target.match(/\/\.well-known\/workflow\/(v1\/[^?]+)/)?.[1]
           return Boolean(functionPath && Object.keys(ownedFiles).some(file => file.startsWith(`${functionPath}.func/`)))
@@ -589,11 +584,8 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }
 }
 
-function resolveWorkflowUserAppEntry(rootDir: string) {
-  const names = getViteMode() === VITEHUB_MODES.workflow
-    ? [...WORKFLOW_PRIORITY_NAMES, ...WORKFLOW_ENTRY_BASE_NAMES]
-    : [...WORKFLOW_ENTRY_BASE_NAMES]
-  return resolveUserAppEntry(rootDir, { names })
+function resolveWorkflowUserAppEntry(rootDir: string, entry: true | string) {
+  return resolveUserAppEntry(rootDir, entry === true ? {} : { names: [entry] })
 }
 
 interface ProviderEntrySpec {
@@ -609,22 +601,23 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
-function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
-  return normalizeWorkflowOptions(workflow, { hosting }) ?? false
+function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string, inline = false): false | ResolvedWorkflowOptions {
+  return normalizeWorkflowOptions(workflow, { hosting, inline }) ?? false
 }
 
 /**
  * The Provider Output that a build writes. Without a host, both outputs are written.
- * Only Vercel deploys the Vercel output, so other hosts skip it.
+ * Only Vercel deploys the Vercel output, so other hosts skip it. `inline` lets a host without an inferable provider
+ * run Workflows inline instead of failing, as in `vite dev` and for the Workflow that only the Agent turns on.
  */
-export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string): {
+export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string, inline = false): {
   cloudflare: false | ResolvedWorkflowOptions
   vercel: false | ResolvedWorkflowOptions
 } {
   if (!hosting) {
     return { cloudflare: resolveWorkflowConfig(workflow, "cloudflare"), vercel: resolveWorkflowConfig(workflow, "vercel") }
   }
-  const config = resolveWorkflowConfig(workflow, hosting)
+  const config = resolveWorkflowConfig(workflow, hosting, inline)
   return {
     cloudflare: config && config.provider === "cloudflare" ? config : false,
     vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
@@ -649,6 +642,8 @@ interface GenerateProviderOutputsOptions {
   bundleDefines?: Record<string, string>
   hosting?: string
   importBase?: string
+  /** Run Workflows inline when the host has no inferable provider. See `resolveWorkflowProviderOutputs()`. */
+  inline?: boolean
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
   vercelRuntimePackages?: VercelFunctionRuntimePackage[]
@@ -657,7 +652,7 @@ interface GenerateProviderOutputsOptions {
   serverDirs?: string[]
   serverFunctionName?: string
   sourceRootDir?: string
-  includeUserAppEntry?: boolean
+  includeUserAppEntry?: boolean | string
   workflow: WorkflowOptions | undefined
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceRuntimeModule?: string
@@ -702,7 +697,7 @@ interface CloudflareWorkflowNitroOptions {
   nitro: Record<string, unknown>
   rootDir: string
   serverDirs?: string[]
-  includeUserAppEntry?: boolean
+  includeUserAppEntry?: boolean | string
   workflow: WorkflowOptions | undefined
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
@@ -712,16 +707,16 @@ interface CloudflareWorkflowNitroOptions {
 
 function record(value: unknown): Record<string, unknown> {
   // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-  return value && hasRuntimeType(value, "object") ? value as Record<string, unknown> : {}
+  return value && typeof value === "object" ? value as Record<string, unknown> : {}
 }
 
 function mergeCloudflareWorkersExternal(external: unknown): unknown {
   const cloudflareRuntimeModules = ["cloudflare:workers", "cloudflare:workflows"]
   if (external === undefined) return cloudflareRuntimeModules
-  if (hasRuntimeType(external, "string")) return [...new Set([external, ...cloudflareRuntimeModules])]
+  if (typeof external === "string") return [...new Set([external, ...cloudflareRuntimeModules])]
   if (external instanceof RegExp) return [external, ...cloudflareRuntimeModules]
   if (Array.isArray(external)) return [...new Set([...external, ...cloudflareRuntimeModules])]
-  if (hasRuntimeType(external, "function")) {
+  if (typeof external === "function") {
     return (source: string, importer?: string, isResolved?: boolean) => cloudflareRuntimeModules.includes(source) || external(source, importer, isResolved)
   }
   return external
@@ -803,7 +798,8 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
 export async function createCloudflareWorkflowNitroConfig(options: CloudflareWorkflowNitroOptions): Promise<Record<string, unknown>> {
   const preset = String(options.nitro.preset || "")
   if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
-  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
+  // Only a Cloudflare result matters here. Other hosts report a missing provider in the Workflow build.
+  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset, inline: true })
   if (!config || config.provider !== "cloudflare") return options.nitro
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
@@ -1018,7 +1014,10 @@ export function createWorkflowRegistryContents(
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime ? importBases.workspaceDependencies : undefined
+  // Import the Workspace runtime only to install a loader. A Workflow-only app does not install `@vite-hub/workspace`.
+  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime && Object.values(importBases.workspaceDependencies ?? {}).some(Boolean)
+    ? importBases.workspaceDependencies
+    : undefined
   const agent = importBases.agent
   if (needsAgentRuntime && !agent) throw workflowErrorDiagnostics.WORKFLOW_B0003()
   const imports = [
@@ -1180,7 +1179,7 @@ export async function writeProviderEntries(
   workflow: WorkflowOptions | undefined,
   importBases: WorkflowImportBases = {},
   serverDirs?: string[],
-  includeUserAppEntry = true,
+  includeUserAppEntry: boolean | string = true,
   transformRegistry?: (code: string, id: string) => string | Promise<string>,
   definitionRootDir = rootDir,
   generatedDir = ensureGeneratedDir(rootDir, productName),
@@ -1207,7 +1206,7 @@ export async function writeProviderEntries(
         source: "agent-workflow-recovery" as const,
       }]
     : [definition])
-  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir) : undefined
+  const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir, includeUserAppEntry) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   const vercelNativeDir = resolve(generatedDir, "vercel-native")
@@ -1411,9 +1410,9 @@ function isSafeVercelFunctionName(functionsRoot: string, serverFunctionName: str
 async function readVercelWorkflowFunctionOwnership(functionRoot: string): Promise<VercelWorkflowFunctionOwnership | undefined> {
   try {
     const ownership = parseJsonRecord(await readFile(resolve(functionRoot, vercelWorkflowFunctionOwnershipMarker), "utf8"), "Vercel Workflow function ownership")
-    if (!hasRuntimeType(ownership.digest, "string")) return
+    if (typeof ownership.digest !== "string") return
     if (ownership.version !== undefined && ownership.version !== 1) return
-    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => !hasRuntimeType(route, "string")))) return
+    if (ownership.rootConfigRoutes !== undefined && (!Array.isArray(ownership.rootConfigRoutes) || ownership.rootConfigRoutes.some(route => typeof route !== "string"))) return
     return {
       digest: ownership.digest,
       ...(ownership.rootConfigRoutes ? { rootConfigRoutes: ownership.rootConfigRoutes } : {}),
@@ -1441,9 +1440,9 @@ async function getVercelWorkflowFunctionOwnership(functionRoot: string): Promise
 async function readVercelWorkflowOutputState(rootDir: string, functionsRoot: string): Promise<VercelWorkflowOutputState | undefined> {
   try {
     const state = parseJsonRecord(await readFile(resolve(rootDir, vercelWorkflowOutputState), "utf8"), "Vercel Workflow output state")
-    if (!hasRuntimeType(state.serverFunctionName, "string") || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
+    if (typeof state.serverFunctionName !== "string" || !isSafeVercelFunctionName(functionsRoot, state.serverFunctionName)) return
     if (state.version !== undefined && state.version !== 1) return
-    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => !hasRuntimeType(route, "string")))) return
+    if (state.rootConfigRoutes !== undefined && (!Array.isArray(state.rootConfigRoutes) || state.rootConfigRoutes.some(route => typeof route !== "string"))) return
     return {
       ...(state.rootConfigRoutes ? { rootConfigRoutes: state.rootConfigRoutes } : {}),
       serverFunctionName: state.serverFunctionName,
@@ -1548,7 +1547,7 @@ async function generateProviderOutputsWithinLock(
     workspaceRuntime: options.workspaceRuntimeModule,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
+  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting, options.inline)
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined

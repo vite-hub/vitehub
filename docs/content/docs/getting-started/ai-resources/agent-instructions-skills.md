@@ -69,7 +69,7 @@ An app with the [Console](/docs/development/console) endpoint also serves the sk
 npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code
 ```
 
-The skill files are static and need no Console sign-in, even in production. They hold only the public skill, no app data.
+The skill files are static and need no signature, even in production. They hold only the public skill, no app data.
 
 To serve your own app's skills for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/development/skills).
 
@@ -103,4 +103,4 @@ Each instruction source serves a different reader. Keep them separate so reposit
 | Agent-local `skills/` | Provider-backed Agent runs | Installs Skills that a folder Agent Definition owns. |
 | [`skills()` Capability](/docs/agents/capabilities/skills) | ViteHub Agent runs | Gives the Agent Skills from its Workspace or an external Source. |
 
-Agent-local Skills need a folder Definition. Put them beside `server/agents/<name>/agent.ts` at `server/agents/<name>/skills/<skill>/SKILL.md`. A model Driver reads them from the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A Provider Driver gets them at the same path in its working directory, or in the Sandbox Home; ViteHub does not store them in the Workspace for it. A flat Definition such as `server/agents/review.ts` cannot own Skills. Move it to `server/agents/review/agent.ts` first.
+Agent-local Skills need a folder Definition. Put them beside `server/agents/<name>/agent.ts` at `server/agents/<name>/skills/<skill>/SKILL.md`. A model Driver reads them from the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A Provider Driver gets them from a private folder outside its working directory, or from the Sandbox Home. ViteHub does not write them into the Workspace or the checkout for it. See [Give the provider its Skills](/docs/agents/agent-drivers#give-the-provider-its-skills). A flat Definition such as `server/agents/review.ts` cannot own Skills. Move it to `server/agents/review/agent.ts` first.

@@ -1,16 +1,14 @@
 <script setup lang="ts">
 // Page actions: the Markdown twin of the page, chat tools that read it, and the docs MCP server.
-import { useClipboard } from "@vueuse/core"
+import { CopyButton, useCopy } from "@vite-hub/ui"
 import { docsMarkdownLinks, docsMcpInstallLinks, findDocsPage } from "#docs/navigation"
 
 const route = useRoute()
 const toast = useToast()
-const { copy, copied } = useClipboard({ copiedDuring: 1500 })
-const { copy: copyLink } = useClipboard()
+const { copy } = useCopy()
 const manifest = useDocsManifest()
 const { mcp, site, appBase } = useDocsConfig()
 const links = computed(() => findDocsPage(manifest, route.path) ? docsMarkdownLinks(site, route.path, appBase) : null)
-const copying = ref(false)
 const menuOpen = ref(false)
 const menuHydrated = ref(false)
 
@@ -28,23 +26,13 @@ function openPendingMenu(event: MouseEvent | KeyboardEvent) {
 }
 
 async function copyText(text: string, title: string) {
-  await copyLink(text)
-  toast.add({ title, icon: "i-lucide-check" })
+  if (await copy(text)) toast.add({ title, icon: "i-lucide-check" })
 }
 
-async function copyPage() {
-  if (!links.value || copying.value) return
-  copying.value = true
-  try {
-    const markdown = await $fetch<string>(links.value.markdownPath, { responseType: "text" })
-    await copy(markdown)
-  }
-  catch {
-    toast.add({ title: "Could not copy the page", description: "Open the Markdown view instead.", icon: "i-lucide-x" })
-  }
-  finally {
-    copying.value = false
-  }
+const pageMarkdown = () => $fetch<string>(links.value?.markdownPath ?? "", { responseType: "text" })
+
+function copyPageFailed() {
+  toast.add({ title: "Could not copy the page", description: "Open the Markdown view instead.", icon: "i-lucide-x" })
 }
 
 function mcpItems(server: { name: string, url: string, guide: string | null }) {
@@ -78,26 +66,17 @@ const items = computed(() => {
 </script>
 
 <template>
-  <!-- `contents` keeps the group a direct flex item of the page header. The live region sits outside the group,
-       because the group rounds its first and last child. -->
+  <!-- `contents` keeps the group a direct flex item of the page header. -->
   <div v-if="links" class="contents">
     <UFieldGroup size="sm" @click.capture="openPendingMenu" @keydown.capture="openPendingMenu">
-      <UButton
-        :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-        :loading="copying"
-        color="neutral"
+      <CopyButton
+        :value="pageMarkdown"
+        label="Copy page"
         variant="outline"
         aria-label="Copy page as Markdown"
         class="vh-page-action"
-        :ui="{ leadingIcon: 'text-muted size-3.5' }"
-        @click="copyPage"
-      >
-        <!-- Both labels share one grid cell, so "Copied" does not change the width or move the menu button. -->
-        <span class="grid whitespace-nowrap">
-          <span class="[grid-area:1/1]" :class="{ invisible: copied }">Copy page</span>
-          <span class="[grid-area:1/1]" :class="{ invisible: !copied }">Copied</span>
-        </span>
-      </UButton>
+        @error="copyPageFailed"
+      />
 
       <!-- The menu and its Reka parts load once the page is idle, so they stay out of the JS that every page waits for. -->
       <LazyUDropdownMenu
@@ -106,19 +85,17 @@ const items = computed(() => {
         size="sm"
         :items="items"
         :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
-        :ui="{ item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' }"
+        :ui="withDocsTheme('dropdownMenu', { item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' })"
         @hydrated="menuHydrated = true"
       >
         <UButton
           icon="i-lucide-chevron-down"
-          color="neutral"
           variant="outline"
           aria-label="More page actions"
           class="vh-page-action vh-page-action-more"
         />
       </LazyUDropdownMenu>
     </UFieldGroup>
-    <span class="sr-only" aria-live="polite">{{ copied ? "Page copied as Markdown" : "" }}</span>
   </div>
 </template>
 

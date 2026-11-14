@@ -1,3 +1,8 @@
+import { resolve } from "pathe"
+
+import { localPgliteDir } from "../runtime/local-path.ts"
+
+import type { PgliteOptions } from "../runtime/pglite.ts"
 import type { PostgresDatabaseDefaults } from "../runtime/postgres.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
@@ -5,7 +10,7 @@ function renderConfigExpression(value: unknown) {
   return typeof value === "undefined" ? "undefined" : JSON.stringify(value)
 }
 
-function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, drizzle: _drizzle, ...database }: ResolvedDrizzleDatabaseConfig) {
+function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, ...database }: ResolvedDrizzleDatabaseConfig) {
   return JSON.stringify(database, null, 4)
 }
 
@@ -18,7 +23,6 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
     `      ...${serializeDatabaseConfig(base)},`,
     `      cloudflare: resolveRuntimeCloudflareConfig(${renderConfigExpression(cloudflare)}, ${definitionVariable}.cloudflare, ${renderConfigExpression(cloudflareOptions)}),`,
     `      connection: ${definitionVariable}.connection ? { authToken: ${definitionVariable}.connection.authToken ?? ${renderConfigExpression(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${renderConfigExpression(base.connection?.url)} } : ${renderConfigExpression(base.connection)},`,
-    `      drizzle: ${definitionVariable}.drizzle ?? {},`,
     ...(localLimits ? [`      localLimits: ${JSON.stringify(localLimits)},`] : []),
     "    }",
   ].join("\n")
@@ -26,14 +30,23 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
 
 /**
  * Renders the `createPostgresDatabase()` call for a Postgres Definition in a generated runtime module.
- * `schemaExpression` is the merged schema, because Nuxt layers and contributed tables add tables that the evaluated
- * Definition does not hold.
+ * `schemaExpression` and `relationsExpression` are the merged schema and relations, because Nuxt layers and contributed
+ * tables add tables and relations that the evaluated Definition does not hold. A development module renders
+ * `createDevPostgresDatabase()` instead, which can run the Database on PGlite. It is awaited at the top level.
  */
-export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string) {
+export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, relationsExpression: string, dev = false) {
   const database = config.databases[name]!
   const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
   if (database.connection?.url !== undefined) defaults.url = database.connection.url
-  return `createPostgresDatabase({ ...${definitionVariable}, schema: ${schemaExpression} }, ${JSON.stringify(defaults)})`
+  const definition = `{ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }`
+  if (!dev) return `createPostgresDatabase(${definition}, ${JSON.stringify(defaults)})`
+  const pglite: PgliteOptions = { dataDir: resolve(config.rootDir, localPgliteDir(name)), migrationsDir: resolve(config.rootDir, database.migrationsDir) }
+  return `await createDevPostgresDatabase(${definition}, ${JSON.stringify(defaults)}, ${JSON.stringify(pglite)})`
+}
+
+/** Lists the Postgres Databases that set `driver: "pglite"`. A production build fails with them. */
+export function pgliteDatabases(config: ResolvedDBViteConfig) {
+  return config.databaseNames.filter(name => config.databases[name]?.driver === "pglite")
 }
 
 export function usesPostgres(config: ResolvedDBViteConfig) {

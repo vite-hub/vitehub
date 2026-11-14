@@ -14,6 +14,11 @@ export default defineConfig({
         cache: false,
         command: "vp dev --config playground/console/vite.config.ts",
       },
+      // Searches your own projects for the public API that this branch removes. Local only: CI has no consumer checkouts.
+      "consumers:check": {
+        cache: false,
+        command: "node scripts/consumer-check.mjs",
+      },
       // Builds packages in dependency order and caches each package build by
       // the files it reads. An outer --no-cache does not reach this nested run,
       // so release and preview publishing run the filter with --no-cache.
@@ -42,10 +47,6 @@ export default defineConfig({
         cache: false,
         command: "vp run --filter vitehub-docs build",
       },
-      "docs:dev": {
-        cache: false,
-        command: "vp run --filter vitehub-docs dev",
-      },
       "e2e:local": {
         cache: false,
         command: "node test/local/local.mjs",
@@ -63,6 +64,12 @@ export default defineConfig({
       "e2e:deno:live": {
         cache: false,
         command: "node test/local/deno-real-project.mjs --live",
+        dependsOn: ["build"],
+      },
+      // Opt-in: needs Docker. Runs three Node instances of one app against Postgres and Redis.
+      "e2e:multi-instance": {
+        cache: false,
+        command: "node test/multi-instance/run.mjs",
         dependsOn: ["build"],
       },
       "knip:catalog": {
@@ -83,10 +90,6 @@ export default defineConfig({
         cache: false,
         command: "cd playground/vite && vp build",
         dependsOn: ["build"],
-      },
-      "playground:vite:build:cloudflare": {
-        cache: false,
-        command: "vp run playground:vite:build --mode chat",
       },
       "playground:vite:build:local": {
         cache: false,
@@ -123,6 +126,11 @@ export default defineConfig({
         dependsOn: ["@vite-hub/schedule#build"],
       },
       ...rootTestTasks,
+      // Needs Postgres and Redis. Set VITEHUB_TEST_POSTGRES_URL and VITEHUB_TEST_REDIS_URL.
+      "test:services": {
+        cache: false,
+        command: "node test/service-tests.mjs",
+      },
       typecheck: {
         cache: false,
         command: "node test/typecheck.mjs",

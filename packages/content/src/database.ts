@@ -27,6 +27,7 @@ export type ContentSessionsTable = SQLiteTableWithColumns<{
     lastInputAt: SessionColumn<number, false>
   }
   dialect: "sqlite"
+  isAlias: false
   name: "vitehub_content_sessions"
   schema: undefined
 }>

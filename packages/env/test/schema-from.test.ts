@@ -36,7 +36,7 @@ export const withoutMetadata = {
 export const notASchema = { parse: () => "nope" }
 `
 
-const serverEntry = `import { inspectServerEnv, useServerEnv } from "#vitehub/env/server"
+const serverEntry = `import { inspectServerEnv, useServerEnv } from "@vite-hub/env"
 
 const mode = process.argv[2]
 if (mode === "inspect") {
@@ -117,6 +117,8 @@ beforeAll(async () => {
   await writeFile(join(root, "env.schema.ts"), schemaModule, "utf8")
   await writeFile(join(root, "server.ts"), serverEntry, "utf8")
   await writeFile(join(root, "consumer.ts"), consumer, "utf8")
+  await writeFile(join(root, "root-consumer.ts"), consumer.replace("#vitehub/env/server", "@vite-hub/env"), "utf8")
+  await writeFile(join(root, "facade-consumer.ts"), consumer.replace("#vitehub/env/server", "vite-hub/env"), "utf8")
   await buildServer(root, {
     apiUrl: env({ schema: env.schemaFrom("./env.schema.ts", "apiUrl") }),
     retries: env({ default: "2", schema: env.schemaFrom("./env.schema.ts", "retries") }),
@@ -194,6 +196,8 @@ describe("env.schemaFrom()", () => {
   it("generates schema output types and falls back to unknown without metadata", async () => {
     const generated = await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")
     expect(generated).toContain(`typeof import("../../env.schema.js")["retries"]`)
+    const accessors = await readFile(join(root, ".vitehub", "types", "env-accessors.d.ts"), "utf8")
+    expect(accessors).toContain(`typeof import("../../env.schema.js")["retries"]`)
     const program = createProgram({
       options: {
         module: ModuleKind.ESNext,
@@ -203,7 +207,14 @@ describe("env.schemaFrom()", () => {
         strict: true,
         target: ScriptTarget.ES2022,
       },
-      rootNames: [join(root, "consumer.ts"), join(root, ".vitehub", "types", "env.d.ts"), join(root, ".vitehub", "env", "server.d.ts")],
+      rootNames: [
+        join(root, "consumer.ts"),
+        join(root, "root-consumer.ts"),
+        join(root, "facade-consumer.ts"),
+        join(root, ".vitehub", "types", "env.d.ts"),
+        join(root, ".vitehub", "types", "env-accessors.d.ts"),
+        join(root, ".vitehub", "env", "server.d.ts"),
+      ],
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 30_000)

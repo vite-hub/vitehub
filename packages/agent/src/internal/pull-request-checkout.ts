@@ -1,7 +1,6 @@
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 export interface PullRequestCheckoutPlan {
   baseRef?: string
@@ -26,28 +25,28 @@ const gitEnv = {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return isRuntimeObject(value) && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function safeRepository(repo: unknown): string | undefined {
-  return isRuntimeString(repo) && githubRepositoryPattern.test(repo) ? repo : undefined
+  return typeof repo === "string" && githubRepositoryPattern.test(repo) ? repo : undefined
 }
 
 function safeGitRef(ref: unknown): string | undefined {
-  if (!isRuntimeString(ref) || !ref || ref.length > 250) return
+  if (typeof ref !== "string" || !ref || ref.length > 250) return
   if (!gitRefPattern.test(ref) || ref.includes("..") || ref.includes("//") || ref.includes("@{") || ref.endsWith(".lock") || ref.endsWith("/") || ref.startsWith("/") || ref.startsWith("-")) return
   return ref
 }
 
 function safeGitSha(sha: unknown): string | undefined {
-  if (!isRuntimeString(sha)) return
+  if (typeof sha !== "string") return
   const normalized = sha.toLowerCase()
   return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(normalized) ? normalized : undefined
 }
 
 /** Normalize a Workspace-relative mount. Returns undefined for paths that leave the Workspace. */
 function safeWorkspaceMount(path: unknown, allowRoot = false): string | undefined {
-  if (!isRuntimeString(path)) return
+  if (typeof path !== "string") return
   const stripped = path.replace(/\\/g, "/").replace(/^\/workspace(?:\/|$)/, "")
   const parts = stripped.split("/").filter(Boolean)
   if (parts.some(part => part === "." || part === "..")) return
@@ -75,7 +74,7 @@ export function pullRequestCheckoutPlan(context: ContextStore): PullRequestCheck
   if (!pullRequest) return
 
   const provider = isRecord(raw) ? raw.provider : undefined
-  if (isRuntimeString(provider) && provider !== "github") return
+  if (typeof provider === "string" && provider !== "github") return
 
   const source = isRecord(pullRequest.source) ? pullRequest.source : undefined
   if (source?.checkout === false) return
@@ -116,7 +115,7 @@ export function pullRequestRepositories(context: ContextStore): { headRepository
   const raw = context?.get("pullRequest")
   const pullRequest = isRecord(raw) && isRecord(raw.pullRequest) ? raw.pullRequest : isRecord(raw) ? raw : undefined
   const provider = isRecord(raw) ? raw.provider : undefined
-  if (isRuntimeString(provider) && provider !== "github") return
+  if (typeof provider === "string" && provider !== "github") return
   const source = isRecord(pullRequest?.source) ? pullRequest.source : undefined
   const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
   const repositoryRecord = isRecord(raw) && isRecord(raw.repository) ? raw.repository : undefined

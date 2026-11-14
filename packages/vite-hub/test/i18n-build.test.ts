@@ -9,7 +9,7 @@ import { vitehub } from "../src/index.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { contentDefinition, createProject, path, runCli } from "./support/content-cms.ts"
 
-const app = () => [vue(), vitehub({ i18n: { locales: ["en", "es"] }, preset: "node" })]
+const app = () => [vue(), vitehub({ i18n: { locales: ["en", "es"] }, host: "node" })]
 
 async function translatePo(file: string, translations: Record<string, string>): Promise<void> {
   let po = await readFile(file, "utf8")
@@ -105,7 +105,7 @@ describe("i18n in a built Nitro 3 app", () => {
   }, 120_000)
 
   it("serves a translation that a Workspace publishes, without a rebuild", async () => {
-    const live = () => [vue(), vitehub({ i18n: { locales: ["en", "es"], workspace: "content" }, preset: "node" })]
+    const live = () => [vue(), vitehub({ i18n: { locales: ["en", "es"], workspace: "content" }, host: "node" })]
     const root = await createProject({
       "index.html": "<!doctype html><html lang=\"en\"><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.ts\"></script></body></html>\n",
       "package.json": JSON.stringify({ name: "i18n-workspace", private: true, type: "module" }),
@@ -119,10 +119,12 @@ describe("i18n in a built Nitro 3 app", () => {
         "",
         "export default async () => {",
         "  const translations = useTranslations()",
+        "  const [, missing] = await translations.missing('es')",
         "  await translations.save({ locale: 'es', source: 'Payment received', translation: 'Pago hecho', by: 'test' })",
         "  await translations.save({ locale: 'es', source: 'Deploy your agent', translation: 'Despliega tu agente' })",
         "  const draft = await translations.revision()",
-        "  return { draft, ...await translations.publish({ message: 'Spanish' }) }",
+        "  const status = await translations.status()",
+        "  return { draft, missing, status, ...await translations.publish({ message: 'Spanish' }) }",
         "}",
         "",
       ].join("\n"),
@@ -155,8 +157,16 @@ describe("i18n in a built Nitro 3 app", () => {
       expect(await (await server.fetch("/greeting", { headers: spanish })).json()).toEqual({ message: "Payment received" })
       expect(await (await catalog()).json()).toEqual({ revision: "build", messages: {} })
 
-      const published = await (await server.fetch("/translate", { method: "POST" })).json() as { draft: string, revision: string, published: number }
+      type Published = { draft: string, revision: string, published: number, missing: { total: number, items: Array<{ source: string, origins: string[] }> }, status: unknown[] }
+      const published = await (await server.fetch("/translate", { method: "POST" })).json() as Published
       expect(published).toMatchObject({ draft: "build", published: 2 })
+      // The build embedded every message of the browser and the server, so the server knows what is missing.
+      expect(published.missing.total).toBe(2)
+      expect(published.missing.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source: "Deploy your agent", origins: [expect.stringMatching(/^src\/App\.vue:\d+$/)] }),
+        expect.objectContaining({ source: "Payment received", origins: [expect.stringMatching(/^server\/routes\/greeting\.ts:\d+$/)] }),
+      ]))
+      expect(published.status).toEqual([{ locale: "es", messages: 2, published: 0, drafted: 2, missing: 0 }])
       expect(await (await server.fetch("/greeting", { headers: spanish })).json()).toEqual({ message: "Pago hecho" })
 
       const response = await catalog()

@@ -25,7 +25,7 @@ const thread: CommentThread = {
   <div class="w-full max-w-sm overflow-hidden rounded-lg border border-default bg-default">
     <CommentThread :thread :user="ana" :people="[ana, ben]" :dismissible="false" :attachments="false">
       <template #actions>
-        <UButton aria-label="Copy link" color="neutral" icon="i-ph-link" size="xs" variant="ghost" />
+        <UButton aria-label="Copy link" color="neutral" icon="i-lucide-link" size="xs" variant="ghost" />
       </template>
       <template #anchor>
         <p class="mx-3 mt-3 text-xs text-muted">

@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
+import { parse, parseAllDocuments } from "yaml";
 
 const root = resolve(import.meta.dirname, "../..");
 const fixture = resolve(root, "fixtures/tutorials/chat-app");
@@ -61,7 +61,7 @@ describe("chat project tutorial", () => {
 
   it("pins the zod version of the runtime catalog, so the server output traces one zod", async () => {
     const manifest = JSON.parse(await readFile(resolve(fixture, "package.json"), "utf8"));
-    const lockfile = parse(await readFile(resolve(root, "pnpm-lock.yaml"), "utf8"));
+    const lockfile = parseAllDocuments(await readFile(resolve(root, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS();
     expect(manifest.dependencies.zod).toBe(lockfile.catalogs.runtime.zod.version);
   });
 });

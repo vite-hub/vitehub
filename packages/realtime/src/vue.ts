@@ -19,6 +19,7 @@ import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
 import { keepRealtimeSocketAlive } from "./keepalive.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 /** Reads a room document as Markdown and fields with the editor codec, such as the `previous` document of a reset. */
 export { readRealtimeYDoc } from "./document.ts"
@@ -52,8 +53,11 @@ export interface RealtimeResetEvent {
 }
 
 export interface UseRealtimeTiptapOptions {
-  /** Editor schema shared with the definition's `editor`. Defaults to the built-in Markdown kit. */
-  editor?: Pick<RealtimeEditor, "extensions">
+  /**
+   * Editor schema shared with the definition's `editor`. Defaults to the built-in Markdown kit. Its `version` goes with
+   * the connection: when it differs from the server's, the connection is read-only with `readOnlyReason` `version`.
+   */
+  editor?: Pick<RealtimeEditor, "extensions" | "version">
   enabled?: MaybeRefOrGetter<boolean>
   /** Presence identity. Defaults to the ViteHub Auth session; pass `null` for an anonymous guest. */
   identity?: MaybeRefOrGetter<RealtimeUser | null | undefined>
@@ -67,10 +71,6 @@ export interface UseRealtimeTiptapOptions {
 }
 
 const workspaceChangeFlushIntervalMs = 11
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function isString(value: unknown): value is string {
   return typeof value === "string"
@@ -239,7 +239,11 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   function connect(id: string) {
     const nextDocument = markRaw(new Y.Doc())
     const room = id.split("/").map(encodeURIComponent).join("/")
-    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, { disableBc: true, params: {} })
+    const version = options.editor?.version
+    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, {
+      disableBc: true,
+      params: { clientId: String(nextDocument.clientID), ...version === undefined ? {} : { editor: version } },
+    })
     keepRealtimeSocketAlive(nextProvider)
     nextProvider.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       if (provider.value !== nextProvider) return

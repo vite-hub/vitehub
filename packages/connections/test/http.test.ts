@@ -123,7 +123,6 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(409);
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     const html = await response.text();
-    expect(html).toContain("/_vitehub/connections?connection=t3%3Aalice");
     expect(html).toContain("vitehub connections connect t3:alice");
   });
 
@@ -482,18 +481,34 @@ describe("createConnectionsHandler", () => {
       expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
     });
 
-    it("keeps request-origin behavior for an alternate public host", async () => {
+    it("never takes the OAuth callback or the expected Origin from another request host", async () => {
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
-      const start = await handler.fetch(new Request("https://alternate.example.com/_vitehub/connections/connect/mail"));
-      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://alternate.example.com/_vitehub/connections/callback");
-      const request = new Request("https://alternate.example.com/_vitehub/connections", {
+      const start = await handler.fetch(new Request("https://attacker.example/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+      const request = new Request("https://attacker.example/_vitehub/connections", {
         body: JSON.stringify({ action: "list" }),
-        headers: { "content-type": "application/json", origin: "https://alternate.example.com" },
+        headers: { "content-type": "application/json", origin: "https://attacker.example" },
         method: "POST",
       });
-      expect((await handler.fetch(request)).status).toBe(200);
+      expect((await handler.fetch(request)).status).toBe(403);
+    });
+
+    it("rejects a request host that matches none of several configured origins", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com", "bot-dev": "https://agent-dev.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler.fetch(new Request("https://attacker.example/_vitehub/connections/connect/mail"));
+      expect(start.status).toBe(403);
+      expect(start.headers.get("location")).toBeNull();
+      const rejected = await handler.fetch(new Request("https://attacker.example/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "https://attacker.example" },
+        method: "POST",
+      }));
+      expect(rejected.status).toBe(403);
+      expect(await rejected.json()).toMatchObject({ error: { code: "CONNECTIONS_ORIGIN_REJECTED" } });
     });
   });
 

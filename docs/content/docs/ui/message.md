@@ -3,7 +3,7 @@ title: Message
 description: "Lay out one conversation turn with an avatar, a header, content, and a footer."
 navigation.order: 10
 navigation.group: Parts
-icon: i-ph-chat-centered-text-light
+icon: i-lucide-message-square-text
 ---
 
 `Message` is one row of a conversation. It aligns the turn to the start or end and holds an avatar, header, content, and footer. Put a [Bubble](/docs/ui/bubble), a [Trace](/docs/ui/trace), or other content in `MessageContent`. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Message](https://ui.shadcn.com/docs/components/message).
@@ -13,7 +13,7 @@ icon: i-ph-chat-centered-text-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/message`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { Message, MessageAvatar, MessageContent, MessageFooter, MessageGroup, MessageHeader } from "@vite-hub/ui";
@@ -119,7 +119,7 @@ Footer action buttons often show only an icon. Give each one an `aria-label`.
 
 ```vue
 <MessageFooter>
-  <UButton color="neutral" variant="ghost" size="sm" square icon="i-ph-copy-light" aria-label="Copy" />
+  <UButton color="neutral" variant="ghost" size="sm" square icon="i-lucide-copy" aria-label="Copy" />
 </MessageFooter>
 ```
 
@@ -129,7 +129,7 @@ The parts do not announce new messages. When new turns arrive while the reader w
 
 ```vue
 <Marker role="status">
-  <MarkerIcon><UIcon name="i-ph-circle-dashed-light" /></MarkerIcon>
+  <MarkerIcon><UIcon name="i-lucide-circle-dashed" /></MarkerIcon>
   <MarkerContent>Checking the logs</MarkerContent>
 </Marker>
 ```

@@ -2,7 +2,7 @@ import "../virtual-module.d.ts"
 
 import { normalizeKey } from "unstorage"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-// The package import keeps the Nitro module graph on the storage that `hubKv()` selects, for example the generated
+// The package import keeps the Nitro module graph on the storage that `hubKV()` selects, for example the generated
 // Cloudflare KV runtime. A relative import would bypass that selection.
 import { kv } from "@vite-hub/kv"
 
@@ -10,6 +10,7 @@ import { inspectKVValue, kvValueType } from "./inspect-value.ts"
 
 import { previewKVValue } from "./preview.ts"
 
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "../results.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -46,6 +47,8 @@ export interface KVDevStore {
 export interface KVDevListResult {
   /** Present when more keys exist. Pass it as `--cursor` to read the next page. */
   cursor?: string
+  /** The build-selected driver that this store uses. */
+  driver?: KVDriver
   keys: string[]
   limit: number
   prefix: string
@@ -62,10 +65,10 @@ export interface KVDevGetResult {
   /** With `preview`: how `value` is written. */
   format?: "json" | "text"
   /**
-   * Whether the key can expire. `none`: the store never expires keys (fs-lite ignores TTL). `unknown`: the store can
-   * expire keys, but its driver cannot report the time left, so a write that sets no TTL removes the expiry.
+   * Whether the key can expire. `unknown`: the store can expire keys, but its driver cannot report the time left, so a
+   * write that sets no TTL removes the expiry.
    */
-  expiry?: "none" | "unknown"
+  expiry?: "unknown"
   /** With `preview`: the value was cut at 256 KiB. */
   truncated?: true
   key: string
@@ -147,7 +150,6 @@ export function listKVDevStores(): KVDevStore[] {
 }
 
 function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
-  if (driver === "fs-lite") return "The fs-lite driver ignores TTL. The value does not expire."
   if (driver === "upstash" && Math.ceil(ttl) !== ttl) return `Upstash rounds the TTL up to ${Math.ceil(ttl)} seconds.`
   if (driver === "cloudflare-kv-binding") {
     const effectiveTTL = Math.max(60, Math.ceil(ttl))
@@ -158,7 +160,8 @@ function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
 
 function selectStore(stores: readonly KVDevStore[], name = "default"): { driver: KVDriver, name: string, storage: KVStorage } {
   if (stores.length === 0) {
-    throw new KVOperationError("KV is disabled in this runtime. Configure `hubKv()` without `kv: false`.", 409, "KV_DISABLED", "Enable KV with hubKv() or vitehub({ kv: true }).")
+    const error = kvErrorDiagnostics.KV_DISABLED()
+    throw new KVOperationError(error.message, 409, error.code, error.fix)
   }
   const store = stores.find(entry => entry.name === name)
   if (!store) {
@@ -183,7 +186,7 @@ function requireKey(operation: string, input: KVOperationInput): string {
  * Runs one `kv.*` operation against the KV stores of this runtime. The Nitro runtime owns the stores and their
  * bindings, so this runs where the app does. There is no operation that clears a store.
  */
-export async function runKVOperation(operation: "list" | "get" | "has" | "set" | "del", input: KVOperationInput, stores: readonly KVDevStore[] = listKVDevStores()): Promise<unknown> {
+export async function runKVOperation(operation: "list" | "get" | "has" | "set" | "delete", input: KVOperationInput, stores: readonly KVDevStore[] = listKVDevStores()): Promise<unknown> {
   const selected = selectStore(stores, input.store)
   switch (operation) {
     case "list": {
@@ -194,6 +197,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       if (input.cursor) listOptions.cursor = input.cursor
       const page = unwrap(await selected.storage.list(listOptions))
       const result: KVDevListResult = {
+        driver: selected.driver,
         keys: page.keys,
         limit,
         prefix: input.prefix ?? "",
@@ -208,7 +212,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       const value = unwrap(await selected.storage.get(key))
       const found = value !== null || unwrap(await selected.storage.has(key))
       const result: KVDevGetResult = { found, key, store: selected.name }
-      if (found) result.expiry = selected.driver === "fs-lite" ? "none" : "unknown"
+      if (found) result.expiry = "unknown"
       if (!found) return result
       if (input.preview) return { ...result, ...previewKVValue(value) } satisfies KVDevGetResult
       const inspected = inspectKVValue(value)
@@ -239,11 +243,11 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       if (ttl) result.ttl = ttl
       return result
     }
-    case "del": {
+    case "delete": {
       const key = requireKey(operation, input)
       requireWritableKey(operation, key)
       const existed = unwrap(await selected.storage.has(key))
-      unwrap(await selected.storage.del(key))
+      unwrap(await selected.storage.delete(key))
       const result: KVDevDeleteResult = { deleted: existed, key, store: selected.name }
       return result
     }

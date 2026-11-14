@@ -85,7 +85,7 @@ export default defineConnection({
 | `requests` | None | Pacing, retries, and a timeout for provider requests. See [Request policy](#request-policy). |
 | `verify` | None | Checks a new key before it is stored. Gets the runtime `fetch` and a 30-second abort signal. |
 | `fallback` | None | Key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
-| `id` | `'api-key'` | Provider id in the Console and inspection. |
+| `id` | `'api-key'` | Provider id in inspection. |
 
 Pipe the key to the CLI:
 
@@ -99,10 +99,79 @@ ViteHub encrypts the key like an OAuth grant. Access rules, approvals, dry run, 
 
 ### Fallback key
 
-`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed:
+`fallback` gives a key from Server Env until an admin sets one. A sealed secret is unsealed. Declare the GitHub token in your host configuration:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    connections: true,
+    env: {
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/connections/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
+import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
   provider: apiKey({
@@ -137,7 +206,42 @@ export default defineConnection({
 })
 ```
 
-This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
+This file defines `portal:acme` and `portal:globex`. Always use the full name, such as `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI lists each instance. The bare name `portal` fails and lists them. An instance key is 1 to 128 letters, digits, `.`, `_`, or `-`, and must be unique. `definition(instance)` runs once per process, on first use.
+
+## Setup docs
+
+A Connection often needs a person to do something first: create an app at the provider, choose the right account, or approve a scope. Write those steps next to the definition, in a Markdown file with the same name:
+
+```md [server/connections/crm.md]
+Connect the **support@** account, not your own.
+
+1. In CRM, open **Settings → API** and turn on API access.
+2. Click **Connect** and approve `offline_access`.
+```
+
+`vitehub connections inspect crm` prints it after the actions, and `inspect()` returns it as `docs`, so an Agent can read it too. A `.connection.ts` file uses a `.connection.md` file next to it.
+
+The `docs` option of a definition replaces the file. Use it when the steps depend on the instance of a [keyed Connection](#keyed-connections), which share the file otherwise:
+
+```ts [server/connections/crm.ts]
+import { defineConnection } from 'vite-hub/connections'
+
+export default defineConnection({
+  instances: ['acme', 'globex'],
+  definition: tenant => ({
+    provider: {
+      id: 'crm',
+      authorizationEndpoint: `https://${tenant}.crm.example.com/authorize`,
+      tokenEndpoint: `https://${tenant}.crm.example.com/token`,
+      clientId: `${tenant}-client-id`,
+    },
+    scopes: ['offline_access'],
+    docs: `Sign in to https://${tenant}.crm.example.com as the tenant's automation user.`,
+  }),
+})
+```
+
+The Markdown is part of your app. ViteHub does not read it from users or providers.
 
 ## MCP endpoint
 
@@ -221,7 +325,7 @@ The preset allows every method on the `mcp` endpoint without approval, because M
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. No `env.provider()` and no default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` and `vite-hub/nuxt` turn on `database` when unset. Without a Database Definition, Connections use an empty `default` Database, and `vitehub inspect` says why. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module also builds Connections for production, including Cloudflare Workers. Production mounts the management API only with `management`, which uses the Console sign-in.
+`vitehub({ connections })` and `vite-hub/nuxt` turn on `database` when unset. Without a Database Definition, Connections use an empty `default` Database, and `vitehub inspect` says why. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module also builds Connections for production, including Cloudflare Workers. Production mounts the management API only with `management: { actor }`, the access policy of your app.
 
 ## Activity retention
 

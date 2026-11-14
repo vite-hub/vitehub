@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent, resolveAgentTriggerInvocation } from "@vite-hub/agent"
-import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process-host"
+import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process"
+import { withDeclaredAgentWorkspace } from "@vite-hub/agent/server/internal"
 import { babysitter } from "../src/babysitter.ts"
 import { usesProcessHostPreset } from "../../agent/src/discovery.ts"
 
@@ -37,6 +38,11 @@ describe("Babysitter process host", () => {
     expect(getAgentProcessHostContribution(defineAgent({ extends: configured, name: "child" }))).toBeDefined()
     expect(getAgentProcessHostContribution(defineAgent({ name: "plain", driver: { run: () => "" } }))).toBeUndefined()
     expect(() => defineAgent({ extends: babysitter, options: { concurrency: 0 } })).toThrow(/concurrency/)
+  })
+
+  it("owns no Workspace, so a folder Agent that extends it needs no workspace key", () => {
+    const agent = defineAgent({ extends: babysitter, options: { filter: { repository: { allow: ["acme/app"] } }, merge: "direct" } })
+    expect(withDeclaredAgentWorkspace(agent, "babysitter")).toBe(agent)
   })
 })
 

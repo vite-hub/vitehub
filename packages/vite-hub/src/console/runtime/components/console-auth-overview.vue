@@ -1,24 +1,27 @@
 <script setup lang="ts">
+import { consoleNumber } from "../client/format";
 import { computed } from "vue";
 import type { AuthConsoleDescription, AuthConsoleOverview } from "@vite-hub/auth/console";
 import ConsoleAuthChart from "./console-auth-chart.vue";
 import ConsoleAuthEventList from "./console-auth-event-list.vue";
 import ConsoleAuthEventSetup from "./console-auth-event-setup.vue";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 const props = defineProps<{ data: AuthConsoleOverview; description: AuthConsoleDescription }>();
+const metric = (value: number | null) => (value === null ? "Unavailable" : consoleNumber(value));
 const metrics = computed(() => [
-  { label: "Users", value: props.data.users },
-  { label: "Active in last 7 days", value: props.data.activeUsers },
-  { label: "New in last 7 days", value: props.data.newUsers },
-  { label: "Active sessions", value: props.data.activeSessions },
+  { label: "Users", value: metric(props.data.users) },
+  { label: "Active in last 7 days", value: metric(props.data.activeUsers) },
+  { label: "New in last 7 days", value: metric(props.data.newUsers) },
+  { label: "Active sessions", value: metric(props.data.activeSessions) },
   ...(props.data.approvedAgents !== undefined
-    ? [{ label: "Approved agents", value: props.data.approvedAgents }]
+    ? [{ label: "Approved agents", value: metric(props.data.approvedAgents) }]
     : []),
 ]);
 const methods = computed(() =>
   Object.entries(props.data.analytics?.totals.methods ?? {}).sort((a, b) => b[1] - a[1]),
 );
-const format = (value: number) => new Intl.NumberFormat("en").format(value);
 const methodLabel = (method: string) =>
   method === "email-password"
     ? "Email and password"
@@ -30,14 +33,7 @@ const methodLabel = (method: string) =>
 <template>
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto w-full max-w-6xl sm:p-2">
-    <dl class="grid grid-cols-2 gap-5 border-b border-default p-4 lg:grid-cols-5">
-      <div v-for="metric in metrics" :key="metric.label">
-        <dt class="text-xs text-muted">{{ metric.label }}</dt>
-        <dd class="mt-1 text-2xl font-medium tabular-nums text-highlighted">
-          {{ metric.value === null ? "Unavailable" : format(metric.value) }}
-        </dd>
-      </div>
-    </dl>
+    <ConsoleStatGrid :items="metrics" size="lg" :columns="5" label="Auth totals" class="border-b border-default p-4" />
     <p v-if="!description.storage.enabled" class="px-4 pt-3 text-xs text-muted">
       {{ description.storage.reason }}
     </p>
@@ -52,17 +48,14 @@ const methodLabel = (method: string) =>
         class="grid gap-6 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)]"
       >
         <ConsoleAuthChart :analytics="data.analytics" />
-        <section class="min-w-0 space-y-4" aria-labelledby="auth-methods-title">
-          <h2 id="auth-methods-title" class="text-sm font-medium text-highlighted">
-            Sign-in methods <span class="font-normal text-muted">30 days</span>
-          </h2>
-          <p v-if="!methods.length" class="text-xs text-muted">No sign-in methods recorded yet.</p>
+        <ConsoleSection title="Sign-in methods" description="Last 30 days">
+          <UEmpty v-if="!methods.length" variant="naked" size="sm" icon="i-lucide-log-in" title="No sign-ins recorded yet" description="Each sign-in method shows here with its share after the first sign-in." />
           <ul class="space-y-4">
             <li v-for="[method, count] in methods" :key="method" class="space-y-1.5">
               <div class="flex items-baseline justify-between gap-2 text-xs">
                 <span class="truncate text-toned" :title="method">{{ methodLabel(method) }}</span
                 ><span class="whitespace-nowrap tabular-nums text-muted"
-                  >{{ format(count) }} ·
+                  >{{ consoleNumber(count) }} ·
                   {{ Math.round((count / data.analytics.totals.signIns) * 100) }}%</span
                 >
               </div>
@@ -74,27 +67,22 @@ const methodLabel = (method: string) =>
               </div>
             </li>
           </ul>
-        </section>
+        </ConsoleSection>
       </div>
-      <section aria-labelledby="auth-recent-title">
-        <div class="flex items-center justify-between border-y border-default px-4 py-2">
-          <h2 id="auth-recent-title" class="text-sm font-medium text-highlighted">
-            Recent activity
-          </h2>
+      <ConsoleSection title="Recent activity" class="border-t border-default px-4 pt-3">
+        <template #actions>
           <UButton
             :to="{ name: 'vitehub-console-auth', params: { page: 'activity' } }"
-            color="neutral"
             variant="ghost"
             size="xs"
             trailing-icon="i-lucide-arrow-right"
             >View activity</UButton
           >
-        </div>
-        <ConsoleAuthEventList :events="data.recent.events" />
-        <p v-if="!data.recent.events.length" class="p-4 text-sm text-muted">
-          No auth events recorded yet.
-        </p>
-      </section>
+        </template>
+        <!-- The event rows have their own inline padding, so the list spans the section. -->
+        <ConsoleAuthEventList :events="data.recent.events" class="-mx-4" />
+        <UEmpty v-if="!data.recent.events.length" variant="naked" size="sm" icon="i-lucide-history" title="No auth events yet" description="Sign-ins, sign-ups, and admin actions show here when they happen." />
+      </ConsoleSection>
     </template>
     <p
       v-if="data.activeSessions === null && description.storage.enabled"

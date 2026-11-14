@@ -55,14 +55,14 @@ For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provid
 | Node or Docker with `postgres.url` or `sqlite.path` | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
 | Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's rules | Yes |
 | Vercel, normal handler | Inline | No | None | No |
-| Node or Docker without OpenWorkflow storage, and `vite dev` | Inline | No | None | No |
+| `vite dev` without a provider, and the Workflow that only `agent` turns on outside Cloudflare | Inline | No | None | No |
 
 Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow gets the same policy as `maximumAttempts: 3`, `initialInterval: '10 seconds'`, and `backoffCoefficient: 2`, so it makes 3 attempts in total.
 
 An inline run executes the handler in the current process, kept alive after the response by the host's `waitUntil()` if it has one. Steps run in order, but nothing saves their results, and an error fails the run with no retry. A finished inline run's result stays in memory for five minutes, up to 1,024 runs, and a restart loses it. If the request has no Cloudflare Workflow binding, the Workflow also runs inline.
 
 ::warning
-On Node or Docker, ViteHub picks OpenWorkflow only when you set its storage. Without `postgres.url` or `sqlite.path`, the provider is Vercel, which means inline runs off Vercel. The default SQLite path, `.vitehub/data/openworkflow.sqlite.db`, is lost when a container or function file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#select-openworkflow-storage) before production.
+On Node or Docker, ViteHub picks OpenWorkflow when you set its storage. A build without `provider`, `postgres.url`, or `sqlite.path` fails with `WORKFLOW_C0020`. The default SQLite path, `.vitehub/data/openworkflow.sqlite.db`, is lost when a container or function file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#select-openworkflow-storage) before production.
 ::
 
 ## Build the checkout Workflow in ViteHub
@@ -75,7 +75,7 @@ Enable Workflow with OpenWorkflow and SQLite on Node:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     workflow: {
       provider: 'openworkflow',
       sqlite: { path: '.data/workflows.sqlite' },
@@ -94,7 +94,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       workflow: {
         provider: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
@@ -114,7 +114,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       workflow: {
         provider: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
@@ -126,12 +126,12 @@ export default defineConfig({
 :::
 ::
 
-On Cloudflare, set `preset: 'cloudflare'` and `workflow: true`, with the same Workflow files.
+On Cloudflare, set `host: 'cloudflare'` and `workflow: true`, with the same Workflow files.
 
 In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts` becomes `steps.chargeCard`, with the provider step name `checkout/01.charge-card.ts`. Do not rename a step file while runs are in progress, because the new name is not in their step log.
 
 ```ts [server/workflows/checkout/index.ts]
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow(
   'checkout',
@@ -190,7 +190,7 @@ Start the run with an id from the order:
 
 ```ts [server/api/checkout.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { startWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)

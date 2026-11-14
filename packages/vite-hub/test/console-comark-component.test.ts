@@ -13,7 +13,8 @@ vi.mock("../src/console/runtime/client/media", () => ({ useConsoleMediaPicker: (
 vi.mock("@tiptap/vue-3", async () => {
   const { defineComponent, h } = await import("vue")
   const wrapper = defineComponent({ props: { as: String }, setup: (props, { slots }) => () => h(props.as ?? "div", slots.default?.()) })
-  return { NodeViewContent: wrapper, NodeViewWrapper: wrapper }
+  const { nodeViewProps } = await vi.importActual<typeof import("@tiptap/vue-3")>("@tiptap/vue-3")
+  return { NodeViewContent: wrapper, NodeViewWrapper: wrapper, nodeViewProps }
 })
 
 const fieldNote: ConsoleDocumentComponent = {
@@ -30,7 +31,7 @@ function mountNote(attrs: Record<string, unknown>) {
     props: { definition: fieldNote, editor: { isEditable: true }, node: { attrs: { name: "field-note", props: attrs } }, updateAttributes } as never,
     global: {
       stubs: {
-        UButton: { inheritAttrs: false, props: ["icon"], template: "<button type=\"button\" :aria-label=\"$attrs['aria-label']\" @click=\"$attrs.onClick\" />" },
+        UButton: { inheritAttrs: false, props: ["icon"], template: "<button type=\"button\" :aria-label=\"$attrs['aria-label']\" @click=\"$attrs.onClick\"><slot /></button>" },
         UIcon: true,
         UInput: { props: ["modelValue"], template: "<input :value=\"modelValue\">" },
         UPopover: { template: "<div><slot /><slot name=\"content\" /></div>" },

@@ -15,7 +15,7 @@ import { documents } from "vite-hub/content/collections"
 import cms from "vite-hub/cms"
 import * as v from "valibot"
 
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts: documents({ path: "posts/**/*.md", fields: { title: v.string() } }) },
 })
@@ -33,7 +33,7 @@ At build time `hubCms()` reads `server/content.ts` without running it, so import
 
 ## GitHub store
 
-`extends: [cms, { repo: "owner/name" }]` keeps documents in a Git repository. `repo` selects the GitHub store; `store: "github"` without `repo` reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. `root` (default `""`, the repository root) is the folder that holds the collection paths. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request. The GitHub store needs a Database for editor sessions and no Blob store. It cannot schedule publishes, so the Console does not ask for a `content.publishDue()` runner.
+`extends: [cms, { repo: "owner/name" }]` keeps documents in a Git repository. `repo` selects the GitHub store; `store: "github"` without `repo` reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. `root` (default `""`, the repository root) is the folder that holds the collection paths. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request. With `defineContent({ previews: true })` and a `github()` Source of the same repository, the publish result has `previews`: a signed `/pr/<number>/<url>` link of each document, valid for one hour, because publish branches are private. The GitHub store needs a Database for editor sessions and no Blob store. It cannot schedule publishes, so the Console does not ask for a `content.publishDue()` runner.
 
 ## Roles
 
@@ -43,21 +43,22 @@ At build time `hubCms()` reads `server/content.ts` without running it, so import
 // server/auth.ts
 import { admin } from "better-auth/plugins"
 import { defineAuth } from "vite-hub/auth"
+import { authDatabase } from "vite-hub/auth/database"
 import { cmsAccess } from "vite-hub/cms/access"
 
-export default defineAuth({ plugins: [admin(cmsAccess)] })
+export default defineAuth({ database: authDatabase(), plugins: [admin(cmsAccess)] })
 ```
 
 | Role | Content | Comments |
 | --- | --- | --- |
 | `user` (default) | None | None |
-| `viewer` | `read` | None |
-| `commenter` | `read` | `read`, `create`, `resolve` |
-| `editor` | `read`, `write` | `read`, `create`, `resolve` |
-| `publisher` | `read`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
+| `viewer` | `read`, `read-draft` | None |
+| `commenter` | `read`, `read-draft` | `read`, `create`, `resolve` |
+| `editor` | `read`, `read-draft`, `write` | `read`, `create`, `resolve` |
+| `publisher` | `read`, `read-draft`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
 | `admin` | Everything, with the Better Auth admin permissions | Everything |
 
-`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table.
+`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table. The role policy also decides `read`, the `/api/content/**` route, so visitors without a role get `401`. Set `defineContent({ access: "public" })` when visitors read that route. The roles still decide drafts, writes, and publishing.
 
 ## Inspect
 

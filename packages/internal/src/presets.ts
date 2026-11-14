@@ -13,7 +13,6 @@ export interface PresetSelection {
 /** Whether a value is a plain options object: an object literal or a null-prototype record. */
 export function isPresetOptionsRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || Object(value) !== value || Array.isArray(value)) return false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preset options are untyped input; this boundary rejects callables.
   if (typeof value !== "object") return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
@@ -36,7 +35,6 @@ export function readPresetSelection(extension: unknown, owner: string): PresetSe
  * `Unknown <label> option "<key>".`, such as `Agent preset`.
  */
 export function assertKnownPresetOptions(defaults: unknown, supplied: Record<string, unknown>, label: string): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preset defaults are untyped input; only plain objects declare options.
   if (defaults === null || typeof defaults !== "object") return
   for (const key of Object.keys(supplied)) {
     if (!Object.hasOwn(defaults, key)) throw new TypeError(`[vitehub] Unknown ${label} option "${key}".`)

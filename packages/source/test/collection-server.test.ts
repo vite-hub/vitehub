@@ -333,6 +333,23 @@ describe("defineCollectionHandler", () => {
     expect(response.status).toBe(500)
   })
 
+  it("answers 404 for a Collection with route: false and does not read it", async () => {
+    const load = vi.fn(async () => [{ id: 1 }])
+    const collection = defineCollection(load, {
+      authorize: true,
+      cursor: (item: { id: number }) => item.id,
+      cursorSchema: v.number(),
+      querySchema: v.object({}),
+      route: false,
+    })
+    const handler = defineCollectionHandler(collection)
+
+    const response = await handler.fetch(new Request("http://example.test/api/articles"))
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ status: 404, message: "Not Found" })
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it("answers a Web Request as a Fetchable, with JSON error Responses", async () => {
     const collection = defineCollection(
       async ({ limit, query }) => [{ id: 3 }, { id: 2 }, { id: 1 }].filter(item => !query.minimum || item.id >= Number(query.minimum)).slice(0, limit),

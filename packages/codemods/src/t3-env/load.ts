@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { createJiti } from "jiti"
 
 import { CodemodError } from "../types.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 /** The `createEnv()` options that the codemod reads. */
 export interface T3EnvOptions {
@@ -18,10 +19,6 @@ export interface T3EnvOptions {
 }
 
 const marker = "__vitehubT3EnvOptions"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 /**
  * Imports the env module with a `createEnv()` stub, so the schemas load without validating the current

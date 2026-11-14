@@ -37,14 +37,12 @@
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "chat": "catalog:chat",
-    "chat-state-cloudflare-do": "catalog:chat",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "knip": "catalog:tooling",
     "nitro": "catalog:unjs",
-    "nitropack": "catalog:unjs",
     "oxlint": "catalog:tooling",
-    "oxlint-tsgolint": "catalog:tooling",
+    "pkg-pr-new": "0.0.93",
     "semver": "^7.8.5",
     "tsrs": "0.20.0-ts7.1.0-beta",
     "typescript": "catalog:tooling",
@@ -54,7 +52,8 @@
     "vite-doctor": "catalog:",
     "vite-hub": "workspace:*",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "wrangler": "catalog:"
   },
   "devEngines": {
     "runtime": {
@@ -66,5 +65,5 @@
   "engines": {
     "node": "^22.22.0 || >=24.11.0"
   },
-  "packageManager": "pnpm@10.34.6"
+  "packageManager": "pnpm@12.16.1"
 }

@@ -11,6 +11,7 @@ import {
   consolePreviewPublishedUrl,
   consolePreviewUrl,
   consolePreviewWidth,
+  consolePublishPreviewUrl,
   readConsoleLocalDraft,
   writeConsoleLocalDraft,
 } from "../src/console/runtime/client/preview.ts"
@@ -33,6 +34,19 @@ describe("console preview", () => {
     expect(consolePreviewUrl("//evil.test/x", "https://site.test")).toBeUndefined()
     expect(consolePreviewUrl("javascript:alert(1)", "https://site.test")).toBeUndefined()
     expect(consolePreviewUrl(undefined, "https://site.test")).toBeUndefined()
+  })
+
+  it("opens the preview link of a publish pull request only when this Console can resolve it", () => {
+    const previews = [
+      { id: "a", url: "/pr/3/blog/a?vitehub-content-token=t" },
+      { id: "b", url: "https://site.test/pr/3/blog/b?vitehub-content-token=t" },
+    ]
+    expect(consolePublishPreviewUrl(previews, "a", "https://site.test")).toBe("https://site.test/pr/3/blog/a?vitehub-content-token=t")
+    expect(consolePublishPreviewUrl(previews, "b", undefined)).toBe("https://site.test/pr/3/blog/b?vitehub-content-token=t")
+    // A Console on another origin cannot resolve a path, so it opens the pull request instead.
+    expect(consolePublishPreviewUrl(previews, "a", undefined)).toBeUndefined()
+    expect(consolePublishPreviewUrl([{ id: "a", url: "javascript:alert(1)" }], "a", undefined)).toBeUndefined()
+    expect(consolePublishPreviewUrl(undefined, "a", "https://site.test")).toBeUndefined()
   })
 
   it("loads the published view with the published parameter, and hides the view parameters from the address", () => {

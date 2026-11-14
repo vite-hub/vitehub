@@ -2,11 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
-import { join, resolve } from "pathe"
+import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, listsName, optionalString, parseCommitMessage, splitManifestCommand, withTemporaryOutput } from "./host.ts"
+import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
 
 import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
 
@@ -18,11 +18,15 @@ interface WranglerCommand {
   /** `--config` and `--secrets-file` with their values, and the rollout flag, in build order. */
   args: string[]
   config: string
+  /** The D1 bindings whose migrations `database.migrateOnDeploy` applies before the deploy, in build order. */
+  migrations: string[]
 }
 
 /**
  * Reads `commands.deploy` from `<output>/nitro.json` and checks that it is the Wrangler deploy that the build writes:
- * `npx wrangler deploy --config <file> [--secrets-file <file>] [--containers-rollout=gradual]`.
+ * `npx wrangler deploy --config <file> [--secrets-file <file>] [--containers-rollout=gradual]`. With
+ * `database.migrateOnDeploy`, `npx wrangler d1 migrations apply <binding> --remote --config <file> && ` comes before it
+ * once for each D1 binding (`packages/database/src/internal/migrate-on-deploy.ts`).
  */
 async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> {
   let manifest: unknown
@@ -34,7 +38,8 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
   }
   const command = isRecord(manifest) && isRecord(manifest.commands) ? optionalString(manifest.commands.deploy) : undefined
   if (!command) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: `commands.deploy in ${join(outputDir, "nitro.json")}` }), setupExitCodes.error)
-  const words = splitManifestCommand(command)
+  const steps = command.split(" && ").map(step => splitManifestCommand(step))
+  const words = steps.pop()!
   if (words[0] !== "npx" || words[1] !== "wrangler" || words[2] !== "deploy") throw commandRejected(command)
   const args: string[] = []
   let config: string | undefined
@@ -49,7 +54,14 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
     else throw commandRejected(command)
   }
   if (!config) throw commandRejected(command)
-  return { args, config }
+  const migrations = steps.map((step) => {
+    const [binding, ...flags] = step.slice(5)
+    const valid = step.slice(0, 5).join(" ") === "npx wrangler d1 migrations apply" && binding !== undefined && /^[A-Z_a-z]\w*$/u.test(binding)
+      && flags.length === 3 && flags[0] === "--remote" && flags[1] === "--config" && flags[2] === config
+    if (!valid) throw commandRejected(command)
+    return binding
+  })
+  return { args, config, migrations }
 }
 
 interface WranglerOutputEntry {
@@ -83,7 +95,7 @@ function claimExpiry(text: string): string | undefined {
 }
 
 // Wrangler 4.158: `wrangler deploy --help`, `wrangler secret put --help`, `wrangler secret list --help`, and the global
-// `--temporary` flag. Recorded in test/fixtures/host-cli-help/.
+// `--temporary` flag. Wrangler 4.157: `wrangler d1 migrations apply --help`. Recorded in test/fixtures/host-cli-help/.
 export async function cloudflareAdapter(context: DeployContext): Promise<DeployAdapter> {
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
@@ -99,6 +111,13 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
 
   return {
     async deploy(): Promise<DeployResult> {
+      // A preview version and a temporary Worker must not change the production database.
+      if (!context.preview && !context.temporary) {
+        for (const binding of command.migrations) {
+          const result = await run(["d1", "migrations", "apply", binding, "--remote", "--config", command.config], { show: true })
+          if (result.exitCode !== 0) throw hostCliFailed(`wrangler d1 migrations apply ${binding}`, result, context.secrets)
+        }
+      }
       const folder = await mkdtemp(join(tmpdir(), "vitehub-deploy-"))
       const outputFile = join(folder, "wrangler-output.jsonl")
       try {
@@ -129,29 +148,6 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
       finally {
         await rm(folder, { force: true, recursive: true })
       }
-    },
-    async setSecret(name, value) {
-      // `wrangler secret put` reads the value from stdin when stdin is not a terminal. On a Worker that does not
-      // exist yet, it creates a draft Worker without a prompt.
-      const result = await run(["secret", "put", name, "--config", command.config, ...target], { stdin: value })
-      if (result.exitCode !== 0) throw hostCliFailed(`wrangler secret put ${name}`, result, context.secrets)
-    },
-    async hasSecret(name) {
-      const result = await run(["secret", "list", "--config", command.config, "--format", "json", ...target])
-      if (result.exitCode !== 0) return false
-      try {
-        return listsName(JSON.parse(result.stdout), ["name"], name)
-      }
-      catch {
-        return false
-      }
-    },
-    // `wrangler secret put` creates a draft Worker, so the secret can go first.
-    projectExists: async () => true,
-    async withTemporaryVar(name, value, deploy) {
-      // A temporary account has no login for `wrangler secret put`, so the hash goes into the generated config as a
-      // plain var. The project config does not change.
-      return await withTemporaryOutput([resolve(context.outputDir, command.config)], "vars", name, value, deploy)
     },
   }
 }

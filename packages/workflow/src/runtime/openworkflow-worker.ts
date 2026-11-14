@@ -1,7 +1,7 @@
 import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 import { assertWorkflowDefinitionName } from "../definition.ts"
@@ -34,7 +34,7 @@ function getProcess(): {
 function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
   return isRuntimeRecord(value)
     && Object.hasOwn(value, "handler")
-    && hasRuntimeType(value.handler, "function")
+    && typeof value.handler === "function"
 }
 
 async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {

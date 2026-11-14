@@ -24,6 +24,83 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("skips package alias probes for an explicitly selected entry", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, 'export const value = "entry"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const probedAliases: string[] = []
+    const plugin: Plugin = {
+      name: "unrelated-package-alias",
+      setup(build) {
+        build.onResolve({ filter: /^unrelated-package$/ }, args => {
+          probedAliases.push(args.path)
+          return { path: entry }
+        })
+      },
+    }
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "unrelated-package": replacement },
+      platform: "node",
+      plugins: [plugin],
+      resolveEntryPackageAliases: false,
+    })
+
+    expect(probedAliases).toEqual([])
+    expect((await import(pathToFileURL(outfile).href)).value).toBe("entry")
+  })
+
+  it.each(["cloudflare", "vercel", "netlify"] as const)("bundles the selected %s entry without probing package aliases by default", async provider => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    await Promise.all([
+      writeFile(entry, 'export const value = "entry"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    for (const resolveEntryPackageAliases of [undefined, true]) {
+      const probedAliases: string[] = []
+      const plugin: Plugin = {
+        name: "provider-entry-package-alias",
+        setup(build) {
+          build.onResolve({ filter: /^entry-package$/ }, args => {
+            probedAliases.push(args.path)
+            return { path: entry }
+          })
+        },
+      }
+      const bundleOptions: NonNullable<Parameters<typeof bundleEsmEntry>[2]> = {
+        alias: { "entry-package": replacement },
+        platform: "node",
+        plugins: [plugin],
+        resolveEntryPackageAliases,
+      }
+      const outputRoot = resolve(rootDir, resolveEntryPackageAliases ? "reverse" : "selected")
+      await writeProviderDeploymentOutputs({
+        rootDir,
+        clientOutDir: "client",
+        ...(provider === "cloudflare" ? {
+          cloudflare: { bundleEntry: entry, bundleOptions, bundleOutfileName: "index.mjs", outputRoot, wranglerConfig: { main: "index.mjs" } },
+        } : provider === "vercel" ? {
+          vercel: { bundleEntry: entry, bundleOptions, outputRoot },
+        } : {
+          netlify: { functions: [{ bundleEntry: entry, bundleOptions, functionName: "handler" }], outputRoot },
+        }),
+      })
+      const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : "functions/handler.mjs")
+      expect(probedAliases).toEqual(resolveEntryPackageAliases ? ["entry-package"] : [])
+      expect((await import(pathToFileURL(outfile).href)).value).toBe(resolveEntryPackageAliases ? "replacement" : "entry")
+    }
+  })
+
   it.each(["cloudflare", "vercel", "vercel-isolated", "netlify", "netlify-config"] as const)("minifies final %s output with independent opt-outs and preserved runtime behavior", async (provider) => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")
@@ -716,6 +793,37 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
 
     expect(await readFile(outfile, "utf8")).toContain("original")
     expect(await readFile(outfile, "utf8")).not.toContain("replacement")
+  })
+
+  it("matches an exact package alias only for the file it names when one importer imports two files of the package", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const root = resolve(packageDir, "dist/index.mjs")
+    const internal = resolve(packageDir, "dist/server/internal.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(dirname(internal), { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { ".": "./dist/index.mjs", "./server/internal": "./dist/server/internal.mjs" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(root, "export const rootValue = 'package-root'\n", "utf8"),
+      writeFile(internal, "export const internalValue = 'package-internal'\n", "utf8"),
+      writeFile(replacement, "export const rootValue = 'replacement'\n", "utf8"),
+      // Generated route modules import package files by absolute path, the root first.
+      writeFile(entry, `export { rootValue } from ${JSON.stringify(root)}\nexport { internalValue } from ${JSON.stringify(internal)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { example: replacement },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain("replacement")
+    expect(output).toContain("package-internal")
   })
 
   it("resolves bare aliases independently for each importer", async () => {

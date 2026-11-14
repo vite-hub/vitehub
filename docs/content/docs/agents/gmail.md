@@ -185,7 +185,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         gmail: {
@@ -213,7 +213,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         gmail: {
@@ -240,7 +240,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         gmail: {
@@ -401,6 +401,21 @@ pnpm vitehub channels status labeller gmail --url https://mail.example.com
 
 Errors never contain a message body; they are redacted and cut to 500 characters. Invocation failures show a generic error, because Driver (model) errors can include email content. The `channels.status` [operation](/docs/agents/channels#operations-and-commands) returns the same data through Console RPC and MCP.
 
+Server code reads the same status with `gmailChannelStatus()`, for example for a health route that an uptime check calls:
+
+```ts [server/api/health.get.ts]
+import { defineEventHandler } from 'h3'
+import { gmailChannelStatus } from 'vite-hub/agent/channels'
+import { inbox } from '../lib/inbox'
+
+export default defineEventHandler(async () => {
+  const health = await gmailChannelStatus(inbox)
+  return Response.json(health ?? { status: 'unknown' }, { status: health?.status === 'ok' ? 200 : 503 })
+})
+```
+
+It returns `undefined` when no Agent of the app uses the Channel. When more than one Agent uses it, pass `{ agent: 'labeller' }`. Like `pollGmailChannel()`, it reads the State of the webhook route, and outside a host request it takes `runtime` for Server Env and Cloudflare bindings.
+
 To retry a skipped message, replay it. It leaves `skipped` when its Invocation starts:
 
 ```sh
@@ -432,7 +447,7 @@ See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `
 ```ts [server/api/old-promotions.get.ts]
 import { defineEventHandler } from 'h3'
 import { gmailClient } from 'vite-hub/agent/channels'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import { inbox } from '../lib/inbox'
 
 export default defineEventHandler(async (event) => {

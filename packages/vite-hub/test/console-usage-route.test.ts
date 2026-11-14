@@ -16,21 +16,21 @@ const usageHandler = allowed(usageHandlerRoute)
 it("registers no Usage HTTP endpoint, since the Usage operation serves the data, when configuration is reapplied", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
-    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: ["agents", "usage"] })
     const hook = plugin.config
     if (!hook) throw new Error("Missing Console config hook")
     const handler = "handler" in hook ? hook.handler : hook
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     for (let pass = 0; pass < 2; pass++) await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
     expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/api/usage")).toEqual([])
-    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/rpc/**")).toHaveLength(1)
+    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/rpc")).toHaveLength(1)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 it.each([["env", "kv"], ["usage"]] as const)("does not register the Usage endpoint without the Agents section (%j)", async (...sections) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
-    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [...sections] })
+    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: [...sections] })
     const hook = plugin.config
     if (!hook) throw new Error("Missing Console config hook")
     const handler = "handler" in hook ? hook.handler : hook

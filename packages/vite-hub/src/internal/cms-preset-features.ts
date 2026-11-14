@@ -1,6 +1,7 @@
 import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { parseAst } from "vite"
 
 import { ownerModules } from "./owner-modules.ts"
 
@@ -10,6 +11,7 @@ interface CmsPresetFeatureOptions {
   blob?: unknown
   comments?: unknown
   database?: unknown
+  kv?: unknown
   workspace?: unknown
 }
 
@@ -28,6 +30,18 @@ function usesForms(project: { projectRoot: string, serverDirs?: readonly string[
   return ownerModules.formsVite?.usesForms(project) ?? false
 }
 
+/** A `github()` Source in `server/content.ts` keeps its head commit in KV. */
+function usesGitHubSources(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.contentVite?.usesGitHubSources(project, parseAst) ?? false
+}
+
+function projectOf(config: CmsPresetConfig): { projectRoot: string, serverDirs?: readonly string[] } {
+  const projectRoot = config[VITEHUB_PROJECT_ROOT]
+    ? resolve(config[VITEHUB_PROJECT_ROOT])
+    : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
+  return { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
+}
+
 /** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()
 
@@ -43,9 +57,15 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
 
 /**
  * Turn on the `cms` preset features for a known project root, as the Nuxt module does before it installs features.
- * Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
+ * It also turns on `kv` when it is unset and `server/content.ts` imports `github()`. Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
  */
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
+  const resolved = resolveStorageFeatures(options, project)
+  // Without `@vite-hub/kv`, the app keeps no KV, and Content logs `CONTENT_R0021`.
+  return resolved.kv === undefined && ownerModules.kvVite && usesGitHubSources(project) ? { ...resolved, kv: true } : resolved
+}
+
+function resolveStorageFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
   const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
   // Comments and Forms need the Database only.
@@ -60,10 +80,7 @@ export function markCmsPresetFeaturesResolved<T extends CmsPresetFeatureOptions>
 }
 
 function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "github" | undefined {
-  const projectRoot = config[VITEHUB_PROJECT_ROOT]
-    ? resolve(config[VITEHUB_PROJECT_ROOT])
-    : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  return cmsStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+  return cmsStore(projectOf(config))
 }
 
 function flattenPluginOptions(option: unknown, plugins: unknown[]): unknown[] {
@@ -95,12 +112,10 @@ function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean):
   return option
 }
 
-function selectsDatabaseOwner(config: CmsPresetConfig): boolean {
-  const projectRoot = config[VITEHUB_PROJECT_ROOT]
-    ? resolve(config[VITEHUB_PROJECT_ROOT])
-    : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  const project = { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
-  return usesComments(project) || usesForms(project)
+function selectsDatabaseOwner(config: CmsPresetConfig, comments: unknown): boolean {
+  const project = projectOf(config)
+  // `comments: false` keeps `server/comments.ts` from turning the Database on, as `resolveCmsPresetFeatures()` does.
+  return (comments !== false && usesComments(project)) || usesForms(project)
 }
 
 /**
@@ -172,12 +187,14 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
 
 /**
  * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the `cms` preset in
- * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts`, the `comments` option, or `server/forms/` turns it on. The project root is known
+ * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts`, the `comments` option, or `server/forms/` turns it on.
+ * When `kv` is unset, a `github()` Source in `server/content.ts` turns it on. The project root is known
  * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
  * does. An explicit `false` is never overridden.
  */
-export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
-  if (resolvedFeatureOptions.has(options)) return create(options)
+export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, createPlain: (options: T) => PluginOption[]): PluginOption[] {
+  if (resolvedFeatureOptions.has(options)) return createPlain(options)
+  const create = (variant: T) => withContentKVPlugins(variant, createPlain)
   const cmsUnset = hasUnsetCmsPresetFeature(options)
   const databaseUnset = options.database === undefined
   if (!cmsUnset && !databaseUnset) return create(options)
@@ -196,9 +213,27 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   const comments = databaseUnset ? attempt({ ...options, database: true }) : undefined
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   let merged = flattenPluginOptions(create(options), [])
-  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config) && !(cmsUnset && selectedCmsPresetStore(config)))
+  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsDatabaseOwner(config, options.comments) && !(cmsUnset && selectedCmsPresetStore(config)))
   if (blob) merged = composeVariants(merged, "error" in blob ? failing(blob.error) : blob, config => selectedCmsPresetStore(config) === "blob-database")
   if (github) merged = composeVariants(merged, "error" in github ? failing(github.error) : github, config => selectedCmsPresetStore(config) === "github")
   // SAFETY: The merged list holds the Vite plugin options of every build.
   return merged as PluginOption[]
+}
+
+/**
+ * Builds the plugin list for `options`, with KV on when `kv` is unset and `server/content.ts` imports `github()`. A
+ * `github()` Source keeps its head commit in KV. When the list with KV fails to build, such as without `@vite-hub/kv`,
+ * the app keeps no KV, and Content logs `CONTENT_R0021` and reads the branch.
+ */
+function withContentKVPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
+  if (options.kv !== undefined || !ownerModules.contentVite || !ownerModules.kvVite) return create(options)
+  let withKV: unknown[]
+  try {
+    withKV = flattenPluginOptions(create({ ...options, kv: true }), [])
+  }
+  catch {
+    return create(options)
+  }
+  // SAFETY: Both lists hold the Vite plugin options of this build.
+  return composeVariants(flattenPluginOptions(create(options), []), withKV, config => usesGitHubSources(projectOf(config))) as PluginOption[]
 }

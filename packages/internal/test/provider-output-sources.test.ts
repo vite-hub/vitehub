@@ -304,6 +304,53 @@ it("excludes nested generated output directories from retained workspaces", asyn
   await expect(readFile(join(retainedWorkspace, "playground", "vite", ".vitest-tmp", "project", "test.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
+it("retains only the monorepo packages that an app references, without generated folders at any depth", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-monorepo-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const appOutput = join(rootDir, "server", "assets", "dist", "stale.mjs")
+  const sharedDir = join(workspace, "packages", "shared")
+  const sharedEntry = join(sharedDir, "src", "greeting.mjs")
+  const sharedTemplate = join(sharedDir, "templates", "welcome.md")
+  const sharedBuild = join(sharedDir, "dist", "index.mjs")
+  const sharedOutputs = [".nuxt", ".output", "coverage", join("src", "dist"), join("src", ".nuxt")]
+    .map(folder => join(sharedDir, folder, "stale.mjs"))
+  const unrelated = join(workspace, "packages", "docs", "src", "index.mjs")
+  const unrelatedBuild = join(workspace, "packages", "docs", "dist", "index.mjs")
+  await Promise.all([handler, appOutput, sharedEntry, sharedTemplate, sharedBuild, ...sharedOutputs, unrelated, unrelatedBuild].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{\"name\":\"web\",\"type\":\"module\"}\n"),
+    writeFile(join(sharedDir, "package.json"), "{\"name\":\"shared\",\"type\":\"module\"}\n"),
+    writeFile(join(workspace, "packages", "docs", "package.json"), "{\"name\":\"docs\",\"type\":\"module\"}\n"),
+    writeFile(handler, 'export { greeting } from "../../../packages/shared/src/greeting.mjs"\n'),
+    writeFile(sharedEntry, 'export const greeting = "hello"\n'),
+    writeFile(sharedTemplate, "# Welcome\n"),
+    writeFile(sharedBuild, 'export const greeting = "built"\n'),
+    writeFile(unrelatedBuild, "throw new Error('unreferenced package must not be retained')\n"),
+    writeFile(appOutput, "throw new Error('app output must not be retained')\n"),
+    ...sharedOutputs.map(file => writeFile(file, "throw new Error('package output must not be retained')\n")),
+    writeFile(unrelated, "throw new Error('unreferenced package must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  const retainedWorkspace = join(retained.resolve(rootDir), "..", "..")
+  const retainedPath = (file: string) => join(retainedWorkspace, relative(workspace, file))
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ greeting: "hello" })
+  expect(existsSync(retainedPath(sharedEntry))).toBe(true)
+  expect(existsSync(retainedPath(sharedTemplate))).toBe(true)
+  expect(existsSync(retainedPath(sharedBuild))).toBe(true)
+  expect(existsSync(retained.resolve(appOutput))).toBe(false)
+  expect(sharedOutputs.filter(file => existsSync(retainedPath(file)))).toEqual([])
+  expect(existsSync(retainedPath(dirname(dirname(unrelated))))).toBe(false)
+})
+
 it("retains configured roots beneath nested generated output directories", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-root-"))
   tempDirs.push(workspace)

@@ -8,7 +8,7 @@ import { expect, it, vi } from "vitest"
 import { createDocsManifest } from "../src/manifest.ts"
 import * as navigation from "../src/navigation.ts"
 
-const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
+const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 const source = readFileSync(resolve(import.meta.dirname, "../runtime/app/middleware/docs-layout.ts"), "utf8")
 
 function route(fullPath: string, name = "docs-page") {
@@ -18,7 +18,7 @@ function route(fullPath: string, name = "docs-page") {
 type Middleware = (to: ReturnType<typeof route>, from: ReturnType<typeof route>) => unknown
 
 // Compile the same client/server constant Nuxt supplies, while keeping the real manifest and navigation helpers.
-function middleware(client = true) {
+function middleware(client = true, ownsApp = true, startLinks: string[] = []) {
   const script = transpileModule(source.replaceAll("import.meta.client", String(client)), {
     compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext },
   }).outputText
@@ -30,9 +30,10 @@ function middleware(client = true) {
     require: (id: string) => {
       if (id === "#docs/manifest") return { __esModule: true, default: manifest }
       if (id === "#docs/navigation") return navigation
+      if (id === "#docs/shell") return { ownsApp }
       if (id === "#imports") return {
         defineNuxtRouteMiddleware: (callback: Middleware) => callback,
-        isDocsStartLink: () => false,
+        isDocsStartLink: (_config: unknown, path: string) => startLinks.includes(path),
         navigateTo,
         useDocsConfig: () => ({}),
         useRuntimeConfig: () => config,
@@ -73,4 +74,20 @@ it("does not reload initial, server, or same-path navigations", () => {
   const server = middleware(false)
   server.run(route("/missing"), route("/docs/kv"))
   expect(server.navigateTo).not.toHaveBeenCalled()
+})
+
+it.each([false, true])("uses the article layout for the app owner and keeps start links in the docs shell (ownsApp: %s)", (ownsApp) => {
+  const { run, navigateTo } = middleware(true, ownsApp)
+  for (const path of ["/about", "/"]) {
+    const to = route(path)
+    run(to, route("/docs/kv"))
+    expect(to.meta.layout).toBe(ownsApp ? "default" : "docs-article")
+  }
+  expect(navigateTo).not.toHaveBeenCalled()
+
+  const start = middleware(true, ownsApp, ["/about"])
+  const to = route("/about")
+  start.run(to, route("/docs/kv"))
+  expect(to.meta.layout).toBe("docs")
+  expect(start.navigateTo).not.toHaveBeenCalled()
 })

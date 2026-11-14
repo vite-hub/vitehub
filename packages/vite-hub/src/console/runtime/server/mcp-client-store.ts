@@ -1,6 +1,7 @@
 import { OAuthClientInformationSchema, OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { importSealKey, sealWithKey, unsealWithKey } from "@vite-hub/env/seal"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { isRecord } from "@vite-hub/internal/object"
 import * as v from "valibot"
 
 import { consoleRequestError } from "./request.ts"
@@ -72,7 +73,7 @@ export interface ConsoleMcpRecords {
 
 /** The part of the ViteHub KV store that the records use. Each call returns `[error, value]`. */
 export interface ConsoleMcpKV {
-  del: (key: string) => Promise<readonly [unknown, unknown]>
+  delete: (key: string) => Promise<readonly [unknown, unknown]>
   get: (key: string) => Promise<readonly [unknown, unknown]>
   keys: (base?: string) => Promise<readonly [unknown, string[] | undefined]>
   set: (key: string, value: unknown) => Promise<readonly [unknown, unknown]>
@@ -102,10 +103,6 @@ function memoryRecords(): ConsoleMcpRecords {
     save: async (connection) => { state.connections.set(connection.id, connection) },
     saveClient: async (key, client) => { state.clients.set(key, client) },
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 const optionalText = v.optional(v.string())
@@ -208,8 +205,8 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
       const connections = await Promise.all(names.map(name => read(name, connectionSchema)))
       return connections.filter((connection): connection is StoredConnection => connection?.owner === owner)
     },
-    remove: async (connection) => { unwrap(await kv.del(await connectionKey(connection.owner, connection.id))) },
-    removeClient: async (name) => { unwrap(await kv.del(await clientKey(name))) },
+    remove: async (connection) => { unwrap(await kv.delete(await connectionKey(connection.owner, connection.id))) },
+    removeClient: async (name) => { unwrap(await kv.delete(await clientKey(name))) },
     save: async connection => write(await connectionKey(connection.owner, connection.id), connection),
     saveClient: async (name, client) => write(await clientKey(name), client),
   }

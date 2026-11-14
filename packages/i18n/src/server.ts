@@ -5,19 +5,23 @@ import { compileMessage } from "@lingui/message-utils/compileMessage"
 import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 
 import { i18nErrorDiagnostics } from "./errors.ts"
+import { findPreviousTranslations } from "./lineage.ts"
+import { translationProblem } from "./placeholders.ts"
 import { createLiveTranslations, draftRef, publishedRef, readRevisionRecords, recordChanges } from "./live.ts"
-import { diglotSegment, messageSegment, recordPath } from "./record-format.ts"
+import { diglotSegment, isVisible, messageSegment, recordPath } from "./record-format.ts"
 import { configureI18n, resolveRequestLocale, setI18nScope } from "./runtime.ts"
 
 import type { ReviewTransition } from "@diglot/core"
 import type { I18n, Messages } from "@lingui/core"
 import type { Result } from "@vite-hub/runtime"
 import type { LiveTranslations, TranslationsWorkspace, WritableTranslationsWorkspace } from "./live.ts"
+import type { SourceMessages } from "./manifest.ts"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
 import type { I18nRuntimeConfig } from "./runtime.ts"
 
 export type { TranslationRecord, TranslationRecords } from "./record-format.ts"
 export type { TranslationsWorkspace, WritableTranslationsWorkspace } from "./live.ts"
+export type { SourceMessage, SourceMessages } from "./manifest.ts"
 
 type HeaderBag = { get(name: string): string | null }
 
@@ -40,6 +44,8 @@ export interface I18nServerWorkspaceOptions {
   clientIds: readonly string[] | null
   /** Milliseconds between two reads of the `published` head. Defaults to 5000. */
   interval?: number
+  /** Every message in the code, so `useTranslations()` can list what is missing. */
+  sources?: SourceMessages
 }
 
 export interface I18nServerOptions {
@@ -167,13 +173,39 @@ export interface SaveTranslationInput {
   by?: string
 }
 
+export interface TranslationLocaleStatus {
+  locale: string
+  /** Messages in the code. */
+  messages: number
+  /** Messages with a published translation. */
+  published: number
+  /** Messages with a saved translation that is not published yet. */
+  drafted: number
+  /** Messages with no translation, published or drafted. */
+  missing: number
+}
+
+export interface MissingTranslation {
+  id: string
+  source: string
+  context?: string
+  /** `file:line` places in the code. */
+  origins: string[]
+  /** The translation of an older version of this message, as a starting point. */
+  previous?: { source: string, translation: string }
+}
+
 export interface Translations {
   /** The published revision that the server uses, or `build` for the build snapshot. */
   revision(): Promise<string>
+  /** Coverage of each translated locale, with drafts. */
+  status(): Promise<TranslationLocaleStatus[]>
+  /** Messages that a locale does not translate yet, published or drafted, in pages of `limit` (default 50). */
+  missing(locale: string, options?: { limit?: number, cursor?: string }): Promise<Result<{ items: MissingTranslation[], total: number, cursor: string | null }, "I18N_UNKNOWN_LOCALE">>
   /** The records of one locale. `draft` shows the published records with the saved changes on top. */
   list(locale: string, options?: { ref?: "draft" | "published" }): Promise<Result<TranslationRecords, "I18N_UNKNOWN_LOCALE">>
   /** Save one translation to the `draft` ref. Readers see it after `publish()`. */
-  save(input: SaveTranslationInput): Promise<Result<{ id: string, revision: string }, "I18N_UNKNOWN_LOCALE">>
+  save(input: SaveTranslationInput): Promise<Result<{ id: string, revision: string }, "I18N_UNKNOWN_LOCALE" | "I18N_INVALID_TRANSLATION">>
   /** Copy the changed draft records to the `published` ref in one revision. The server uses them on the next request. */
   publish(options?: { message?: string }): Promise<{ revision: string | null, published: number }>
 }
@@ -210,10 +242,53 @@ export function useTranslations(): Translations {
   const match = (locale: string) => translated.find(entry => entry.toLowerCase() === locale.toLowerCase())
   const unknown = (locale: string) => i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales: translated })
 
+  const sources = state.options.workspace.sources ?? {}
+  const drafts = async () => {
+    const workspace = writable(state)
+    const [published, draft] = await Promise.all([recordsAt(workspace, publishedRef, translated), recordsAt(workspace, draftRef, translated)])
+    const visible = (records: Record<string, TranslationRecords>) => Object.fromEntries(
+      Object.entries(records).map(([locale, messages]) => [locale, Object.fromEntries(Object.entries(messages).filter(([, record]) => isVisible(record)))]),
+    )
+    return { published: visible(published), draft: visible(draft) }
+  }
+
   return {
     async revision() {
       await state.live?.refresh()
       return state.live?.revision ?? "build"
+    },
+    async status() {
+      const { published, draft } = await drafts()
+      const ids = Object.keys(sources)
+      return translated.map((locale) => {
+        const done = ids.filter(id => published[locale]?.[id])
+        const drafted = ids.filter(id => draft[locale]?.[id] && JSON.stringify(draft[locale][id]) !== JSON.stringify(published[locale]?.[id]))
+        const covered = new Set([...done, ...ids.filter(id => draft[locale]?.[id])])
+        return { locale, messages: ids.length, published: done.length, drafted: drafted.length, missing: ids.length - covered.size }
+      })
+    },
+    async missing(locale, options) {
+      const entry = match(locale)
+      if (!entry) return [unknown(locale), undefined]
+      const { published, draft } = await drafts()
+      const records = { ...published[entry], ...draft[entry] }
+      const previous = findPreviousTranslations(sources, records)
+      const ids = Object.keys(sources).filter(id => !(id in records)).sort()
+      const start = options?.cursor ? Math.max(0, ids.indexOf(options.cursor) + 1) : 0
+      const limit = Math.max(1, Math.min(options?.limit ?? 50, 200))
+      const page = ids.slice(start, start + limit)
+      const items = page.map((id): MissingTranslation => {
+        const source = sources[id]!
+        const carried = previous.get(id)
+        return {
+          id,
+          source: source.message,
+          ...(source.context ? { context: source.context } : {}),
+          origins: source.origins,
+          ...(carried ? { previous: { source: carried.record.source, translation: carried.record.text } } : {}),
+        }
+      })
+      return [undefined, { items, total: ids.length, cursor: start + limit < ids.length ? page.at(-1)! : null }]
     },
     async list(locale, options) {
       const entry = match(locale)
@@ -227,6 +302,9 @@ export function useTranslations(): Translations {
     async save(input) {
       const entry = match(input.locale)
       if (!entry) return [unknown(input.locale), undefined]
+      // An empty translation clears the record instead of replacing its text.
+      const problem = input.translation === "" ? undefined : translationProblem(input.source, input.translation)
+      if (problem) return [i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem }), undefined]
       const workspace = writable(state)
       const id = generateMessageId(input.source, input.context)
       const head = await workspace.history.head({ ref: draftRef })
@@ -281,4 +359,16 @@ export function useTranslations(): Translations {
       return { revision: revision.id, published: count }
     },
   }
+}
+
+/**
+ * The i18n primitive that the `i18n()` Agent Capability receives. Each call opens `useTranslations()`, so it works
+ * only in an app with `i18n.workspace`.
+ */
+export const agentI18n: Pick<Translations, "missing" | "publish" | "revision" | "save" | "status"> = {
+  status: () => useTranslations().status(),
+  missing: (locale, options) => useTranslations().missing(locale, options),
+  save: input => useTranslations().save(input),
+  publish: options => useTranslations().publish(options),
+  revision: () => useTranslations().revision(),
 }

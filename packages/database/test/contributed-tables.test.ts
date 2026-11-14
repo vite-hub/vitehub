@@ -10,7 +10,7 @@ import { resolveDBViteConfig } from "../src/config.ts"
 import { collectDatabaseContributions, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "../src/contributions.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 import type { CollectedDatabaseContribution, DatabaseContribution } from "../src/contributions.ts"
 
@@ -38,14 +38,14 @@ async function writeProjectFile(rootDir: string, path: string, contents: string)
   return file
 }
 
-async function createProject(definitions: Record<string, string[]> = { "server/databases/config.ts": ["export default defineDatabase({ schema: { notes } })"] }) {
+async function createProject(definitions: Record<string, string[]> = { "server/databases/default.ts": ["export default defineDatabase({ schema: { notes } })"] }) {
   // Inside the package so the fixture resolves this package's drizzle-orm and drizzle-kit.
   const rootDir = await mkdtemp(join(import.meta.dirname, ".contributed-tables-"))
   tempDirs.push(rootDir)
   await writeProjectFile(rootDir, "node_modules/history-tables/package.json", JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
   await writeProjectFile(rootDir, "node_modules/history-tables/schema.mjs", historyPackage)
   for (const [path, body] of Object.entries(definitions)) {
-    const name = /server\/databases\/([^/]+)\/config\.ts$/.exec(path)?.[1]
+    const name = /server\/databases\/([^/]+)\/index\.ts$/.exec(path)?.[1]
     await writeProjectFile(rootDir, path, [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
@@ -228,7 +228,7 @@ describe("contribution targets", () => {
     expect(config?.databaseNames).toEqual(["default"])
     expect(config?.tableContributionsByDatabase.default).toEqual([expect.objectContaining({ database: "default", name: historyContribution.name })])
 
-    // drizzle-kit writes the migration where `server/databases/config.ts` would keep it.
+    // drizzle-kit writes the migration where `server/databases/default.ts` would keep it.
     await writeGeneratedDatabaseArtifacts(config!)
     await execFileAsync(process.execPath, [
       join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
@@ -236,9 +236,9 @@ describe("contribution targets", () => {
       "--config",
       config!.generatedDrizzleConfigFile,
     ], { cwd: rootDir })
-    const migrationsDir = join(rootDir, "server/databases/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const migrationsDir = join(rootDir, "server/databases/default/migrations")
+    const [migration] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `history_refs`", "CREATE TABLE `history_revisions`"])
   }, 60_000)
 })
@@ -251,7 +251,7 @@ describe("the implicit default Database for contributions", () => {
     const collected = await collectDatabaseContributions([connectionsPlugin, connectionsPlugin], { projectRoot: "/app", root: "/app", rootDir: "/app" })
     expect(collected).toEqual({ definitions: [], tables: [], uses: [{ database: "default", dialect: "sqlite", name: "connections", plugin: "@vite-hub/connections/vite", reason: "Stores Connection grants." }] })
 
-    const rootDir = await createProject({ "server/databases/main/config.ts": ["export default defineDatabase({ schema: { notes } })"] })
+    const rootDir = await createProject({ "server/databases/main/index.ts": ["export default defineDatabase({ schema: { notes } })"] })
     expect(() => resolveDBViteConfig(undefined, rootDir, { contributions: collected, implicitDefault: true })).toThrow(expect.objectContaining({
       code: "DATABASE_INVALID_CONTRIBUTION_TARGET",
       message: expect.stringContaining("Data \"connections\" (from plugin \"@vite-hub/connections/vite\") target the Database \"default\", which has no Database Definition. Database Definitions: \"main\"."),
@@ -266,12 +266,12 @@ describe("the implicit default Database for contributions", () => {
 
     expect(config.databaseNames).toEqual(["default"])
     expect(config.definitions[0]?.source).toBe("implicit-default")
-    expect(config.databases.default?.migrationsDir).toBe("server/databases/migrations")
+    expect(config.databases.default?.migrationsDir).toBe("server/databases/default/migrations")
     expect(config.tableContributionsByDatabase.default).toEqual([expect.objectContaining({ name: "comments" })])
 
     const [summary] = await inspectDatabaseDefinitions({ implicitDefault: true, plugins, projectRoot: rootDir, rootDir })
     expect(summary?.fields).toEqual(expect.arrayContaining([
-      { label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub adds an empty default Database for plugin \"@vite-hub/comments/vite\", plugin \"@vite-hub/connections/vite\". Add `server/databases/config.ts` to define it yourself." },
+      { label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub adds an empty default Database for plugin \"@vite-hub/comments/vite\", plugin \"@vite-hub/connections/vite\". Add `server/databases/default.ts` to define it yourself." },
       { label: "Used by", value: "\"connections\" (from plugin \"@vite-hub/connections/vite\"). Stores Connection grants." },
       expect.objectContaining({ label: "Contributed tables", value: expect.stringContaining("Stores comments.") }),
     ]))
@@ -295,8 +295,8 @@ describe("the implicit default Database for contributions", () => {
     const rootDir = await createProject()
     const collected = await collectDatabaseContributions([commentsPlugin(), connectionsPlugin], { projectRoot: rootDir, root: rootDir, rootDir })
     const config = resolveDBViteConfig(undefined, rootDir, { contributions: collected, implicitDefault: true })!
-    expect(config.definitions).toEqual([expect.objectContaining({ handler: join(rootDir, "server/databases/config.ts"), name: "default" })])
-    expect(config.databases.default?.migrationsDir).toBe("server/databases/migrations")
+    expect(config.definitions).toEqual([expect.objectContaining({ handler: join(rootDir, "server/databases/default.ts"), name: "default" })])
+    expect(config.databases.default?.migrationsDir).toBe("server/databases/default/migrations")
   })
 })
 
@@ -317,14 +317,14 @@ describe("contributed Database Definitions", () => {
 
     expect(config.databaseNames).toEqual(["default"])
     expect(config.definitions[0]).toMatchObject({ contributor: "content/vite", handler: definition.definition, mode: "default", reason: "The preset needs a Database.", source: "vite-plugin-contribution" })
-    expect(config.databases.default?.migrationsDir).toBe("server/databases/migrations")
+    expect(config.databases.default?.migrationsDir).toBe("server/databases/default/migrations")
     expect(config.databases.default?.connection?.url).toBe("file:.vitehub/data/database/sqlite.db")
     expect(config.tableContributionsByDatabase.default).toHaveLength(1)
 
     await writeGeneratedDatabaseArtifacts(config)
     await execFileAsync(process.execPath, [join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"), "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
-    const migrations = join(rootDir, "server/databases/migrations")
-    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    const migrations = join(rootDir, "server/databases/default/migrations")
+    const sql = await readFile(join(migrations, (await readdir(migrations))[0]!, "migration.sql"), "utf8")
     expect(sql).toContain("CREATE TABLE `history_refs`")
   }, 60_000)
 
@@ -363,7 +363,7 @@ describe("contributed Database Definitions", () => {
     expect(summary?.fields).toEqual(expect.arrayContaining([
       { label: "Contributed by", value: "content/vite" },
       { label: "Reason", value: "The preset needs a Database." },
-      { label: "Migrations", value: "server/databases/migrations" },
+      { label: "Migrations", value: "server/databases/default/migrations" },
     ]))
   })
 })
@@ -407,9 +407,9 @@ describe("contributed tables in generated artifacts", () => {
       "--config",
       config.generatedDrizzleConfigFile,
     ], { cwd: rootDir })
-    const migrationsDir = join(rootDir, "server/databases/migrations")
-    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
-    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    const migrationsDir = join(rootDir, "server/databases/default/migrations")
+    const [migration] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, migration!, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
       "CREATE TABLE `audit_log`",
       "CREATE TABLE `history_refs`",
@@ -427,8 +427,8 @@ describe("contributed tables in generated artifacts", () => {
 
   it("adds tables only to the targeted named Database", async () => {
     const rootDir = await createProject({
-      "server/databases/analytics/config.ts": ["export default defineDatabase({ schema: { notes } })"],
-      "server/databases/history/config.ts": ["export default defineDatabase({ schema: {} })"],
+      "server/databases/analytics/index.ts": ["export default defineDatabase({ schema: { notes } })"],
+      "server/databases/history/index.ts": ["export default defineDatabase({ schema: {} })"],
     })
     const config = await generate(rootDir, contributions({ ...historyContribution, database: "history" }))
 
@@ -441,7 +441,7 @@ describe("contributed tables in generated artifacts", () => {
     ["a SQL table name of the app schema", ["const refs = sqliteTable('history_refs', { id: text('id') })", "export default defineDatabase({ schema: { notes, refs } })"], [historyContribution], "named \"history_refs\""],
     ["another contribution", ["export default defineDatabase({ schema: { notes } })"], [historyContribution, { definition: { export: "legacySchema", module: "history-tables/schema" }, name: "legacy" }], "named \"history_refs\""],
   ])("fails when contributed tables collide with %s", async (_, definition, entries, message) => {
-    const rootDir = await createProject({ "server/databases/config.ts": definition })
+    const rootDir = await createProject({ "server/databases/default.ts": definition })
 
     await expect(generate(rootDir, contributions(...entries))).rejects.toMatchObject({
       code: "DATABASE_DUPLICATE_TABLE",
@@ -476,7 +476,7 @@ describe("contributed tables at runtime", () => {
     tempDirs.push(rootDir)
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
     const tables = await writeProjectFile(rootDir, "vendor/history.ts", historyPackage)
-    await writeProjectFile(rootDir, "server/databases/config.ts", [
+    await writeProjectFile(rootDir, "server/databases/default.ts", [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "const notes = sqliteTable('notes', { title: text('title') })",
@@ -485,7 +485,7 @@ describe("contributed tables at runtime", () => {
     ].join("\n"))
     const queryFile = await writeProjectFile(rootDir, "server/query.ts", [
       "import { sql } from 'drizzle-orm'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "export async function query() {",
       "  const { db, schema } = useDatabase('default')",
       "  await db.run(sql`create table if not exists history_refs (workspace text primary key, head text)`)",
@@ -495,7 +495,7 @@ describe("contributed tables at runtime", () => {
       "",
     ].join("\n"))
     const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
-    const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDb(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
+    const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDatabase(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
     try {
       // SAFETY: This fixture writes the queried module before Vite loads it.
       const module = await server.ssrLoadModule(queryFile) as { query: () => Promise<{ keys: string[], refs: unknown[] }> }

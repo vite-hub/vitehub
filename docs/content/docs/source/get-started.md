@@ -13,26 +13,19 @@ A Source tells your server where to find data that it only reads, such as a fold
 In this tutorial, you make a Source for a `docs` folder and read the file `docs/intro.md` from an API route. The route returns the file as it is. It does not turn the Markdown into HTML.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run every command from the app root. You need no account. All files stay on your computer. If your app must also write files, use [Workspace](/docs/workspace) instead.
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. All files stay on your computer. If your app must also write files, use [Workspace](/docs/workspace) instead.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Configure"}
+## Configure
 
-Add ViteHub and Nitro to your app:
-
-```bash pm [commands/install]
-pnpm add vite-hub nitro h3
-pnpm add -D vite
-```
-
-Add `vitehub()` to `vite.config.ts`. Keep the other plugins of your app. You do not need a `source` option, because your route imports the Source file itself.
+Source comes with `vite-hub`, so you install nothing. Check that `nuxt.config.ts` or `vite.config.ts` adds ViteHub. Keep the other plugins of your app. You do not need a `source` option, because your route imports the Source file itself.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
 })
 ```
 ::::
@@ -44,7 +37,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
+  plugins: [vitehub({ host: 'node' }), nitro()],
 })
 ```
 ::::
@@ -55,7 +48,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' })],
+  plugins: [vitehub({ host: 'node' })],
 })
 ```
 ::::
@@ -111,13 +104,13 @@ Use the reader only in server code. It reads files on the server, not in the bro
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Open a second terminal, and call the route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/docs
+curl http://localhost:3000/api/docs
 ```
 
 The response has the `intro.md` file that you created, with the text `Hello from Source`.

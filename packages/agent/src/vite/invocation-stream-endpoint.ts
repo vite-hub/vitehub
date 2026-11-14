@@ -1,9 +1,10 @@
+import { createExecutionContext } from "@vite-hub/runtime"
 import { join } from "node:path"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { assertViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
+import { isRecord } from "@vite-hub/internal/object"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
@@ -14,12 +15,12 @@ import { isAgentDevLoopDiscoveryRequest } from "./invocation-stream-route.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { isResolvedAgentTriggerHandledInvocation, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers } from "../index.ts"
+import { resolveAgentTriggerInvocation } from "../index.ts"
 import { runAgentInline, streamAgentInline } from "../internal/agent-run.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
 import { handleChannelReplayRequest } from "../channel-replay.ts"
 import { channelDeliveryHandlers } from "../internal/channel-delivery-handlers.ts"
-import { markDiscoveredWorkspaceAgentDefinitionRegistered, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { markDiscoveredWorkspaceAgentDefinitionRegistered, resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
@@ -50,7 +51,7 @@ import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 import type { ViteAgentRuntimeContext } from "./runtime-adapter.ts"
 import type { AgentDevRuntimeCapability, AgentDevRuntimeOptions } from "./invocation-stream-route.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isTriggerInputSchema } from "../trigger-runtime.ts"
+import { isResolvedAgentTriggerHandledInvocation, isTriggerInputSchema, resolveAgentTriggers } from "../trigger-runtime.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const workspaceRegistryId = "#vitehub-workspace-registry"
@@ -86,10 +87,6 @@ interface AgentInvocationStreamEntry {
   identity: AgentHostIdentity
   name: string
   triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentRuntimeContext>>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function payloadFromBody(body: AgentInvocationStreamBody): Record<string, unknown> | undefined {
@@ -311,7 +308,7 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
   const entries: AgentInvocationStreamEntry[] = []
   for (const { agent, aliases, definition, identity } of loaded) {
     const context = createViteAgentDiscoveryContext(identity)
-    const triggers = await resolveAgentTriggers(agent as never, context as never)
+    const triggers = await resolveAgentTriggers(agent as never, createExecutionContext(context) as never)
     entries.push({ agent, ...(aliases ? { aliases } : {}), identity, name: definition.name, triggers })
   }
   return entries
@@ -728,7 +725,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
               ...invocation.input,
               context: {
                 ...withPayloadDefaults(invocation.input.context || {}, {
-                  invokerProfileId: hasRuntimeType(body.invokerProfileId, "string") ? body.invokerProfileId : undefined,
+                  invokerProfileId: typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined,
                 }),
                 ...(isRecord(body.meta) ? {
                   channel: withPayloadDefaults(isRecord(invocation.input.context?.channel) ? invocation.input.context.channel : {}, { meta: body.meta }),

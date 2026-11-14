@@ -56,10 +56,26 @@
       "import": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js",
+      "default": "./dist/markdown.js"
+    },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js",
+      "default": "./dist/preview.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "workerd": "./dist/sqlite-workerd.js",
+      "import": "./dist/sqlite.js",
+      "default": "./dist/sqlite.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -76,6 +92,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
+    "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -85,8 +102,10 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "birpc": "catalog:runtime",
     "comark": "catalog:markdown-ui",
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
@@ -97,8 +116,8 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "drizzle-orm": "catalog:database",
@@ -115,7 +134,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

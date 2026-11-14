@@ -76,12 +76,73 @@ The built-in Drivers reuse T3 Code's Codex and Claude Code runtime. ViteHub owns
 
 ```sh
 pnpm add @openai/codex@0.149.1
-pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
+pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
+
+Declare the Codex credentials in Server Env:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    env: {
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 export default defineAgent({
   driver: codexDriver({
@@ -176,44 +237,9 @@ launch: ({ command, providerCommand }) => ({
 })
 ```
 
-### Limit the Codex Home size
-
-Codex keeps every session in its Home (rollout files, `logs_N.sqlite`, `thread_history_N.sqlite`, `state_N.sqlite`, shell snapshots, `.tmp` Git directories) and never removes them. Set `retention` to bound the Home:
-
-```ts [server/agents/review/agent.ts]
-import { codexDriver, defineAgent } from 'vite-hub/agent'
-
-export default defineAgent({
-  driver: codexDriver({
-    retention: { maxAge: '14d', maxSize: '45%' },
-  }),
-})
-```
-
-- `maxAge` takes a duration such as `'14d'`. It applies to sessions, log rows, and shell snapshots.
-- `maxRecords` keeps the newest sessions.
-- `maxSize` takes bytes, a size such as `'2GB'`, or a percent of the Home's volume, such as `'45%'`. It counts only the Home's files, live SQLite pages, and WAL files.
-
-Every limit you set applies. Retention removes, in order: `.tmp` entries older than 24 hours, data older than `maxAge`, the oldest sessions past `maxRecords`, then the oldest sessions and hourly log rows until the Home fits `maxSize`. A removed session also loses its thread history and state rows. ViteHub runs `PRAGMA incremental_vacuum` so the files shrink. It never runs a full `VACUUM` or removes a database file.
-
-Retention never removes a thread running in this process or a file changed in the last 10 minutes. Sessions that a resume cursor still references, in memory or in `sessionStorePath`, and their fork parents, go last, only if a limit still fails. That conversation's next Invocation then sends the full history, as for any failed resume.
-
-Retention runs in the background on the first Codex Invocation, then at most every 10 minutes, and never fails an Invocation. It logs one `[vitehub] Codex home retention` line when it removes data or the Home stays over budget. The lock file `<home>/.vitehub-retention.lock` keeps processes apart.
-
-Retention needs a persistent Home: a `credentialProfile`, `providerSettings.homePath`, `CODEX_HOME` in `driver.env` or the process environment, or a gateway with one of these. Plain `credentials` without a profile use a temporary Home, so `defineAgent()` rejects `retention` with `AGENT_R1006`. ViteHub does not prune the implicit `~/.codex` and warns once. With `launch`, the app must reach the Home at the same path, for example on a shared volume, or ViteHub warns once and skips it. Agents that share a Home get the strictest value of each limit.
-
-Inspect and prune a Home from the CLI:
-
-```sh
-vitehub agent codex-home status --home /var/lib/app/codex --max-size 45%
-vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-size 45% --session-store .vitehub/provider-sessions.sqlite --dry-run
-```
-
-`prune` uses the same rules and lock file. Without `--dry-run`, it removes data. `--json` prints the report.
-
 ### Route model requests through a gateway
 
-Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/agents/ai-gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
+Set `gateway` to send provider model requests through an LLM proxy. An [AI gateway](/docs/gateways) preset from `vite-hub/gateways` reads its URL and key from the environment:
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -228,7 +254,7 @@ export default defineAgent({
 })
 ```
 
-[AI gateways](/docs/agents/ai-gateways) lists the presets, their variables, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the Driver fails at definition time with `AGENT_R0976`.
+[AI gateways](/docs/gateways) lists the presets, their variables, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the Driver fails at definition time with `AGENT_R0976`.
 
 ViteHub maps the gateway to each provider:
 
@@ -262,11 +288,39 @@ export default defineAgent({
 
 `cwd` takes an absolute or relative path, or a per-Invocation resolver. Relative paths resolve from the process working directory. If the result is not an existing directory, the Invocation fails with `AGENT_R0939` before the provider starts. A `launch` resolver gets it as `cwd`.
 
-The directory is the working copy. ViteHub materializes Workspace Sources (outside file sets a Workspace mounts) but starts no Workspace session: no file copy, Git baseline, diff, write-back, or removal. It restores generated instruction and Skill files when the provider stops. In a Git repository root, Git ignores those files during the run, so provider commits skip them. Title and progress summary runs ignore `cwd`. Your app owns the directory's contents, cleanup, and isolation between concurrent Invocations. Inspection shows whether `cwd` is static or dynamic, without resolving it.
+The directory is the working copy. ViteHub materializes Workspace Sources (outside file sets a Workspace mounts) but starts no Workspace session: no file copy, Git baseline, diff, write-back, or removal. It restores generated instruction files when the provider stops. Skills never go into the directory. In a Git repository root, Git ignores those files during the run, so provider commits skip them. Title and progress summary runs ignore `cwd`. Your app owns the directory's contents, cleanup, and isolation between concurrent Invocations. Inspection shows whether `cwd` is static or dynamic, without resolving it.
 
 ### Temporary files
 
 Each Invocation on this host gets its own temporary directory in `TMPDIR`, `TMP`, and `TEMP` for the provider, its commands, and a `launch` wrapper. Test fixtures, tool caches, and the Node.js compile cache stay out of the shared host directory. ViteHub removes it when the Invocation ends, even after a failure, abort, or timeout, or a later Invocation removes it once the dead owner process is confirmed. Set `TMPDIR` in `env` to use another directory, which ViteHub does not remove. A Sandbox Invocation uses the Sandbox's temporary directory.
+
+### Give the provider its Skills
+
+The provider reads Skills from two places. It reads the Skills of its working directory natively: `.agents/skills` and `.codex/skills` for Codex, `.claude/skills` for Claude Code. ViteHub writes every other Skill to one private folder per Invocation, outside the working directory:
+
+- Agent-owned Skills from `server/agents/<name>/skills/`.
+- Workspace Skills under a skill root that the provider does not read, such as an `.agents/skills` Skill for Claude Code.
+- Skills of the outer Workspace root when the provider runs in a nested pull request checkout.
+- Skills inside mounted Sources, such as `portal/.agents/skills/customer-deploy` for a Source mounted at `portal`.
+
+Codex loads the folder as an extra skill root through `skills/extraRoots/set`. Claude Code reads its `.claude/skills` through `--add-dir`. A Skill name that the provider already reads in its working directory is not added again. The folder is next to the Invocation's temporary directory and is removed with it. A `launch` wrapper that starts the provider on another host must make the temporary directory of the ViteHub host (`os.tmpdir()`) available at the same path, as it does for the working directory. A Sandbox Invocation writes the same Skills to the provider's Home skill root instead.
+
+Precedence by name: the working directory, then Agent-owned Skills, then the outer Workspace root, then the Sources in declaration order. An Agent-owned Skill replaces a Source Skill with the same name, with all its files.
+
+A Source with `materialize: 'none'` still gives its Skills. ViteHub adds startup Sources named `__vitehubSourceSkills:<key>:<skill-root>` that fetch only the `.agents/skills`, `.codex/skills`, and `.claude/skills` folders of the Source and mount each at its Skill directory, so the Console file tree shows them under the Source's mount. A GitHub Source fetches only those paths. A Source whose type has no `subset()` method gives Skills only when it is materialized. Set `skills: false` on a Source binding to keep its Skills out:
+
+```ts [server/agents/support/agent.ts] fragment
+workspace: {
+  materialize: 'none',
+  sources: {
+    portal: github({ repo: 'acme/portal' }),
+    k8s: { source: github({ repo: 'acme/k8s' }), skills: false },
+  },
+},
+```
+
+> [!WARNING]
+> Breaking change: earlier releases wrote Skills into the working directory and copied each Skill to `.agents/skills`, `.codex/skills`, and `.claude/skills`. A pull request checkout now keeps only its own files. Codex must support `skills/extraRoots/set` in `codex app-server`.
 
 ### Provision the project toolchain
 
@@ -297,6 +351,7 @@ Threads resume with the provider's opaque cursor. ViteHub turns provider output 
 | `credentials` | Codex only. `auth.json` string, sealed Server Env value, or per-Invocation resolver. Inspection shows that it is set, without resolving it. |
 | `reasoningEffort` | Codex only. A non-empty effort the model supports, such as `"low"`, `"high"`, or `"xhigh"`. Requires `model`. |
 | `reasoningSummary` | Codex only. `"auto"`, `"concise"`, `"detailed"`, or `"none"`. Requires `model`. |
+| `workspaceWrite` | Codex only. `{ network?, packageCaches? }`, both `false` by default. With `"allow-edits"` or `"allow-edits-unattended"`, Codex runs commands in its `workspace-write` sandbox, which has no network and can write only inside the working directory. `network: true` allows network access, for example to install packages. `packageCaches: true` also allows writes to the package manager store and caches where the provider runs, in the host Home or the Sandbox Home: `npm_config_store_dir`, `npm_config_cache_dir`, `~/.local/share/pnpm`, `~/.cache/pnpm`, `~/.cache/node/corepack`, and `~/.npm`. Other permissions ignore it. |
 | `model` | Optional provider model id. |
 | `env` | Values or a per-Invocation resolver, resolved once. Otherwise the provider gets only host paths, locale, and user-directory variables, not app secrets. `TMPDIR`, `TMP`, and `TEMP` point to a [temporary directory for the Invocation](#temporary-files) unless `env` sets them. |
 | `execution.attachments.maxBytes` | Positive image attachment budget per Invocation. Defaults to 25 MiB, shared by inline and lazy images. |
@@ -305,7 +360,6 @@ Threads resume with the provider's opaque cursor. ViteHub turns provider output 
 | `cwd` | Existing directory or per-Invocation resolver. No Workspace session, write-back, or removal. See [Run in an existing directory](#run-in-an-existing-directory). |
 | `permissions` | `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"`. Defaults to `"ask"`. `"allow-edits-unattended"` keeps edit mode and denies native escalation without a prompt. Host-bound MCP tools keep their own authorization. Only an explicit `"allow-all"` skips approval. |
 | `providerSettings` | Advanced runtime settings. They override the installed Codex executable fallback. |
-| `retention` | Codex only. `{ maxAge, maxRecords, maxSize }` Home limits. Needs a persistent Home. See [Limit the Codex Home size](#limit-the-codex-home-size). |
 | `requirements` | Commands that `status()` checks, reported in `missingCommands`. In a child Agent, a function gets the inherited list: `inherited => [...inherited, 'kubectl']`. |
 | `sessionStorePath` | SQLite file for session cursors, so threads continue after a restart on the same persistent volume. |
 | `toolchain` | `"project"` or `{ node, packageManager, fallbackNode }`. Installs the project's pinned Node.js and package manager. See [Provision the project toolchain](#provision-the-project-toolchain). |
@@ -343,7 +397,7 @@ Only `codexDriver()` and `claudeCodeDriver()` import the runtime, so the build f
 Self-hosted Node apps can admit work by current machine load instead of a fixed limit. Share one capacity object between the Agents that use the same host:
 
 ```ts [server/agent-capacity.ts]
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { createProcessAgentCapacity } from 'vite-hub/agent/process'
 
 export const agentCapacity = createProcessAgentCapacity({
   concurrency: 6,
@@ -369,7 +423,7 @@ export default defineAgent({
 })
 ```
 
-The callback gets the input, messages, tools, Workspace access, Invocation context, and the Actor (who made the call) as `actor` and `invoker`. It can call a model, but ViteHub treats that work and usage as your app's.
+The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Invoker as `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 ViteHub cannot stop this callback. On cancel, `input.abortSignal` aborts and the result shows `notEnforcedBy: 'run'`. Pass the signal to your I/O or throw `input.abortSignal.reason` to stop. Model and provider Drivers stop on cancel. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation).
 
@@ -385,7 +439,7 @@ Install the client, an optional peer dependency:
 pnpm add advocaat
 ```
 
-It asks through the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to use Vercel or Cloudflare AI Gateway:
+It asks through the [`typesafe()` AI gateway](/docs/gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to use Vercel or Cloudflare AI Gateway:
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -422,21 +476,86 @@ export default defineAgent({
 
 The answers are the Invocation output, and their type comes from the questions. `runAgent()` returns a tuple, so destructure it and read `result.output`:
 
-```ts [server/label-email.ts]
+```ts [server/lib/label-invoice.ts]
 import { runAgent } from 'vite-hub/agent'
-import labeller from './agents/email-labeller'
+import labeller from '../agents/email-labeller'
 
-const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
-if (error) throw error
-const answers = result.output!
-answers.label.choice // 'invoice' | 'none'
-answers.urgent // boolean
+export async function labelInvoice() {
+  const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
+  if (error) throw error
+  const answers = result.output
+  if (!answers) throw new Error('Expected labeller output')
+  answers.label.choice // 'invoice' | 'none'
+  answers.urgent // boolean
+  return answers
+}
 ```
 
-No schema or parsing is needed. Jev reads the Invocation `data`, else the prompt, else the latest user message. To build questions per Invocation, pass a function. It gets the `driver.run` context:
+No output schema or parsing is necessary.
+
+Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`. This one reads the labels from Server Env:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    env: {
+      server: {
+        labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      server: {
+        labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/agents/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
 
@@ -462,9 +581,9 @@ export default defineAgent({
 
 State, instructions, and criteria accept JSON. Root numbers and booleans become text for the `advocaat` Entry contract. Nested ones stay native. Score legends keep the level descriptions.
 
-`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/agents/ai-gateways#errors).
+`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/gateways/limits-and-errors#errors).
 
-The Console and `vitehub agent info` show the Driver kind as `ask`. In an ask Agent, [`llmGate()`](/docs/agents/capabilities/llm-gate) and [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model` also decide through Jev, with their own `gateway` or `typesafe()`.
+The Console and `vitehub agent info` show the Driver kind as `ask`.
 
 Each question is a trace step, so the journal and Console show what Jev was asked and answered:
 

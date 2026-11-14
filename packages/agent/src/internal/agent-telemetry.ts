@@ -1,6 +1,6 @@
-import type { WorkspaceDefinition } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
@@ -37,7 +37,7 @@ export async function setAgentCapabilityInspection(
 ): Promise<void> {
   const budget = { maxDepth: 64, truncated: false }
   const safe = safeMetadataValue(inspection, "", 0, new WeakSet(), budget)
-  if (!safe || Array.isArray(safe) || !hasRuntimeType(safe, "object")) return
+  if (!safe || Array.isArray(safe) || typeof safe !== "object") return
   // SAFETY: Serialization preserves the inspection fields and only omits unsupported values.
   const snapshot = { ...safe, ...(budget.truncated ? { truncated: true } : {}) } as AgentCapabilityInspection
   await enqueueConfigurationUpdate(context, async () => {
@@ -82,10 +82,10 @@ function safeMetadataValue(
   budget?: { maxDepth: number, truncated: boolean },
 ): AgentInspectionValue | undefined {
   if (secretMetadataKey(key)) return "[redacted]"
-  if (hasRuntimeType(value, "string")) return redactCredentialText(value)
-  if (value === null || hasRuntimeType(value, "boolean")) return value
-  if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
-  if (!value || !hasRuntimeType(value, "object") || depth >= (budget?.maxDepth ?? 16) || seen.has(value)) {
+  if (typeof value === "string") return redactCredentialText(value)
+  if (value === null || typeof value === "boolean") return value
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (!value || typeof value !== "object" || depth >= (budget?.maxDepth ?? 16) || seen.has(value)) {
     if (budget) budget.truncated = true
     return
   }
@@ -121,14 +121,14 @@ function safeMetadataValue(
 
 export function safeAgentTelemetryMetadata(value: unknown): Record<string, AgentInspectionValue> | undefined {
   const safe = safeMetadataValue(value)
-  return safe && !Array.isArray(safe) && hasRuntimeType(safe, "object") && Object.keys(safe).length
+  return safe && !Array.isArray(safe) && typeof safe === "object" && Object.keys(safe).length
     ? safe
     : undefined
 }
 
 function canonicalConfigurationValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalConfigurationValue)
-  if (!value || !hasRuntimeType(value, "object")) return value
+  if (!value || typeof value !== "object") return value
   return Object.fromEntries(Object.entries(value)
     .filter(([, child]) => child !== undefined)
     .sort(([left], [right]) => compareCodeUnits(left, right))
@@ -193,11 +193,11 @@ function redactConfigurationValue(
   secretAncestor = false,
 ): unknown {
   const secret = secretAncestor || secretMetadataKey(key)
-  if (hasRuntimeType(value, "string")) {
+  if (typeof value === "string") {
     if (secret) return "[redacted]"
     return redactCredentialText(value)
   }
-  if (!value || !hasRuntimeType(value, "object")) return secret ? "[redacted]" : value
+  if (!value || typeof value !== "object") return secret ? "[redacted]" : value
   const visited = secret ? seen.secret : seen.public
   const existing = visited.get(value)
   if (existing) return existing
@@ -232,7 +232,7 @@ export async function setAgentTelemetryConfiguration(
 
 export async function updateAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
-  patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools">> & {
+  patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools" | "workspace">> & {
     driver?: Partial<AgentTelemetryConfiguration["driver"]>
   },
 ): Promise<void> {
@@ -276,17 +276,27 @@ export function getAgentTelemetryConfiguration(
   return configurationByContext.get(context)
 }
 
+export async function observeAgentWorkspaceRevision(workspace: ReadonlyWorkspaceFacade) {
+  try {
+    return await workspace.history.head()
+  }
+  catch {
+    // Optional Console metadata must not change Invocation execution.
+    return undefined
+  }
+}
+
 export function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<string | { id: string; repository: string }> {
   return Object.entries(sources ?? {}).sort(([left], [right]) => compareCodeUnits(left, right)).map(([key, entry]) => {
-    if (hasRuntimeType(entry, "string")) return key
+    if (typeof entry === "string") return key
     const source = normalizeWorkspaceSourcesMetadata({ [key]: entry })[0]?.source
     const rawFingerprint = isRuntimeRecord(source) && isRuntimeRecord(source.fingerprint) ? source.fingerprint : undefined
     let fingerprint = rawFingerprint
     while (fingerprint && "sourceResolution" in fingerprint && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
     const sourceOptions = fingerprint && isRuntimeRecord(fingerprint.options) ? fingerprint.options : undefined
     const githubSource = isRuntimeRecord(source) && source.name === "github"
-    const repo = githubSource ? (fingerprint && hasRuntimeType(fingerprint.repo, "string") ? fingerprint.repo : sourceOptions?.repo) : undefined
-    const repository = hasRuntimeType(repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(repo)
+    const repo = githubSource ? (fingerprint && typeof fingerprint.repo === "string" ? fingerprint.repo : sourceOptions?.repo) : undefined
+    const repository = typeof repo === "string" && /^[\w.-]+\/[\w.-]+$/.test(repo)
       ? repo
       : undefined
     return repository ? { id: key, repository } : key

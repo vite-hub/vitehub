@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto"
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
-import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
-import { callOperationFromCli } from "@vite-hub/internal/operations"
+import { askOnTerminal, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
+import { callOperationFromCli, table as formatTable } from "@vite-hub/internal/operations"
 
 import {
   blobDevDefaultListLimit,
@@ -16,7 +15,7 @@ import {
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { sanitizeMediaRecord } from "./media/records.ts"
 
-import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { BlobDevOperation } from "./results.ts"
 import type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevObject, BlobDevPutResult, BlobDevVariantsResult } from "./runtime/operations.ts"
 
@@ -33,9 +32,7 @@ type BlobCliOption = "content-type" | "cursor" | "limit" | "output" | "prefix"
 interface BlobCommand {
   description: string
   file?: boolean
-  name: "delete" | Exclude<BlobDevOperation, "del">
-  /** The `blob.*` operation that the command runs. */
-  operation: BlobDevOperation
+  name: BlobDevOperation
   options: readonly BlobCliOption[]
   pathname: boolean
 }
@@ -56,26 +53,22 @@ interface ParsedBlobArgs {
   yes: boolean
 }
 
-interface BlobCliFailure {
-  code?: string
-  fix?: string
-  message: string
-}
+const usageError = (message: string) => blobErrorDiagnostics.BLOB_R0029({ message })
 
 const blobDevTargetErrors = {
-  invalidInlineTimeout: (message: string) => blobErrorDiagnostics.BLOB_R0029({ message }),
-  invalidTimeout: (message: string) => blobErrorDiagnostics.BLOB_R0029({ message }),
-  missingValue: (message: string) => blobErrorDiagnostics.BLOB_R0029({ message }),
+  invalidInlineTimeout: usageError,
+  invalidTimeout: usageError,
+  missingValue: usageError,
 }
 
 const blobCommands: readonly BlobCommand[] = [
-  { description: "List blobs of a Blob store, one page at a time.", name: "list", operation: "list", options: ["prefix", "limit", "cursor"], pathname: false },
-  { description: "Show the metadata of one blob.", name: "head", operation: "head", options: [], pathname: true },
-  { description: "Download one blob to a file, or to stdout without --output.", name: "get", operation: "get", options: ["output"], pathname: true },
-  { description: "Upload one file as a blob.", file: true, name: "put", operation: "put", options: ["content-type"], pathname: true },
-  { description: "Delete one blob.", name: "delete", operation: "del", options: [], pathname: true },
-  { description: "Show the media record of one blob: size, dimensions, hash, alt text, focal point, and crops.", name: "media", operation: "media", options: [], pathname: true },
-  { description: "List the cached image variants of one blob and its crop replacements.", name: "variants", operation: "variants", options: [], pathname: true },
+  { description: "List blobs of a Blob store, one page at a time.", name: "list", options: ["prefix", "limit", "cursor"], pathname: false },
+  { description: "Show the metadata of one blob.", name: "head", options: [], pathname: true },
+  { description: "Download one blob to a file, or to stdout without --output.", name: "get", options: ["output"], pathname: true },
+  { description: "Upload one file as a blob.", file: true, name: "put", options: ["content-type"], pathname: true },
+  { description: "Delete one blob.", name: "delete", options: [], pathname: true },
+  { description: "Show the media record of one blob: size, dimensions, hash, alt text, focal point, and crops.", name: "media", options: [], pathname: true },
+  { description: "List the cached image variants of one blob and its crop replacements.", name: "variants", options: [], pathname: true },
 ]
 
 const optionUsage: Record<BlobCliOption, string> = {
@@ -115,29 +108,11 @@ function writeUsage(command: BlobCommand, stream: ViteHubCliStreams["stdout"]): 
     "  --store <name>      Blob store. Defaults to `default`.",
     "  --json              Print JSON.",
     ...(command.name === "delete" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
-    "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
+    "  --url <url>         Deployed app URL. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
     "",
   ].join("\n"))
-}
-
-function parsePositiveInteger(name: string, value: string): number {
-  const number = Number(value)
-  if (!value || !Number.isInteger(number) || number < 1) {
-    throw blobErrorDiagnostics.BLOB_R0029({ message: `--${name} must be a positive integer.` })
-  }
-  return number
-}
-
-function readOptionValue(args: readonly string[], index: number, name: string): { consumed: number, value: string } | undefined {
-  const arg = args[index]!
-  if (arg === `--${name}`) {
-    const value = args[index + 1]
-    if (value === undefined || value.startsWith("--")) throw blobErrorDiagnostics.BLOB_R0029({ message: `--${name} needs a value.` })
-    return { consumed: 1, value }
-  }
-  if (arg.startsWith(`--${name}=`)) return { consumed: 0, value: arg.slice(name.length + 3) }
 }
 
 function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArgs {
@@ -166,7 +141,7 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
       index += targetOption
       continue
     }
-    const store = readOptionValue(args, index, "store")
+    const store = readCliOptionValue(args, index, "store", usageError)
     if (store) {
       if (!store.value.trim()) throw blobErrorDiagnostics.BLOB_R0029({ message: "--store needs a nonempty name." })
       parsed.store = store.value
@@ -175,9 +150,9 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
     }
     let matched = false
     for (const option of command.options) {
-      const read = readOptionValue(args, index, option)
+      const read = readCliOptionValue(args, index, option, usageError)
       if (!read) continue
-      if (option === "limit") parsed.limit = parsePositiveInteger(option, read.value)
+      if (option === "limit") parsed.limit = parseCliPositiveInteger(option, read.value, usageError)
       else if (option === "content-type") parsed.contentType = read.value
       else parsed[option] = read.value
       index += read.consumed
@@ -206,7 +181,7 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
 }
 
 /** Reads the upload file. The size check runs before the read, so a large file is not loaded. */
-async function readUpload(path: string): Promise<{ data: string } | BlobCliFailure> {
+async function readUpload(path: string): Promise<{ data: string } | ViteHubCliFailure> {
   const info = await stat(path).catch(() => undefined)
   if (!info?.isFile()) return { message: `File not found: ${path}` }
   if (info.size > blobDevMaximumUploadBytes) {
@@ -225,11 +200,6 @@ async function readUpload(path: string): Promise<{ data: string } | BlobCliFailu
 
 function formatSize(size: number | undefined): string {
   return size === undefined ? "-" : `${size} B`
-}
-
-function formatTable(rows: readonly (readonly string[])[]): string {
-  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
-  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }
 
 function formatMetadata(value: Record<string, unknown>): string | undefined {
@@ -281,7 +251,7 @@ type BlobCliResult =
   | { operation: "list", value: BlobDevListResult }
   | { operation: "head", value: BlobDevHeadResult }
   | { operation: "put", value: BlobDevPutResult }
-  | { operation: "del", value: BlobDevDeleteResult }
+  | { operation: "delete", value: BlobDevDeleteResult }
   | { operation: "media", value: BlobDevMediaResult }
   | { operation: "variants", value: BlobDevVariantsResult }
 
@@ -294,7 +264,7 @@ const resultSchemas = {
   list: v.object({ blobs: v.array(blobObjectSchema), cursor: v.optional(v.string()), hasMore: v.boolean(), limit: v.pipe(v.number(), v.finite()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
   head: v.object({ object: blobObjectSchema, store: v.string() }),
   put: v.object({ created: v.boolean(), object: blobObjectSchema, store: v.string() }),
-  del: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
+  delete: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
   media: v.object({ record: v.unknown(), store: v.string() }),
   variants: v.object({
     pathname: v.string(),
@@ -308,7 +278,7 @@ function parseResult(operation: Exclude<BlobDevOperation, "get">, value: unknown
     case "list": { const parsed = v.safeParse(resultSchemas.list, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "head": { const parsed = v.safeParse(resultSchemas.head, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "put": { const parsed = v.safeParse(resultSchemas.put, value); return parsed.success ? { operation, value: parsed.output } : undefined }
-    case "del": { const parsed = v.safeParse(resultSchemas.del, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "delete": { const parsed = v.safeParse(resultSchemas.delete, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "media": {
       const parsed = v.safeParse(resultSchemas.media, value)
       const record = parsed.success ? sanitizeMediaRecord(parsed.output.record) : undefined
@@ -362,19 +332,13 @@ function writeResult(result: BlobCliResult, context: BlobCliContext): void {
       ])}\n`)
       return
     }
-    case "del": {
+    case "delete": {
       const value = result.value
       context.stdout.write(value.deleted
         ? `Deleted blob ${value.pathname} from store ${value.store}.\n`
         : `Blob ${value.pathname} did not exist in store ${value.store}. Nothing changed.\n`)
     }
   }
-}
-
-function writeFailure(parsed: Pick<ParsedBlobArgs, "json">, context: BlobCliContext, failure: BlobCliFailure): number {
-  if (parsed.json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
-  return 1
 }
 
 /** Writes the downloaded file to `--output` through a temporary file, or its bytes to stdout. */
@@ -392,22 +356,12 @@ async function writeDownload(file: BlobDevGetResult, parsed: ParsedBlobArgs, con
   }
   catch (error) {
     await rm(temporaryOutput, { force: true }).catch(() => {})
-    return writeFailure(parsed, context, { message: `Could not write ${output}: ${error instanceof Error ? error.message : String(error)}` })
+    return writeCliFailure(parsed.json, context, { message: `Could not write ${output}: ${error instanceof Error ? error.message : String(error)}` })
   }
   const header = { contentType: file.contentType, pathname: file.pathname, size: file.size, store: file.store }
   if (parsed.json) context.stdout.write(`${JSON.stringify({ ...header, output }, null, 2)}\n`)
   else context.stdout.write(`Wrote blob ${header.pathname} from store ${header.store} to ${output} (${formatSize(header.size)}).\n`)
   return 0
-}
-
-async function askOnTerminal(question: string): Promise<boolean> {
-  const terminal = createInterface({ input: process.stdin, output: process.stderr })
-  try {
-    return /^y(es)?$/i.test((await terminal.question(question)).trim())
-  }
-  finally {
-    terminal.close()
-  }
 }
 
 async function runBlobCommand(command: BlobCommand, args: string[], context: BlobCliContext, options: BlobCliOptions): Promise<number> {
@@ -417,7 +371,7 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   }
   catch (error) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeFailure({ json: true }, context, { message: error instanceof Error ? error.message : String(error) })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeUsage(command, context.stderr)
     return 1
@@ -429,12 +383,12 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   if (command.name === "delete" && !parsed.yes) {
     const question = `Delete blob ${parsed.pathname} from Blob store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
-    if (!confirmed) return writeFailure(parsed, context, { code: "BLOB_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "blob delete deletes a blob and was not confirmed." })
+    if (!confirmed) return writeCliFailure(parsed.json, context, { code: "BLOB_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "blob delete deletes a blob and was not confirmed." })
   }
   let data: string | undefined
   if (command.file) {
     const upload = await readUpload(resolve(context.cwd, parsed.file!))
-    if (!("data" in upload)) return writeFailure(parsed, context, upload)
+    if (!("data" in upload)) return writeCliFailure(parsed.json, context, upload)
     data = upload.data
   }
   const input: Record<string, unknown> = {}
@@ -454,14 +408,14 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
     rootDir: context.rootDir,
     ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     ...(parsed.url ? { url: parsed.url } : {}),
-  }, `blob.${command.operation}`, input)
-  if (!called.ok) return writeFailure(parsed, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
-  if (command.operation === "get") {
+  }, `blob.${command.name}`, input)
+  if (!called.ok) return writeCliFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  if (command.name === "get") {
     const file = v.safeParse(v.object({ contentType: v.optional(v.string()), data: v.string(), pathname: v.string(), size: v.number(), store: v.string() }), called.value)
-    return file.success ? await writeDownload(file.output, parsed, context) : writeFailure(parsed, context, { message: "The blob operation answered with an invalid file." })
+    return file.success ? await writeDownload(file.output, parsed, context) : writeCliFailure(parsed.json, context, { message: "The blob operation answered with an invalid file." })
   }
-  const result = parseResult(command.operation, called.value)
-  if (!result) return writeFailure(parsed, context, { message: "The blob operation answered with an invalid result." })
+  const result = parseResult(command.name, called.value)
+  if (!result) return writeCliFailure(parsed.json, context, { message: "The blob operation answered with an invalid result." })
   if (parsed.json) context.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`)
   else writeResult(result, context)
   return 0

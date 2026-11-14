@@ -39,7 +39,6 @@ interface ViteHubPluginConfig {
 }
 
 function errorCode(error: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Filesystem errors cross host realms, so inspect their structural code field.
   if (error === null || (typeof error !== "object" && typeof error !== "function")) return
   try {
     const code = Reflect.get(error, "code")

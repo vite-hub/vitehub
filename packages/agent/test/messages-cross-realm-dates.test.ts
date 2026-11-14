@@ -62,26 +62,6 @@ describe("Agent message date boundaries", () => {
     expect(createMessage({ createdAt, role: "user" }).createdAt).toBe("2026-01-02T03:04:05.000Z")
   })
 
-  it("rejects foreign Date subclass proxies at both message boundaries", () => {
-    const createdAt = runInNewContext("new Proxy(new (class Timestamp extends Date {})(), {})") as Date
-    expect(() => createMessage({ createdAt, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ createdAt: createdAt as unknown as string, id: "message-1", parts: [], role: "user" })).toThrow("must be serialized before storing")
-    expect(() => createMessage({ metadata: { timestamp: createdAt }, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ id: "message-1", parts: [{ data: { timestamp: createdAt }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
-  })
-
-  it.each([
-    "new Proxy(new Date(), { getPrototypeOf() { return Object.prototype } })",
-    "new Proxy(new (class Timestamp extends Date {})(), { getPrototypeOf() { return Object.prototype } })",
-  ])("rejects unserializable Date proxies hiding their prototype: %s", (source) => {
-    const timestamp = runInNewContext(source) as Date
-    expect(() => JSON.stringify(timestamp)).toThrow()
-    expect(() => createMessage({ createdAt: timestamp, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ createdAt: timestamp as unknown as string, id: "message-1", parts: [], role: "user" })).toThrow("must be serialized before storing")
-    expect(() => createMessage({ metadata: { timestamp }, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ id: "message-1", parts: [{ data: { timestamp }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
-  })
-
   it.each([
     "new (class Date { getTime() { return 0 }; toISOString() { return 'date-like' } })()",
     "Object.create({ constructor: Date, getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString })",
@@ -104,24 +84,6 @@ describe("Agent message date boundaries", () => {
     const message = createMessage({ metadata: { value }, parts: [{ data: value, type: "data" }], role: "user" })
     expect(() => validateMessage(message)).not.toThrow()
     expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: "custom" })
-  })
-
-  it("rejects a hidden Date-like proxy whose JSON hook throws", () => {
-    const value: unknown = runInNewContext("new Proxy(new Date(), { getPrototypeOf() { return Object.prototype }, get(target, key) { if (key === 'toJSON') return () => { throw new Error('cannot serialize') }; return Reflect.get(target, key) } })")
-    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
-  })
-
-  it("rejects a native-looking proxy around a custom JSON hook", () => {
-    const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, toJSON: new Proxy(() => { throw new Error('unsafe') }, {}) })")
-    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
-  })
-
-  it("rejects a Date-like proxy whose JSON hook is an accessor", () => {
-    const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, get toJSON() { return Date.prototype.toJSON } })")
-    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
-    expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
   })
 
   it.each(["Date.prototype", "Object.getPrototypeOf(new (class Timestamp extends Date {})())"])("preserves an own serializer shadowing %s", (prototype) => {

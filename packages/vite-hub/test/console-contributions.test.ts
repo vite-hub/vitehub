@@ -9,7 +9,9 @@ import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 
 import { consoleContributedSections, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
-import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
+import { consoleBuiltinSectionIds, consolePrimitives, consoleToolSectionIds, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
+
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
 describe("Console section contributions", () => {
   it("registers the owner sections with valid ids that do not replace built-in sections", () => {
@@ -130,7 +132,8 @@ describe("Console primitive catalog", () => {
   it("lists every built-in and contributed section once, with the owner label and icon", () => {
     const ids = consolePrimitives.map(entry => entry.id)
     expect(new Set(ids).size).toBe(ids.length)
-    expect([...ids].sort()).toEqual([...consoleBuiltinSectionIds, ...consoleContributedSections.keys()].sort())
+    // Tools, such as Setup and Site access, are not primitives.
+    expect([...ids].sort()).toEqual([...consoleBuiltinSectionIds.filter(id => !consoleToolSectionIds.includes(id)), ...consoleContributedSections.keys()].sort())
     // The Overview shows primitives that are not enabled, so the catalog repeats the owner descriptor.
     for (const [id, section] of consoleContributedSections) {
       const entry = consolePrimitives.find(primitive => primitive.id === id)
@@ -153,7 +156,9 @@ describe("Console primitive catalog", () => {
     expect(content?.descriptor.view).toEqual({ kind: "document-editor", notice: expect.any(String) })
     expect(content?.documents?.actions).toEqual({ export: "createContentConsoleActions", module: expect.stringMatching(/[\\/]content[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) })
     expect(existsSync(content!.documents!.actions.module)).toBe(true)
-    expect(Object.hasOwn(manifest.exports, "./console/documents")).toBe(true)
+    // Generated code imports the Console document module by path, so it is not a package export.
+    expect(Object.hasOwn(manifest.exports, "./console/documents")).toBe(false)
+    expect(existsSync(generatedModules.consoleDocuments)).toBe(true)
     // A document editor has no request-time record reader.
     expect(content?.runtime).toBeUndefined()
   })

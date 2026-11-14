@@ -9,9 +9,14 @@ icon: i-lucide-circle-alert
 ## Limits
 
 - A timeout limits one attempt after the provider starts. It covers package setup, staging, and execution. Queueing, Sandbox startup, and retry delays can make the full `runSandboxTask()` call take longer.
+- On Vercel, the Sandbox session gets the task timeout plus 30 seconds. The session clock starts before Sandbox setup, so this extra time lets ViteHub end the run at the task timeout with `SANDBOX_TASK_TIMEOUT`. Keep the task timeout 30 seconds below the Vercel plan maximum.
 - To cancel a run, pass an `AbortSignal` to `runSandboxTask()`. Cancellation stops provider work that can stop and keeps your abort reason. The task timeout still applies to each attempt on its own.
 - Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a new Sandbox for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes the run's files after each attempt, caches prepared projects by digest, and runs calls with the same ID one at a time in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
+
+## SANDBOX_R0165
+
+The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM` to `kill()`. On Vercel, pass `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL`, `SIGTERM`, `SIGCONT`, `SIGSTOP`, or a signal number.
 
 ## Cleanup failures
 
@@ -30,7 +35,7 @@ The runtime does not retry `session.exec()`, a new process, a file move, or a po
 A task name and payload select work. They do not limit permissions. Code in the Sandbox can use the filesystem, environment, network, credentials, and child processes that the provider gives it. Inspect that access before execution when your policy needs it:
 
 ```ts [server/sandbox-authority.ts]
-import { resolveSandboxTaskRunner } from '@vite-hub/sandbox/task'
+import { resolveSandboxTaskRunner } from 'vite-hub/sandbox/task'
 
 const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)

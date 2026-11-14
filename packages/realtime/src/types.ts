@@ -34,8 +34,11 @@ export interface RealtimeUser {
 }
 
 export interface RealtimeDocumentContext {
-  /** Room authority holding the live document: one process (`memory`) or a Durable Object (`cloudflare`). */
-  authority: "cloudflare" | "memory"
+  /**
+   * Room authority holding the live document: one process (`memory`), a Durable Object (`cloudflare`), or rooms that
+   * several Node instances share through Postgres (`postgres`) or Redis (`redis`).
+   */
+  authority: "cloudflare" | "memory" | "postgres" | "redis"
   definition: string
   documentId: string
 }
@@ -109,6 +112,12 @@ export interface RealtimeWorkspaceDocumentOptions {
  */
 export interface RealtimeEditor {
   extensions(): AnyExtension[]
+  /**
+   * Version of the schema and codec. Change it when a new `extensions()` or codec cannot read the Yjs state of the
+   * previous one, such as a node type that was removed or renamed. A room persisted under another version opens fresh
+   * from the stored Markdown, and a browser that connects with another version is read-only until it reloads.
+   */
+  version?: string
   fromMarkdown(markdown: string): Promise<JSONContent> | JSONContent
   toMarkdown(document: JSONContent): Promise<string> | string
   /**
@@ -131,8 +140,11 @@ export interface RealtimeVerifyResult {
   writable: boolean
 }
 
-/** Why a connection is read-only: `access` (authorization denied write) or `document` (the codec cannot edit it losslessly). */
-export type RealtimeReadOnlyReason = "access" | "document"
+/**
+ * Why a connection is read-only: `access` (authorization denied write), `document` (the codec cannot edit it
+ * losslessly), or `version` (the browser runs another editor version than the server, so it must reload to edit).
+ */
+export type RealtimeReadOnlyReason = "access" | "document" | "version"
 
 /**
  * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings
@@ -145,6 +157,11 @@ export interface RealtimeRequestContext {
   /** The request event of the WebSocket upgrade or HTTP request. */
   event: RealtimeRequestEvent
   request: Request
+}
+
+export interface RealtimeOriginContext extends RealtimeRequestContext {
+  /** The `Origin` header of a request from another origin than the app's. */
+  origin: string
 }
 
 export interface RealtimeAuthorizeContext extends RealtimeRequestContext {
@@ -161,13 +178,48 @@ export interface RealtimePersistenceOptions {
   maxWait?: number
 }
 
-export interface RealtimeDefinition {
-  /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
-  auth?: boolean
+interface RealtimeDefinitionIdentity {
   /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
-  /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
-  authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+  /**
+   * Let a page on another origin connect, such as a script that sites load from the app. Return `true` to accept
+   * `origin`. Without it, only the app's own origin connects. The browser sends cookies with a cross-site handshake
+   * too, so `identify` and `authorize` must then trust only what the page sends on purpose, such as a ticket in
+   * `params`, never the session cookie. `auth: true` without `identify` rejects it: the Auth session is a cookie.
+   */
+  origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
+}
+
+type RealtimeAuthorize = (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+
+/**
+ * Who can use the rooms. Set one: `auth: true` requires an identified user, `authorize()` decides each request, and
+ * `access: "public"` lets anyone read and write.
+ */
+export type RealtimeDefinitionAccess = RealtimeDefinitionIdentity & (
+  | {
+    access?: never
+    /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
+    auth: true
+    /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
+    authorize?: RealtimeAuthorize
+  }
+  | {
+    access?: never
+    /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
+    auth?: boolean
+    /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
+    authorize: RealtimeAuthorize
+  }
+  | {
+    /** Let anyone who can reach the app read and write every room of this definition. */
+    access: "public"
+    auth?: never
+    authorize?: never
+  }
+)
+
+interface RealtimeDocumentFields {
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
   /**
    * Editor schema and Markdown codec. Defaults to the built-in Markdown kit. A function picks the codec of each
@@ -180,6 +232,37 @@ export interface RealtimeDefinition {
   /** Idle saves. `false` saves only when a client calls `save()` or `history.checkpoint()`. */
   persistence?: RealtimePersistenceOptions | false
 }
+
+/** A definition whose rooms edit one stored document each. */
+export type RealtimeDocumentDefinition = RealtimeDocumentFields & RealtimeDefinitionAccess
+
+interface RealtimePresenceFields {
+  document: false
+  editor?: never
+  history?: never
+  persistence?: never
+  /**
+   * Lets server code ask the one browser in a room with `requestRealtimeRoom()` from `@vite-hub/realtime/server`. The
+   * browser answers with `room.onRequest()`. Default `false`: rooms without it refuse request frames.
+   */
+  requests?: boolean
+  /**
+   * `"user"`: each person gets their own rooms. A room is keyed by the identity of whoever joins it, so the same room id
+   * for two people is two rooms, and `requestRealtimeRoom()` must name the person with `{ user }`. The identity is the
+   * ViteHub Auth session when the app has Auth, read without requiring one; everyone without a session shares one
+   * `anonymous` scope. With `identify` or `auth: true`, those decide the identity.
+   */
+  scope?: "user"
+}
+
+/**
+ * A definition whose rooms hold no document, only presence: who is in the room and the awareness fields each client
+ * sets, such as a cursor. Nothing loads or saves, and `authorize()` is asked only for `read`. Join its rooms with
+ * `connectRealtimeRoom()` from `@vite-hub/realtime/client`.
+ */
+export type RealtimePresenceDefinition = RealtimePresenceFields & RealtimeDefinitionAccess
+
+export type RealtimeDefinition = RealtimeDocumentDefinition | RealtimePresenceDefinition
 
 /** Server-written save state, mirrored in the read-only `status` Y.Map. */
 export interface RealtimeDocumentStatus {
@@ -208,7 +291,19 @@ export interface DiscoveredRealtimeDefinition {
 }
 
 export interface RealtimeOptions {
-  authority?: "auto" | "cloudflare" | "memory"
+  /**
+   * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
+   * picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default Database when it
+   * is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require their connection.
+   * `memory` keeps rooms in one process.
+   */
+  authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
+  /**
+   * Keeps the rooms of this app apart from other apps on the same Redis or Postgres. Defaults to the `name` of
+   * `vitehub()`, else the `name` in the root `package.json`, else the root folder name. `REALTIME_NAMESPACE` replaces
+   * it when the server starts.
+   */
+  namespace?: string
   projectRoot?: string
 }
 
@@ -231,6 +326,16 @@ export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeD
 /**
  * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
  */
+/** The codes that `requestRealtimeRoom()` returns in `[error, undefined]`. */
+export type RealtimeRoomRequestErrorCode =
+  | "REALTIME_ROOM_ABORTED"
+  | "REALTIME_ROOM_CROWDED"
+  | "REALTIME_ROOM_ELSEWHERE"
+  | "REALTIME_ROOM_EMPTY"
+  | "REALTIME_ROOM_REFUSED"
+  | "REALTIME_ROOM_REQUESTS_OFF"
+  | "REALTIME_ROOM_TIMEOUT"
+
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"
@@ -244,4 +349,4 @@ export type RealtimeRequestErrorCode =
  */
 export type RealtimeAvailability =
   | { available: true }
-  | { available: false, preset?: string, reason: string, fix: string }
+  | { available: false, host?: string, reason: string, fix: string }

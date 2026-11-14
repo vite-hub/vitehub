@@ -12,17 +12,16 @@ Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email`
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
-| `vite-hub` | `vitehub` | Vite plugin options. |
-| `vite-hub/email` | `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
-| `vite-hub/runtime` | `Result`, `ResultError` | The shared `[error, data]` return type. |
-| `vite-hub/email/server` | `email` | None |
+| `vite-hub` | `vitehub` | Framework Vite Integration options. |
+| `vite-hub/email` | `email`, `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |
 
-The `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` paths stay stable for libraries and apps that install only `@vite-hub/email`, without `vite-hub`.
+The direct `@vite-hub/email` and `@vite-hub/email/markdown` paths remain stable for focused libraries and applications that install the owner package without the framework distribution.
 
 ## Message contract
 
@@ -34,13 +33,32 @@ The `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` 
 | `to` | `EmailAddressList` | Yes | One address or a non-empty array. |
 | `cc`, `bcc`, `replyTo` | `EmailAddressList` | No | More recipients. |
 | `subject` | `string` | Yes | The message subject. |
-| `html`, `text` | `string` | No | Body versions that the driver supports. |
-| `headers` | `Record<string, string>` | No | Custom headers that the driver supports. |
+| `text`, `html` | `string` | One of them | The plain-text body, the HTML body, or both. |
+| `headers` | `Record<string, string>` | No | Custom headers. |
 | `attachments` | `readonly EmailAttachment[]` | No | In-memory string or `Uint8Array` content with a non-empty filename. |
+| `unsubscribe` | `{ url?, mailto?, oneClick? }` | No | Adds the `List-Unsubscribe` headers. |
+| `tags`, `metadata` | `readonly { name, value }[]`, `Record<string, string>` | No | Resend only. |
+| `scheduledAt` | `string \| Date` | No | Resend only. |
+| `idempotencyKey` | `string` | No | Resend only. |
 
-`EmailAttachment` also takes optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` also has scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields. Built-in drivers pass on only the fields their provider supports.
+`EmailAttachment` also takes optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. The Cloudflare Email driver returns an error for the fields marked Resend only.
 
-The driver decides field support, validation, address rules, message limits, and sender authorization. Check the driver reference and provider docs before you use optional fields.
+A message without `text` and `html` does not compile, and `send()` returns `EMAIL_INVALID_MESSAGE` for it. ViteHub does not render provider templates, React, JSX, MJML, Handlebars, or Liquid. Render the body yourself, for example with [`renderEmailMarkdown()`](#compose-dynamic-markdown) or `render()` from `@react-email/render`, and pass the result:
+
+```ts [server/welcome.ts]
+import { email } from 'vite-hub/email'
+
+function renderWelcome(workspaceUrl: string) {
+  return `<p>Your workspace is ready. <a href="${workspaceUrl}">Open it</a>.</p>`
+}
+
+export async function sendWelcome(to: string, workspaceUrl: string) {
+  const [error] = await email.send({ from: 'hello@example.com', to, subject: 'Welcome', html: renderWelcome(workspaceUrl) })
+  if (error) throw error
+}
+```
+
+The driver decides address rules, message limits, and sender authorization. Check the provider docs for those limits.
 
 `send()` returns `Promise<Result<EmailSendResult, EmailErrorCode>>`, an `[error, sent]` tuple. When `error` is set, read `error.code`, `error.why`, and `error.fix` ([Limits and errors](/docs/email/limits-and-errors)). On success, `sent` is an `EmailSendResult`:
 
@@ -55,7 +73,7 @@ The driver decides field support, validation, address rules, message limits, and
 
 ```ts [server/welcome.ts]
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export async function sendWelcome(name: string, to: string) {
   const body = await renderEmailMarkdown([
@@ -97,7 +115,7 @@ Your workspace is ready.
 ```ts [server/welcome.ts] fragment
 import renderWelcome from '#vitehub/emails/welcome'
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export async function sendWelcome(name: string, to: string) {
   const markdown = await renderWelcome({ user: { name } })
@@ -137,7 +155,7 @@ pnpm add @vite-hub/email
 
 ```ts [welcome.test.ts]
 import { expect, it } from 'vitest'
-import { createTestEmail } from '@vite-hub/email/test'
+import { createTestEmail } from 'vite-hub/email/test'
 
 it('sends the welcome message', async () => {
   const mail = createTestEmail()

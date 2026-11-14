@@ -4,7 +4,7 @@ import type { SandboxTaskDefinitionOptions } from './module-types'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 import { loadTypeScript } from './internal/typescript'
 
-const sandboxTaskDefinitionSyntax = '`defineSandboxTask({ run, ...options })`'
+const sandboxTaskDefinitionSyntax = '`defineSandboxTask({ handler, ...options })`'
 
 export interface ExtractedSandboxTaskDefinitionMetadata {
   options?: SandboxTaskDefinitionOptions
@@ -166,17 +166,21 @@ export async function extractSandboxTaskDefinitionMetadata(file: string): Promis
 
   const options: Record<string, unknown> = {}
   let project: boolean | undefined
-  let hasRun = false
+  let hasHandler = false
   for (const property of input.properties) {
     const key = propertyName(property)
-    if (key === 'run' && ts.isShorthandPropertyAssignment(property)) {
-      hasRun = true
+    if (key === 'run') {
+      const { line } = sourceFile.getLineAndCharacterOfPosition(property.getStart(sourceFile))
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_C0014({ message: `[vitehub] ${file}:${line + 1}: \`defineSandboxTask({ run })\` was renamed. Pass the Sandbox handler as \`handler\`: \`defineSandboxTask({ handler })\`.` })
+    }
+    if (key === 'handler' && ts.isShorthandPropertyAssignment(property)) {
+      hasHandler = true
       continue
     }
     if (!key || (!ts.isPropertyAssignment(property) && !ts.isMethodDeclaration(property)))
       throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_C0006({ message: `[vitehub] ${sandboxTaskDefinitionSyntax} requires explicit object properties.` })
-    if (key === 'run') {
-      hasRun = true
+    if (key === 'handler') {
+      hasHandler = true
       continue
     }
     if (!ts.isPropertyAssignment(property))
@@ -196,8 +200,8 @@ export async function extractSandboxTaskDefinitionMetadata(file: string): Promis
       })
     }
   }
-  if (!hasRun)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_C0009({ message: `[vitehub] ${sandboxTaskDefinitionSyntax} requires a \`run\` handler.` })
+  if (!hasHandler)
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_C0009({ message: `[vitehub] ${sandboxTaskDefinitionSyntax} requires a \`handler\`.` })
   // SAFETY: readStaticValue parsed every option into the JSON-compatible Definition option contract.
   const runtimeOptions = Object.keys(options).length ? options as SandboxTaskDefinitionOptions : undefined
   return runtimeOptions || project !== undefined

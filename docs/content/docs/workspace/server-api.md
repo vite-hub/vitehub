@@ -10,17 +10,17 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineWorkspace` from `@vite-hub/workspace` | Declare a Workspace Definition. |
-| `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Source Bindings. |
-| `createWorkspaceTools` from `@vite-hub/workspace` | Build AI SDK tools for a Workspace. |
-| Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
-| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
-| `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | [Add rules and hooks](#add-plugins-to-a-workspace) to a Workspace you do not define. |
+| `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
+| `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
+| `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools for a Workspace. |
+| Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
+| `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
+| `registerWorkspacePlugin` from `vite-hub/workspace` | [Add rules and hooks](#add-plugins-to-a-workspace) to a Workspace you do not define. |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Add discovery, generated types, assets, and runtime setup. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/test` | Add loaders, or register test Workspaces. |
 
-`@vite-hub/workspace` exports the definition, Source Binding, rule, hook, store, sync, facade, and session types. `@vite-hub/workspace/runtime` exports the Source resolution types.
+`vite-hub/workspace` exports the definition, Source Binding, rule, hook, store, sync, facade, and session types. `vite-hub/workspace/runtime` exports the Source resolution types.
 
 ## Runtime facade
 
@@ -72,7 +72,7 @@ When the model turn is cancelled, AI SDK tool cancellation reaches the Shell pro
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Copies in every Source, or selected Sources or paths, with cancellation and progress. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes Store metadata, if the Store supports it. Workspace reserves keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:`, and `setMeta` rejects them. |
 
-If you wrap a writable facade with your own `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime` to keep Source Sync working. It forwards Source guards and saved sync metadata without exposing privileged setters. Send public writes to the original facade.
+If you wrap a writable facade with your own `fs`, call `forwardWorkspaceFacade(base, wrapped)` from `vite-hub/workspace/runtime` to keep Source Sync working. It forwards Source guards and saved sync metadata without exposing privileged setters. Send public writes to the original facade.
 
 Source cleanup at startup and build tracks ownership by Workspace name. When definitions share a Store, removing or refreshing one keeps the files another one wrote last. A shared path holds the latest write.
 
@@ -165,10 +165,10 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | --- | --- |
 | `history.commit({ ref?, ifHead, files, message?, metadata? })` | A revision with `id`, `ref`, `parentId`, `createdAt`, optional message and metadata, file count `files`, and total `bytes`. |
 | `history.commit({ ref?, ifHead, changes: { put?, delete? }, message?, metadata? })` | The same revision, built from the ref head plus the changes. |
-| `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. |
+| `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. On the GitHub Store, revisions from `head()` and `list()` have no `files` and `bytes`, because counting them needs one more request per commit. `open(id).revision` has them. |
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
-| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. |
+| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 
@@ -283,7 +283,7 @@ The `translate` Queue job reads `workspace.stale`, translates each stale file wi
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it in a package that owns paths in a Workspace it does not define, for example to validate documents before each write:
 
 ```ts fragment
-import { registerWorkspacePlugin } from '@vite-hub/workspace'
+import { registerWorkspacePlugin } from 'vite-hub/workspace'
 
 registerWorkspacePlugin('content', {
   id: 'content-schema',
@@ -320,7 +320,7 @@ Source Sync copies selected Source paths into the Workspace Store, if the Source
 Only Sources with `sync: true` or a sync policy take part in `workspace.sync()`.
 
 ```ts [server/tasks/sync-docs.ts]
-import { useWorkspace } from '@vite-hub/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export async function syncDocs() {
   const workspace = useWorkspace('docs', { mode: 'write' })
@@ -359,8 +359,8 @@ Use a Workspace Session when a command needs real files on disk and you want a d
 `session.exec()` needs an open Sandbox Session. Workspace copies files in, diffs, commits, and rolls back. Sandbox runs the command and manages its lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
-import { resolveSandbox } from '@vite-hub/sandbox'
-import { useWorkspace } from '@vite-hub/workspace'
+import { resolveSandbox } from 'vite-hub/sandbox'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export async function testDocs() {
   const sandbox = await resolveSandbox({ runtime: 'trusted-host' }, undefined)

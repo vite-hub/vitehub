@@ -26,7 +26,7 @@ Primitives give different guarantees. Start with the smallest one that fits.
 | Execute commands | [Shell](/docs/shell) | Commands, file access, network access, and timeouts the execution provider allows. |
 | Isolate a process from the application host | [Sandbox](/docs/sandbox) | The provider's isolation and resource limits. Command parsing and Workspace rules do not isolate a host process. |
 
-Check each provider in the [support matrix](/docs/frameworks-hosts/support-matrix). Read the date and scope of its evidence: generated-output tests, local provider runs, and live smoke tests prove different things. An old successful run does not prove your current deployment.
+Check the [test status](/docs/frameworks-hosts/support-matrix#test-status) of each host and primitive. Live tested, Tested locally, and Experimental prove different things. A live test shows what CI checks on the host, not that your deployment works.
 
 ## Decide which state must survive
 
@@ -54,7 +54,9 @@ Validate HTTP bodies, webhook payloads, and stored job inputs at runtime. TypeSc
 The [Console](/docs/development/console) can show stored KV values, prompts, model output, and tool activity. Turn it off when you do not need it.
 ::
 
-Every Console must set its access with `console.auth`. `auth: false` has no sign-in, and a production build and server log a warning for it. Use `auth: 'token'`, which the hosted Console needs, `auth: 'app'`, Console Auth, or `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console route calls it before it reads data.
+The Console endpoint takes only [signed requests](/docs/development/console#sign-console-requests) from the ViteHub Console and the CLI. `console: { auth: false }` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console call runs it after the signature check and before it reads data.
+
+Set `vitehub({ sameOriginWrites: true })` when browsers call your API with cookies. It refuses writes with cookies from other origins, sibling subdomains included, before any route runs. Behind a proxy that ends TLS, also set `trustProxy: true`. See [Run behind a reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.
 

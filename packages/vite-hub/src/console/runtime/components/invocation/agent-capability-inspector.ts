@@ -2,13 +2,12 @@ import { Renderer, JSONUIProvider, type ComponentRegistry, type ComponentRenderP
 import type { Spec } from "@json-render/core";
 import { type ComponentOptionsMixin, computed, type DefineComponent, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
-import { hasRuntimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { ToolList } from "@vite-hub/ui/tool-list";
+import { ToolList } from "@vite-hub/ui";
 import type { AgentInvocationView } from "./types.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined;
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined;
 }
 
 const catalogProps: Record<string, readonly string[]> = {
@@ -21,13 +20,13 @@ const catalogProps: Record<string, readonly string[]> = {
 
 function readOnlyValue(value: unknown, depth = 0): boolean {
   if (depth > 20) return false;
-  if (value === null || hasRuntimeType(value, "string") || hasRuntimeType(value, "boolean")) return true;
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value);
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(item => readOnlyValue(item, depth + 1));
   const fields = record(value);
   if (!fields) return false;
   return Object.entries(fields).every(([key, child]) => key.startsWith("$")
-    ? (key === "$state" || key === "$item") && hasRuntimeType(child, "string") && (child === "" || child.startsWith("/"))
+    ? (key === "$state" || key === "$item") && typeof child === "string" && (child === "" || child.startsWith("/"))
     : readOnlyValue(child, depth + 1));
 }
 
@@ -35,7 +34,7 @@ function readOnlyValue(value: unknown, depth = 0): boolean {
 export function capabilityInspectionSpec(value: unknown): Spec | undefined {
   const view = record(value);
   const elements = record(view?.elements);
-  if (!view || !hasRuntimeType(view.root, "string") || !elements || !Object.hasOwn(elements, view.root)) return;
+  if (!view || typeof view.root !== "string" || !elements || !Object.hasOwn(elements, view.root)) return;
   if (Object.keys(view).some(key => key !== "root" && key !== "elements")) return;
   if (Object.keys(elements).length > 128) return;
   const parsed: Spec["elements"] = {};
@@ -43,19 +42,19 @@ export function capabilityInspectionSpec(value: unknown): Spec | undefined {
     if (["__proto__", "prototype", "constructor"].includes(id)) return;
     const element = record(value);
     const props = record(element?.props);
-    if (!element || !props || !hasRuntimeType(element.type, "string") || !Object.hasOwn(catalogProps, element.type)) return;
+    if (!element || !props || typeof element.type !== "string" || !Object.hasOwn(catalogProps, element.type)) return;
     if (Object.keys(element).some(key => !["type", "props", "children", "repeat"].includes(key))) return;
     const allowedProps = catalogProps[element.type]!;
     if (Object.keys(props).some(key => !allowedProps.includes(key)) || !readOnlyValue(props)) return;
     const children = element.children;
-    if (children !== undefined && (!Array.isArray(children) || !children.every(child => hasRuntimeType(child, "string") && Object.hasOwn(elements, child)))) return;
+    if (children !== undefined && (!Array.isArray(children) || !children.every(child => typeof child === "string" && Object.hasOwn(elements, child)))) return;
     const repeat = record(element.repeat);
-    if (element.repeat !== undefined && (!repeat || !hasRuntimeType(repeat.statePath, "string") || !repeat.statePath.startsWith("/") || (repeat.key !== undefined && !hasRuntimeType(repeat.key, "string")) || Object.keys(repeat).some(key => key !== "statePath" && key !== "key"))) return;
+    if (element.repeat !== undefined && (!repeat || typeof repeat.statePath !== "string" || !repeat.statePath.startsWith("/") || (repeat.key !== undefined && typeof repeat.key !== "string") || Object.keys(repeat).some(key => key !== "statePath" && key !== "key"))) return;
     parsed[id] = {
       type: element.type,
       props,
-      ...(Array.isArray(children) ? { children: children.filter((child): child is string => hasRuntimeType(child, "string")) } : {}),
-      ...(repeat && hasRuntimeType(repeat.statePath, "string") ? { repeat: { statePath: repeat.statePath, ...(hasRuntimeType(repeat.key, "string") ? { key: repeat.key } : {}) } } : {}),
+      ...(Array.isArray(children) ? { children: children.filter((child): child is string => typeof child === "string") } : {}),
+      ...(repeat && typeof repeat.statePath === "string" ? { repeat: { statePath: repeat.statePath, ...(typeof repeat.key === "string" ? { key: repeat.key } : {}) } } : {}),
     };
   }
   let remaining = 512;
@@ -74,7 +73,7 @@ function safeInspectionState(value: unknown): Record<string, unknown> | undefine
 
 function display(value: unknown): string {
   if (value === undefined || value === null) return "Not recorded";
-  return hasRuntimeType(value, "string") ? value : JSON.stringify(value, null, 2);
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
 function catalogComponent(render: (props: Record<string, unknown>, children: VNodeChild) => VNodeChild) {
@@ -132,7 +131,7 @@ const agentCapabilityInspector = defineComponent({
         const names = Array.isArray(props.names) ? props.names : undefined;
         const selectedTools = tools.value.filter(tool =>
           (!Object.hasOwn(props, "names") || names?.includes(tool.name))
-          && (!Object.hasOwn(props, "mcpServer") || hasRuntimeType(props.mcpServer, "string") && tool.mcp?.server === props.mcpServer));
+          && (!Object.hasOwn(props, "mcpServer") || typeof props.mcpServer === "string" && tool.mcp?.server === props.mcpServer));
         return selectedTools.length ? h(ToolList, { calls: calls.value, onSelect: selectTool, tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
       }),
     };

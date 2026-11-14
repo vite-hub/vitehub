@@ -55,7 +55,7 @@ export default defineAgent({
 
 `chatgpt()` uses the `chatgpt` Connection, and `chatgpt({ connection: 'personal' })` another one. The provider needs an explicit access map. Give each account or workspace its own Connection name. A later sign-in must match the linked account.
 
-Libraries can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateways`. Gateways live in `vite-hub/gateways`, not `vite-hub/agent/gateways`.
+Libraries can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateways`. [AI Gateways](/docs/gateways) live in `vite-hub/gateways`, not `vite-hub/agent/gateways`.
 
 ## Sign in and inspect
 
@@ -87,7 +87,7 @@ ssh -N -L 4799:127.0.0.1:4799 user@server
 
 Open the printed URL in that browser. If only the server can reach the laptop, run `ssh -N -R 4799:127.0.0.1:4799 user@laptop` on the server. Over SSH, or with no browser, the CLI prints the port to forward.
 
-Inspection shows the email, granted and missing scopes, plan status, token expiry, client ID, and host ID, never tokens. The Console shows the same, but sign-in uses the CLI, because a website redirect cannot grant plan usage.
+Inspection shows the email, granted and missing scopes, plan status, token expiry, client ID, and host ID, never tokens. Sign-in uses the CLI, because a website redirect cannot grant plan usage.
 
 `models` fetches the account's models with `visibility == "list"`. Set `driver.model` to one of them. Codex's built-in list does not prove access.
 

@@ -34,7 +34,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "cloudflare",
+      host: "cloudflare",
       browser: true,
     }),
   ],
@@ -168,7 +168,7 @@ try {
 }
 ```
 
-Set `executablePath` to an installed Chromium-compatible browser. The path above is a Linux example. `playwright-core` supplies the controller but does not download a browser.
+Set `executablePath` to an installed Chromium-compatible browser. The path above is a Linux example. `playwright-core` supplies the controller but does not download a browser. The local provider rejects `idleTimeoutMs`, from `open()` or `policy`, because nothing closes an idle local Chromium. Close the session yourself.
 
 If reading the controller client or attachment tracing fails, ViteHub releases the attached controller before rejecting `session.attach()`. If that release also fails, the session keeps controller ownership and rejects another attachment or handoff. Call `session.close()` to retry failed rollback cleanup before terminating the provider session. Closure waits for pending controller rollback cleanup before terminating the provider; if it fails again, closure rejects and can be retried. Detach tracing does not delay provider termination after controller cleanup succeeds.
 

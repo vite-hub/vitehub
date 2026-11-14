@@ -53,8 +53,6 @@ it("externalizes only absent optional dependencies declared by the importing pac
   expect(await resolve("@channel/missing", join(app, "entry.js"))).toBeUndefined()
   expect(resolveDependency).toHaveBeenCalledTimes(3)
 
-  resolveDependency.mockRejectedValueOnce(new Error(`Cannot resolve "native" from ${JSON.stringify(importer)} and externals are not allowed!`))
-  expect(await resolve("native")).toEqual({ id: "native", external: true })
   const failure = new Error("Resolver configuration failed")
   resolveDependency.mockRejectedValueOnce(failure)
   await expect(resolve("native")).rejects.toBe(failure)

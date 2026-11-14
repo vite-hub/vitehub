@@ -1,11 +1,13 @@
 export { defineAuth } from "./definition.ts"
-export { isGitHubOrgMember } from "./github.ts"
-export type { GitHubOrgMemberOptions } from "./github.ts"
+export { checkGitHubOrgMember, isGitHubOrgMember } from "./github.ts"
+export type { GitHubOrgMemberErrorCode, GitHubOrgMemberOptions } from "./github.ts"
 export type { AuthDuration, AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
 export type {
   AuthBetterAuthOptions,
   AuthBetterAuthRuntimeOptions,
   AuthAccessConfiguration,
+  AuthAccessPolicy,
+  AuthAccessPolicyContext,
   AuthAccessAuthorizationContext,
   AuthAccessAuthorize,
   AuthAccessAuthorizeResult,
@@ -15,28 +17,21 @@ export type {
   AuthAnonymousAuthorize,
   AuthAnonymousGuardedHandler,
   AuthAuthorization,
-  AuthDatabaseConfiguration,
-  AuthDatabaseReference,
   AuthDefinition,
   AuthDefinitionInput,
   AuthDefinitionOptions,
   AuthDefinitionResolver,
   AuthFor,
   AuthGuardedHandler,
-  AuthMiddleware,
   AuthOptions,
   AuthRequest,
   AuthReservedOption,
   AuthResolvedDefinitionOptions,
   AuthRuntimeContext,
-  AuthRuntimeConfiguration,
   AuthRuntimeEnv,
   AuthRuntimeOnlyOptions,
   AuthRuntimeOption,
   AuthRuntimeOptions,
-  AuthRuntimeOptionsResolver,
-  AuthSecondaryStorageConfiguration,
-  AuthSecondaryStorageReference,
   AuthSessionOptions,
   AuthSessionRefresh,
   AuthSessionRefreshContext,
@@ -45,13 +40,11 @@ export type {
   AuthViteHubOptions,
   DiscoveredAuthDefinition,
   RegisteredAuth,
-  ResolvedAuthDatabaseConfiguration,
-  ResolvedAuthSecondaryStorageConfiguration,
   ResolvedAuthViteConfig,
   ViteHubAuth,
 } from "./types.ts"
 
-export { authEventTypes, createDatabaseAuthEventStore, defaultAuthEventRetention } from "./events.ts"
+export { createDatabaseAuthEventStore, defaultAuthEventRetention } from "./events.ts"
 export type { AuthDevice, AuthEvent, AuthEventActor, AuthEventAggregates, AuthEventCounts, AuthEventListInput, AuthEventMetadata, AuthEventPage, AuthEventRetention, AuthEventsConfiguration, AuthEventStore, AuthEventType, AuthEventWindow } from "./events.ts"
 export type {
   AuthConsoleOptions,

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { createProgram, flattenDiagnosticMessageText, getPreEmitDiagnostics, ModuleKind, ModuleResolutionKind, ScriptTarget } from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 const tempDirs: string[] = []
 
@@ -25,7 +25,7 @@ async function createApp() {
   tempDirs.push(root)
   // The config marks the project root, so ViteHub does not climb to the repository.
   await writeModule(join(root, "nuxt.config.ts"), ["export default {}"])
-  await writeModule(join(root, "server/databases/config.ts"), [
+  await writeModule(join(root, "server/databases/default.ts"), [
     "import { defineDatabase } from '@vite-hub/database'",
     "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     "export default defineDatabase({",
@@ -38,11 +38,14 @@ async function createApp() {
 
 // Reads tables through `schema` and through the registry. A `@ts-expect-error` fails when the types are `any`.
 const tableChecks = [
-  "import type { schema, useDatabase } from '@vite-hub/database/drizzle'",
+  "import type { schema, useDatabase } from '@vite-hub/database'",
   "export type Note = typeof schema.notes.$inferSelect",
   "export const noteId = (note: Note): number => note.id",
   "export const noteTitle = (note: Note): string => note.title",
   "export type RegisteredNote = ReturnType<typeof useDatabase<'default'>>['schema']['notes']['$inferSelect']",
+  "// Without a name, `useDatabase()` returns the only Database.",
+  "export const unnamedNotes = (use: typeof useDatabase) => use().schema.notes",
+  "export const unnamedNoteId = (note: ReturnType<typeof unnamedNotes>['$inferSelect']): number => note.id",
   "// @ts-expect-error The schema has no comments table.",
   "export type Comment = typeof schema.comments.$inferSelect",
 ]
@@ -57,7 +60,7 @@ describe("Database types in a Nuxt app", () => {
     await writeModule(join(root, "nuxt.config.ts"), ["export default {}"])
     const buildDir = join(root, ".nuxt")
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
       },
@@ -73,7 +76,7 @@ describe("Database types in a Nuxt app", () => {
     const options: Record<string, unknown> = { buildDir, dev: false, rootDir: root, serverDir: join(root, "server"), srcDir: join(root, "app"), vite: {} }
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     const prepareTypesHooks: Array<(context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void> = []
-    await hubDb()(undefined, {
+    await hubDatabase()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
         if (name === "prepare:types") prepareTypesHooks.push(callback as (context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void)

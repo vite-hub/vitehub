@@ -1,27 +1,34 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import { ensureBlob } from "./ensure.ts"
+import { ensureBlob, ensureBlobSize, ensureBlobType, ensureMaxBytes } from "./ensure.ts"
+import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { eventRequest } from "./internal/event-request.ts"
 import { getBlobRequestBodyLimit } from "./internal/host-limits.ts"
+import { decodePathname, normalizeBlobPath } from "./internal/pathname.ts"
+import { openUploadTicket, sealUploadTicket } from "./internal/upload-ticket.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
 import type {
+  BlobBeforeUploadFile,
+  BlobDirectUploadStep,
   BlobErrorCode,
   BlobMultipartEvent,
   BlobMultipartHandlerOptions,
   BlobMultipartHandlerResult,
   BlobMultipartPart,
   BlobObject,
+  BlobSignedRequest,
+  BlobSize,
   BlobStorage,
   BlobUploadEvent,
   BlobUploadOptions,
 } from "./types.ts"
 
-type UploadStorage = Pick<BlobStorage, "put">
-type MultipartStorage = Pick<BlobStorage, "createMultipartUpload" | "resumeMultipartUpload">
+type UploadStorage = Pick<BlobStorage, "delete" | "head" | "put" | "sign">
+type MultipartStorage = Pick<BlobStorage, "createMultipartUpload" | "delete" | "head" | "resumeMultipartUpload">
 
 const multipartMethods = {
   abort: "DELETE",
@@ -41,9 +48,15 @@ function isMultipartAction(value: string | undefined): value is MultipartAction 
 }
 
 // Browsers send the bare file name; drop any directory part so the client cannot pick a folder.
-// put() decodes pathnames once, so encode the name to store it as written.
-function uploadedFileName(file: File): string {
-  return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
+// Rename unsupported `%XX` names with a UUID to avoid overwriting their replacement name.
+// put() decodes pathnames once, so encode the name.
+function uploadedFileName(fileName: string): string {
+  const name = fileName.split(/[\\/]/).pop() || "file"
+  const safeName = name.replace(/%(?=[\da-f]{2})/gi, "_")
+  if (safeName === name) return encodeURIComponent(name)
+  const extension = safeName.lastIndexOf(".")
+  const split = extension > 0 ? extension : safeName.length
+  return encodeURIComponent(`${safeName.slice(0, split)}-${globalThis.crypto.randomUUID()}${safeName.slice(split)}`)
 }
 
 function payloadTooLarge(bytes: number, limit: number): Error {
@@ -51,6 +64,25 @@ function payloadTooLarge(bytes: number, limit: number): Error {
     statusCode: 413,
     statusMessage: "FUNCTION_PAYLOAD_TOO_LARGE",
     message: `The request body is ${bytes} bytes. A Vercel Function accepts at most ${limit} bytes, and Vercel answers 413 FUNCTION_PAYLOAD_TOO_LARGE. Keep each upload under the limit, for example with \`ensure.maxSize\`.`,
+  })
+}
+
+// Room for the boundaries and part headers of a one-file `multipart/form-data` body.
+const formFramingBytes = 64 * 1024
+
+function declaredLength(request: Request): number | undefined {
+  const value = request.headers.get("content-length")
+  if (value === null || !/^\d+$/.test(value.trim())) return undefined
+  return Number(value)
+}
+
+/** Rejects a request whose declared body is above `limit`, before anything reads it. */
+function rejectDeclaredLength(request: Request, limit: number | undefined): void {
+  const declared = declaredLength(request)
+  if (limit === undefined || declared === undefined || declared <= limit) return
+  throw createError({
+    statusCode: 413,
+    message: `The request body is ${declared} bytes, which is more than the ${limit} bytes that \`ensure.maxSize\` allows.`,
   })
 }
 
@@ -119,28 +151,195 @@ function requireQuery(url: URL, name: string): string {
   return value
 }
 
-/** Store the files of a `multipart/form-data` request with `put()`. Request errors throw H3 400 errors. */
+// A signed PUT must start within this time. Large files on slow links take longer to send, so the ticket for
+// `complete` lives longer.
+const directSignExpiresIn = 10 * 60
+const directTicketExpiresIn = 24 * 60 * 60
+
+function isJsonRequest(request: Request): boolean {
+  return /^application\/(?:[\w.+-]+\+)?json\b/i.test(request.headers.get("content-type") ?? "")
+}
+
+async function beforeUpload(options: BlobUploadOptions, file: BlobBeforeUploadFile, fallback: string): Promise<string> {
+  const result = await options.onBeforeUpload?.(file)
+  return result?.pathname ?? fallback
+}
+
+/**
+ * Store the files of a `multipart/form-data` request with `put()`. With `direct: true`, also answer the JSON `sign`
+ * and `complete` steps of a direct upload. Request errors throw H3 400 errors.
+ */
 export async function handleBlobUpload(
   storage: UploadStorage,
   event: BlobUploadEvent,
   options: BlobUploadOptions = {},
-): Promise<Result<BlobObject[], BlobErrorCode>> {
+  store = "default",
+): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>> {
+  const request = eventRequest(event)
+  if (isJsonRequest(request)) {
+    if (!options.direct) {
+      throw badRequest("This upload route accepts a multipart/form-data request. Pass `direct: true` to `blob.handleUpload()` to accept direct uploads.")
+    }
+    return handleDirectUploadStep(storage, request, options, store)
+  }
   const formKey = options.formKey ?? "files"
-  const form = await readForm(getStandardContext(event).req)
+  // With one file, the body is the file plus its framing. Without a file count, the total has no bound.
+  if (options.ensure && options.multiple === false) {
+    const maxBytes = ensureMaxBytes(options.ensure)
+    rejectDeclaredLength(request, maxBytes === undefined ? undefined : maxBytes + formFramingBytes)
+  }
+  const form = await readForm(request)
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
   if (!files.length) throw badRequest(`No files in form field "${formKey}".`)
   if (options.multiple === false && files.length > 1) throw badRequest(`Form field "${formKey}" accepts one file.`)
   if (options.ensure) {
     for (const file of files) ensureBlob(file, options.ensure)
   }
+  // Run every hook before the first put(), so a rejected file stores nothing.
+  const pathnames: string[] = []
+  for (const file of files) {
+    const name = uploadedFileName(file.name)
+    pathnames.push(options.onBeforeUpload
+      ? await beforeUpload(options, { contentType: file.type, pathname: decodePathname(name), request, size: file.size }, name)
+      : name)
+  }
 
   const objects: BlobObject[] = []
-  for (const file of files) {
-    const [error, object] = await storage.put(uploadedFileName(file), file, options.put)
+  for (const [index, file] of files.entries()) {
+    const [error, object] = await storage.put(pathnames[index]!, file, options.put)
     if (error) return [error, undefined]
+    await options.onCompleted?.(object, request)
     objects.push(object)
   }
   return [undefined, objects]
+}
+
+/** `handleUpload()` with its overloads. `storage` returns the handle, so a handle can pass itself while it is built. */
+export function createUploadHandler(storage: () => UploadStorage, store: string): BlobStorage["handleUpload"] {
+  function handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions & { direct?: false }): Promise<Result<BlobObject[], BlobErrorCode>>
+  function handleUpload(event: BlobUploadEvent, options: BlobUploadOptions & { direct: true }): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
+  function handleUpload(event: BlobUploadEvent, options: BlobUploadOptions): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
+  function handleUpload(event: BlobUploadEvent, options: BlobUploadOptions = {}): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>> {
+    return handleBlobUpload(storage(), event, options, store)
+  }
+  return handleUpload
+}
+
+async function handleDirectUploadStep(
+  storage: UploadStorage,
+  request: Request,
+  options: BlobUploadOptions,
+  store: string,
+): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>> {
+  const body = await readJson(request)
+  if (body.action === "sign") return signDirectUpload(storage, request, body, options, store)
+  if (body.action === "complete") return completeDirectUpload(storage, request, body, options, store)
+  throw badRequest("A direct upload request needs `action`: \"sign\" or \"complete\".")
+}
+
+async function signDirectUpload(
+  storage: UploadStorage,
+  request: Request,
+  body: Record<string, unknown>,
+  options: BlobUploadOptions,
+  store: string,
+): Promise<Result<BlobDirectUploadStep, BlobErrorCode>> {
+  const { contentType: declaredType, name, size } = body
+  if (typeof name !== "string" || typeof declaredType !== "string" || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
+    throw badRequest("The `sign` step needs the file `name`, its `contentType`, and its `size` in bytes.")
+  }
+  const uploadPut = options.put ?? {}
+  const { contentLength, customMetadata, ...put } = uploadPut
+  if (("access" in uploadPut && uploadPut.access !== undefined) || contentLength !== undefined || (customMetadata && Object.keys(customMetadata).length)) {
+    throw blobErrorDiagnostics.BLOB_R0046({ message: "A direct upload cannot set `put.access`, `put.contentLength`, or `put.customMetadata`." })
+  }
+  if (options.ensure) {
+    ensureBlobType(declaredType, options.ensure)
+    ensureBlobSize(size, options.ensure)
+  }
+  const fileName = decodePathname(uploadedFileName(name))
+  const chosen = await beforeUpload(options, { contentType: declaredType, pathname: fileName, request, size }, fileName)
+  const pathname = normalizeBlobPath(decodePathname(chosen), put)
+  const contentType = put.contentType || declaredType || "application/octet-stream"
+
+  const signed = await signDirectPut(storage, pathname, contentType, options.ensure?.maxSize)
+  if (!signed) return [undefined, { action: "form" }]
+  const [signError, signedRequest] = signed
+  if (signError) return [signError, undefined]
+  const ticket = await sealUploadTicket({
+    contentType,
+    expires: Math.floor(Date.now() / 1000) + directTicketExpiresIn,
+    pathname,
+    route: new URL(request.url).pathname,
+    store,
+  })
+  return [undefined, { action: "sign", pathname, request: signedRequest, ticket }]
+}
+
+// `BLOB_R0025`: the driver cannot sign this request.
+function cannotSign(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "BLOB_R0025"
+}
+
+/**
+ * Signs the PUT of a direct upload. Binds `maxSize` when the driver can, and signs without it when the driver cannot:
+ * `complete` checks the size anyway. Returns `undefined` when the store cannot sign an upload, such as Netlify Blobs.
+ */
+async function signDirectPut(
+  storage: UploadStorage,
+  pathname: string,
+  contentType: string,
+  maxSize: BlobSize | undefined,
+): Promise<Result<BlobSignedRequest, BlobErrorCode> | undefined> {
+  const sign = (bindSize: boolean) => storage.sign(pathname, {
+    contentType,
+    expiresIn: directSignExpiresIn,
+    method: "PUT",
+    ...(bindSize && maxSize ? { maxSize } : {}),
+  })
+  try {
+    let result = await sign(true)
+    if (maxSize && result[0] && cannotSign(result[0].cause)) result = await sign(false)
+    return result[0] && cannotSign(result[0].cause) ? undefined : result
+  }
+  catch (error) {
+    // The driver has no `sign()` at all.
+    if (cannotSign(error)) return undefined
+    throw error
+  }
+}
+
+async function completeDirectUpload(
+  storage: UploadStorage,
+  request: Request,
+  body: Record<string, unknown>,
+  options: BlobUploadOptions,
+  store: string,
+): Promise<Result<BlobObject[], BlobErrorCode>> {
+  const ticket = typeof body.ticket === "string" ? await openUploadTicket(body.ticket) : undefined
+  if (ticket === "expired") throw createError({ statusCode: 403, message: "The direct upload ticket expired. Start the upload again with a new `sign` step." })
+  if (!ticket || ticket.store !== store || ticket.route !== new URL(request.url).pathname) {
+    throw createError({ statusCode: 403, message: "The `complete` step needs the `ticket` that the `sign` step of this route returned, unchanged." })
+  }
+  const [headError, object] = await storage.head(ticket.pathname)
+  if (headError) return [headError, undefined]
+  if (!object) {
+    throw badRequest(`The file "${ticket.pathname}" is not in the store. Send the signed PUT request before the \`complete\` step.`)
+  }
+  // The client sent the bytes straight to storage, so check what the store holds, not what the client declared.
+  if (options.ensure) {
+    try {
+      ensureBlobType(object.contentType ?? "", options.ensure)
+      if (object.size !== undefined) ensureBlobSize(object.size, options.ensure)
+    }
+    catch (error) {
+      const [deleteError] = await storage.delete(ticket.pathname)
+      if (deleteError) return [deleteError, undefined]
+      throw error
+    }
+  }
+  await options.onCompleted?.(object, request)
+  return [undefined, [object]]
 }
 
 /**
@@ -157,18 +356,22 @@ export async function handleBlobMultipartUpload(
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
   }
   if (!pathname) throw badRequest("Missing `pathname` route param.")
-  const request = getStandardContext(event).req
+  const request = eventRequest(event)
   if (request.method !== multipartMethods[action]) {
     throw createError({ statusCode: 405, message: `The ${action} action requires ${multipartMethods[action]}.` })
   }
+  const ensure = options.ensure
+  const maxBytes = ensure ? ensureMaxBytes(ensure) : undefined
 
   if (action === "create") {
     const body = await readJson(request)
-    const contentType = typeof body.contentType === "string" ? body.contentType : undefined
-    const [error, upload] = await storage.createMultipartUpload(pathname, {
-      ...options.create,
-      contentType: options.create?.contentType ?? contentType,
-    })
+    const contentType = options.create?.contentType ?? (typeof body.contentType === "string" ? body.contentType : undefined)
+    if (ensure) {
+      ensureBlobType(contentType ?? "", ensure)
+      // The client declares the size so a large file fails before its parts are sent. upload and complete enforce it.
+      if (typeof body.size === "number") ensureBlobSize(body.size, ensure)
+    }
+    const [error, upload] = await storage.createMultipartUpload(pathname, { ...options.create, contentType })
     if (error) return [error, undefined]
     return [undefined, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
   }
@@ -177,7 +380,9 @@ export async function handleBlobMultipartUpload(
   const uploadId = requireQuery(url, "uploadId")
   // Read the part into memory before the upload resumes: R2 rejects streams without a known length, and Vercel
   // rejects a large part before the Function runs.
+  if (action === "upload") rejectDeclaredLength(request, maxBytes)
   const partBody = action === "upload" ? await (await readBody(request)).arrayBuffer() : new ArrayBuffer(0)
+  if (ensure) ensureBlobSize(partBody.byteLength, ensure)
   let completionParts: BlobMultipartPart[] | undefined
   let completionBody: Record<string, unknown> | undefined
   if (action === "complete") {
@@ -195,7 +400,26 @@ export async function handleBlobMultipartUpload(
   }
   if (action === "complete") {
     const [error, object] = await upload.complete(completionParts ?? readParts(completionBody?.parts))
-    return error ? [error, undefined] : [undefined, { action, object }]
+    if (error) return [error, undefined]
+    // Validate provider metadata: serialized upload state can be edited by the client.
+    if (ensure) {
+      let stored = object
+      if ((maxBytes !== undefined && stored.size === undefined) || (ensure.types?.length && !stored.contentType)) {
+        const [headError, metadata] = await storage.head(object.pathname)
+        if (headError) return [headError, undefined]
+        if (metadata) stored = metadata
+      }
+      try {
+        ensureBlobType(stored.contentType ?? "", ensure)
+        if (stored.size !== undefined) ensureBlobSize(stored.size, ensure)
+      }
+      catch (error) {
+        const [deleteError] = await storage.delete(object.pathname)
+        if (deleteError) return [deleteError, undefined]
+        throw error
+      }
+    }
+    return [undefined, { action, object }]
   }
   const [error] = await upload.abort()
   return error ? [error, undefined] : [undefined, { action }]

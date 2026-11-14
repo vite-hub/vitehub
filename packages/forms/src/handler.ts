@@ -69,6 +69,7 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   const caller: { user: FormUser | null } = { user: null }
   const [stopped, guarded] = await guardRequest(request, {
     key: `form:${name}`,
+    name,
     ...(options.origins ? { origins: options.origins } : {}),
     ...(options.honeypot !== undefined ? { honeypot: options.honeypot } : {}),
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
@@ -84,18 +85,18 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   const { body: fields, page, anchor, html } = guarded
   const { user } = caller
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
-  const stop = (status: number, message: string) => html ? back(request, page, "error") : fail(status, message)
+  const stop = (status: number, message: string) => html ? back(request, page, "error", name) : fail(status, message)
 
   if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") coerceFormFields(options.schema, fields)
   const result = await options.schema["~standard"].validate(fields)
   if (result.issues) {
-    if (html) return back(request, page, "error")
+    if (html) return back(request, page, "error", name)
     return json(400, { message: "Check the form and try again.", issues: result.issues.map((issue): FormIssue => ({ message: issue.message, path: issuePath(issue.path) })) })
   }
 
   const data = jsonData(result.value)
   if (!data) {
-    if (html) return back(request, page, "error")
+    if (html) return back(request, page, "error", name)
     return json(400, { message: "Check the form and try again.", issues: [{ message: "The form schema must return JSON data: plain objects, arrays, strings, finite numbers, booleans, or null.", path: [] }] })
   }
   const store = options.store === false ? undefined : services.store
@@ -142,5 +143,5 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     }
   }
 
-  return html ? back(request, page, "sent") : json(201, { id: submission.id })
+  return html ? back(request, page, "sent", name) : json(201, { id: submission.id })
 }

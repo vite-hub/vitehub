@@ -14,7 +14,7 @@ export interface SerializedResponse {
   readonly type?: "error" | "opaque" | "opaqueredirect"
 }
 
-import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+import { isRuntimeObject } from "./internal/runtime-type.ts"
 
 interface BlobMethods {
   readonly body: () => ReadableStream
@@ -27,7 +27,7 @@ function prototypeGetter(constructor: { prototype: object }, key: string): (() =
 
 function prototypeMethod(constructor: { prototype: object }, key: string): CallableFunction | undefined {
   const value: unknown = Object.getOwnPropertyDescriptor(constructor.prototype, key)?.value
-  return hasRuntimeType(value, "function") ? value : undefined
+  return typeof value === "function" ? value : undefined
 }
 
 // Captured at import. Pure, so a bundle that never reads a Blob or an ArrayBuffer here drops the reads.
@@ -104,7 +104,7 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
+  if (typeof value === "string" || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
@@ -174,10 +174,10 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   if (!isRuntimeObject(record.body)) return false
   // SAFETY: isRuntimeObject establishes an object record for property inspection.
   const body = record.body as Record<string, unknown>
-  if (!hasRuntimeType(body.data, "string") || body.encoding !== "base64" || !hasRuntimeType(body.mediaType, "string")) return false
-  if (body.isNull !== undefined && !hasRuntimeType(body.isNull, "boolean")) return false
+  if (typeof body.data !== "string" || body.encoding !== "base64" || typeof body.mediaType !== "string") return false
+  if (body.isNull !== undefined && typeof body.isNull !== "boolean") return false
   if (body.isNull === true && body.data !== "") return false
-  if (record.url !== undefined && !hasRuntimeType(record.url, "string")) return false
+  if (record.url !== undefined && typeof record.url !== "string") return false
   if (record.type !== undefined && record.type !== "error" && record.type !== "opaque" && record.type !== "opaqueredirect") return false
   if (record.type !== undefined) {
     if (record.type !== "opaqueredirect" && record.url !== undefined) return false
@@ -185,8 +185,8 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
       && record.headers.length === 0 && body.isNull === true && body.data === ""
   }
   if (record.url !== undefined) return false
-  if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
-  if (!hasRuntimeType(record.statusText, "string") || !isSerializedHeaderEntries(record.headers)) return false
+  if (typeof record.status !== "number" || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
+  if (typeof record.statusText !== "string" || !isSerializedHeaderEntries(record.headers)) return false
   // Responses with these status codes cannot carry a body. Reject malformed
   // records before deserialization would pass bytes to the native constructor.
   // atob ignores ASCII whitespace, so whitespace-only legacy data has no bytes.
@@ -208,7 +208,7 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
 }
 
 function isSerializedHeaderEntry(value: unknown): value is readonly [string, string] {
-  return Array.isArray(value) && value.length === 2 && hasRuntimeType(value[0], "string") && hasRuntimeType(value[1], "string")
+  return Array.isArray(value) && value.length === 2 && typeof value[0] === "string" && typeof value[1] === "string"
 }
 
 function isSerializedHeaderEntries(value: unknown): value is readonly (readonly [string, string])[] {

@@ -1,5 +1,4 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { executionBudgetCharged, executionBudgetHandledBy, executionBudgetOverride, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
@@ -13,12 +12,14 @@ import type {
   AgentRuntimeContext,
   AgentToolDefinition,
   AgentToolExecutionContext,
+  AgentToolPolicyDecision,
   AgentToolSet,
   AgentToolStepItem,
 } from "./types.ts"
 
 const approvalPreservingExecutorOwners = new WeakMap<Function, AgentToolPolicyOwner | null>()
 const budgetWrappedExecutors = new WeakMap<object, (...args: unknown[]) => unknown>()
+const maxModelRuntimeDecisions = 256
 
 function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
   const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
@@ -37,11 +38,11 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
           ...descriptor,
           get: descriptor.get ? () => {
             const value: unknown = descriptor.get!.call(tool)
-            return bindMethod && hasRuntimeType(value, "function") ? value.bind(tool) : value
+            return bindMethod && typeof value === "function" ? value.bind(tool) : value
           } : undefined,
           set: descriptor.set ? (value: unknown) => { descriptor.set!.call(tool, value) } : undefined,
         } })
-      } else if (bindMethod && hasRuntimeType(descriptor.value, "function")) {
+      } else if (bindMethod && typeof descriptor.value === "function") {
         Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, writable: true, value: { ...descriptor, value: descriptor.value.bind(tool) } })
       }
   }
@@ -54,7 +55,7 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
   if (handledBudget) markExecutionBudgetHandled(copied, handledBudget)
   const policyOwner = agentToolPolicyOwners.get(tool)
   const overrideExecute = Object.getOwnPropertyDescriptor(overrides, "execute")?.value
-  if (policyOwner && (!Object.hasOwn(overrides, "execute") || (hasRuntimeType(overrideExecute, "function") && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
+  if (policyOwner && (!Object.hasOwn(overrides, "execute") || (typeof overrideExecute === "function" && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
     agentToolPolicyOwners.set(copied, policyOwner)
   }
   return copied
@@ -105,7 +106,7 @@ type BudgetedToolExecutionContext = AgentToolExecutionContext & { [toolExecution
  * Returns `undefined` when the request was not issued by a policy or already has a grant.
  */
 export function approveAgentToolRequest(request: unknown): AgentToolApprovalGrant | undefined {
-  if (request === null || !hasRuntimeType(request, "object")) return
+  if (request === null || typeof request !== "object") return
   const pending = pendingToolApproval.attached(request)
   if (!pending) return
   const binding = pendingToolApproval.consume(pending)
@@ -158,26 +159,52 @@ function createApprovalRequest(name: string, input: unknown, reason?: string) {
 }
 
 function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
-  if (!tool.policy || typeof tool.execute !== "function") {
+  // A copy of a tool that a policy already wraps keeps that policy. A second wrapper would ask the policy again.
+  if (!tool.policy || typeof tool.execute !== "function" || agentToolPolicyOwners.has(tool)) {
     return tool
   }
 
   const execute = tool.execute
   const policy = tool.policy
   const policyOwner: AgentToolPolicyOwner = Object.freeze({ toolName: tool.name })
+  const decide = async (input: unknown): Promise<AgentToolPolicyDecision> => typeof policy === "function"
+    ? await policy({
+        name: tool.name,
+        input,
+      })
+    : await resolveCapabilityPolicy(policy, {
+        capability: tool.name,
+        input,
+        operation: "tool.execute",
+      })
+  // AI SDK asks `needsApproval` before it runs a call. It runs a call that needs approval only after the person
+  // accepts it, so the decision for that call and input holds when AI SDK runs it.
+  const modelRuntimeDecisions = new Map<string, { decision: AgentToolPolicyDecision, input: unknown }>()
+  const toolNeedsApproval = (tool as { needsApproval?: unknown }).needsApproval
+  const needsApproval = async (input: unknown, options?: { toolCallId?: string }): Promise<boolean> => {
+    const decision = await decide(input)
+    if (options?.toolCallId) {
+      modelRuntimeDecisions.delete(options.toolCallId)
+      modelRuntimeDecisions.set(options.toolCallId, { decision, input })
+      // A call that needs approval waits for the person, often in another request. Keep only the recent ones.
+      if (modelRuntimeDecisions.size > maxModelRuntimeDecisions) modelRuntimeDecisions.delete(modelRuntimeDecisions.keys().next().value!)
+    }
+    if (decision === "require-approval") return true
+    if (typeof toolNeedsApproval === "function") return Boolean(await toolNeedsApproval.call(tool, input, options))
+    return toolNeedsApproval === true
+  }
+  const modelRuntimeDecision = (input: unknown, context?: AgentToolExecutionContext): AgentToolPolicyDecision | undefined => {
+    const toolCallId = context?.toolCallId
+    const decided = toolCallId ? modelRuntimeDecisions.get(toolCallId) : undefined
+    if (!toolCallId || !decided || decided.input !== input) return
+    modelRuntimeDecisions.delete(toolCallId)
+    // AI SDK ran the call, so the person accepted it.
+    return decided.decision === "require-approval" ? "allow" : decided.decision
+  }
 
   const approvalExecute = async (input: unknown, context?: AgentToolExecutionContext) => {
       if (!consumeToolApprovalGrant(policyOwner, tool.name, input, context)) {
-        const decision = typeof policy === "function"
-          ? await policy({
-              name: tool.name,
-              input,
-            })
-          : await resolveCapabilityPolicy(policy, {
-              capability: tool.name,
-              input,
-              operation: "tool.execute",
-            })
+        const decision = modelRuntimeDecision(input, context) ?? await decide(input)
 
         if (decision === "deny") {
           throw new ViteHubError("CAPABILITY_DENIED", `[vitehub:runtime] Capability "${tool.name}" was denied.`, {
@@ -209,7 +236,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       return await execute.call(tool, input, chargedContext)
     }
   approvalPreservingExecutorOwners.set(approvalExecute, policyOwner)
-  const wrapped = copyToolWithOverrides(tool, { execute: approvalExecute })
+  const wrapped = copyToolWithOverrides(tool, { execute: approvalExecute, needsApproval })
   agentToolPolicyOwners.set(wrapped, policyOwner)
   return wrapped
 }

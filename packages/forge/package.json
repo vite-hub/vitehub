@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/forge",
   "version": "0.1.0",
-  "description": "One Forge client for ViteHub: GitHub, GitLab and Forgejo providers, App credentials and Server Env.",
+  "description": "One Forge identity for ViteHub apps: GitHub App installation tokens and GitHub, GitLab and Forgejo providers from one set of env names.",
   "keywords": [
     "forge",
     "forgejo",
@@ -42,6 +42,7 @@
     "test": "vp run --cache -t @vite-hub/forge#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
     "nostics": "catalog:runtime"
   },
   "devDependencies": {

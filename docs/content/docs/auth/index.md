@@ -8,85 +8,87 @@ icon: i-lucide-shield-check
 ---
 
 ::product-hero{tagline="Add sign-in and user sessions to your app with Better Auth, set up from one server file." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree
-  ```ts [server/auth.ts]
-  import { defineAuth } from 'vite-hub/auth'
+  :hero-figure{name="auth"}
+::
 
-  // Sign-up, sign-in, and session routes
-  // appear under /api/auth.
-  export default defineAuth({
-    appName: 'Acme',
-    emailAndPassword: { enabled: true },
-    access: {
-      // Users must sign in to open these pages
-      routes: ['/admin/**'],
-    },
-  })
-  ```
+::code-tree
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
 
-  ```ts [server/api/profile.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { withAuth } from 'vite-hub/auth/server'
+// Sign-up, sign-in, and session routes
+// appear under /api/auth.
+export default defineAuth({
+  appName: 'Acme',
+  emailAndPassword: { enabled: true },
+  access: {
+    // Requests to these APIs need a session
+    routes: ['/api/admin/**'],
+  },
+})
+```
 
-  // Runs only when the user is signed in
-  export default defineEventHandler(
-    withAuth((_event, { user }) => ({
-      id: user.id,
-      email: user.email,
-    })),
-  )
-  ```
+```ts [server/api/profile.get.ts]
+import { defineEventHandler } from 'h3'
+import { withAuth } from 'vite-hub/auth/server'
 
-  ```vue [src/components/SignOutButton.vue]
-  <script setup lang="ts">
-  import { useUserSession } from 'vite-hub/auth/vue'
+// Runs only when the user is signed in
+export default defineEventHandler(
+  withAuth((_event, { user }) => ({
+    id: user.id,
+    email: user.email,
+  })),
+)
+```
 
-  // Session state in the browser
-  const { loggedIn, user, signOut } = useUserSession()
-  </script>
+```vue [src/components/SignOutButton.vue]
+<script setup lang="ts">
+import { useUserSession } from 'vite-hub/auth/vue'
 
-  <template>
-    <button v-if="loggedIn" @click="signOut()">
-      Sign out {{ user?.name }}
-    </button>
-  </template>
-  ```
+// Session state in the browser
+const { loggedIn, user, signOut } = useUserSession()
+</script>
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: { preset: 'node', auth: true },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
+<template>
+  <button v-if="loggedIn" @click="signOut()">
+    Sign out {{ user?.name }}
+  </button>
+</template>
+```
 
-  export default defineConfig({
-    plugins: [
-      vitehub({ preset: 'node', auth: true }),
-      nitro(),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import { defineConfig } from 'vite'
-  import { vitehub } from 'vite-hub'
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', auth: true },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
-  export default defineConfig({
-    plugins: [
-      vitehub({ preset: 'node', auth: true }),
-    ],
-  })
-  ```
-  ::::
-  :::
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', auth: true }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', auth: true }),
+  ],
+})
+```
+:::
 ::
 
 ::product-features
@@ -96,6 +98,10 @@ icon: i-lucide-shield-check
 
   :::product-feature-item{title="Protect a route" icon="i-lucide-lock" to="/docs/auth/server-api#use-it-at-runtime"}
   Wrap a handler in `withAuth()` so only signed-in users reach it.
+  :::
+
+  :::product-feature-item{title="Protect a Nuxt page" icon="i-lucide-file-lock" to="/docs/auth/protect-pages"}
+  Add `definePageMeta({ auth: 'user' })`, and visitors without a session go to the login page.
   :::
 
   :::product-feature-item{title="Decide who gets in" icon="i-lucide-shield-check" to="/docs/auth/server-api#authorize-access-routes"}
@@ -121,7 +127,7 @@ Use Auth when the application needs sign-in, sessions, route protection, or Bett
 Keep route access explicit. Configure the Auth Definition and its `access` policy, then mount the route through the Vite or Nuxt integration. Keep application authorization in the route or Capability that uses the session.
 
 Treat local session storage as development state unless the selected provider
-gives it durable storage. A signed-in user is not automatically an Agent actor.
+gives it durable storage. A signed-in user is not automatically an Agent Invoker.
 
 Prove the flow with a real sign-in or session lookup, then request a protected route and inspect the generated route or provider output for the selected host.
 ::

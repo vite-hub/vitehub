@@ -1,5 +1,5 @@
 import { resolveDefaultAgentInvocations } from "./app.ts"
-import { defaultAgentInvocationsDatabase } from "./default.ts"
+import { defaultAgentInvocationsDatabase } from "./default-core.ts"
 
 import type { AgentInvocations } from "../invocations.ts"
 import type { AgentInvocationsDatabase } from "./journal-database.ts"

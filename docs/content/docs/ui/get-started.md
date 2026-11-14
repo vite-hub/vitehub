@@ -21,7 +21,7 @@ In this tutorial, you show a short chat with one question and one reply. The mes
 Install the UI package, ViteHub, and the packages that they need:
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Add the modules to `nuxt.config.ts`. Keep the other modules of your app.

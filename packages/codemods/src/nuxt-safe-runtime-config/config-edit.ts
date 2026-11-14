@@ -23,9 +23,9 @@ export interface ConfigEditInput {
 
 export interface ConfigEditResult {
   code: string
-  /** ViteHub deployment preset that the codemod set, if any. */
-  preset?: string
-  presetNote?: string
+  /** ViteHub host that the codemod set, if any. */
+  host?: string
+  hostNote?: string
   imports: string[]
   /** Sources of the imports that only the removed code used, such as `valibot`. */
   removedImports: string[]
@@ -37,11 +37,11 @@ export function declarationCode(field: EnvField, envName: string, style: CodeSty
   const options: string[] = []
   if (field.default !== undefined) options.push(`default: ${literal(field.default, style)}`)
   if (field.section === "public") options.push(`mode: ${quoteString("build", style)}`)
-  if (!field.required) options.push("required: false")
+  if (!field.required && field.default === undefined) options.push("optional: true")
   if (field.secret) options.push("secret: true")
   const names = [...new Set([field.variable, ...(field.extraVariables ?? [])])]
   const source = names.length === 1 ? quoteString(field.variable, style) : `[${names.map(name => quoteString(name, style)).join(", ")}]`
-  options.push(`source: ${envName}.source(${source}${field.skipEmpty ? ", { skipEmpty: true }" : ""})`)
+  options.push(`source: ${envName}.source(${source})`)
   const callee = field.kind === "string" ? envName : `${envName}.${field.kind}`
   const values = field.kind === "enum" ? `[${(field.values ?? []).map(value => quoteString(value, style)).join(", ")}], ` : ""
   return `${callee}(${values}{ ${options.join(", ")} })`
@@ -133,7 +133,7 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   }
 
   const env = input.env
-  const { preset, presetNote } = addViteHubOptions(editor, config, {
+  const { host, hostNote } = addViteHubOptions(editor, config, {
     options: [{ key: "env", value: indent => envExpression(env, envName, indent, style), label: "the Env declarations" }],
     rootEntries,
     removedRootProperties,
@@ -144,8 +144,8 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   const code = editor.output.toString()
   return {
     code,
-    preset,
-    presetNote,
+    host,
+    hostNote,
     imports: input.env.kind === "fields" ? ["vite-hub/env"] : ["@vite-hub/env/vite"],
     removedImports: editor.removedImports,
     lineOf: createLineResolver(code),

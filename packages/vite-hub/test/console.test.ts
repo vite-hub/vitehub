@@ -7,8 +7,7 @@ import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { setResolvedFeatureOptions } from "@vite-hub/internal/build/vite"
-import { hubKv } from "@vite-hub/kv/vite"
-import { H3 } from "h3"
+import { hubKV } from "@vite-hub/kv/vite"
 import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
@@ -21,47 +20,36 @@ import {
   consoleInvocationsBindingRootRegistryKey,
   consoleInvocationsIdentityKey,
   consoleInvocationsIdentityRootKey,
-  consoleBlobKey,
-  consoleBlobRegistryKey,
-  consoleBlobRootKey,
   consoleInvocationsKey,
   consoleInvocationsRegistryKey,
-  consoleInvocationsRevisionRegistryKey,
   consoleInvocationsRootIdentityRegistryKey,
   consoleInvocationsRootKey,
   consoleProjectRootKey,
-  consoleProjectNameKey,
-  consoleSectionsKey,
-  consoleSectionsRootKey,
-  consoleSectionsRegistryKey,
-  createConsoleInvocationsIdentity,
+  consoleStateKey,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleProjectName,
   resolveConsoleProjectRoot,
 } from "../src/console/internal.ts"
 import { serializeConsoleRefresh } from "../src/console/refresh.ts"
-import { consoleFixtureEnvironmentVariable, consoleFixtureFallbackAgentName, consoleFixtureRevision, parseConsoleFixture } from "../src/console/fixture.ts"
-import agentsHandlerRoute from "../src/console/runtime/server/agents.get.ts"
+import { listConsoleAgents } from "../src/console/runtime/server/agents.get.ts"
 import agentInvocationsHandlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-import { createConsoleFixtureInvocations, installConsoleFixtureInvocations } from "../src/console/runtime/server/invocations-fixture.ts"
-import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/invocations/default"
+import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/internal/default-invocations"
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
-import { console as consoleRuntime } from "../src/console/server.ts"
+import { agentConsole as consoleRuntime } from "../src/console/server.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
-import invocationCapabilitiesHandlerRoute from "../src/console/runtime/server/invocation-capabilities.get.ts"
-import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
+import { listConsoleInvocationCapabilities } from "../src/console/runtime/server/invocation-capabilities.get.ts"
+import { listConsoleInvocations } from "../src/console/runtime/server/invocations.get.ts"
 import { isConsoleDevelopmentBuild } from "../src/console/runtime/server/development.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
-import searchHandlerRoute from "../src/console/runtime/server/search.get.ts"
+import { consoleSearchCollectionHandler } from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
-import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
+import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
@@ -79,18 +67,16 @@ import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import { allowed } from "./support/console-access.ts"
-import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { allowed, consoleAccess } from "./support/console-access.ts"
+import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 import { consoleEvent } from "./console-event.ts"
+import { generatedModules } from "../src/internal/generated-modules.ts"
 
-const agentsHandler = allowed(agentsHandlerRoute)
+// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
+const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
+
 const invocationHandler = allowed(invocationHandlerRoute)
 const agentInvocationsHandler = allowed(agentInvocationsHandlerRoute)
-const invocationCapabilitiesHandler = allowed(invocationCapabilitiesHandlerRoute)
-const invocationsHandler = allowed(invocationsHandlerRoute)
-const searchHandler = allowed(searchHandlerRoute)
-const sectionsHandler = allowed(sectionsHandlerRoute)
 const usageHandler = allowed(usageHandlerRoute)
 
 const scope = globalThis as ConsoleInvocationScope
@@ -116,40 +102,21 @@ function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[
   return Reflect.apply(candidate, context, args)
 }
 
-function fixtureDocument(id?: string) {
-  return {
-    invocations: id
-      ? [{
-          agentName: "support",
-          createdAt: "2026-08-27T10:00:00.000Z",
-          id,
-          observations: [],
-          status: "completed" as const,
-          traceId: `${id}-trace`,
-          updatedAt: "2026-08-27T10:00:00.000Z",
-        }]
-      : [],
-    version: 1 as const,
-  }
-}
-
 /** A test event whose URL and Node response a test can change between calls. */
 interface MutableTestEvent extends ConsoleRequestEvent {
-  node: { req: { url: string }, res?: { setHeader: (name: string, value: string) => unknown } }
   req: { url: string }
 }
 
-/** A Console request event at `http://localhost/_vitehub`. Each read of its Standard Context uses the current `node.req.url`. */
+/** A Console request event at `http://localhost/_vitehub`. Each read of its Standard Context uses the current `req.url`. */
 function event(address: string | undefined, method = "GET"): MutableTestEvent {
   const url = "http://localhost/_vitehub"
   const headers = new Headers()
-  const target: Omit<MutableTestEvent, "~standard"> = { node: { req: { url } }, req: { url } }
+  const target: Omit<MutableTestEvent, "~standard"> = { req: { url } }
   return Object.defineProperty(target, "~standard", {
     get: () => ({
       vendor: "test",
-      req: new Request(target.node.req.url, { method }),
-      // A test that sets `node.res` reads the Console response headers through it.
-      res: { headers: { get: (name: string) => headers.get(name), set: (name: string, value: string) => { headers.set(name, value); target.node.res?.setHeader(name, value) } } as Headers },
+      req: new Request(target.req.url, { method }),
+      res: { headers },
       runtime: address ? { clientAddress: address } : {},
     }),
   }) as MutableTestEvent
@@ -166,19 +133,13 @@ function runtime(runId: string): AgentRuntimeContext {
 
 /** Installs the default Agent journal, as the generated server does with the Console on or off, and lets the Console read it. */
 function installDefaultJournal(projectRoot: string, setting?: AgentInvocationsDefault): AgentInvocations {
-  installAgentInvocations({ default: setting, journal: { projectRoot } })
+  installAgentInvocations({ default: setting, journal: { libsql, projectRoot } })
   return installConsoleInvocations(projectRoot)
 }
 
 afterEach(() => {
   installAgentInvocations({})
-  for (const name of ["development", "development.root", "development.registry", "development.ambiguous-root"]) {
-    const key = Symbol.for(`vitehub.console.${name}`)
-    Reflect.deleteProperty(globalThis, key)
-    Reflect.deleteProperty(process, key)
-  }
-  delete scope[consoleBlobKey]
-  delete scope[consoleBlobRootKey]
+  Reflect.deleteProperty(globalThis, consoleStateKey)
   delete scope[consoleInvocationsKey]
   delete scope[consoleInvocationsIdentityKey]
   delete scope[consoleInvocationsIdentityRootKey]
@@ -191,22 +152,11 @@ afterEach(() => {
   Reflect.deleteProperty(process, consoleInvocationsBindingRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsBindingRootRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootKey)
-  delete scope[consoleSectionsKey]
-  delete scope[consoleProjectNameKey]
-  delete scope[consoleSectionsRootKey]
-  Reflect.deleteProperty(process, consoleBlobKey)
-  Reflect.deleteProperty(process, consoleBlobRootKey)
-  Reflect.deleteProperty(process, consoleBlobRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsKey)
   Reflect.deleteProperty(process, consoleProjectRootKey)
   Reflect.deleteProperty(process, consoleInvocationsRegistryKey)
   Reflect.deleteProperty(process, consoleInvocationsRootIdentityRegistryKey)
-  Reflect.deleteProperty(process, consoleInvocationsRevisionRegistryKey)
   vi.unstubAllEnvs()
-  Reflect.deleteProperty(process, consoleSectionsKey)
-  Reflect.deleteProperty(process, consoleProjectNameKey)
-  Reflect.deleteProperty(process, consoleSectionsRootKey)
-  Reflect.deleteProperty(process, consoleSectionsRegistryKey)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -222,287 +172,6 @@ function consolePluginFile(plugins: readonly string[] | undefined): string {
 }
 
 describe("Agent invocation console", () => {
-  it("loads versioned invocation fixtures into an in-memory journal", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-"))
-    try {
-      const file = join(root, "console.fixture.json")
-      await writeFile(file, JSON.stringify({
-        invocations: [{
-          agentName: "support",
-          createdAt: "2026-08-27T10:00:00.000Z",
-          id: "fixture-invocation",
-          observations: [{
-            attributes: { "message.content": "Fixture reply", "message.role": "assistant" },
-            name: "agent.message",
-            sequence: 1,
-            timestamp: "2026-08-27T10:00:01.000Z",
-            type: "run",
-          }],
-          status: "completed",
-          traceId: "fixture-trace",
-          updatedAt: "2026-08-27T10:00:01.000Z",
-        }],
-        version: 1,
-      }))
-
-      const invocations = createConsoleFixtureInvocations(file)
-
-      await expect(invocations.get("fixture-invocation")).resolves.toMatchObject({
-        agentName: "support",
-        observations: [expect.objectContaining({ name: "agent.message" })],
-      })
-      await expect(invocations.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "fixture-invocation" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("replaces an installed journal when the fixture identity changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-switch-"))
-    const fixture = (id: string) => ({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id,
-        observations: [],
-        status: "completed",
-        traceId: `${id}-trace`,
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })
-    try {
-      const firstFile = join(root, "first.json")
-      const secondFile = join(root, "second.json")
-      await writeFile(firstFile, JSON.stringify(fixture("first")))
-      await writeFile(secondFile, JSON.stringify(fixture("second")))
-
-      const first = installConsoleFixtureInvocations(root, firstFile)
-      const second = installConsoleFixtureInvocations(root, secondFile)
-
-      expect(second).not.toBe(first)
-      await expect(second.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "second" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("replaces an installed journal when a fixture is rewritten in place", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-rewrite-"))
-    const fixture = (id: string) => ({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id,
-        observations: [],
-        status: "completed",
-        traceId: `${id}-trace`,
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })
-    try {
-      const file = join(root, "fixture.json")
-      const firstFixture = parseConsoleFixture(fixture("first"))
-      const firstRevision = consoleFixtureRevision(firstFixture)
-      await writeFile(file, JSON.stringify(firstFixture))
-      const first = installConsoleFixtureInvocations(root, file)
-      const existingRealm = {
-        process,
-        [consoleInvocationsIdentityKey]: createConsoleInvocationsIdentity(root, file, firstRevision),
-        [consoleInvocationsIdentityRootKey]: root,
-        [consoleInvocationsRootKey]: root,
-      }
-
-      await writeFile(file, JSON.stringify(fixture("second")))
-      const second = installConsoleFixtureInvocations(root, file)
-
-      expect(second).not.toBe(first)
-      expect(resolveConsoleInvocations(existingRealm)).toBe(first)
-      expect(resolveConsoleInvocations()).toBe(second)
-      expect(Reflect.get(process, consoleInvocationsRegistryKey).size).toBe(2)
-      await expect(second.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "second" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("isolates same-revision fixture journals by runtime binding", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-runtime-"))
-    try {
-      const file = join(root, "fixture.json")
-      const fixture = parseConsoleFixture(fixtureDocument("shared"))
-      const revision = consoleFixtureRevision(fixture)
-      await writeFile(file, JSON.stringify(fixture))
-
-      const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
-      const second = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-b")
-      const refreshedFirst = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime-a")
-
-      expect(second).not.toBe(first)
-      expect(refreshedFirst).toBe(first)
-      expect(createConsoleInvocationsIdentity(root, file, revision, "runtime-a"))
-        .not.toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime-b"))
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("installs reused fixture journals in the current runtime realm", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-realm-"))
-    try {
-      const file = join(root, "fixture.json")
-      const fixture = parseConsoleFixture(fixtureDocument("shared"))
-      const revision = consoleFixtureRevision(fixture)
-      await writeFile(file, JSON.stringify(fixture))
-
-      const first = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime")
-      delete scope[consoleInvocationsKey]
-      delete scope[consoleInvocationsIdentityKey]
-      delete scope[consoleInvocationsIdentityRootKey]
-      delete scope[consoleInvocationsRootKey]
-
-      const reused = installConsoleFixtureInvocations(root, file, fixture, revision, "runtime")
-
-      expect(reused).toBe(first)
-      expect(resolveConsoleInvocations()).toBe(first)
-      expect(scope[consoleInvocationsIdentityKey]).toBe(createConsoleInvocationsIdentity(root, file, revision, "runtime"))
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("installs a validated generated snapshot after the fixture changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-snapshot-"))
-    try {
-      const file = join(root, "fixture.json")
-      const fixture = parseConsoleFixture(fixtureDocument("generated"))
-      await writeFile(file, JSON.stringify(fixture))
-      await writeFile(file, "not json")
-
-      const invocations = installConsoleFixtureInvocations(root, file, fixture, consoleFixtureRevision(fixture))
-
-      await expect(invocations.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "generated" })],
-      })
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("rejects malformed and duplicate fixture records", () => {
-    expect(parseConsoleFixture({
-      invocations: [{
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "anonymous",
-        observations: [],
-        status: "completed",
-        traceId: "anonymous-trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    }).invocations[0]?.agentName).toBe(consoleFixtureFallbackAgentName)
-    expect(() => parseConsoleFixture({ invocations: [], version: 2 })).toThrow("version must be 1")
-    expect(() => parseConsoleFixture(fixtureDocument("a".repeat(513))))
-      .toThrow("invocations[0].id must be at most 512 characters")
-    expect(() => parseConsoleFixture({
-      invocations: [0, 1].map(() => ({
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "duplicate",
-        observations: [],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      })),
-      version: 1,
-    })).toThrow("duplicate invocation id")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "missing-observation-fields",
-        observations: [{ sequence: 0, type: "run" }],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow("observations[0].name must be a non-empty string")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "missing-observation-timestamp",
-        observations: [{ name: "agent.message", sequence: 0, type: "run" }],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow("observations[0].timestamp must be a non-empty string")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00",
-        id: "timezone-less-timestamp",
-        observations: [],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow("createdAt must be a valid timezone-qualified timestamp")
-    expect(() => parseConsoleFixture({
-      invocations: [{
-        agentName: "support",
-        createdAt: "2026-08-27T10:00:00.000Z",
-        id: "invalid-extension",
-        metadata: { score: Number.POSITIVE_INFINITY },
-        observations: [],
-        status: "completed",
-        traceId: "trace",
-        updatedAt: "2026-08-27T10:00:00.000Z",
-      }],
-      version: 1,
-    })).toThrow('invocations[0]["metadata"]["score"] must be a finite number')
-    for (const observation of [
-      { metadata: { score: Number.POSITIVE_INFINITY } },
-      { trace: { id: "trace", metadata: { score: Number.POSITIVE_INFINITY } } },
-    ]) {
-      expect(() => parseConsoleFixture({
-        invocations: [{
-          agentName: "support",
-          createdAt: "2026-08-27T10:00:00.000Z",
-          id: "invalid-observation-extension",
-          observations: [{
-            name: "agent.message",
-            sequence: 0,
-            timestamp: "2026-08-27T10:00:00.000Z",
-            type: "run",
-            ...observation,
-          }],
-          status: "completed",
-          traceId: "trace",
-          updatedAt: "2026-08-27T10:00:00.000Z",
-        }],
-        version: 1,
-      })).toThrow("must be a finite number")
-    }
-  })
-
   it("serializes generated Agent registry refreshes", async () => {
     const releases: Array<() => void> = []
     const started: number[] = []
@@ -521,7 +190,7 @@ describe("Agent invocation console", () => {
     await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
   })
 
-  it("registers the standalone console UI and invocation API with Nitro", async () => {
+  it("registers the Console endpoint and invocation API with Nitro", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-"))
     try {
       await writeFile(join(root, "package.json"), `${JSON.stringify({ name: "console-host" })}\n`)
@@ -529,8 +198,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        console: productionConsole,
         sections: ["agents", "usage", "blob", "kv"],
       })
       const configHook = plugin.config
@@ -548,14 +216,13 @@ describe("Agent invocation console", () => {
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/channels/replay",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ])
       expect(config.nitro.publicAssets).toEqual([
         expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: "/_vitehub/console/assets", dir: expect.stringMatching(/runtime\/page-tool$/) }),
+        expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/runtime\/page$/) }),
       ])
       expect(config.nitro.plugins).toContain(resolve(root, ".vitehub/nitro/console/plugin.mjs"))
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
@@ -585,8 +252,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        console: productionConsole,
         sections: [],
       })
       const configHook = plugin.config
@@ -614,10 +280,9 @@ describe("Agent invocation console", () => {
     try {
       await mkdir(join(inheritedRoot, "server/databases"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(join(inheritedRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(inheritedRoot, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        console: productionConsole,
         sections: ["databases"],
       })
       const configHook = plugin.config
@@ -635,7 +300,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       // Without its own Database Definition, the app gets only the implicit default Database.
       expect(generated).toContain('"name":"default","source":"implicit-default"')
-      expect(generated).not.toContain("inherited/server/databases/config.ts")
+      expect(generated).not.toContain("inherited/server/databases/default.ts")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -648,12 +313,12 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false },
-        preset: "node",
+        console: productionConsole,
         runtimeCapabilityImports: {
           blob: "vite-hub/blob",
           console: "vite-hub/console/server",
-          db: "vite-hub/database/drizzle",
+          db: "@vite-hub/database/runtime/registry",
+          i18n: "vite-hub/i18n/server",
           kv: "vite-hub/kv",
         },
         sections: ["agents"],
@@ -666,8 +331,8 @@ describe("Agent invocation console", () => {
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       // The capabilities load with the first Console invocation, not when the server starts.
-      expect(generated).not.toMatch(/^import .*vite-hub\/(?:_internal\/blob|database\/drizzle|_internal\/kv)/m)
-      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { console: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("vite-hub/database/drizzle"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv } }`)
+      expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/runtime\/registry|i18n\/server|kv)/m)
+      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { agentConsole: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -683,7 +348,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: productionConsole, sections: ["agents", "usage"] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -692,14 +357,13 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        `${mount}/_vitehub/rpc/**`,
-        `${mount}/_vitehub/env/manage`,
-        `${mount}/_vitehub/channels/replay`,
-        `${mount}/_vitehub/schedules/run`,
-        `${mount}/_vitehub/mcp`,
+        `${mount}/_vitehub/rpc`,
+        `${mount}/_vitehub/page/session`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
         expect.objectContaining({ baseURL: `${mount}/_vitehub/.well-known/skills`, dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/console/assets` }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` }),
       ])
     }
     finally {
@@ -711,7 +375,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: productionConsole, sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -725,16 +389,15 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/portal/_vitehub/rpc/**",
-        "/portal/_vitehub/env/manage",
-        "/portal/_vitehub/channels/replay",
-        "/portal/_vitehub/schedules/run",
-        "/portal/_vitehub/mcp",
+        "/portal/_vitehub/rpc",
+        "/portal/_vitehub/page/session",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
         expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills") }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
+        expect.objectContaining({ baseURL: "/portal/_vitehub/console/assets" }),
+        expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
       ])
     }
     finally {
@@ -742,7 +405,29 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it.each(["open", "cloudflare-access", "rpc-only"] as const)("preserves application OAuth discovery routes with %s Console access", async (mode) => {
+  it("starts development Setup without a Console client package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-setup-client-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ rpcOnly: true, sections: [] })
+      const config = { root, nitro: { handlers: [], plugins: [], publicAssets: [] } }
+      await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger({ ...config, base: "/" })])
+
+      const file = config.nitro.plugins.find((file: string) => file.endsWith("/console/plugin.mjs"))
+      expect(file).toBeDefined()
+      const generated = await readFile(file!, "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
+      expect(generated).toContain(`true, "/__vitehub/setup")`)
+      expect(generated).not.toContain("installConsoleClient(")
+      expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringContaining("server/page.get.js") }))
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["open", "signed", "rpc-only"] as const)("leaves application OAuth discovery routes alone with %s Console access", async (mode) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-discovery-"))
     try {
       const applicationHandlers = [
@@ -752,9 +437,8 @@ describe("Agent invocation console", () => {
         "/.well-known/oauth-authorization-server/**",
       ].map((route, index) => ({ handler: `/application/discovery-${index}.js`, route }))
       const plugin = consoleVitePlugin({
-        console: mode === "rpc-only" ? undefined : { auth: mode === "open" ? false : { provider: "cloudflare-access" } },
+        console: mode === "rpc-only" ? undefined : mode === "open" ? { auth: false } : {},
         rpcOnly: mode === "rpc-only",
-        preset: "node",
       })
       const config = { base: "/early/", root, nitro: { handlers: [...applicationHandlers] }, vitehubCliDiscovery: true }
       await callPluginHook(plugin.config, {}, [config, { command: mode === "rpc-only" ? "serve" : "build", mode: "production" }])
@@ -762,7 +446,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
       expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
-      expect(resolved.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/mcp" }))
+      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(mode === "rpc-only" ? ["/portal/_vitehub/rpc"] : ["/portal/_vitehub/rpc", "/portal/_vitehub/page/session"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -771,30 +455,10 @@ describe("Agent invocation console", () => {
 
   it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
     const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
-    addConsoleRpcHandler(config, "/runtime", "/early/", [], true)
-    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
-
-    expect(config.handlers.map(handler => handler.route)).toEqual([
-      undefined,
-      "/portal/_vitehub/rpc/**",
-      "/portal/_vitehub/env/manage",
-      "/portal/_vitehub/schedules/run",
-      "/portal/_vitehub/mcp",
-      "/.well-known/oauth-protected-resource",
-      "/.well-known/oauth-protected-resource/**",
-      "/.well-known/oauth-authorization-server",
-      "/.well-known/oauth-authorization-server/**",
-    ])
-  })
-
-  it("removes stale Console OAuth discovery routes when access no longer uses OAuth", () => {
-    const applicationHandler = { handler: "/application/openid.js", route: "/.well-known/openid-configuration" }
-    const config = { handlers: [applicationHandler] }
-    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
-    expect(config.handlers.filter(handler => handler.route?.startsWith("/.well-known/oauth-"))).toHaveLength(4)
+    addConsoleRpcHandler(config, "/runtime", "/early/")
     addConsoleRpcHandler(config, "/runtime", "/portal/")
-    expect(config.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual([applicationHandler])
-    expect(config.handlers.some(handler => handler.handler.endsWith("/mcp-discovery.js"))).toBe(false)
+
+    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/rpc"])
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
@@ -803,10 +467,9 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
-        sections: ["blob"],
+        sections: ["env", "blob"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -819,14 +482,12 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/blob")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleBlob)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(
         `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
@@ -843,8 +504,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         blobStores: ["default"],
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["blob"],
       })
@@ -858,7 +518,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro.handlers).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/_vitehub/api/blob" }),
-        expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+        expect.objectContaining({ route: "/_vitehub/rpc" }),
       ]))
     }
     finally {
@@ -872,8 +532,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "hidden.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         sections: ["kv"],
       })
       const configHook = plugin.config
@@ -886,10 +545,9 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc/**", "/_vitehub/env/manage", "/_vitehub/schedules/run", "/_vitehub/mcp"])
-      expect(config.nitro?.handlers.find(handler => handler.route === "/_vitehub/env/manage")).toMatchObject({ method: "post" })
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc", "/_vitehub/page/session"])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
@@ -906,20 +564,20 @@ describe("Agent invocation console", () => {
     ["cloudflare", "before", true],
     ["cloudflare", "after", true],
     ["cloudflare", "after", false],
-  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (preset, order, enabled) => {
+  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (host, order, enabled) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugins = vitehub({
-        console: { auth: false, authorize: hostManagedAuthorize, mcpClient: true },
+        console: { ...productionConsole, mcpClient: true },
         env: false,
-        preset,
+        host,
       })
       // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv(enabled ? { driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
+      const kvPlugin = hubKV(enabled ? { driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
@@ -948,8 +606,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["queues"],
       })
@@ -960,11 +617,11 @@ describe("Agent invocation console", () => {
       } = { queue: true, root }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc")
       setResolvedFeatureOptions(config, "queue", false)
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc")
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).not.toContain("installConsoleDefinitions")
     }
@@ -984,8 +641,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(customServerDir, "workflows"), { recursive: true })
       await writeFile(join(customServerDir, "workflows", "custom.ts"), "export default null\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         sections: ["workflows"],
       })
       const config = {
@@ -1016,8 +672,7 @@ describe("Agent invocation console", () => {
         `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["workspaces"],
       })
@@ -1030,8 +685,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
@@ -1049,14 +704,13 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "server/databases"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(
-        join(root, "server/databases/config.ts"),
+        join(root, "server/databases/default.ts"),
         `export default defineDatabase({ schema: { notes, users } })\nthrow new Error("The Console must not evaluate Database Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
-        sections: ["databases"],
+        sections: ["env", "databases"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -1070,19 +724,17 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
-      expect(generated).toContain(`import("vite-hub/console/database")`)
-      expect(generated).toContain(`import("vite-hub/database/drizzle")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
+      expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/config.ts","name":"default","source":"server-database-default"}],"kind":"definition-catalog"}}, `)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"])`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1102,10 +754,9 @@ describe("Agent invocation console", () => {
         `throw new Error("The Console must not evaluate Queue Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
-        sections: ["queues"],
+        sections: ["env", "queues"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -1118,13 +769,11 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["queues"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":{"definitions":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1149,10 +798,9 @@ describe("Agent invocation console", () => {
         ].join("\n"),
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
-        sections: ["rate-limits"],
+        sections: ["env", "rate-limits"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -1165,16 +813,14 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["rate-limits"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1191,8 +837,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(hostServerDir, "upload.ts"), 'requireRateLimit(event, "uploads", { limit: 25, window: "10s" })\n')
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["rate-limits"],
       })
@@ -1231,8 +876,7 @@ describe("Agent invocation console", () => {
         `const scheduleCron = process.env.SCHEDULE_CRON || "0 10 * * *"\nexport default defineSchedule({ cron: scheduleCron, handler() {} })\n`,
       )
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["schedules"],
       })
@@ -1247,21 +891,19 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
       expect(generated).not.toContain("() => import(")
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Yes","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Enabled","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/dynamic.ts"},{"label":"Source","value":"server-schedules"}`)
       expect(generated).not.toContain(`"Cron","value":"0 10 * * *"`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -1280,14 +922,14 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "packages/rate-limit/policies"), { recursive: true })
       await mkdir(join(root, "packages/workspace/server/workspaces/docs/workspace"), { recursive: true })
       await mkdir(join(root, "packages/schedule/server/schedules"), { recursive: true })
-      await writeFile(join(root, "packages/database/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(root, "packages/database/server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugins = vitehub({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         database: { projectRoot: "packages/database" },
-        preset: "cloudflare",
+        host: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
@@ -1301,12 +943,12 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger({ root })])
 
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/config.ts"')
+      expect(generated).toContain('"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/default.ts"')
       expect(generated).toContain('"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"100"},{"label":"Window","value":"1m"}')
       expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
       expect(generated).toContain('"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
       expect(generated).toContain('"file":"packages/workspace/server/workspaces/docs/config.ts","name":"docs"')
-      expect(generated).toContain('"schedules":{"kind":"record-table","records":[{"cells":{"manual":"No","schedule":"adhoc","timing":"0 9 * * *"}')
+      expect(generated).toContain('"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Disabled","schedule":"adhoc","timing":"0 9 * * *"}')
       expect(generated).toContain('{"label":"File","value":"packages/schedule/server/schedules/adhoc.ts"}')
     }
     finally {
@@ -1321,12 +963,11 @@ describe("Agent invocation console", () => {
       await mkdir(join(projectRoot, "packages/api/server/databases"), { recursive: true })
       await mkdir(join(viteRoot, "server/databases"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
-      await writeFile(join(projectRoot, "packages/api/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
-      await writeFile(join(viteRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(projectRoot, "packages/api/server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
+      await writeFile(join(viteRoot, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
+        console: productionConsole,
         databaseDiscoveryRoot: "packages/api",
-        preset: "cloudflare",
         resolveKV: () => false,
         sections: ["databases"],
       })
@@ -1337,8 +978,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain('"file":"app/server/databases/config.ts"')
-      expect(generated).not.toContain('"file":"packages/api/server/databases/config.ts"')
+      expect(generated).toContain('"file":"app/server/databases/default.ts"')
+      expect(generated).not.toContain('"file":"packages/api/server/databases/default.ts"')
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
@@ -1354,12 +995,11 @@ describe("Agent invocation console", () => {
       await mkdir(join(viteRoot, "src"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
       await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
-      await writeFile(join(projectRoot, "src/unrelated.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
-      await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
+      await writeFile(join(projectRoot, "src/unrelated.sandbox-task.ts"), "export default defineSandboxTask({ handler: async () => undefined })\n")
+      await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ handler: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["rate-limits", "sandbox-tasks", "schedules"],
       })
@@ -1388,10 +1028,9 @@ describe("Agent invocation console", () => {
     try {
       await mkdir(join(root, "src"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
+      await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ handler: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        console: productionConsole,
         resolveKV: () => false,
         sections: ["sandbox-tasks"],
       })
@@ -1404,8 +1043,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`from "vite-hub/console/sections"`)
-      expect(generated).toContain(`import("vite-hub/console/definitions")`)
+      expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
+      expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandbox-tasks":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("must not run")
@@ -1415,8 +1054,8 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("allows host-managed production Console builds on non-Node hosts", async () => {
-    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "cloudflare", sections: ["agents"] })
+  it("rejects host-managed production Console builds on non-Node hosts", async () => {
+    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: ["agents"] })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a console config hook.")
     const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1424,21 +1063,18 @@ describe("Agent invocation console", () => {
     await expect(Reflect.apply(configHandler, {}, [{ root: process.cwd() }, {
       command: "build",
       mode: "production",
-    }])).resolves.toBeUndefined()
+    }])).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
   })
 
-  it("warns when a production build has no Console sign-in", async () => {
+  it("rejects a production build with no Console sign-in", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-open-build-"))
     try {
-      const warn = vi.fn()
       for (const consoleOptions of [{ auth: false }, { auth: false, authorize: hostManagedAuthorize }] as const) {
-        const plugin = consoleVitePlugin({ console: consoleOptions, preset: "node" })
+        const plugin = consoleVitePlugin({ console: consoleOptions })
         const config = { root }
-        await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-        await callPluginHook(plugin.configResolved, {}, [Object.assign(config, { base: "/", command: "build", logger: { info: () => undefined, warn } })])
+        await expect(callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }]))
+          .rejects.toMatchObject({ code: "VITE_HUB_B0022", message: expect.stringContaining("console.auth false is for development. Remove console.auth so the app takes only signed calls") })
       }
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(warn).toHaveBeenCalledWith(consoleOpenAccessWarning)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1455,8 +1091,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-host-invoke-"))
     try {
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize, invoke },
-        preset: "node",
+        console: { ...productionConsole, invoke },
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -1471,85 +1106,30 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("requires a ViteHub Auth authorize policy for the production Console route", async () => {
+  it("adds the Auth section and its impersonation route for app Auth, with no Auth policy for the Console", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-host-"))
-    const auth = (routes: ResolvedAuthViteConfig["access"]["routes"]): ResolvedAuthViteConfig => ({
-      access: { routes },
+    const auth: ResolvedAuthViteConfig = {
+      access: { routes: [] },
       basePath: "/api/auth",
-      database: { mode: "default" },
       definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
       rootDir: root,
       route: "/api/auth",
-      secondaryStorage: false,
       tables: false,
-    })
+    }
     try {
-      const missingConsole = consoleVitePlugin({
-        console: { auth: "app" },
-        preset: "node",
-        resolveAuthConfig: () => auth([]),
-      })
-      const missingHook = missingConsole.config
-      if (!missingHook) throw new TypeError("Expected a console config hook.")
-      const missingHandler = "handler" in missingHook ? missingHook.handler : missingHook
-      await expect(Reflect.apply(missingHandler, {}, [{ root }, { command: "build", mode: "production" }]))
-        .rejects.toThrow("/_vitehub/**")
-
-      const getOnlyConsole = consoleVitePlugin({
-        console: { auth: "app" },
-        preset: "node",
-        resolveAuthConfig: () => auth([
-          { authorize: true, method: "GET", route: "/_vitehub/**" },
-        ]),
-      })
-      const getOnlyHook = getOnlyConsole.config
-      if (!getOnlyHook) throw new TypeError("Expected a console config hook.")
-      const getOnlyHandler = "handler" in getOnlyHook ? getOnlyHook.handler : getOnlyHook
-      await expect(Reflect.apply(getOnlyHandler, {}, [{ root }, { command: "build", mode: "production" }]))
-        .rejects.toThrow("/_vitehub/**")
-
-      const protectedConsole = consoleVitePlugin({
-        console: { auth: "app", invoke: true },
-        preset: "node",
-        resolveAuthConfig: () => auth([
-          { authorize: true, route: "/_vitehub/**" },
-          { authorize: true, method: "GET", route: "/_vitehub/api/**" },
-        ]),
-        sections: ["agents"],
-      })
-      const protectedHook = protectedConsole.config
-      if (!protectedHook) throw new TypeError("Expected a console config hook.")
-      const protectedHandler = "handler" in protectedHook ? protectedHook.handler : protectedHook
+      const plugin = consoleVitePlugin({ console: { invoke: true }, resolveAuthConfig: () => auth, sections: ["agents"] })
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
-      await Reflect.apply(protectedHandler, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/rpc/**" }),
-          expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" }),
-        ]),
-      )
-      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`,
-      )
-
-      const changingBaseConsole = consoleVitePlugin({
-        console: { auth: "app" },
-        preset: "node",
-        resolveAuthConfig: () => auth([
-          { authorize: true, route: "/early/_vitehub/**" },
-          { authorize: true, method: "GET", route: "/early/_vitehub/api/**" },
-        ]),
-        sections: ["agents"],
-      })
-      const changingBaseConfigHook = changingBaseConsole.config
-      const changingBaseResolvedHook = changingBaseConsole.configResolved
-      if (!changingBaseConfigHook || !changingBaseResolvedHook) throw new TypeError("Expected Console Vite hooks.")
-      const changingBaseHandler = "handler" in changingBaseConfigHook ? changingBaseConfigHook.handler : changingBaseConfigHook
-      const changingBaseResolvedHandler = "handler" in changingBaseResolvedHook ? changingBaseResolvedHook.handler : changingBaseResolvedHook
-      const changingBaseConfig: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
-      await Reflect.apply(changingBaseHandler, {}, [changingBaseConfig, { command: "build", mode: "production" }])
-      await expect(Reflect.apply(changingBaseResolvedHandler, {}, [{ ...changingBaseConfig, base: "/portal/", command: "build", logger: { warn: () => undefined } }]))
-        .rejects.toThrow("/portal/_vitehub/**")
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers).toEqual([
+        // App Auth access routes leave a request that Nitro routes to the Console RPC to its own check: a signed POST
+        // or a one-time ticket GET.
+        expect.objectContaining({ route: "/_vitehub/rpc", meta: { vitehubAuthAccess: "handler" } }),
+        // The page tools session of the Console link. It reads no Console data.
+        { handler: expect.stringMatching(/server\/page-session\.js$/), route: "/_vitehub/page/session" },
+      ])
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(generated).toContain('installConsoleAccess({ mode: "token" })')
+      expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -1559,8 +1139,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-managed-host-"))
     try {
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        console: productionConsole,
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -1568,7 +1147,7 @@ describe("Agent invocation console", () => {
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1579,7 +1158,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-dev-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "cloudflare" })
+      const plugin = consoleVitePlugin({ console: { auth: false } })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1587,232 +1166,10 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
       expect(config.nitro?.handlers).not.toContainEqual(expect.objectContaining({ route: "/_vitehub" }))
     }
     finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("generates a fixture-backed journal only for development servers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-host-"))
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-data-"))
-    try {
-      const fixture = join(fixtureRoot, "console.fixture.json")
-      await writeFile(join(root, "package.json"), "{}\n")
-      const fixtureWithPrototypeData = JSON.parse(`{
-        "version": 1,
-        "invocations": [{
-          "createdAt": "2026-08-27T10:00:00.000Z",
-          "id": "prototype-data",
-          "observations": [{
-            "attributes": { "__proto__": { "preserved": true } },
-            "name": "agent.message",
-            "sequence": 0,
-            "timestamp": "2026-08-27T10:00:00.000Z",
-            "type": "run"
-          }],
-          "status": "completed",
-          "traceId": "prototype-data-trace",
-          "updatedAt": "2026-08-27T10:00:00.000Z"
-        }]
-      }`)
-      await writeFile(fixture, JSON.stringify(fixtureWithPrototypeData))
-      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected a console config hook.")
-      const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
-
-      await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
-      await callPluginHook(plugin.configResolved, {}, [{ root }])
-      await callPluginHook(plugin.buildStart, {})
-
-      const generatedPlugin = consolePluginFile(config.nitro?.plugins)
-      const generated = await readFile(generatedPlugin, "utf8")
-      expect(generated).toContain(`installConsoleFixtureInvocations(${JSON.stringify(root)}, ${JSON.stringify(fixture)}, `)
-      expect(generated).toContain("JSON.parse(")
-      const generatedInstallation = generated.split("\n").find(line => line.startsWith("const vitehubConsoleInvocations"))
-      if (!generatedInstallation) throw new TypeError("Expected a generated fixture installation.")
-      let generatedSnapshot: unknown
-      runInNewContext(generatedInstallation, {
-        installConsoleFixtureInvocations: (_root: string, _file: string, snapshot: unknown) => {
-          generatedSnapshot = snapshot
-        },
-      })
-      // SAFETY: The generated installation was produced from the fully validated fixture above.
-      const generatedAttributes = (generatedSnapshot as { invocations: Array<{ observations: Array<{ attributes: object }> }> })
-        .invocations[0]!.observations[0]!.attributes
-      expect(Object.hasOwn(generatedAttributes, "__proto__")).toBe(true)
-      expect(Reflect.get(generatedAttributes, "__proto__")).toEqual({ preserved: true })
-
-      const listeners = new Map<string, () => Promise<void>>()
-      const logger = { error: vi.fn() }
-      const add = vi.fn()
-      const configureServerHook = plugin.configureServer
-      if (!configureServerHook) throw new TypeError("Expected a configureServer hook.")
-      const configureServer = "handler" in configureServerHook
-        ? configureServerHook.handler
-        : configureServerHook
-      await Reflect.apply(configureServer, {}, [{ config: { logger }, watcher: { add, on: (event: string, callback: () => Promise<void>) => listeners.set(event, callback) } }])
-      expect(add).toHaveBeenCalledWith(fixture)
-      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
-
-      const concurrentPlugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
-      const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
-      await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
-      await callPluginHook(concurrentPlugin.configResolved, {}, [{ root }])
-      await callPluginHook(concurrentPlugin.buildStart, {})
-      const concurrentGeneratedPlugin = consolePluginFile(concurrentConfig.nitro?.plugins)
-      expect(concurrentGeneratedPlugin).not.toBe(generatedPlugin)
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(generated)
-      await expect(readFile(concurrentGeneratedPlugin, "utf8")).resolves.toContain("replacement")
-
-      await listeners.get("change")?.()
-      const refreshed = await readFile(generatedPlugin, "utf8")
-      expect(refreshed).not.toBe(generated)
-
-      await writeFile(fixture, "not json")
-      await expect(listeners.get("change")?.()).resolves.toBeUndefined()
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshed)
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
-
-      await rm(fixture)
-      await expect(listeners.get("unlink")?.()).resolves.toBeUndefined()
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe(refreshed)
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Could not refresh Console development state"))
-
-      await writeFile(fixture, JSON.stringify(fixtureDocument("restored")))
-      await listeners.get("add")?.()
-      await expect(readFile(generatedPlugin, "utf8")).resolves.not.toBe(refreshed)
-
-      await expect(Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }]))
-        .rejects.toThrow("Console fixture mode is development-only")
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-      await rm(fixtureRoot, { force: true, recursive: true })
-    }
-  })
-
-  it("does not materialize fixture state when Vite configuration aborts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-abort-"))
-    const fixture = join(root, "console.fixture.json")
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(fixture, JSON.stringify(fixtureDocument("aborted")))
-      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-
-      for (const hook of ["config", "configResolved"] as const) {
-        const state: ConsoleInvocationRootState = {}
-        await expect(createServer({
-          configFile: false,
-          plugins: [
-            consoleVitePlugin({ console: { auth: false }, invocationRootState: state }),
-            consoleInvocationRootPlugin(undefined, undefined, state),
-            { name: `fixture-${hook}-failure`, [hook]: () => { throw new Error(`${hook} failed`) } },
-          ],
-          root,
-          server: { middlewareMode: true },
-        })).rejects.toThrow(`${hook} failed`)
-
-        const generatedPlugin = resolve(root, ".vitehub/nitro/console", `plugin-${state.binding}.mjs`)
-        await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-        expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).not.toBe(true)
-        expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).not.toBe(true)
-        expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
-      }
-    }
-    finally {
-      vi.unstubAllEnvs()
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("ignores inherited fixtures during Vite CLI discovery", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-cli-discovery-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const generatedPlugin = resolve(root, ".vitehub/nitro/console/plugin.mjs")
-      await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
-      await writeFile(generatedPlugin, "// active fixture plugin\n")
-      vi.stubEnv(consoleFixtureEnvironmentVariable, join(root, "missing.fixture.json"))
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node" })
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected a console config hook.")
-      const configHandler = "handler" in configHook ? configHook.handler : configHook
-
-      await expect(Reflect.apply(configHandler, {}, [
-        { root, vitehubCliDiscovery: true },
-        { command: "serve", mode: "development" },
-      ])).resolves.toBeUndefined()
-      const configResolvedHook = plugin.configResolved
-      if (!configResolvedHook) throw new TypeError("Expected a configResolved hook.")
-      const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
-      await Reflect.apply(configResolvedHandler, {}, [{ root }])
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toBe("// active fixture plugin\n")
-    }
-    finally {
-      vi.unstubAllEnvs()
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("cleans up and restores a refreshed fixture across runtime restart", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-refresh-close-"))
-    const fixture = join(root, "console.fixture.json")
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(fixture, JSON.stringify(fixtureDocument("initial")))
-      vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const state: ConsoleInvocationRootState = {}
-      const plugin = consoleVitePlugin({ console: { auth: false }, invocationRootState: state, sections: ["agents"] })
-      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
-      await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
-      await callPluginHook(plugin.configResolved, {}, [{ root }])
-      await callPluginHook(plugin.buildStart, {})
-      const generatedPlugin = consolePluginFile(config.nitro?.plugins)
-      if (!generatedPlugin) throw new TypeError("Expected a generated Console plugin.")
-
-      const listeners = new Map<string, () => Promise<void>>()
-      await callPluginHook(plugin.configureServer, {}, [{
-        config: { logger: { error: vi.fn() } },
-        watcher: {
-          add: vi.fn(),
-          on: (event: string, listener: () => Promise<void>) => listeners.set(event, listener),
-        },
-      }])
-      await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
-      const refresh = listeners.get("change")?.()
-      const runtimePlugin = consoleInvocationRootPlugin(root, state.identity, state)
-      await callPluginHook(runtimePlugin.closeBundle, {})
-      await refresh
-
-      expect(state.closed).toBe(true)
-      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-      await listeners.get("change")?.()
-      await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-      expect(Reflect.get(process, consoleInvocationsBindingRegistryKey)?.has(state.binding)).toBe(false)
-      expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey)?.has(root)).toBe(false)
-      expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: root })).toBeUndefined()
-
-      const resolved = { id: "/agent.ts" }
-      await callPluginHook(runtimePlugin.buildStart, { resolve: vi.fn().mockResolvedValue(resolved) })
-      expect(state.closed).toBe(false)
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain("replacement")
-      const transformed = callPluginHook(runtimePlugin.transform, {}, ["", resolved.id])
-      // SAFETY: The generated script returns the isolated realm used by this focused restart test.
-      const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
-      const invocations = resolveConsoleInvocations(realm)
-      if (!invocations) throw new TypeError("Expected the restarted fixture journal.")
-      await expect(invocations.list()).resolves.toMatchObject({
-        invocations: [expect.objectContaining({ id: "replacement" })],
-      })
-    }
-    finally {
-      vi.unstubAllEnvs()
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -1825,13 +1182,13 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(second, "/second")
     installConsoleAgents(["billing"], second)
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+    await expect(listConsoleAgents()).resolves.toEqual({
       agents: ["billing"],
       invocationAgents: [],
     })
 
     scope[consoleProjectRootKey] = "/first"
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+    await expect(listConsoleAgents()).resolves.toEqual({
       agents: ["review", "support"],
       invocationAgents: [],
     })
@@ -1855,7 +1212,7 @@ describe("Agent invocation console", () => {
       throw new Error("The Console should use the distinct Agent-name index.")
     })
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+    await expect(listConsoleAgents()).resolves.toEqual({
       agents: ["current"],
       invocationAgents: ["archived"],
     })
@@ -1879,35 +1236,22 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgents(["current"], invocations)
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+    await expect(listConsoleAgents()).resolves.toEqual({
       agents: ["current"],
       invocationAgents: ["archived", "current"],
     })
   })
 
-  it("serves enabled Console sections in stable order for the active project", async () => {
-    installConsoleSections("/first", ["agents"])
-    installConsoleProjectName("/first", "first-app")
-    installConsoleSections("/second", ["kv"])
-    installConsoleProjectName("/second", "second-app")
+  it("serves the Console sections and project name that generated output installed last", async () => {
+    installConsoleSections("/project", ["agents"])
+    installConsoleProjectName("/project", "first-app")
+    installConsoleSections("/project", ["kv", "kv"])
+    installConsoleProjectName("/project", "second-app")
 
-    await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({
       projectName: "second-app",
       sections: ["kv"],
     })
-
-    scope[consoleSectionsRootKey] = "/first"
-    await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({
-      projectName: "first-app",
-      sections: ["agents"],
-    })
-  })
-
-  it("resolves the project name from the process registry across isolated realms", () => {
-    installConsoleSections("/project", ["agents"])
-    installConsoleProjectName("/project", "shared-app")
-
-    expect(resolveConsoleProjectName({ process })).toBe("shared-app")
   })
 
   it("does not let section registration rebind the invocation project", async () => {
@@ -1918,51 +1262,22 @@ describe("Agent invocation console", () => {
 
     expect(resolveConsoleProjectRoot()).toBe("/first")
     expect(resolveConsoleInvocations()).toBe(first)
-    await expect(sectionsHandler(event("127.0.0.1"))).resolves.toEqual({ sections: ["kv"] })
-  })
-
-  it("rebinds already evaluated Agent realms to a refreshed fixture revision", async () => {
-    const projectRoot = "/project"
-    const fixture = "/fixture.json"
-    const firstIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "first")
-    const secondIdentity = createConsoleInvocationsIdentity(projectRoot, fixture, "second")
-    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
-
-    const state = { identity: firstIdentity, projectRoot }
-    updateConsoleInvocationRootState(state, projectRoot, firstIdentity)
-    const plugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, state)
-    const resolved = { id: "/agent.ts" }
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const buildStart = plugin.buildStart as unknown as (this: { resolve: ReturnType<typeof vi.fn> }) => Promise<void>
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This focused test invokes Vite hooks with structural arguments.
-    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
-    await Reflect.apply(buildStart, { resolve: vi.fn().mockResolvedValue(resolved) }, [])
-    const transformed = transform("", resolved.id)
-    // SAFETY: The generated script returns the isolated realm used by this focused binding test.
-    const realm = runInNewContext(`${transformed}\nglobalThis`, { process }) as object
-    expect(resolveConsoleInvocations(realm)).toBe(first)
-
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
-    updateConsoleInvocationRootState(state, projectRoot, secondIdentity)
-
-    expect(resolveConsoleInvocations(realm)).toBe(second)
+    expect(await listConsoleSections(await consoleAccess(event("127.0.0.1")))).toEqual({ sections: ["kv"] })
   })
 
   it("keeps configured identities across concurrent same-root runtimes", async () => {
     const projectRoot = "/project"
-    const firstIdentity = "fixture:/project:/fixture.json:first"
-    const secondIdentity = "fixture:/project:/fixture.json:second"
-    const thirdIdentity = "fixture:/project:/fixture.json:third"
+    const firstIdentity = "runtime:/project:first"
+    const secondIdentity = "runtime:/project:second"
+    const thirdIdentity = "runtime:/project:third"
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
     const third = fakeInvocations("third")
-    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity)
     const firstState = { identity: firstIdentity, projectRoot }
     updateConsoleInvocationRootState(firstState, projectRoot, firstIdentity)
     const firstPlugin = consoleInvocationRootPlugin(projectRoot, firstIdentity, firstState)
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity)
     const secondState = { identity: secondIdentity, projectRoot }
     updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
     const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
@@ -1978,25 +1293,23 @@ describe("Agent invocation console", () => {
     expect(resolveConsoleInvocations(firstRealm)).toBe(first)
     expect(resolveConsoleInvocations(secondRealm)).toBe(second)
 
-    installConsoleInvocationFallback(third, projectRoot, globalThis, thirdIdentity, "third")
+    installConsoleInvocationFallback(third, projectRoot, globalThis, thirdIdentity)
     updateConsoleInvocationRootState(firstState, projectRoot, thirdIdentity)
 
     expect(resolveConsoleInvocations(firstRealm)).toBe(third)
     expect(resolveConsoleInvocations(secondRealm)).toBe(second)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(firstIdentity)).toBe(false)
-    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(firstIdentity)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(true)
 
     await callPluginHook(secondPlugin.closeBundle, {})
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
-    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(secondIdentity)).toBe(false)
   })
 
-  it("retires the current fixture journal when its only runtime closes", async () => {
+  it("retires the current journal when its only runtime closes", async () => {
     const projectRoot = "/project"
-    const identity = "fixture:/project:/fixture.json:revision"
+    const identity = "runtime:/project"
     const invocations = fakeInvocations("fixture")
-    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity, "revision")
+    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity)
     const state = { identity, projectRoot }
     updateConsoleInvocationRootState(state, projectRoot, identity)
     const plugin = consoleInvocationRootPlugin(projectRoot, identity, state)
@@ -2005,7 +1318,6 @@ describe("Agent invocation console", () => {
 
     expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).has(projectRoot)).toBe(false)
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(identity)).toBe(false)
-    expect(Reflect.get(process, consoleInvocationsRevisionRegistryKey).has(identity)).toBe(false)
     expect(Reflect.has(process, consoleInvocationsKey)).toBe(false)
     expect(resolveConsoleInvocations()).toBeUndefined()
     expect(scope[consoleInvocationsRootKey]).toBeUndefined()
@@ -2015,9 +1327,9 @@ describe("Agent invocation console", () => {
 
   it("keeps a shared runtime binding until its last server environment closes", async () => {
     const projectRoot = "/project"
-    const identity = "fixture:/project:/fixture.json:revision"
+    const identity = "runtime:/project"
     const invocations = fakeInvocations("fixture")
-    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity, "revision")
+    installConsoleInvocationFallback(invocations, projectRoot, globalThis, identity)
     const state: ConsoleInvocationRootState = { identity, projectRoot }
     updateConsoleInvocationRootState(state, projectRoot, identity)
     const plugin = consoleInvocationRootPlugin(projectRoot, identity, state)
@@ -2044,14 +1356,14 @@ describe("Agent invocation console", () => {
 
   it("restores a surviving same-root runtime when the current runtime closes", async () => {
     const projectRoot = "/project"
-    const firstIdentity = "fixture:/project:/fixture.json:first"
-    const secondIdentity = "fixture:/project:/fixture.json:second"
+    const firstIdentity = "runtime:/project:first"
+    const secondIdentity = "runtime:/project:second"
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
-    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity, "first")
+    installConsoleInvocationFallback(first, projectRoot, globalThis, firstIdentity)
     const firstState = { identity: firstIdentity, projectRoot }
     updateConsoleInvocationRootState(firstState, projectRoot, firstIdentity)
-    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity, "second")
+    installConsoleInvocationFallback(second, projectRoot, globalThis, secondIdentity)
     const secondState = { identity: secondIdentity, projectRoot }
     updateConsoleInvocationRootState(secondState, projectRoot, secondIdentity)
     const secondPlugin = consoleInvocationRootPlugin(projectRoot, secondIdentity, secondState)
@@ -2082,7 +1394,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgents(["current"], invocations)
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+    await expect(listConsoleAgents()).resolves.toEqual({
       agents: ["current"],
       invocationAgents: ["archived"],
     })
@@ -2100,7 +1412,7 @@ describe("Agent invocation console", () => {
     ], { invocations })
 
     expect(definition.invocations).toBe(invocations)
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
+    await expect(listConsoleAgents()).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
   })
 
   it("records the discovered name for an unnamed Agent run from server code", async () => {
@@ -2193,7 +1505,7 @@ describe("Agent invocation console", () => {
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
 
-      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      await expect(listConsoleAgents()).resolves.toEqual({
         agents: ["support"],
         invocationAgents: [],
         invocation: {
@@ -2209,7 +1521,7 @@ describe("Agent invocation console", () => {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { projectRoot: root })
-      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
+      await expect(listConsoleAgents()).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -2226,7 +1538,7 @@ describe("Agent invocation console", () => {
         },
         name,
       })
-      installAgentInvocations({ journal: { projectRoot: root } })
+      installAgentInvocations({ journal: { libsql, projectRoot: root } })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
@@ -2264,7 +1576,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-legacy-invoke-"))
     try {
       const definition = defineAgent({ driver: { run: () => "done" }, name })
-      installAgentInvocations({ journal: { projectRoot: root } })
+      installAgentInvocations({ journal: { libsql, projectRoot: root } })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
@@ -2299,7 +1611,7 @@ describe("Agent invocation console", () => {
       const url = `http://localhost/_vitehub/api/invocations/${id}`
       return consoleEvent({ body, method, remoteAddress: "127.0.0.1", url })
     }
-    installAgentInvocations({ journal: { projectRoot: root } })
+    installAgentInvocations({ journal: { libsql, projectRoot: root } })
     const install = (invoke: boolean) => installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
     ], { invoke, projectRoot: root })
@@ -2435,35 +1747,6 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("keeps fallback Agent Definition journals bound to refreshed fixtures", () => {
-    const projectRoot = "/project"
-    const fixture = "/fixture.json"
-    const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const definition = defineAgent({ driver: { run: () => "ok" }, name: "support" })
-
-    installConsoleInvocationFallback(
-      first,
-      projectRoot,
-      globalThis,
-      createConsoleInvocationsIdentity(projectRoot, fixture, "first"),
-      "first",
-    )
-    installConsoleAgentDefinitions([
-      { definition: { default: definition }, fallbackName: "help" },
-    ], { invocations: first })
-    expect(definition.invocations).toBe(first)
-
-    installConsoleInvocationFallback(
-      second,
-      projectRoot,
-      globalThis,
-      createConsoleInvocationsIdentity(projectRoot, fixture, "second"),
-      "second",
-    )
-    expect(definition.invocations).toBe(second)
-  })
-
   it("rebinds Console-owned direct Agent journals while preserving later user assignments", () => {
     const first = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const second = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -2512,7 +1795,7 @@ describe("Agent invocation console", () => {
     ], { projectRoot })
 
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: projectRoot })).toBe(invocations)
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
+    await expect(listConsoleAgents()).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
   })
 
   it("rejects multiple discovered Agent invocation journals", () => {
@@ -2555,7 +1838,7 @@ describe("Agent invocation console", () => {
       { definition: { default: definition }, fallbackName: "help" },
     ], { invocations })
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"], invocationAgents: [] })
+    await expect(listConsoleAgents()).resolves.toEqual({ agents: ["help"], invocationAgents: [] })
   })
 
   it("rejects Agent names beyond the persisted identity limit", () => {
@@ -2571,8 +1854,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        console: productionConsole,
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -2632,7 +1914,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(invocations, process.cwd())
     installConsoleAgents([], invocations)
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+    await expect(listConsoleAgents()).resolves.toEqual({
       agents: [],
       invocationAgents: ["archived", "current"],
     })
@@ -2652,12 +1934,7 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?agent=review"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    await expect(listConsoleInvocations({ agent: "review" })).resolves.toMatchObject({
       invocations: [{ agentName: "review" }],
     })
   })
@@ -2682,15 +1959,10 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?agent=chat&capability=papercuts"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    await expect(listConsoleInvocations({ agent: "chat", capability: "papercuts" })).resolves.toMatchObject({
       invocations: [{ id: "reported" }],
     })
-    await expect(invocationCapabilitiesHandler(requestEvent)).resolves.toEqual({
+    await expect(listConsoleInvocationCapabilities({ agent: "chat" })).resolves.toEqual({
       capabilities: ["papercuts", "usage"],
       triggeredBy: [],
     })
@@ -2714,26 +1986,15 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?agent=chat&capability=papercuts&triggeredBy=Ferdinand&limit=1"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    await expect(listConsoleInvocations({ agent: "chat", capability: "papercuts", triggeredBy: "Ferdinand", limit: 1 })).resolves.toMatchObject({
       invocations: [{ id: "person-104" }],
     })
 
-    const exactCaseURL = "http://localhost/_vitehub/api/invocations?triggeredBy=ferdinand"
-    requestEvent.node!.req!.url = exactCaseURL
-    requestEvent.req!.url = exactCaseURL
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    await expect(listConsoleInvocations({ triggeredBy: "ferdinand" })).resolves.toMatchObject({
       invocations: [{ id: "person-1" }],
     })
 
-    const facetsURL = "http://localhost/_vitehub/api/invocation-capabilities?agent=chat"
-    requestEvent.node!.req!.url = facetsURL
-    requestEvent.req!.url = facetsURL
-    await expect(invocationCapabilitiesHandler(requestEvent)).resolves.toEqual({
+    await expect(listConsoleInvocationCapabilities({ agent: "chat" })).resolves.toEqual({
       capabilities: ["papercuts"],
       triggeredBy: ["Ferdinand"],
     })
@@ -2769,9 +2030,8 @@ describe("Agent invocation console", () => {
       updatedAt: "2026-08-23T12:01:00.000Z",
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
 
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    await expect(listConsoleInvocations({})).resolves.toMatchObject({
       invocations: [{
         id: "usage-summary",
         usage: {
@@ -2801,7 +2061,6 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const detailURL = "http://localhost/_vitehub/api/invocations/inv-delta"
-    requestEvent.node!.req!.url = detailURL
     requestEvent.req!.url = detailURL
     const initial = await getConsoleInvocationDetail(requestEvent)
     await store.update("inv-delta", {
@@ -2814,7 +2073,6 @@ describe("Agent invocation console", () => {
       timestamp: "2026-08-23T12:00:03.000Z",
     })
     const url = `${detailURL}?observationCount=2&observationCursor=${encodeURIComponent(initial.observationCursor)}`
-    requestEvent.node!.req!.url = url
     requestEvent.req!.url = url
 
     await expect(getConsoleInvocationDetail(requestEvent)).resolves.toMatchObject({
@@ -2841,7 +2099,6 @@ describe("Agent invocation console", () => {
       timestamp: "2026-08-23T12:00:05.000Z",
     })
     const truncatedURL = `${detailURL}?observationCount=4&observationCursor=${encodeURIComponent(replaced.observationCursor)}`
-    requestEvent.node!.req!.url = truncatedURL
     requestEvent.req!.url = truncatedURL
     await expect(getConsoleInvocationDetail(requestEvent)).resolves.not.toHaveProperty("appendObservations")
   })
@@ -2850,7 +2107,6 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const malformedURL = "http://localhost/_vitehub/api/invocations/%E0%A4%A"
-    requestEvent.node!.req!.url = malformedURL
     requestEvent.req!.url = malformedURL
 
     await expect(invocationHandler(requestEvent)).rejects.toMatchObject({
@@ -2863,7 +2119,6 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const malformedURL = "http://localhost/_vitehub/api/invocations/%E0%A4%A"
-    requestEvent.node!.req!.url = malformedURL
     requestEvent.req!.url = malformedURL
     if (withParams) requestEvent.context = { params: { id: "%E0%A4%A" } }
 
@@ -2881,7 +2136,6 @@ describe("Agent invocation console", () => {
     for (const paramId of [encodeURIComponent(id), id]) {
       const requestEvent = event("127.0.0.1")
       const url = `http://localhost/_vitehub/api/invocations/${encodeURIComponent(id)}`
-      requestEvent.node!.req!.url = url
       requestEvent.req!.url = url
       requestEvent.context = { params: { id: paramId } }
       await expect(invocationHandler(requestEvent)).resolves.toMatchObject({ invocation: { id } })
@@ -2901,26 +2155,19 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
+    const query = { limit: 2 }
 
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations(query)
 
     expect(result.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "completed-5"])
     expect(result.cursor).toBeDefined()
 
-    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(result.cursor!)}`
-    requestEvent.req!.url = requestEvent.node!.req!.url
-    const next = await invocationsHandler(requestEvent)
+    const next = await listConsoleInvocations({ ...query, cursor: result.cursor! })
 
     expect(next.invocations.map(invocation => invocation.id)).toEqual(["pending-1", "completed-4"])
     expect(next.cursor).toBeDefined()
 
-    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(next.cursor!)}`
-    requestEvent.req!.url = requestEvent.node!.req!.url
-    const last = await invocationsHandler(requestEvent)
+    const last = await listConsoleInvocations({ ...query, cursor: next.cursor! })
 
     expect(last.invocations.map(invocation => invocation.id)).toEqual(["pending-0", "completed-3"])
     expect(last.cursor).toBeDefined()
@@ -2940,12 +2187,7 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=1000"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 1000 })
 
     expect(result.invocations).toHaveLength(100)
     expect(result.cursor).toBeDefined()
@@ -2964,12 +2206,7 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=50"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 50 })
 
     expect(result.invocations).toHaveLength(50)
     expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(50)
@@ -3001,12 +2238,7 @@ describe("Agent invocation console", () => {
       return list(options)
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=3"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 3 })
 
     expect(result.invocations).toContainEqual(expect.objectContaining({
       id: "pending-4",
@@ -3043,12 +2275,7 @@ describe("Agent invocation console", () => {
       return list(options)
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=6"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 6 })
 
     expect(result.invocations).toHaveLength(6)
     expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(6)
@@ -3092,12 +2319,7 @@ describe("Agent invocation console", () => {
       return page
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 2 })
 
     expect(result.invocations).toHaveLength(2)
     expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(2)
@@ -3142,12 +2364,7 @@ describe("Agent invocation console", () => {
       return list(options)
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=6"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 6 })
 
     expect(result.invocations).toContainEqual(expect.objectContaining({
       id: "pending-5",
@@ -3202,12 +2419,9 @@ describe("Agent invocation console", () => {
       return result
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=6"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
+    const query = { limit: 6 }
 
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations(query)
 
     expect(result.invocations).toHaveLength(6)
     expect(queuedCursors).toHaveLength(4)
@@ -3219,9 +2433,7 @@ describe("Agent invocation console", () => {
     let transitioned
     while (cursor && !visited.has(cursor)) {
       visited.add(cursor)
-      requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(cursor)}`
-      requestEvent.req!.url = requestEvent.node!.req!.url
-      const next = await invocationsHandler(requestEvent)
+      const next = await listConsoleInvocations({ ...query, cursor })
       transitioned = next.invocations.find(invocation => invocation.id === "pending-4")
       if (transitioned) break
       cursor = next.cursor
@@ -3267,12 +2479,7 @@ describe("Agent invocation console", () => {
       return page
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=6"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 6 })
 
     expect(result.invocations).toHaveLength(6)
     expect(JSON.parse(result.cursor!)).toMatchObject({ queued: "5" })
@@ -3299,12 +2506,7 @@ describe("Agent invocation console", () => {
         : { invocations: [] }
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=3"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const first = await invocationsHandler(requestEvent)
+    const first = await listConsoleInvocations({ limit: 3 })
     expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-newer", "pending-older"])
     expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ cursor: "", status: ["pending"] }))
   })
@@ -3331,12 +2533,7 @@ describe("Agent invocation console", () => {
       return page
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 2 })
 
     expect(result.invocations).toMatchObject([{
       id: "transitioning",
@@ -3369,12 +2566,7 @@ describe("Agent invocation console", () => {
       return page
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 2 })
 
     expect(result.invocations.map(invocation => invocation.id)).toEqual(["older", "transitioning"])
     expect(new Set(result.invocations.map(invocation => invocation.id)).size).toBe(2)
@@ -3393,25 +2585,18 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
+    const query = { limit: 2 }
 
-    const first = await invocationsHandler(requestEvent)
+    const first = await listConsoleInvocations(query)
     expect(first.invocations.map(invocation => invocation.id)).toEqual(["newest", "newer"])
     await store.update("transitioning", {
       status: "completed",
       timestamp: "2026-08-23T12:01:00.000Z",
     })
 
-    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
-    requestEvent.req!.url = requestEvent.node!.req!.url
-    let page = await invocationsHandler(requestEvent)
+    let page = await listConsoleInvocations({ ...query, cursor: first.cursor! })
     while (!page.invocations.some(invocation => invocation.id === "transitioning") && page.cursor) {
-      requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(page.cursor)}`
-      requestEvent.req!.url = requestEvent.node!.req!.url
-      page = await invocationsHandler(requestEvent)
+      page = await listConsoleInvocations({ ...query, cursor: page.cursor })
     }
 
     expect(page.invocations).toContainEqual(expect.objectContaining({
@@ -3434,13 +2619,7 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const cursor = encodeURIComponent(JSON.stringify({ history: null }))
-    const url = `http://localhost/_vitehub/api/invocations?limit=1&cursor=${cursor}`
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ cursor: JSON.stringify({ history: null }), limit: 1 })
 
     expect(result.cursor).toBeDefined()
     expect(result.remainingStatuses).toEqual([
@@ -3472,12 +2651,7 @@ describe("Agent invocation console", () => {
       return page
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ limit: 2 })
 
     expect(result.invocations).toMatchObject([{
       id: "starting",
@@ -3499,18 +2673,13 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
+    const query = { limit: 2 }
 
-    const first = await invocationsHandler(requestEvent)
+    const first = await listConsoleInvocations(query)
     expect(first.invocations.map(invocation => invocation.id)).toEqual(["pending-3", "completed-0"])
     expect(first.cursor).toBeDefined()
 
-    requestEvent.node!.req!.url = `${url}&cursor=${encodeURIComponent(first.cursor!)}`
-    requestEvent.req!.url = requestEvent.node!.req!.url
-    const second = await invocationsHandler(requestEvent)
+    const second = await listConsoleInvocations({ ...query, cursor: first.cursor! })
     expect(second.invocations.map(invocation => invocation.id)).toEqual(["pending-2", "pending-1"])
     expect(second.cursor).toBeDefined()
   })
@@ -3528,17 +2697,12 @@ describe("Agent invocation console", () => {
       })
     }
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?limit=1"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
+    const query = { limit: 1 }
 
     const ids: string[] = []
     let cursor: string | undefined
     do {
-      requestEvent.node!.req!.url = cursor ? `${url}&cursor=${encodeURIComponent(cursor)}` : url
-      requestEvent.req!.url = requestEvent.node!.req!.url
-      const page = await invocationsHandler(requestEvent)
+      const page = await listConsoleInvocations({ ...query, cursor })
       ids.push(...page.invocations.map(invocation => invocation.id))
       cursor = page.cursor
     } while (cursor)
@@ -3959,8 +3123,7 @@ describe("Agent invocation console", () => {
   it("rejects overlong Agent filters at the usage endpoint", async () => {
     const requestEvent = event("127.0.0.1")
     const url = `http://localhost/_vitehub/api/usage?agent=${"a".repeat(513)}`
-    if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
-    requestEvent.node.req.url = url
+    if (!requestEvent.req) throw new TypeError("Expected a request event.")
     requestEvent.req.url = url
 
     await expect(usageHandler(requestEvent)).rejects.toMatchObject({ statusCode: 400 })
@@ -3970,8 +3133,7 @@ describe("Agent invocation console", () => {
     installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const url = "http://localhost/_vitehub/api/usage?cursor=invalid"
-    if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
-    requestEvent.node.req.url = url
+    if (!requestEvent.req) throw new TypeError("Expected a request event.")
     requestEvent.req.url = url
 
     await expect(usageHandler(requestEvent)).rejects.toMatchObject({
@@ -4006,9 +3168,7 @@ describe("Agent invocation console", () => {
     const starEvent = event("127.0.0.1")
     const allUrl = "http://localhost/_vitehub/api/usage"
     const starUrl = "http://localhost/_vitehub/api/usage?agent=*"
-    allEvent.node!.req!.url = allUrl
     allEvent.req!.url = allUrl
-    starEvent.node!.req!.url = starUrl
     starEvent.req!.url = starUrl
 
     await expect(usageHandler(allEvent)).resolves.toMatchObject({ totals: { totalTokens: 3 } })
@@ -4056,16 +3216,14 @@ describe("Agent invocation console", () => {
       nextCursor: null,
     })
 
-    // SAFETY: the test mounts the generated Nitro handler on the equivalent H3 route contract.
-    const app = new H3().get("/search", searchHandler as never)
-    const response = await app.request("/search?limit=12&search=merged%20via")
+    const response = await consoleSearchCollectionHandler.fetch(new Request("http://localhost/search?limit=12&search=merged%20via"))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
       items: [expect.objectContaining({ id: "matching-invocation" })],
       nextCursor: null,
     })
 
-    const invalidResponse = await app.request("/search?search=one&search=two")
+    const invalidResponse = await consoleSearchCollectionHandler.fetch(new Request("http://localhost/search?search=one&search=two"))
     expect(invalidResponse.status).toBe(400)
   })
 
@@ -4082,12 +3240,7 @@ describe("Agent invocation console", () => {
       updatedAt: "2026-08-23T12:00:00.000Z",
     })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = `http://localhost/_vitehub/api/invocations?agent=${agentName}`
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+    await expect(listConsoleInvocations({ agent: agentName })).resolves.toMatchObject({
       invocations: [{ agentName }],
     })
   })
@@ -4115,12 +3268,7 @@ describe("Agent invocation console", () => {
     const get = vi.spyOn(store, "get")
     const getSummary = vi.spyOn(store, "getSummary")
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const requestEvent = event("127.0.0.1")
-    const url = "http://localhost/_vitehub/api/invocations?id=inv-1&id=inv-2"
-    requestEvent.node!.req!.url = url
-    requestEvent.req!.url = url
-
-    const result = await invocationsHandler(requestEvent)
+    const result = await listConsoleInvocations({ id: ["inv-1", "inv-2"] })
     expect(result).toMatchObject({
       invocations: [{ id: "inv-1", usage: { totalTokens: 42 } }, { id: "inv-2" }],
     })
@@ -4190,9 +3338,9 @@ describe("Agent invocation console", () => {
 
   it("resolves the current journal identity from a project-root-only Agent realm", () => {
     const fixture = fakeInvocations("fixture")
-    installConsoleInvocationFallback(fixture, "/project", { process }, "fixture:/project:/fixture.json")
+    installConsoleInvocationFallback(fixture, "/project", { process }, "runtime:/project")
 
-    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get("/project")).toBe("fixture:/project:/fixture.json")
+    expect(Reflect.get(process, consoleInvocationsRootIdentityRegistryKey).get("/project")).toBe("runtime:/project")
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(fixture)
   })
 
@@ -4202,42 +3350,11 @@ describe("Agent invocation console", () => {
     const firstScope = { process }
     const secondScope = { process }
 
-    installConsoleInvocationFallback(first, "/project", firstScope, "fixture:/project:/first.json")
-    installConsoleInvocationFallback(second, "/project", secondScope, "fixture:/project:/second.json")
+    installConsoleInvocationFallback(first, "/project", firstScope, "runtime:/project:first")
+    installConsoleInvocationFallback(second, "/project", secondScope, "runtime:/project:second")
 
     expect(resolveConsoleInvocations(firstScope)).toBe(first)
     expect(resolveConsoleInvocations(secondScope)).toBe(second)
-    expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
-  })
-
-  it("keeps concurrent fixture revisions bound to their runtime journal", () => {
-    const first = fakeInvocations("first")
-    const second = fakeInvocations("second")
-    const firstScope = { process }
-    const secondScope = { process }
-    const firstIdentity = createConsoleInvocationsIdentity("/project", "/fixture.json", "first-revision")
-    const secondIdentity = createConsoleInvocationsIdentity("/project", "/fixture.json", "second-revision")
-
-    installConsoleInvocationFallback(first, "/project", firstScope, firstIdentity, "first-revision")
-    installConsoleInvocationFallback(second, "/project", secondScope, secondIdentity, "second-revision")
-
-    const firstAgentRealm = {
-      process,
-      [consoleInvocationsIdentityKey]: firstIdentity,
-      [consoleInvocationsIdentityRootKey]: "/project",
-      [consoleInvocationsRootKey]: "/project",
-    }
-    const secondAgentRealm = {
-      process,
-      [consoleInvocationsIdentityKey]: secondIdentity,
-      [consoleInvocationsIdentityRootKey]: "/project",
-      [consoleInvocationsRootKey]: "/project",
-    }
-
-    expect(resolveConsoleInvocations(firstScope)).toBe(first)
-    expect(resolveConsoleInvocations(secondScope)).toBe(second)
-    expect(resolveConsoleInvocations(firstAgentRealm)).toBe(first)
-    expect(resolveConsoleInvocations(secondAgentRealm)).toBe(second)
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: "/project" })).toBe(second)
   })
 
@@ -4310,8 +3427,8 @@ describe("Agent invocation console", () => {
     const first = fakeInvocations("first")
     const second = fakeInvocations("second")
     const projectRoot = "/project"
-    const firstIdentity = "fixture:/project:/first.json"
-    const secondIdentity = "fixture:/project:/second.json"
+    const firstIdentity = "runtime:/project:first"
+    const secondIdentity = "runtime:/project:second"
     installConsoleInvocationFallback(first, projectRoot, { process }, firstIdentity)
     installConsoleInvocationFallback(second, projectRoot, { process }, secondIdentity)
 
@@ -4462,7 +3579,7 @@ describe("Agent invocation console", () => {
 
       const requestless = consoleRuntime.resolve(runtime("console-requestless"))
       await expect(getAgentInvocationsDatabase()).resolves.toBe(database)
-      expect(() => requestless.invocationUrl(invocation)).toThrow("Console invocation URLs require `vitehub({ publicUrl })` or a request context")
+      expect(() => requestless.invocationUrl(invocation)).toThrow("Console invocation URLs require a request context or a `vitehub({ publicUrl })` origin")
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { agent: "https://agents.example" } })
       expect(requestless.invocationUrl(invocation)).toBe(
         hostedInvocationUrl("https://agents.example", "agent", invocation.id),
@@ -4761,55 +3878,17 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("preserves tool payloads in fixture-backed console journals", async () => {
-    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-fixture-tools-"))
-    try {
-      const file = join(projectRoot, "console.fixture.json")
-      await writeFile(file, JSON.stringify({ invocations: [], version: 1 }))
-      const invocations = installConsoleFixtureInvocations(projectRoot, file)
-      const agent = defineAgent({
-        driver: { run: () => (async function* () {
-            yield { id: "tool-1", input: { query: "fixture" }, name: "lookup", type: "tool-call" }
-            yield { id: "tool-1", name: "lookup", output: { answer: "preserved" }, type: "tool-result" }
-            yield { type: "finish" }
-          })() },
-        runtime: false,
-      })
-      const result = await runAgentWithContext(agent, runtime("console-fixture-tool"), {})
-      // SAFETY: This Driver fixture always returns the async generator defined above.
-      for await (const _event of result as AsyncIterable<unknown>) {}
-
-      const invocation = await invocations.getByRunId("console-fixture-tool")
-      expect(invocation?.observations).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          attributes: expect.objectContaining({ "tool.input": { query: "fixture" } }),
-          name: "agent.tool.start",
-        }),
-        expect.objectContaining({
-          attributes: expect.objectContaining({ "tool.output": { answer: "preserved" } }),
-          name: "agent.tool.finish",
-        }),
-      ]))
-    }
-    finally {
-      await rm(projectRoot, { force: true, recursive: true })
-    }
-  })
-
   it("accepts public read-only requests", () => {
     expect(() => assertConsoleRequest(event("203.0.113.2"))).not.toThrow()
     expect(() => assertConsoleRequest(event(undefined))).not.toThrow()
   })
 
   it("marks every console API response as non-cacheable and non-indexable", () => {
-    const responseHeaders = new Map<string, string>()
     const requestEvent = event("127.0.0.1")
-    requestEvent.node!.res = {
-      setHeader: (name, value) => responseHeaders.set(name, value),
-    }
 
     assertConsoleRequest(requestEvent)
 
+    const responseHeaders = new Map(requestEvent["~standard"].res.headers)
     expect(responseHeaders).toEqual(new Map([
       ["cache-control", "no-store"],
       ["x-content-type-options", "nosniff"],
@@ -4827,29 +3906,16 @@ describe("Agent invocation console", () => {
     expect(isConsoleDevelopmentBuild()).toBe(true)
   })
 
-  it.each([false, true])("treats a scope that production and development share as production (development first: %s)", (developmentFirst) => {
-    installConsoleDevelopment("/first", developmentFirst)
-    installConsoleDevelopment("/second", !developmentFirst)
-
-    for (const root of ["/first", "/second"]) {
-      expect(isConsoleDevelopmentBuild()).toBe(false)
-      // Refreshing a project cannot disambiguate the scope of the serving handler.
-      installConsoleDevelopment(root, true)
-    }
-    expect(isConsoleDevelopmentBuild()).toBe(false)
-  })
-
   it.each(["build", "serve"])("uses generated %s output to select development regardless of NODE_ENV or mode", async (command) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-frame-policy-"))
     try {
       const development = command === "serve"
       const mode = development ? "production" : "development"
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: productionConsole, sections: [] })
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command, mode }])
       const initial = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       await callPluginHook(plugin.configResolved, {}, [config])
-      await callPluginHook(plugin.buildStart, {})
       const refreshed = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
 
       vi.stubEnv("NODE_ENV", mode)

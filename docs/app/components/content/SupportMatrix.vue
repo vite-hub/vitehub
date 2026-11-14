@@ -178,7 +178,6 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         placeholder="Filter primitives or providers"
         aria-label="Filter primitives or providers"
         class="w-full sm:w-72"
-        :ui="{ base: 'font-mono text-xs' }"
       />
       <USwitch v-model="differing" label="Only rows that differ" size="sm" />
       <p class="sr-only" role="status">{{ status }}</p>
@@ -364,7 +363,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
                 />
               </span>
               <span
-                class="mt-1.5 block font-mono text-[11px] text-muted tabular-nums"
+                class="mt-1.5 block font-mono text-xs text-muted tabular-nums"
                 aria-hidden="true"
               >
                 {{ coverage[index]!.counts.available + coverage[index]!.counts.package }}
@@ -381,7 +380,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 
       <div
         v-if="tip && tipCell"
-        class="pointer-events-none absolute z-20 w-72 -translate-x-1/2 -translate-y-full rounded-md border border-default bg-default p-3 text-xs shadow-lg"
+        class="pointer-events-none absolute z-20 w-72 -translate-x-1/2 -translate-y-full rounded-xl bg-(--vh-floating) p-3 text-xs shadow-(--vh-shadow-floating) backdrop-blur-md"
         :style="{ left: `${tip.x}px`, top: `${tip.y - 8}px` }"
         aria-hidden="true"
       >
@@ -410,7 +409,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         </p>
         <div
           v-if="tipCell.evidence"
-          class="mt-2 flex items-center gap-1 font-mono text-[11px] text-toned"
+          class="mt-2 flex items-center gap-1 font-mono text-xs text-toned"
         >
           <UIcon name="i-lucide-external-link" class="size-3" />
           Evidence from {{ tipCell.evidence.observedAt }}
@@ -483,15 +482,9 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 .support-cell-link {
   display: inline-flex;
   vertical-align: middle;
-  border-radius: 2px;
 }
 
 .support-cell-link:hover .support-cell {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: 2px;
-}
-
-.support-cell-link:focus-visible {
   outline: 2px solid var(--ui-text-highlighted);
   outline-offset: 2px;
 }

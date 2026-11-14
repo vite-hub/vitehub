@@ -59,14 +59,44 @@ export default defineConfig({
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
 | `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
 
-Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on other supported hosts. Netlify cannot infer one, so set `provider` or turn Workflow off there. On Node or Docker, ViteHub picks OpenWorkflow when you set `postgres.url` or `sqlite.path`.
+Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on Vercel. On other hosts, such as Node, Docker, and Deno, it picks OpenWorkflow when you set `postgres.url` or `sqlite.path`. Without them, the build fails with `WORKFLOW_C0020`. Add the provider and storage:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts] fragment
+export default defineNuxtConfig({
+  vitehub: { workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts] fragment
+vitehub({
+  workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts] fragment
+vitehub({
+  workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
+})
+```
+:::
+::
+
+Then [start an OpenWorkflow worker](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker). Netlify cannot infer a provider, so set `provider` or turn Workflow off there.
+
+In `vite dev`, a Workflow without `provider` or storage runs inline in the dev server. The Workflow that only `agent` turns on also runs inline on these hosts. Run `vitehub durability list` to see the store that the app uses.
 
 ## Define a workflow
 
 A Workflow Definition is a file that names long-running work.
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow } from '@vite-hub/workflow'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow('onboard-user', async (payload: { email: string }) => {
   const user = await createUser(payload.email)
@@ -92,14 +122,14 @@ The handler gets `(payload, context)`. Annotate `payload` to type it. `context` 
 
 ### Add a durable Vercel entry
 
-Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. For durable execution on Vercel, add a Workflow DevKit entry:
+Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. First [install `@vercel/functions`](/docs/workflows/hosts#install-vercel-dependencies), which all Vercel definitions require. For durable execution on Vercel, also install the Workflow DevKit packages and add a native entry:
 
-```bash [Terminal]
+```bash pm [Terminal]
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import { defineWorkflow, type WorkflowProviderContext } from '@vite-hub/workflow'
+import { defineWorkflow, type WorkflowProviderContext } from 'vite-hub/workflow'
 
 interface OnboardPayload {
   email: string
@@ -134,4 +164,4 @@ async function inlineOnboard(payload: OnboardPayload) {
 export default defineWorkflow('onboard-user', inlineOnboard, { native: durableOnboard })
 ```
 
-ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.
+ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.

@@ -1,12 +1,11 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
 import { fileURLToPath } from "node:url";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
 // (`agentRuntimeModule()` in `./vite`). They are not public exports.
 const privateEntryExports = new Set([
-  "./eve",
   "./internal/workspace/internal/runtime/hosted",
   "./internal/workspace/internal/runtime/hosted-vercel-blob",
   "./internal/workspace/runtime",
@@ -26,13 +25,15 @@ const bundledPreviewPackages = /^(?:@vite-hub\/internal|@t3tools\/(?:provider-ru
 const bundledPreviewImporters = /[\\/]node_modules[\\/](?:@t3tools[\\/](?:provider-runtime|contracts)|forges|effect)[\\/]/;
 
 function alwaysBundle(id: string, importer: string | undefined): boolean {
+  // The default invocation journal must work without the optional Database package.
+  if (id === "@vite-hub/database/runtime/libsql-drizzle") return true;
   if (bundledPreviewPackages.test(id)) return true;
   return !!importer && bundledPreviewImporters.test(importer) && !isBuiltin(id);
 }
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle,
       neverBundle: [
@@ -60,36 +61,39 @@ export default defineConfig({
     entry: [
       "src/capabilities.ts",
       "src/channels.ts",
+      "src/durability.ts",
       "src/index.ts",
+      "src/messages.ts",
       "src/internal/workspace/internal/runtime/hosted.ts",
       "src/internal/workspace/internal/runtime/hosted-vercel-blob.ts",
       "src/internal/workspace/runtime.ts",
       "src/env-identity.ts",
       "src/mcp.ts",
-      "src/process-host.ts",
+      "src/process.ts",
       "src/provider-agent.ts",
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",
-      "src/eve.ts",
       "src/observability.ts",
       "src/observability/host.ts",
       "src/observability/posthog.ts",
       "src/operations.ts",
+      "src/page.ts",
+      "src/invocations/index.ts",
+      "src/internal/default-invocations.ts",
+      "src/internal/default-invocations-core.ts",
+      "src/internal/default-invocations-libsql.ts",
       "src/invocations/app.ts",
-      "src/invocations/d1.ts",
       "src/invocations/database.ts",
-      "src/invocations/default.ts",
       "src/invocations/drizzle.ts",
-      "src/invocations/sqlite.ts",
-      "src/state/sqlite.ts",
+      "src/state.ts",
       "src/cloudflare/state.ts",
       "src/runtime/registry.ts",
       "src/runtime/invocations-dev.ts",
-      "src/runtime/process.ts",
       "src/runtime/provider-agent-worker.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
+      "src/sessions.ts",
       "src/server/internal.ts",
       "src/server/registry.ts",
       "src/server/workspace.ts",
@@ -116,10 +120,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

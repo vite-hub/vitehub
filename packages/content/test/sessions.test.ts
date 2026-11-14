@@ -39,7 +39,7 @@ async function setup(options: { table?: boolean, lease?: boolean } = {}) {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
+  const database = drizzle({ client })
   await migrate(database, history)
   if (options.table !== false) await migrate(database, sessionsTable)
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))

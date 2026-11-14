@@ -1,5 +1,4 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
-import { hasRuntimeType } from "./runtime-type.ts"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, pendingCredentialUri, redactCredentialText } from "./credential-redaction.ts"
 import type { AuthorizationState, CredentialAssignmentState } from "./credential-redaction.ts"
 
@@ -34,7 +33,7 @@ export function createInvocationObservationStream(options: {
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
     let retainedContent: string | undefined
-    if (hasRuntimeType(rawContent, "string")) {
+    if (typeof rawContent === "string") {
       let content = rawContent
       const precedingText = precedingMessageText.get(key) ?? ""
       if (!final && credentialTextMayContinue(content, precedingText)) {
@@ -253,7 +252,7 @@ export function createInvocationObservationStream(options: {
   return {
     append(entry: TraceEventLogEntry): void {
       const resultText = entry.attributes?.["result.text"]
-      if (entry.name === "agent.invocation.finish" && hasRuntimeType(resultText, "string")) {
+      if (entry.name === "agent.invocation.finish" && typeof resultText === "string") {
         entry.attributes = { ...entry.attributes, "result.text": redactCredentialText(resultText) }
       }
       if (entry.name === "agent.message.delta") {

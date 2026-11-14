@@ -13,7 +13,7 @@ Better Auth is the only Auth provider. ViteHub keeps its storage, OAuth provider
 | Concern | Owner |
 | --- | --- |
 | Sign-in methods, OAuth providers, plugins | Better Auth options in the Auth Definition. |
-| User and session storage | `authDatabase()`, which adds the Better Auth tables to the app Database, or a Better Auth database adapter that the callback or `runtime` returns. |
+| User and session storage | `authDatabase()`, which adds the Better Auth tables to the app Database, or a Better Auth database adapter that the Definition callback returns. |
 | Route mounting | A generated Nitro handler, also in development. Manual hosts mount `#vitehub/auth/server`. |
 | Roles and permissions | Your `authorize` callbacks. ViteHub defines no roles. |
 
@@ -24,7 +24,7 @@ Provider output is the code Auth generates for the host: the Definition module, 
 Set `route: false` only when a host integration or your own route mounts the Auth handler.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',

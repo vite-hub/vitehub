@@ -1,7 +1,7 @@
-import { hasRuntimeType, isUnbrandedValue } from "./runtime-type.ts"
+import { isUnbrandedValue } from "./runtime-type.ts"
 
 export function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
-  if (!value || !hasRuntimeType(value, "object") || isUnbrandedValue(value)) return
+  if (!value || typeof value !== "object" || isUnbrandedValue(value)) return
   for (const [type, unwrap] of [
     ["Boolean", () => Boolean.prototype.valueOf.call(value)],
     ["Number", () => Number.prototype.valueOf.call(value)],

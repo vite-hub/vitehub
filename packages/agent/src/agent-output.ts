@@ -1,6 +1,6 @@
-import { findTrustedResponseConstructor, isResponse } from "./internal/response.ts"
+import { hostReadableStream, isResponse } from "./internal/response.ts"
 
-import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
+import { isRuntimeObject } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -13,23 +13,13 @@ import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage,
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
-// Capture the host Fetch brand operation once. Consumers may replace the
-// global Response constructor after a response is created (for example when
-// crossing a VM or worker boundary), so classification must not resolve it
-// from the mutable global on each call.
-const trustedResponseStatusGetter = typeof Response === "function"
-  ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-  : undefined
-
-const validatedResponsePipeThrough = new WeakMap<object, (this: object, ...args: unknown[]) => unknown>()
-const validatedResponseBodies = new WeakMap<object, object | null>()
 const maxResponsePrototypeHops = 100
 
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
   if (isAsyncIterable(result)) return "stream"
   if (Array.isArray(result)) return "array"
-  return runtimeType(result)
+  return typeof result
 }
 
 interface PrototypeWalk {
@@ -100,8 +90,8 @@ function textFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
   const text = content.flatMap((part) => {
-    if (hasRuntimeType(part, "string")) return [part]
-    if (!part || !hasRuntimeType(part, "object")) return []
+    if (typeof part === "string") return [part]
+    if (!part || typeof part !== "object") return []
 
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     const record = part as Record<string, unknown>
@@ -109,7 +99,7 @@ function textFromContent(content: unknown): string | undefined {
     if (type !== "text" && type !== "text-delta") return []
 
     const value = ownValue(record, "text") ?? ownValue(record, "textDelta") ?? ownValue(record, "delta")
-    return hasRuntimeType(value, "string") ? [value] : []
+    return typeof value === "string" ? [value] : []
   }).join("")
 
   return text ? text : undefined
@@ -122,22 +112,22 @@ function ownValue(record: Record<string, unknown>, key: string): unknown {
 
 function textFromResult(result: Record<string, unknown>): string | undefined {
   const text = ownValue(result, "text")
-  if (hasRuntimeType(text, "string") && text) return text
+  if (typeof text === "string" && text) return text
   const output = ownValue(result, "output")
-  if (hasRuntimeType(output, "string") && output) return output
+  if (typeof output === "string" && output) return output
   const rawOutput = ownValue(result, "_output")
-  if (hasRuntimeType(rawOutput, "string") && rawOutput) return rawOutput
+  if (typeof rawOutput === "string" && rawOutput) return rawOutput
   const contentText = textFromContent(ownValue(result, "content"))
   if (contentText) return contentText
 
   const steps = ownValue(result, "steps")
   if (Array.isArray(steps)) {
     for (const step of steps.slice().reverse()) {
-      if (step && hasRuntimeType(step, "object")) {
+      if (step && typeof step === "object") {
         // SAFETY: Agent output normalization establishes the asserted stream result contract.
         const record = step as Record<string, unknown>
         const stepText = ownValue(record, "text")
-        if (hasRuntimeType(stepText, "string") && stepText) return stepText
+        if (typeof stepText === "string" && stepText) return stepText
         const stepContentText = textFromContent(ownValue(record, "content"))
         if (stepContentText) return stepContentText
       }
@@ -149,10 +139,10 @@ function finalTextFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return
 
   const boundary = content.findLastIndex((part) => {
-    if (!part || !hasRuntimeType(part, "object")) return false
+    if (!part || typeof part !== "object") return false
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     const type = ownValue(part as Record<string, unknown>, "type")
-    return hasRuntimeType(type, "string") && type.startsWith("tool-")
+    return typeof type === "string" && type.startsWith("tool-")
   })
   return boundary >= 0 ? textFromContent(content.slice(boundary + 1)) ?? "" : undefined
 }
@@ -162,8 +152,8 @@ function contentFromSteps(steps: unknown[]): unknown[] {
     if (!isRecord(step)) return []
     const content = ownValue(step, "content")
     const text = ownValue(step, "text")
-    if (!Array.isArray(content)) return hasRuntimeType(text, "string") && text ? [{ text, type: "text" }] : []
-    return hasRuntimeType(text, "string") && text && textFromContent(content) === undefined
+    if (!Array.isArray(content)) return typeof text === "string" && text ? [{ text, type: "text" }] : []
+    return typeof text === "string" && text && textFromContent(content) === undefined
       ? [...content, { text, type: "text" }]
       : content
   })
@@ -188,7 +178,7 @@ function finalTextFromStructuredResult(result: Record<string, unknown>): string 
 }
 
 export function finalTextFromAgentOutput(value: unknown): string | undefined {
-  if (hasRuntimeType(value, "string")) return value
+  if (typeof value === "string") return value
   if (!isRecord(value)) return
 
   const raw = ownValue(value, "raw")
@@ -209,8 +199,8 @@ export function finalTextFromAgentOutput(value: unknown): string | undefined {
 }
 
 export function toAgentRunResult(value: unknown): AgentRunResult {
-  if (!hasRuntimeType(value, "object") || value === null) {
-    return { raw: value, text: hasRuntimeType(value, "string") ? value : undefined }
+  if (typeof value !== "object" || value === null) {
+    return { raw: value, text: typeof value === "string" ? value : undefined }
   }
 
   // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -229,7 +219,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     ...(artifacts.length ? { artifacts } : {}),
     finishReason: selectedValue("finishReason"),
     raw,
-    text: selectedChannelOutput && hasRuntimeType(explicitText, "string") ? explicitText : textFromResult(result),
+    text: selectedChannelOutput && typeof explicitText === "string" ? explicitText : textFromResult(result),
     usage: selectedValue("usage") ?? usageRecord?.usage,
     usageRecord,
     warnings: selectedValue("warnings"),
@@ -272,13 +262,13 @@ function isUsageRecord(value: unknown): value is AgentUsageRecord {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return hasRuntimeType(value, "object") && value !== null
+  return typeof value === "object" && value !== null
 }
 
 function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
     const value = readableRecordValue(record, key)
-    if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
+    if (typeof value === "number" && Number.isFinite(value)) return value
   }
 }
 
@@ -286,7 +276,7 @@ function readString(record: Record<string, unknown> | undefined, ...keys: string
   if (!record) return
   for (const key of keys) {
     const value = readableRecordValue(record, key)
-    if (hasRuntimeType(value, "string") && value) return value
+    if (typeof value === "string" && value) return value
   }
 }
 
@@ -330,7 +320,7 @@ function readDetails(value: unknown): Record<string, number> | undefined {
     if (!descriptor.enumerable) continue
     try {
       const item = Reflect.get(value, key)
-      if (hasRuntimeType(item, "number") && Number.isFinite(item)) details[key] = item
+      if (typeof item === "number" && Number.isFinite(item)) details[key] = item
     }
     catch {
       // Ignore individual provider detail getters that cannot be read.
@@ -396,7 +386,7 @@ function mergedRunMetadata(...values: unknown[]): Partial<AgentRunMetadata> | un
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return isRecord(value) && hasRuntimeType(value.then, "function")
+  return isRecord(value) && typeof value.then === "function"
 }
 
 async function resolveUsageValue(value: unknown): Promise<unknown> {
@@ -468,7 +458,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   const output: NonNullable<AgentUsageRecord["response"]> = {}
   if (finishReason !== undefined) output.finishReason = finishReason
   if (id !== undefined) output.id = id
-  if (isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) output.timestamp = timestamp
+  if (isDateValue(timestamp) || typeof timestamp === "string") output.timestamp = timestamp
   return output
 }
 
@@ -494,7 +484,7 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
   for (const metadata of Object.values(providerMetadata)) {
     const usage = isRecord(metadata) ? readableRecordValue(metadata, "usage") : undefined
     const cost = isRecord(usage) ? readableRecordValue(usage, "cost") : undefined
-    if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
         estimated: false,
         source: "provider",
@@ -670,7 +660,7 @@ function optionalDurationMs(durationMs: number | undefined): { durationMs?: numb
 }
 
 function optionalTitle(title: unknown): { title?: string } {
-  return hasRuntimeType(title, "string") && title.trim() ? { title } : {}
+  return typeof title === "string" && title.trim() ? { title } : {}
 }
 
 type AgentToolStreamDefaults = ReadonlyMap<string, Pick<AgentToolDefinition, "activity" | "title">>
@@ -691,11 +681,11 @@ function toolTitle(value: Record<string, unknown>, defaults: Pick<AgentToolDefin
 }
 
 function agentActivity(value: unknown): AgentActivity | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
+  if (!value || typeof value !== "object") return
   // SAFETY: Agent output normalization establishes the asserted stream result contract.
   const activity = value as { kind?: unknown, name?: unknown }
   if (activity.kind === "tool") return { kind: "tool" }
-  if (activity.kind === "action" && hasRuntimeType(activity.name, "string") && activity.name) return { kind: "action", name: activity.name }
+  if (activity.kind === "action" && typeof activity.name === "string" && activity.name) return { kind: "action", name: activity.name }
 }
 
 function optionalAgentActivity(value: unknown): { activity?: AgentActivity } {
@@ -711,17 +701,17 @@ export function toAgentStreamEvent(
   messageState?: { messageId?: string },
   toolTitles?: Map<string, string>,
 ): StreamEvent | undefined {
-  if (hasRuntimeType(chunk, "string")) {
+  if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
   }
-  if (!chunk || !hasRuntimeType(chunk, "object")) {
+  if (!chunk || typeof chunk !== "object") {
     return undefined
   }
 
   // SAFETY: Agent output normalization establishes the asserted stream result contract.
   const value = chunk as Record<string, unknown>
   const type = String(value.type || "")
-  const explicitMessageId = hasRuntimeType(value.messageId, "string") ? value.messageId : undefined
+  const explicitMessageId = typeof value.messageId === "string" ? value.messageId : undefined
   if (type === "start") {
     if (messageState) messageState.messageId = explicitMessageId
     return undefined
@@ -733,7 +723,7 @@ export function toAgentStreamEvent(
     : value.phase === "final" || value.phase === "final_answer"
       ? "final"
       : undefined
-  const textId = hasRuntimeType(value.id, "string") ? value.id : undefined
+  const textId = typeof value.id === "string" ? value.id : undefined
   if (type === "text-start") {
     if (textId) {
       textPhases?.delete(textId)
@@ -755,11 +745,11 @@ export function toAgentStreamEvent(
     if (inheritedPhase === "hidden") return undefined
     const textPhase = phase ?? inheritedPhase
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(hasRuntimeType(value.role, "string") ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+    return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
   if (type === "data" || type.startsWith("data-")) {
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(hasRuntimeType(value.transient, "boolean") ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
+    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.transient === "boolean" ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
   }
   if (type === "tool-input-start") {
     const id = String(value.id || value.toolCallId)
@@ -776,7 +766,7 @@ export function toAgentStreamEvent(
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
-    const result = { ...optionalAgentActivity(value.activity ?? toolDefaults?.get(name)?.activity), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: hasRuntimeType(value.error, "string") ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...toolTitle(value, toolDefaults?.get(name), id, toolTitles, true), type: "tool-result" } as const
+    const result = { ...optionalAgentActivity(value.activity ?? toolDefaults?.get(name)?.activity), ...optionalDurationMs(readNumber(value, "durationMs", "duration")), error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name, output: value.output ?? value.result, ...toolTitle(value, toolDefaults?.get(name), id, toolTitles, true), type: "tool-result" } as const
     toolNames?.delete(id)
     return result
   }
@@ -784,7 +774,7 @@ export function toAgentStreamEvent(
     const id = String(value.toolCallId ?? value.id)
     const error = value.error instanceof Error
       ? value.error.message
-      : hasRuntimeType(value.errorText, "string")
+      : typeof value.errorText === "string"
         ? value.errorText
         : String(value.error || "Unknown tool error")
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
@@ -793,7 +783,7 @@ export function toAgentStreamEvent(
     return result
   }
   if (type === "approval-request") {
-    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-request" }
+    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }
   }
   if (type === "tool-approval-request") {
     const id = String(value.approvalId ?? value.id)
@@ -802,7 +792,7 @@ export function toAgentStreamEvent(
   }
   if (type === "approval-decision") {
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: hasRuntimeType(value.reason, "string") ? value.reason : undefined, type: "approval-decision" }
+    return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
   }
   if (type === "error") {
     const approvalRequest = getViteHubErrorShape(value.error)?.code === "APPROVAL_REQUIRED"
@@ -811,10 +801,10 @@ export function toAgentStreamEvent(
       ? value.error.cause
       : undefined
     const approvalId = approvalRequest?.id
-    if (approvalRequest && hasRuntimeType(approvalId, "string")) {
+    if (approvalRequest && typeof approvalId === "string") {
       const request = approvalRequest
-      const capability = hasRuntimeType(request.capability, "string") ? request.capability : approvalId
-      const reason = hasRuntimeType(request.reason, "string") ? request.reason : undefined
+      const capability = typeof request.capability === "string" ? request.capability : approvalId
+      const reason = typeof request.reason === "string" ? request.reason : undefined
       return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -823,7 +813,7 @@ export function toAgentStreamEvent(
     const errorMessage = crossRealmError
       ? crossRealmError.message
       : unbrandedSameRealmErrorMessage(error) ?? safeStreamErrorString(error)
-    const event = { error: errorMessage, ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
+    const event = { error: errorMessage, ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
     if (crossRealmError) Object.defineProperty(event, agentStreamErrorSymbol, { value: crossRealmError.value })
     return event
   }
@@ -831,7 +821,7 @@ export function toAgentStreamEvent(
     return { ...optionalMessageId(messageId), type: "usage", usageRecord: value.usageRecord }
   }
   if (type === "finish") {
-    const reason = hasRuntimeType(value.finishReason, "string") ? value.finishReason : hasRuntimeType(value.reason, "string") ? value.reason : undefined
+    const reason = typeof value.finishReason === "string" ? value.finishReason : typeof value.reason === "string" ? value.reason : undefined
     return { ...optionalMessageId(messageId), ...(reason ? { reason } : {}), type: "finish" }
   }
   return undefined
@@ -845,10 +835,10 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // when Error.isError is unavailable so custom Symbol.toStringTag values
     // remain valid while prototype-only forgeries are rejected.
     const processValue: unknown = Reflect.get(globalThis, "process")
-    const getBuiltinModule = processValue && typeof processValue === "object"
+    const getBuiltinModule: unknown = processValue && typeof processValue === "object"
       ? Reflect.get(processValue, "getBuiltinModule")
       : undefined
-    const nativeIsError = hasRuntimeType(getBuiltinModule, "function")
+    const nativeIsError = typeof getBuiltinModule === "function"
       ? Reflect.get(Reflect.apply(getBuiltinModule, processValue, ["util"]), "types")
       : undefined
     const intrinsicIsError = isRecord(nativeIsError)
@@ -859,9 +849,9 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // value from property access. Reject that inconsistent shape before the
     // structural fallback can mistake it for an Error.
     if (!hasToStringTag && Reflect.get(error, Symbol.toStringTag) === "Error") return
-    const nativeBranded = hasRuntimeType(currentIsError, "function")
+    const nativeBranded = typeof currentIsError === "function"
       ? currentIsError(error) === true
-      : hasRuntimeType(intrinsicIsError, "function")
+      : typeof intrinsicIsError === "function"
         ? intrinsicIsError(error) === true
         : undefined
     if (nativeBranded === false) return
@@ -883,7 +873,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // the fallback brand.
     const structuredClone = Reflect.get(globalThis, "structuredClone")
     let cloneBranded = false
-    if (hasRuntimeType(structuredClone, "function")) {
+    if (typeof structuredClone === "function") {
       try {
         const clone = Reflect.apply(structuredClone, globalThis, [error])
         if (Object.prototype.toString.call(clone) !== "[object Error]" && nativeBranded !== true) return
@@ -911,10 +901,10 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
 
 function hasNativeErrorBrandCheck(): boolean {
   try {
-    if (hasRuntimeType(Reflect.get(Error, "isError"), "function")) return true
+    if (typeof Reflect.get(Error, "isError") === "function") return true
     const processValue: unknown = Reflect.get(globalThis, "process")
     return Boolean(processValue && typeof processValue === "object"
-      && hasRuntimeType(Reflect.get(processValue, "getBuiltinModule"), "function"))
+      && typeof Reflect.get(processValue, "getBuiltinModule") === "function")
   }
   catch {
     return false
@@ -940,7 +930,7 @@ function safeStreamErrorString(error: unknown): string {
   try {
     const value = error || "Unknown error"
     const text = String(value)
-    if (text === "Error" && hasRuntimeType(value, "object") && value !== null
+    if (text === "Error" && typeof value === "object" && value !== null
       && Reflect.getPrototypeOf(value) === Error.prototype) {
       return "[object Object]"
     }
@@ -972,7 +962,7 @@ async function* streamChunksToEvents(
   let finishEvent: StreamEvent | undefined
   try {
     for await (const chunk of chunks) {
-      const explicitlyPhasedTextChunk = chunk && hasRuntimeType(chunk, "object")
+      const explicitlyPhasedTextChunk = chunk && typeof chunk === "object"
         && "phase" in chunk && chunk.phase !== undefined
         && "type" in chunk && ["text", "text-delta", "text-end", "text-start"].includes(String(chunk.type))
       if (explicitlyPhasedTextChunk && observation) observation.explicitTextPhaseSeen = true
@@ -1048,7 +1038,7 @@ async function* streamChunksToEventsWithTextFallback(
           break
         }
         const text = result.value
-        if (hasRuntimeType(text, "string") && text) {
+        if (typeof text === "string" && text) {
           yield { text, type: "text-delta" }
         }
       }
@@ -1077,279 +1067,20 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   for (let hop = 0; current && hop < maxResponsePrototypeHops && !visited.has(current); hop++) {
     visited.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor) return hasRuntimeType(descriptor.get, "function")
+    if (descriptor) return typeof descriptor.get === "function"
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     current = Object.getPrototypeOf(current) as object | null
   }
   return false
 }
 
-function getPrototypeMethod(value: object, key: PropertyKey, startPrototype?: object): ((...args: unknown[]) => unknown) | undefined {
-  let prototype: object | null = startPrototype ?? Object.getPrototypeOf(value) as object | null
-  const visited = new Set<object>()
-  for (let hop = 0; prototype && hop < maxResponsePrototypeHops && !visited.has(prototype); hop++) {
-    visited.add(prototype)
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-    if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: unknown[]) => unknown : undefined
-    prototype = Object.getPrototypeOf(prototype) as object | null
-  }
-  // Proxy-backed foreign streams may expose supported operations through the
-  // instance trap even when the proxy target's prototype has no descriptor.
-  // Only use that facade after the intrinsic prototype walk, so an own
-  // property cannot replace a validated stream operation.
-  const directMethod = (value as Record<PropertyKey, unknown>)[key]
-  if (hasRuntimeType(directMethod, "function")) {
-    return directMethod as (...args: unknown[]) => unknown
-  }
-  return undefined
-}
-
-function isResponseLike(value: unknown): value is Response {
-  if (!isRuntimeObject(value)) return false
-  try {
-    // Require the platform tag to be a data property on the prototype. A
-    // caller-controlled Symbol.toStringTag getter can otherwise spoof the
-    // intrinsic tag while exposing a response-shaped object.
-    let tagDescriptor: PropertyDescriptor | undefined
-    let tagOwner: object | null = null
-    let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
-    const visitedTagPrototypes = new Set<object>()
-    for (let hop = 0; tagPrototype && !tagDescriptor && hop < maxResponsePrototypeHops && !visitedTagPrototypes.has(tagPrototype); hop++) {
-      visitedTagPrototypes.add(tagPrototype)
-      tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
-      if (tagDescriptor) tagOwner = tagPrototype
-      tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
-    }
-    let ownResponseTag = false
-    if (!tagDescriptor) {
-      const ownTag = Object.getOwnPropertyDescriptor(value, Symbol.toStringTag)
-      if (ownTag) {
-        tagDescriptor = ownTag
-        tagOwner = Object.getPrototypeOf(value) as object | null
-        ownResponseTag = true
-      }
-    }
-    if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set || !tagOwner) return false
-    // A caller can copy the data tag onto an arbitrary prototype. Platform
-    // Response implementations own a constructor on the same prototype that
-    // carries the tag; requiring that link rejects Object.create spoof shapes
-    // without relying on the current realm's Response constructor.
-    const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
-    if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
-    const responseConstructor = constructorDescriptor.value as unknown as typeof Response & { error?: () => unknown, json?: () => unknown, redirect?: () => unknown }
-    // Fetch constructors expose their prototype as a fixed, non-configurable
-    // function property. A caller-created self-linked constructor has to
-    // assign its prototype, leaving this descriptor writable/configurable.
-    const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
-    if (!constructorPrototypeDescriptor
-      || constructorPrototypeDescriptor.value !== tagOwner
-      || (!ownResponseTag && constructorPrototypeDescriptor.configurable)
-      ) return false
-    // A self-linked constructor is easy to manufacture on a caller-owned
-    // prototype. Real Fetch implementations expose the Response constructor
-    // under this stable name; reject arbitrary constructor names before the
-    // remaining structural checks can route a generic result here.
-    // Fetch Response constructors expose the standard static factories. A
-    // caller-created self-linked function can copy the name and prototype
-    // link, but it must not be accepted as a platform Response constructor
-    // without this constructor surface.
-    if (!hasRuntimeType(responseConstructor.error, "function")
-      || !hasRuntimeType(responseConstructor.json, "function")
-      || !hasRuntimeType(responseConstructor.redirect, "function")) return false
-    // The static factories are intrinsic constructors, rather than marker
-    // methods. A copied surface with no working factory must not establish
-    // Response provenance.
-    const errorResponse = responseConstructor.error.call(responseConstructor)
-    if (!isRuntimeObject(errorResponse) || Object.getPrototypeOf(errorResponse) !== tagOwner) return false
-    // A copied tag, constructor link, and the three static factories are still
-    // insufficient to identify a Fetch Response. Require the rest of the
-    // standard prototype surface before accepting a caller-created shape.
-    const responsePrototypeAccessors = ["type", "url", "redirected", "ok", "bodyUsed"]
-    for (const key of responsePrototypeAccessors) {
-      if (ownResponseTag) break
-      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
-      if (!descriptor || !hasRuntimeType(descriptor.get, "function") || descriptor.set) return false
-    }
-    const responsePrototypeMethods = ["clone", "blob", "arrayBuffer", "text", "formData", "json"]
-    for (const key of responsePrototypeMethods) {
-      if (ownResponseTag) break
-      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
-      if (!descriptor || !hasRuntimeType(descriptor.value, "function")) return false
-    }
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    // The foreign implementation owns its getters. Require the full Response
-    // accessor contract before accepting an output as a byte stream.
-    const read = (key: string): unknown => {
-      let prototype: object | null = value
-      const visited = new Set<object>()
-      for (let hop = 0; prototype && hop < 100 && !visited.has(prototype); hop++) {
-        visited.add(prototype)
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-        if (descriptor) return descriptor.get ? descriptor.get.call(value) : descriptor.value
-        prototype = Object.getPrototypeOf(prototype) as object | null
-      }
-    }
-    // A genuine Response exposes body through its prototype accessor. Requiring
-    // that surface keeps objects with caller-controlled own body fields out of
-    // the Response branch even when the field happens to contain a real stream.
-    let bodyAccessor = false
-    let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
-    const visitedBodyPrototypes = new Set<object>()
-    for (let hop = 0; bodyPrototype && hop < maxResponsePrototypeHops && !visitedBodyPrototypes.has(bodyPrototype); hop++) {
-      visitedBodyPrototypes.add(bodyPrototype)
-      const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
-      if (descriptor) {
-        // The body must be exposed through the implementation's accessor.
-        // Accepting an own data property here lets a caller-created object
-        // manufacture the complete own-tag shape without any Response body
-        // implementation behind it.
-        bodyAccessor = hasRuntimeType(descriptor.get, "function")
-        break
-      }
-      bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
-    }
-    if (!bodyAccessor) return false
-    // Use the host Fetch brand when available. This rejects caller-created
-    // classes that copy the complete Response surface while still allowing a
-    // structurally compatible implementation from another realm below.
-    let trustedResponse = false
-    for (const statusGetter of [trustedResponseStatusGetter]) {
-      if (!hasRuntimeType(statusGetter, "function")) continue
-      try {
-        statusGetter.call(value)
-        trustedResponse = true
-        break
-      }
-      catch {
-        // The other supported Fetch implementation may own this response.
-      }
-    }
-    // The supported independent ponyfill stores its body machinery on each
-    // instance. Require that implementation surface for unbranded own-tag
-    // responses instead of trusting caller-controlled constructor metadata.
-    // Subclasses inherit the registered implementation's brand. Resolve the
-    // constructor chain just as trigger response classification does.
-    const registeredResponse = !!findTrustedResponseConstructor(constructorDescriptor.value)
-    if (ownResponseTag && !trustedResponse) {
-      // Foreign Fetch implementations must opt in at their adapter boundary.
-      // Public fields such as `_bodyFactory` are copyable and do not establish provenance.
-      if (!registeredResponse) return false
-    }
-    if (!trustedResponse && !registeredResponse && !ownResponseTag) return false
-    const status = read("status")
-    const statusText = read("statusText")
-    const headers = read("headers")
-    const body = read("body")
-    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
-    if (!hasRuntimeType(statusText, "string")) return false
-    if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
-    if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
-    // A bodyless response is valid for the registered implementation too:
-    // its constructor registration establishes provenance even when the
-    // host-realm brand accessor cannot run against the foreign instance.
-    if (body === null) {
-      if (trustedResponse || registeredResponse) validatedResponseBodies.set(value, null)
-      return trustedResponse || registeredResponse
-    }
-    if (!isRuntimeObject(body)) return false
-    // A stream may already be locked by its caller. In that state acquiring a
-    // reader throws even though the value is a genuine Web Stream. Use the
-    // intrinsic tag as the non-destructive brand signal, and only probe the
-    // trusted reader operation when it succeeds. Consumption below still
-    // surfaces a locked-body error rather than silently taking the generic path.
-    if (Object.prototype.toString.call(body) !== "[object ReadableStream]") return false
-    // A spoofed Symbol.toStringTag is not enough to establish stream
-    // provenance. Genuine streams expose the platform `locked` accessor on
-    // their prototype chain; require that non-callable surface before
-    // accepting a failed reader probe as the already-locked case.
-    let lockedAccessor: (() => unknown) | undefined
-    let streamReader: ((...args: unknown[]) => unknown) | undefined
-    let validatedStreamPrototype: object | undefined
-    let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
-    const visitedStreamPrototypes = new Set<object>()
-    for (let hop = 0; streamPrototype && hop < maxResponsePrototypeHops && !visitedStreamPrototypes.has(streamPrototype); hop++) {
-      visitedStreamPrototypes.add(streamPrototype)
-      const lockedDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
-      if (lockedDescriptor) {
-        if (hasRuntimeType(lockedDescriptor.get, "function")) {
-          lockedAccessor = () => lockedDescriptor.get!.call(body)
-        }
-        const readerDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
-        if (readerDescriptor && hasRuntimeType(readerDescriptor.value, "function")) {
-          streamReader = readerDescriptor.value as (...args: unknown[]) => unknown
-        }
-        validatedStreamPrototype = streamPrototype
-        break
-      }
-      streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
-    }
-    // Some independent Fetch implementations expose a Web Stream facade
-    // through a proxy. Its methods work when read from the instance, even
-    // though the proxy target's prototype has no corresponding descriptors.
-    if (!lockedAccessor || !streamReader) {
-      // Registered foreign responses may expose a proxy-backed reader, but an
-      // own or accessor-backed reader operation is caller-controlled and must
-      // not run merely because the response constructor was registered.
-      if (!registeredResponse) return false
-      // The instance fallback is an adapter boundary for implementations such
-      // as node-fetch whose stream facade is exposed by a proxy. Reconfirm the
-      // response's intrinsic implementation brand before touching that facade;
-      // a response-shaped generic result must stay on the generic path.
-      if (!isResponse(value)) return false
-      const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
-      const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-      if (ownLocked || ownReader) return false
-      const directLocked = (body as { locked?: unknown }).locked
-      const directReader = (body as { getReader?: unknown }).getReader
-      if (!hasRuntimeType(directReader, "function")) return false
-      lockedAccessor = () => (body as { locked?: unknown }).locked
-      streamReader = directReader as (...args: unknown[]) => unknown
-      if (directLocked !== undefined && !hasRuntimeType(directLocked, "boolean")) return false
-    }
-    try {
-      // Use the stream's own prototype operation so foreign-realm brands are
-      // accepted; the host realm's intrinsic rejects those streams.
-      const reader = streamReader.call(body)
-      if (!isRuntimeObject(reader)) return false
-      let releaseLock: unknown
-      let readerPrototype: object | null = reader
-      const visitedReaderPrototypes = new Set<object>()
-      for (let hop = 0; readerPrototype && hop < maxResponsePrototypeHops && !visitedReaderPrototypes.has(readerPrototype); hop++) {
-        visitedReaderPrototypes.add(readerPrototype)
-        const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
-        if (descriptor) {
-          releaseLock = descriptor.value
-          break
-        }
-        readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
-      }
-      if (!hasRuntimeType(releaseLock, "function")) return false
-      ;(releaseLock as (this: object) => void).call(reader)
-    }
-    catch {
-      // A locked genuine stream remains a Response. Confirm the lock state
-      // through the stream's own accessor so a failed probe on an incompatible
-      // object cannot establish the Response classification.
-      if (lockedAccessor() !== true) return false
-    }
-    const pipeThrough = getPrototypeMethod(body, "pipeThrough", validatedStreamPrototype)
-    if (!pipeThrough) return false
-    validatedResponseBodies.set(value, body)
-    validatedResponsePipeThrough.set(body, pipeThrough as (this: object, ...args: unknown[]) => unknown)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
-  if (hasRuntimeType(value, "string")) {
+  if (typeof value === "string") {
     if (value) yield { text: value, type: "text-delta" }
     yield { type: "finish" }
     return
   }
-  const result = value && hasRuntimeType(value, "object")
+  const result = value && typeof value === "object"
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
@@ -1365,15 +1096,10 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   let textIterator: AsyncIterator<unknown> | undefined
   const getTextIterator = () => (textIterator ??= getTextStream()?.[Symbol.asyncIterator]())
-  // Genuine Responses take precedence over incidental generic fields such as
-  // `textStream`; spoofed response-shaped values fail the brand check below
-  // and retain the generic handling path.
-  if (isResponseLike(value)) {
-    const body = validatedResponseBodies.get(value)
-    if (body) {
-      const pipeThrough = validatedResponsePipeThrough.get(body)
-      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
-      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
+  // A Response takes precedence over incidental generic fields such as `textStream`.
+  if (isResponse(value)) {
+    if (value.body) {
+      for await (const text of hostReadableStream(value.body).pipeThrough(new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
       }
     }
@@ -1394,7 +1120,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const textStream = getTextStream()
   if (textStream) {
     for await (const text of textStream) {
-      if (hasRuntimeType(text, "string") && text) {
+      if (typeof text === "string" && text) {
         yield { text, type: "text-delta" }
       }
     }
@@ -1409,18 +1135,18 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     return
   }
   // Explicit Agent streams take precedence over response-shaped output fields.
-  const text = hasRuntimeType(value, "object") && value !== null
+  const text = typeof value === "object" && value !== null
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? textFromResult(value as Record<string, unknown>)
     : undefined
-  if (hasRuntimeType(text, "string")) {
+  if (typeof text === "string") {
     if (text) yield { text, type: "text-delta" }
     const usageRecord = await resolveAgentUsageRecord(value)
     if (usageRecord) {
       yield { type: "usage", usageRecord }
     }
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    const reason = hasRuntimeType((value as { finishReason?: unknown }).finishReason, "string")
+    const reason = typeof (value as { finishReason?: unknown }).finishReason === "string"
       // SAFETY: Agent output normalization establishes the asserted stream result contract.
       ? (value as { finishReason: string }).finishReason
       : undefined

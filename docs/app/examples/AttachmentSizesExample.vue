@@ -2,7 +2,7 @@
   <div class="flex w-full max-w-sm flex-col gap-3">
     <Attachment size="default" class="w-full">
       <AttachmentMedia>
-        <UIcon name="i-ph-file-text-light" />
+        <UIcon name="i-lucide-file-text" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle>Default attachment</AttachmentTitle>
@@ -11,7 +11,7 @@
     </Attachment>
     <Attachment size="sm" class="w-full">
       <AttachmentMedia>
-        <UIcon name="i-ph-file-text-light" />
+        <UIcon name="i-lucide-file-text" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle>Small attachment</AttachmentTitle>
@@ -20,7 +20,7 @@
     </Attachment>
     <Attachment size="xs" class="w-full">
       <AttachmentMedia>
-        <UIcon name="i-ph-file-text-light" />
+        <UIcon name="i-lucide-file-text" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle>Extra small attachment</AttachmentTitle>

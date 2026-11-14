@@ -1,7 +1,5 @@
-import { hasRuntimeType } from "./runtime-type.ts"
-
 export function isAmbiguousAgentWorkflowStartFailure(error: unknown): boolean {
-  if (!error || !hasRuntimeType(error, "object")) return false
+  if (!error || typeof error !== "object") return false
   try {
     if (!("code" in error) || !("details" in error)) return false
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
@@ -11,7 +9,7 @@ export function isAmbiguousAgentWorkflowStartFailure(error: unknown): boolean {
       (error as { code?: unknown }).code === "WORKFLOW_PROVIDER_OPERATION_FAILED" &&
       Boolean(
         details &&
-        hasRuntimeType(details, "object") &&
+        typeof details === "object" &&
         // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
         (details as { acknowledgement?: unknown }).acknowledgement === "unknown" &&
         // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.

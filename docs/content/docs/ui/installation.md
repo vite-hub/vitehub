@@ -23,7 +23,7 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 | `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `@vite-hub/ui/headless`. |
 | `vite` and `@vitejs/plugin-vue`           | The `@vite-hub/ui/vite` plugin.                           |
 | `vite-hub`                                | Nuxt. `vite-hub/nuxt` gives the components their Nuxt runtime. |
-| `@iconify-json/lucide`, `@iconify-json/ph` | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
+| `@iconify-json/lucide`                    | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
 
 `@nuxt/ui` and `vite` are optional peers, so an app that uses only the headless entry does not need them.
 
@@ -32,7 +32,7 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 Install the package and its peers:
 
 ```bash [commands/install-nuxt]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
 ```
 
 Add Nuxt UI and ViteHub to `nuxt.config.ts`. Register Nuxt UI first:
@@ -54,7 +54,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 
 `vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
-Each component family also has its own entry, such as `@vite-hub/ui/chat`. It exports the same components as `@vite-hub/ui` and keeps the dev import graph small.
+For explicit imports, import every component from `@vite-hub/ui`. A production build keeps only the components that the app uses. Only `MarkdownEditor` (`@vite-hub/ui/markdown-editor`) and the workspace parts (`@vite-hub/ui/workspace`) have their own entries, because their dependencies are large. The theme (`@vite-hub/ui/theme`) and the share links (`@vite-hub/ui/playground`) have their own too, because they load without the components.
 
 ## Install in Vue with Vite
 
@@ -184,6 +184,51 @@ app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
 
 A part uses the component given here first, then a global one with the same name from `app.component()`, then Nuxt UI's.
 
+## Icons
+
+The parts read their icons by name. A name that Nuxt UI has, such as `close` or `check`, comes from Nuxt UI's `appConfig.ui.icons`, so the parts follow the same icon set as Nuxt UI's own components. A name that Nuxt UI does not have, such as `edit` or `delete`, comes from `appConfig.viteHubUI.icons`. Each name falls back to Lucide.
+
+```ts [nuxt/icons/app/app.config.ts]
+export default defineAppConfig({
+  ui: {
+    icons: { check: "i-ph-check", close: "i-ph-x" },
+  },
+  viteHubUI: {
+    icons: { delete: "i-ph-trash", edit: "i-ph-pencil-simple", reopen: "i-ph-arrow-counter-clockwise" },
+  },
+});
+```
+
+The Nuxt module reads both for you and follows changes to the app config. A name in `viteHubUI.icons` wins over the same name in `ui.icons`, for the ViteHub parts only. In Vue with Vite, pass one object with all the names. A ref or a getter keeps them reactive:
+
+```ts [vite/icons/src/main.ts] fragment
+import { vitehubTheme } from "@vite-hub/ui/theme";
+
+app.use(createViteHubUI({ icons: { ...vitehubTheme.icons, delete: "i-ph-trash", edit: "i-ph-pencil-simple" } }));
+```
+
+| Name | Source | Default | Used by |
+| --- | --- | --- | --- |
+| `arrowLeft` | Nuxt UI | `i-lucide-arrow-left` | Back button of `CommentThread` |
+| `arrowUp` | Nuxt UI | `i-lucide-arrow-up` | Send button of `PromptInput` and `CommentComposer` |
+| `check` | Nuxt UI | `i-lucide-check` | Resolve button of `CommentThread` |
+| `close` | Nuxt UI | `i-lucide-x` | Close button of `CommentThread` and image previews, remove button of attachments |
+| `copy` | Nuxt UI | `i-lucide-copy` | `CopyButton` before a copy |
+| `copyCheck` | Nuxt UI | `i-lucide-check` | `CopyButton` after a copy |
+| `external` | Nuxt UI | `i-lucide-external-link` | Open button of image previews |
+| `file` | Nuxt UI | `i-lucide-file` | Attachments that are not images |
+| `plus` | Nuxt UI | `i-lucide-plus` | Attach button of `PromptInput` and `CommentComposer` |
+| `reload` | Nuxt UI | `i-lucide-refresh-cw` | Retry button of `PromptInput` |
+| `stop` | Nuxt UI | `i-lucide-square` | Stop button of `PromptInput` |
+| `comment` | ViteHub | `i-lucide-message-circle` | Comment mode button of `CommentToolbar` |
+| `commentList` | ViteHub | `i-lucide-list` | List button of `CommentToolbar` |
+| `commentPage` | ViteHub | `i-lucide-square-pen` | Page comment button of `CommentToolbar` |
+| `delete` | ViteHub | `i-lucide-trash-2` | Delete button of a comment |
+| `edit` | ViteHub | `i-lucide-pencil` | Edit button of a comment |
+| `reopen` | ViteHub | `i-lucide-rotate-ccw` | Reopen button of a resolved `CommentThread` |
+
+In Nuxt, Nuxt UI fills `appConfig.ui.icons` with its own defaults, so a Nuxt UI name shows Nuxt UI's icon, such as `i-lucide-arrow-up-right` for `external`. The Lucide default applies when nothing sets the name.
+
 ## Theme
 
 The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any element to change one view:
@@ -199,6 +244,41 @@ The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any el
 The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-highlighted`, `--vh-ui-inverted`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-bg-accented`, `--vh-ui-primary`, `--vh-ui-ring`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`. The stylesheet sets none of them. Unset, each follows its Nuxt UI token, such as `--ui-border`, where the part renders. So an element that sets Nuxt UI tokens, such as one with the `dark` class, themes the parts inside it.
 
 `--vh-ui-radius` is the corner radius of framed parts, such as `CodeBlock` and `CodeView`. It defaults to Nuxt UI's `rounded-lg`, twice `--ui-radius`. Other corners, such as those of `Bubble` and `PromptInput`, derive from it, so one value changes them all.
+
+### Design system tokens
+
+`@vite-hub/ui/theme.css` is the ViteHub design system for a whole app. It sets the colors and the radius under their [shadcn/ui names](https://ui.shadcn.com/docs/theming), and Nuxt UI's `--ui-*` tokens read those names. To change one, set its name after the theme: on `:root` for light, and on `:root.dark` for dark.
+
+```css [nuxt/tokens/assets/css/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/theme.css";
+
+:root {
+  --radius: 0.375rem;
+  --foreground: oklch(0.145 0 0);
+}
+
+:root.dark {
+  --background: oklch(0.1 0 0);
+}
+```
+
+| Name | Tokens that read it | Light | Dark |
+| --- | --- | --- | --- |
+| `--background` | `--ui-bg`, `--ui-text-inverted` | `oklch(1 0 0)` | `oklch(0.145 0 0)` |
+| `--foreground` | `--ui-text-highlighted`, `--ui-bg-inverted`, `--ui-border-inverted` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` |
+| `--muted` | `--ui-bg-elevated` | `oklch(0.97 0 0)` | `rgb(255 255 255 / 5%)` |
+| `--muted-foreground` | `--ui-text-muted` | `oklch(0.5 0 0)` | `oklch(0.708 0 0)` |
+| `--border` | `--ui-border` | `oklch(0.922 0 0)` | `rgb(255 255 255 / 10%)` |
+| `--primary` | `--ui-primary` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` |
+| `--popover` | `--vh-floating`, the surface of menus, popovers, and tooltips | `rgb(255 255 255 / 92%)` | `rgb(23 23 23 / 92%)` |
+| `--ring` | `--vh-focus`, the focus ring and drawn comment areas | `oklch(0.588 0.158 241.966)` | `oklch(0.746 0.16 232.661)` |
+| `--radius` | `--ui-radius` | `0.25rem` | `0.25rem` |
+
+`--radius` is Nuxt UI's smallest step (`rounded-sm`), as in `@vite-hub/kit`. It is not the card radius of shadcn/ui. Nuxt UI multiplies it: buttons get 1.5 times, cards 2 times, and menus 3 times.
+
+The other Nuxt UI steps have no shadcn/ui name, so you set them on the token itself, in both blocks: `--ui-text`, `--ui-text-toned`, `--ui-text-dimmed`, `--ui-bg-muted`, `--ui-bg-accented`, `--ui-border-muted`, and `--ui-border-accented`. The status colors, such as `--ui-error`, come from the `colors` of the Nuxt UI app config. The theme does not set other shadcn/ui names, such as `--card` or `--input`, because no token reads them.
 
 ## Server rendering
 

@@ -1,5 +1,4 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
@@ -20,9 +19,16 @@ import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, Sn
 const { workspaceHistoryWorkspaces: workspaces, workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
 type RevisionRow = typeof revisions.$inferSelect
 
+type HistoryDatabase = RuntimeDrizzleDatabase<Record<string, unknown>>
+
 export interface BlobDatabaseWorkspaceStoreOptions {
   blob: BlobStorage
-  database: RuntimeDrizzleDatabase<Record<string, unknown>>
+  /**
+   * The Drizzle database with the history tables, or a function that returns it. The Store calls the function on first
+   * use. In a Workspace Definition, pass `() => useDatabase("history").db`, because the build loads the Definition
+   * without the app's Databases.
+   */
+  database: HistoryDatabase | (() => HistoryDatabase)
   /** Stable workspace identity. Deleted identities cannot be reused. */
   workspace: string
   /**
@@ -39,7 +45,7 @@ export interface BlobDatabaseWorkspaceStoreOptions {
 export interface BlobDatabaseWorkspaceStoreTarget {
   provider: "blob-database"
   workspace: string
-  database: RuntimeDrizzleDatabase<Record<string, unknown>>
+  database: HistoryDatabase
 }
 
 export interface BlobDatabaseWorkspaceStore extends WorkspaceStore {
@@ -70,9 +76,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   #dirty = false
   #baseline?: WorkspaceSnapshot
   #queue: Promise<void> = Promise.resolve()
+  #database?: HistoryDatabase
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
-    if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
+    if (typeof options.workspace !== "string" || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
     if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
     // ViteHub owns every history object, so a custom prefix only nests below the owned root.
     const root = `${vitehubOwnedPrefix}workspace-history`
@@ -88,7 +95,17 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   [workspaceStoreTarget](): BlobDatabaseWorkspaceStoreTarget {
-    return { provider: "blob-database", workspace: this.options.workspace, database: this.options.database }
+    return { provider: "blob-database", workspace: this.options.workspace, database: this.#db }
+  }
+
+  get #db(): HistoryDatabase {
+    if (this.#database) return this.#database
+    const { database } = this.options
+    const resolved = typeof database === "function" ? database() : database
+    if (typeof resolved?.batch !== "function") {
+      throw workspaceErrorDiagnostics.WORKSPACE_R0077({ message: `[vitehub] The \`database\` of the Blob + Database Store for workspace "${this.options.workspace}" is not a Drizzle database.` })
+    }
+    return this.#database = resolved
   }
 
   history: WorkspaceStoreHistory = {
@@ -98,7 +115,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     open: async id => await this.#open(id),
     usage: async () => {
       const workspace = await this.#key()
-      const [result] = await this.options.database.values<[number, number]>(sql`
+      const [result] = await this.#db.values<[number, number]>(sql`
         select coalesce(sum(size), 0) as bytes, count(*) as objects from (
           select distinct json_extract(file.value, '$.digest') as digest,
             json_extract(file.value, '$.size') as size
@@ -122,16 +139,16 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #key() {
     const candidates = await this.#namespace
-    this.#ready ??= this.options.database.batch([
+    this.#ready ??= this.#db.batch([
       // Read existing identities before claiming the new one. This preserves
       // legacy history when an installation upgrades, while the insert below
       // atomically claims the owned identity for new workspaces.
-      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
-      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
+      this.#db.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
+      this.#db.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
       // Claim the owned identity only when no legacy identity exists. Keeping
       // this condition in the atomic batch avoids leaving an empty current row
       // that would shadow legacy history on the next process restart.
-      this.options.database.insert(workspaces).select(sql`
+      this.#db.insert(workspaces).select(sql`
         select ${candidates[0]!}, 0
         where not exists (
           select 1 from ${workspaces} where ${workspaces.workspace} = ${candidates[1] ?? candidates[0]!}
@@ -153,13 +170,13 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #isDeleted() {
     const workspace = await this.#key()
-    const [row] = await this.options.database.select({ deleted: workspaces.deleted }).from(workspaces).where(eq(workspaces.workspace, workspace))
+    const [row] = await this.#db.select({ deleted: workspaces.deleted }).from(workspaces).where(eq(workspaces.workspace, workspace))
     if (!row) throw workspaceError("[vitehub] Workspace history identity is missing.")
     return row.deleted
   }
 
   async #ref(workspace: string, ref: string) {
-    const [row] = await this.options.database.select().from(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), this.#active(workspace)))
+    const [row] = await this.#db.select().from(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), this.#active(workspace)))
     return row
   }
 
@@ -171,10 +188,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #refs(): Promise<WorkspaceHistoryRef[]> {
     const workspace = await this.#key()
-    const heads = await this.options.database.select({ ref: refs.ref, head: refs.head }).from(refs)
+    const heads = await this.#db.select({ ref: refs.ref, head: refs.head }).from(refs)
       .where(and(eq(refs.workspace, workspace), isNotNull(refs.head), this.#active(workspace)))
     if (!heads.length) return []
-    const rows = await this.options.database.select().from(revisions).where(and(
+    const rows = await this.#db.select().from(revisions).where(and(
       eq(revisions.workspace, workspace), eq(revisions.committed, true), inArray(revisions.id, heads.map(row => row.head!)), this.#active(workspace),
     ))
     const byId = new Map(rows.map(row => [row.id, row]))
@@ -194,7 +211,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #revision(id: string): Promise<RevisionRow> {
     const workspace = await this.#key()
-    const [row] = await this.options.database.select().from(revisions).where(and(
+    const [row] = await this.#db.select().from(revisions).where(and(
       eq(revisions.workspace, workspace), eq(revisions.id, id), eq(revisions.committed, true), this.#active(workspace),
     ))
     if (!row) throw new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace revision does not exist: ${id}.`)
@@ -243,7 +260,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           and current_file.key is null
       )
     )`
-    const rows = await this.options.database.select().from(revisions).where(and(
+    const rows = await this.#db.select().from(revisions).where(and(
       eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
       cursor ? lt(revisions.sequence, cursor.sequence) : undefined,
       pathFilter,
@@ -306,7 +323,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const ref = normalizeHistoryRef(options.ref)
     if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
     const expectedHeads = Object.entries(options.ifHeads ?? {}).map(([name, head]) => {
-      if (head !== null && (!hasRuntimeType(head, "string") || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
+      if (head !== null && (typeof head !== "string" || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
       return [normalizeHistoryRef(name), head] as const
     })
     const workspace = await this.#key()
@@ -329,7 +346,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       const normalized = normalizeHistoryPath(path)
       if (puts.has(normalized) || removed.has(normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
       puts.add(normalized)
-      if (!hasRuntimeType(file.content, "string") && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
+      if (typeof file.content !== "string" && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
       const bytes = new Uint8Array(contentToBytes(file.content))
       const digest = await sha256(bytes)
       const entry: HistoryManifestFile = { digest, size: bytes.byteLength, mediaType: file.mediaType || "application/octet-stream" }
@@ -355,7 +372,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     }
     const id = await sha256(manifest)
     const registry = [...contents].map(([digest, bytes]) => ({ digest, size: bytes.byteLength }))
-    await this.options.database.insert(objects).select(sql`
+    await this.#db.insert(objects).select(sql`
       select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
       from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
       where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
@@ -387,18 +404,18 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     // Check the other refs in the same statement that advances this ref, including absent refs.
     const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
     // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-    const [, , changed] = await this.options.database.batch([
-      this.options.database.insert(refs).select(sql`
+    const [, , changed] = await this.#db.batch([
+      this.#db.insert(refs).select(sql`
         select ${workspaces.workspace}, ${ref}, null, 0
         from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.insert(revisions).select(sql`
+      this.#db.insert(revisions).select(sql`
         select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
           ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
           ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
         from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
+      this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
         eq(refs.workspace, workspace),
         eq(refs.ref, ref),
         sql`${refs.head} is ${options.ifHead}`,
@@ -407,7 +424,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
         this.#active(workspace),
       )).returning({ head: refs.head }),
-      this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
+      this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
     ])
     if (!changed.length) {
       if (await this.#isDeleted()) this.#deleted()
@@ -429,7 +446,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     if (headError?.code === "BLOB_NOT_FOUND") return
     if (headError) throw headError
     if (!object) return
-    const [error] = await this.options.blob.del(key)
+    const [error] = await this.options.blob.delete(key)
     if (error && error.code !== "BLOB_NOT_FOUND") throw error
   }
 
@@ -439,12 +456,12 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #delete(): Promise<void> {
     const workspace = await this.#key()
-    await this.options.database.batch([
-      this.options.database.update(workspaces).set({ deleted: true }).where(eq(workspaces.workspace, workspace)),
-      this.options.database.delete(refs).where(eq(refs.workspace, workspace)),
+    await this.#db.batch([
+      this.#db.update(workspaces).set({ deleted: true }).where(eq(workspaces.workspace, workspace)),
+      this.#db.delete(refs).where(eq(refs.workspace, workspace)),
     ])
     // The tombstone fences publishers before cleanup. Keep it after cleanup so late writers cannot resurrect this namespace.
-    const catalog = await this.options.database.select().from(objects).where(eq(objects.workspace, workspace))
+    const catalog = await this.#db.select().from(objects).where(eq(objects.workspace, workspace))
     for (const object of catalog) {
       await this.#removeObject(`${workspace}/sha256/${object.digest}`)
     }
@@ -461,13 +478,13 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       if (cursor) cursors.add(cursor)
     } while (cursor)
     for (let offset = 0; offset < remaining.length; offset += 1000) {
-      const [error] = await this.options.blob.del(remaining.slice(offset, offset + 1000))
+      const [error] = await this.options.blob.delete(remaining.slice(offset, offset + 1000))
       if (error) throw error
     }
-    await this.options.database.batch([
-      this.options.database.delete(revisions).where(eq(revisions.workspace, workspace)),
-      this.options.database.delete(objects).where(eq(objects.workspace, workspace)),
-      this.options.database.delete(metadata).where(eq(metadata.workspace, workspace)),
+    await this.#db.batch([
+      this.#db.delete(revisions).where(eq(revisions.workspace, workspace)),
+      this.#db.delete(objects).where(eq(objects.workspace, workspace)),
+      this.#db.delete(metadata).where(eq(metadata.workspace, workspace)),
     ])
     this.#draft = undefined
     this.#dirty = false
@@ -551,7 +568,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async getMeta(key: string) {
     const workspace = await this.#key()
-    const [row] = await this.options.database.select().from(metadata).where(and(
+    const [row] = await this.#db.select().from(metadata).where(and(
       eq(metadata.workspace, workspace), eq(metadata.key, key),
       this.#active(workspace),
     ))
@@ -562,10 +579,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     await this.#assertActive()
     const workspace = await this.#key()
     if (value === undefined) {
-      await this.options.database.delete(metadata).where(and(eq(metadata.workspace, workspace), eq(metadata.key, key)))
+      await this.#db.delete(metadata).where(and(eq(metadata.workspace, workspace), eq(metadata.key, key)))
       return
     }
-    await this.options.database.insert(metadata).select(this.options.database.select({
+    await this.#db.insert(metadata).select(this.#db.select({
       workspace: sql<string>`${workspace}`.as("workspace"), key: sql<string>`${key}`.as("key"), value: sql<unknown>`${JSON.stringify(value)}`.as("value"),
     }).from(workspaces).where(and(eq(workspaces.workspace, workspace), eq(workspaces.deleted, false)))).onConflictDoUpdate({ target: [metadata.workspace, metadata.key], set: { value: sql`${JSON.stringify(value)}` } })
   }

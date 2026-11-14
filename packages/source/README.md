@@ -84,7 +84,34 @@ content receive file methods too. Record readers use `get()` and `items()`.
 `github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
 callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
-`auth: false` reads without a token.
+`auth: false` reads without a token. `authenticated()` tells whether reads send a
+token. Content serves a `github()` Source from a validated head commit only when
+it does.
+
+`history(key, { sha, page, perPage })` lists the commits that changed one file,
+newest first, from the commit `sha` back. It reads GitHub's commits endpoint with
+`path`, so it does not follow renames. Each commit has `sha`, `date`, `author`,
+the first line of `message`, and `url`. `content.history()` uses it.
+
+`latest(keys, { sha })` returns the latest commit of many files at once, as a
+`Map` from key to commit. It sends one GitHub GraphQL request per 150 files, 4
+at a time, so 2,600 files cost 18 requests. When GitHub stops a request after 10
+seconds (502), it asks again with half the files. `changes(base, head)` returns
+the keys that a commit from one commit to a later one changed, with a file that
+one commit edits and a later one reverts. It sends one compare request, plus one
+commit request per commit when there is more than one. It returns undefined when
+GitHub cannot list them all or more than 20 commits lie between them. The Content sitemap and RSS feed
+use both to date Source pages. `pullChanges(number)` returns the keys that a pull
+request adds or changes, from its file list, with the new key of a renamed file
+and without removed files. GitHub lists at most 3,000 files of a pull request.
+`vitehub content previews comment` uses it.
+
+`resolveRef()` returns the commit that a ref of the repository points to now:
+`{ sha }` for `{ sha }` or `{ branch }`, and `{ sha, pull }` for `{ pull: 12 }`.
+`pull` has the state, the head and base branches, `fork`, and the label names. A
+branch must match its full name, and a SHA must be a full commit SHA. It returns
+undefined when the repository has no such ref. Content uses it for
+`content.sources.at()`.
 
 `glob()` takes a pattern or options. In a pattern, the folders before the first
 wildcard are `cwd`, so keys are the paths below them:
@@ -112,7 +139,7 @@ refresh, so overlapping loads keep separate revisions:
 ```ts fragment
 import { defineContent } from "@vite-hub/content"
 
-export const content = defineContent({ source: docs })
+export default defineContent({ source: docs })
 ```
 
 Workspace binds the same definition to a persistent file tree:
@@ -186,6 +213,11 @@ await cachedDocs.get("intro.md")
 
 Use a different cache name for each origin and access scope.
 
+The `cache` option of a loader, such as `github({ cache: { maxAge } })`, is a
+hint for the consumer of the Source. The Workspace reads it to decide when its
+copy of the Source content is stale. A reader from `createSource()` alone does
+not read `cache` and does not cache.
+
 ## Collections
 
 Define a Collection when a database or other origin should become a typed,
@@ -196,8 +228,17 @@ paginated client read model:
 import { defineCollection } from "@vite-hub/source"
 import * as v from "valibot"
 
+interface Article { id: string, title: string, createdAt: number }
+
 export const articles = defineCollection(async ({ cursor, limit, query }) => {
-  return db.listArticles({ after: cursor, author: query.author, limit })
+  // A CMS API that pages by the last (createdAt, id) it returned
+  const url = new URL("https://cms.example.com/api/articles")
+  url.searchParams.set("limit", String(limit))
+  if (cursor) url.searchParams.set("after", cursor.join(","))
+  if (query.author) url.searchParams.set("author", query.author)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
+  return await response.json() as Article[]
 }, {
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),

@@ -1,7 +1,7 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
@@ -39,31 +39,31 @@ interface WorkflowRuntimeAdapter {
 }
 
 function resolveDispatchObserver(event: unknown): (() => void) | undefined {
-  if (!event || !hasRuntimeType(event, "object")) return undefined
+  if (!event || typeof event !== "object") return undefined
   const candidate = Object.hasOwn(event, "onDispatch")
     ? Reflect.get(event, "onDispatch")
     : undefined
   // SAFETY: The runtime event member is callable and takes no provider data.
-  return hasRuntimeType(candidate, "function") ? candidate as () => void : undefined
+  return typeof candidate === "function" ? candidate as () => void : undefined
 }
 
 function resolveSettlementObserver(event: unknown): ((promise: PromiseLike<unknown>) => void) | undefined {
-  if (!event || !hasRuntimeType(event, "object")) return undefined
+  if (!event || typeof event !== "object") return undefined
   const candidate = Object.hasOwn(event, "settled")
     ? Reflect.get(event, "settled")
     : undefined
-  // SAFETY: hasRuntimeType establishes that the runtime event member is callable.
-  if (hasRuntimeType(candidate, "function")) return candidate as (promise: PromiseLike<unknown>) => void
+  // SAFETY: The typeof check establishes that the runtime event member is callable.
+  if (typeof candidate === "function") return candidate as (promise: PromiseLike<unknown>) => void
   const context = Object.hasOwn(event, "context")
     ? Reflect.get(event, "context")
     : undefined
-  if (!context || !hasRuntimeType(context, "object")) return undefined
+  if (!context || typeof context !== "object") return undefined
   const contextObject = Object(context)
   const nested = Object.hasOwn(contextObject, "settled")
     ? Reflect.get(contextObject, "settled")
     : undefined
-  // SAFETY: hasRuntimeType establishes that the nested runtime event member is callable.
-  return hasRuntimeType(nested, "function") ? nested as (promise: PromiseLike<unknown>) => void : undefined
+  // SAFETY: The typeof check establishes that the nested runtime event member is callable.
+  return typeof nested === "function" ? nested as (promise: PromiseLike<unknown>) => void : undefined
 }
 
 function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel", operation: WorkflowOperationName): never {
@@ -73,15 +73,29 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
   })
 }
 
+/**
+ * True on a development server: `vite dev` installs the run history. Code that ViteHub did not start, such as a test
+ * runner, has no history, so `NODE_ENV` decides there.
+ */
+function isDevelopmentServer(): boolean {
+  if (getWorkflowDevRecorder()) return true
+  const mode = globalThis.process?.env?.NODE_ENV
+  return mode === "development" || mode === "test"
+}
+
+/**
+ * The Cloudflare Workflow binding of `name`. Only a development server runs the Workflow inline without it. Elsewhere,
+ * a missing binding fails, because an inline run is not durable.
+ */
 function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string, definition?: { internalAgentInvocationRecovery?: true }) {
   const env = getCloudflareEnv(event)
   const bindingName = definition?.internalAgentInvocationRecovery
     ? getCloudflareWorkflowBindingName(name)
     : binding || getCloudflareWorkflowBindingName(name)
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
-  return env && Object.hasOwn(env, bindingName)
-    ? env[bindingName] as CloudflareWorkflowBinding
-    : undefined
+  if (env && Object.hasOwn(env, bindingName)) return env[bindingName] as CloudflareWorkflowBinding
+  if (isDevelopmentServer()) return undefined
+  throw workflowErrorDiagnostics.WORKFLOW_R0036({ binding: bindingName, name })
 }
 
 function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
@@ -89,7 +103,7 @@ function resolveCloudflareInspectionBinding(event: unknown, binding: string | un
 }
 
 function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): { id: string } {
-  if (!hasRuntimeType(value, "object") || value === null) {
+  if (typeof value !== "object" || value === null) {
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
   }
 
@@ -101,28 +115,33 @@ function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): {
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.", { cause })
   }
 
-  if (!hasRuntimeType(id, "string") || !id || id !== expectedId) {
+  if (typeof id !== "string" || !id || id !== expectedId) {
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
   }
 
   return { id }
 }
 
+// Cloudflare `waiting` (a sleep, an event wait, or a retry delay), `waitingForPause`, and `paused` are not finished, so
+// they report `running` like a sleeping OpenWorkflow or Vercel run. `terminated` is a user cancellation.
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   cancelled: "cancelled",
   complete: "completed",
   completed: "completed",
   errored: "failed",
   failed: "failed",
+  paused: "running",
   queued: "queued",
   running: "running",
   success: "completed",
-  terminated: "failed",
+  terminated: "cancelled",
+  waiting: "running",
+  waitingforpause: "running",
 }
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
-  const value = hasRuntimeType(status, "object") && status && Object.hasOwn(status, "status")
+  const value = typeof status === "object" && status && Object.hasOwn(status, "status")
     ? (status as { status?: unknown }).status
     : status
   const normalized = String(value || "").toLowerCase()
@@ -130,17 +149,29 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
 }
 
 function ownSerializedOutput(metadata: unknown) {
-  if (!hasRuntimeType(metadata, "object") || metadata === null || !Object.hasOwn(metadata, "output")) return undefined
+  if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "output")) return undefined
   // SAFETY: The guards establish a non-null object with an own output property, whose value remains unknown.
   const output = (metadata as { output?: unknown }).output
   return isSerializedResponse(output) ? output : undefined
 }
 
+/** Cloudflare `get(id)` rejects with `instance.not_found` when no instance has the id. */
+function isCloudflareInstanceNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+  try {
+    const message: unknown = Reflect.get(error, "message")
+    return typeof message === "string" && message.includes("instance.not_found")
+  }
+  catch {
+    return false
+  }
+}
+
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
-  if (!error || !hasRuntimeType(error, "object")) return false
+  if (!error || typeof error !== "object") return false
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
   const details = (error as { details?: unknown }).details
-  return Boolean(details && hasRuntimeType(details, "object")
+  return Boolean(details && typeof details === "object"
     // SAFETY: Workflow provider normalization establishes the asserted run contract.
     && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
 }
@@ -151,7 +182,16 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async get({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       if (binding) {
-        const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
+        const instance = await runWorkflowProviderOperation("cloudflare", "get", async () => {
+          try {
+            return await binding.get(id)
+          }
+          catch (error) {
+            if (isCloudflareInstanceNotFound(error)) return undefined
+            throw error
+          }
+        })
+        if (!instance) return { id, provider: "cloudflare", status: "unknown" }
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
         const output = ownSerializedOutput(metadata)
         return {
@@ -280,25 +320,33 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
   }
 }
 
+/**
+ * True when Workflow DevKit runs the `native` entry. `vite dev` does not run the Workflow DevKit transform, so the
+ * dev server runs the normal handler inline, as for every other Workflow there.
+ */
+function runsNatively<TPayload, TResult>(definition: WorkflowDefinition<TPayload, TResult> | undefined): definition is WorkflowDefinition<TPayload, TResult> {
+  return Boolean(definition?.options?.native) && !getWorkflowDevRecorder()
+}
+
 function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   const fallback = inlineAdapter(config)
   return {
     async cancel({ id, name }: GetWorkflowAdapterContext) {
       const definition = await loadWorkflowDefinition(name)
-      if (!definition?.options?.native) {
+      if (!runsNatively(definition)) {
         return await fallback.cancel({ event: undefined, id, name })
       }
       return await cancelVercelWorkflow(name, definition, id)
     },
     async get({ id, name }: GetWorkflowAdapterContext) {
       const definition = await loadWorkflowDefinition(name)
-      return definition?.options?.native
+      return runsNatively(definition)
         ? await inspectVercelWorkflowRun(name, definition, id)
         : await fallback.get({ event: undefined, id, name })
     },
     resume: async (token, payload) => await resumeVercelWorkflowSignal(token, payload),
     async run({ definition, event, id, name, options, payload }) {
-      if (!definition.options?.native) {
+      if (!runsNatively(definition)) {
         return await fallback.run({ definition, event, id, name, options, payload })
       }
       return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))

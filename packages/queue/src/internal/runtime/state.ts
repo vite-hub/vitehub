@@ -2,9 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 import { getCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
-import type { QueueClient, QueueDefinition, QueueDefinitionRegistry } from "../../types.ts"
+import type { QueueClient, QueueDefinition, QueueDefinitionRegistry, QueueJobStore } from "../../types.ts"
 import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
@@ -13,6 +12,7 @@ export type QueueRuntimeClientFactory = (options: QueueRuntimeProviderOptions) =
 let runtimeConfig: false | QueueRuntimeOptions | undefined
 let runtimeClientFactory: QueueRuntimeClientFactory | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
+let jobStore: (() => Promise<QueueJobStore> | QueueJobStore) | undefined
 
 const queueEventStorage = new AsyncLocalStorage<unknown>()
 let queueEventDefaults: unknown
@@ -27,6 +27,18 @@ export function setQueueRuntimeConfig(config: false | QueueRuntimeOptions | unde
   runtimeClientFactory = createClient
   if (typeof config === "undefined") queueEventDefaults = undefined
   queueClientCache.clear()
+}
+
+/**
+ * The stored jobs of a provider that does not keep them in this package's process state. The generated server sets it
+ * for the postgres provider, so the Queue operations read jobs without importing the Postgres driver.
+ */
+export function setQueueRuntimeJobStore(store: (() => Promise<QueueJobStore> | QueueJobStore) | undefined): void {
+  jobStore = store
+}
+
+export async function getQueueRuntimeJobStore(): Promise<QueueJobStore | undefined> {
+  return await jobStore?.()
 }
 
 export function getQueueRuntimeConfig(): false | QueueRuntimeOptions | undefined {
@@ -84,7 +96,7 @@ export function getOrCreateQueueClient(name: string, createClient: () => Promise
 function isQueueDefinition(value: unknown): value is QueueDefinition {
   return isPlainObject(value)
     && Object.hasOwn(value, "handler")
-    && hasRuntimeType(value.handler, "function")
+    && typeof value.handler === "function"
 }
 
 export async function loadQueueDefinition(name: string): Promise<QueueDefinition | undefined> {

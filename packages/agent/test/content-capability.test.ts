@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
+import { registerWorkspacePlugin, useWorkspaceFiles } from "@vite-hub/workspace/files"
+
 import { documents, singleton } from "../../content/src/collections.ts"
 import { defineContent } from "../../content/src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
@@ -8,13 +10,14 @@ import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
 import { resolveChatTriggerInvoker } from "../src/chat-message-input.ts"
 import { webChat } from "../src/channels.ts"
-import { codexDriver, createAgentInspectionMetadata, defineAgent, defineAgentInvoker } from "../src/index.ts"
+import { codexDriver, defineAgent, defineAgentInvoker } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 import type { ContentAuthorize } from "../../content/src/index.ts"
 import type { ContentCapabilityOptions } from "../src/capabilities.ts"
-import type { AgentActor, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
+import type { AgentInvoker, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -23,9 +26,9 @@ afterEach(async () => {
 })
 
 /** Actors as `authenticated()` resolves them: the Auth user id is in `meta.authUserId`. */
-const editor: AgentActor = { id: "user_1", kind: "authUser", label: "editor@example.com", meta: { authUserId: "user_1" } }
-const viewer: AgentActor = { id: "user_2", kind: "authUser", label: "viewer@example.com", meta: { authUserId: "user_2" } }
-const anonymous: AgentActor = { id: "anonymous:http", kind: "anonymous" }
+const editor: AgentInvoker = { id: "user_1", kind: "authUser", label: "editor@example.com", meta: { authUserId: "user_1" } }
+const viewer: AgentInvoker = { id: "user_2", kind: "authUser", label: "viewer@example.com", meta: { authUserId: "user_2" } }
+const anonymous: AgentInvoker = { id: "anonymous:http", kind: "anonymous" }
 
 /** Auth users by id, as the `auth` primitive from `@vite-hub/auth/agent` reads them. */
 const authUsers: Record<string, Record<string, unknown>> = {
@@ -33,14 +36,14 @@ const authUsers: Record<string, Record<string, unknown>> = {
   user_2: { email: "viewer@example.com", id: "user_2", role: "viewer" },
 }
 const auth = {
-  user: async (actor: AgentActor | undefined) => {
+  user: async (actor: AgentInvoker | undefined) => {
     const id = actor?.meta?.authUserId
     return String(id) === id ? authUsers[id] ?? null : null
   },
 }
 
 /** Editors may do anything. Other signed-in users may read. */
-const editorsOnly: ContentAuthorize = ({ user, action }) => user?.role === "editor" || (action === "read" && Boolean(user))
+const editorsOnly: ContentAuthorize = ({ user, action }) => user?.role === "editor" || (action === "read-draft" && Boolean(user))
 
 const fields = {
   title: z.string().min(1),
@@ -82,13 +85,13 @@ async function setupMixed() {
 async function tools(
   capability: AgentCapabilityDefinition,
   runtime: unknown,
-  actor: AgentActor = editor,
+  actor: AgentInvoker = editor,
   primitives: Record<string, unknown> = { auth },
 ): Promise<Record<string, AgentToolDefinition>> {
   if (!(capability.tools instanceof Function)) throw new Error("content() must resolve tools from the Invocation context")
   // SAFETY: The Content tools read only the fields that this context sets.
   return await capability.tools({
-    actor,
+    invoker: actor,
     agentIdentity: { name: "editor" },
     capabilities: { ...primitives, content: runtime },
     context: new Map(),
@@ -496,7 +499,7 @@ describe("content capability", () => {
   it("never shows a document that authorize hides from the user", async () => {
     // Everyone signed in may read, except the `secret` post, which only editors may read.
     const runtime = await setup({
-      authorize: ({ user, action, id }) => user?.role === "editor" || (action === "read" && Boolean(user) && id !== "secret"),
+      authorize: ({ user, action, id }) => user?.role === "editor" || (action === "read-draft" && Boolean(user) && id !== "secret"),
     })
     const posts = runtime.collection("posts")
     await posts.save("hello", { data: { ...hello, title: "Hello launch" }, body: "Hello\n" })
@@ -580,9 +583,9 @@ describe("content capability", () => {
     await run(editorTools.content_status, { collection: "posts", id: "hello" })
     await run(editorTools.content_status, { collection: "pages" })
     expect(decisions).toEqual([
-      { action: "read", actor: editor, collection: "posts", id: "hello", user: authUsers.user_1 },
-      { action: "read", actor: editor, collection: "pages", user: authUsers.user_1 },
-      { action: "read", actor: editor, collection: "pages", id: "about", user: authUsers.user_1 },
+      { action: "read-draft", actor: editor, collection: "posts", id: "hello", user: authUsers.user_1 },
+      { action: "read-draft", actor: editor, collection: "pages", user: authUsers.user_1 },
+      { action: "read-draft", actor: editor, collection: "pages", id: "about", user: authUsers.user_1 },
     ])
   })
 
@@ -713,6 +716,111 @@ describe("content capability", () => {
     })
     expect(published).toMatchObject({ ok: true, documents: [{ collection: "docs", id: "guide", locale: "es", change: "add" }] })
   })
+
+  it("starts one translation for each English draft change from a write:after hook, and none for the translation", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const runtime = defineContent({
+      workspace,
+      collections: { docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], fields: { title: z.string().min(1) } }) },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => runtime.dispose())
+    // The hook of playground/content/server/workspaces/site.ts, with a list in place of sendQueue("translate", { id }).
+    const queued: string[] = []
+    cleanup.push(registerWorkspacePlugin(workspace, {
+      id: "translate",
+      hooks: {
+        "write:after": ({ operation, path, ref }) => {
+          const id = ref === "draft" && operation === "writeFile" ? /^docs\/en\/(.+)\.md$/.exec(path)?.[1] : undefined
+          if (id) queued.push(id)
+        },
+      },
+    }))
+    // The translator Agent without a model: it follows the steps of its instructions with the same tools.
+    const all = await tools(content({ collections: ["docs"], operations: ["read", "write"] }), runtime)
+    const docs = runtime.collection("docs")
+    /** The job of playground/content/server/queues/translate.ts: it binds to the English version on the draft when it starts. */
+    async function job(id: string) {
+      const sourceDigest = (await docs.get(id, { ref: "draft" }))!.source!.digest
+      return { id, sourceDigest }
+    }
+    /** One pass of the instructions. */
+    async function translate({ id, sourceDigest }: { id: string, sourceDigest: string }) {
+      const spanish = await run(all.content_get_document, { collection: "docs", id, ref: "draft", locale: "es" })
+      if (!spanish.document.fallback && spanish.document.derivedFrom?.digest === sourceDigest) return "translated"
+      const english = await run(all.content_get_document, { collection: "docs", id, ref: "draft" })
+      if (english.document.source.digest !== sourceDigest) return "moved"
+      const ifDigest = spanish.document.fallback ? null : spanish.document.digest
+      return await run(all.content_save_draft, { collection: "docs", id, locale: "es", data: { title: `ES ${english.document.data.title}` }, body: `ES ${english.document.body}`, ifDigest, sourceDigest })
+    }
+
+    await docs.save("guides/install", { data: { title: "Install" }, body: "Run it.\n" })
+    expect(queued).toEqual(["guides/install"])
+    expect(await translate(await job(queued[0]!))).toMatchObject({ ok: true, document: { locale: "es", derivedFrom: { path: "docs/en/guides/install.md" } } })
+    expect(queued).toEqual(["guides/install"])
+    expect((await docs.status("guides/install"))?.translations).toEqual({ es: "current" })
+
+    // `vitehub push` commits to the draft through `workspace.commit`, a history commit like this one.
+    const history = useWorkspaceFiles(workspace as never, { mode: "write" }).history
+    const head = await history.head({ ref: "draft" })
+    await history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "docs/en/guides/install.md": { content: "---\ntitle: Install\n---\nRun it twice.\n" } } } })
+    expect(queued).toEqual(["guides/install", "guides/install"])
+    expect((await docs.status("guides/install"))?.translations).toEqual({ es: "stale" })
+    expect(await translate(await job("guides/install"))).toMatchObject({ ok: true })
+    await runtime.publish()
+    expect(queued).toEqual(["guides/install", "guides/install"])
+    expect((await docs.status("guides/install"))?.translations).toEqual({ es: "current" })
+  })
+
+  it("lets the job of the newer English version win when two translation jobs overlap", async () => {
+    const runtime = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: { docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], fields: { title: z.string().min(1) } }) },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => runtime.dispose())
+    const all = await tools(content({ collections: ["docs"], operations: ["read", "write"] }), runtime)
+    const docs = runtime.collection("docs")
+    async function job(id: string) {
+      return { id, sourceDigest: (await docs.get(id, { ref: "draft" }))!.source!.digest }
+    }
+    async function translate({ id, sourceDigest }: { id: string, sourceDigest: string }, between?: () => Promise<unknown>) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const spanish = await run(all.content_get_document, { collection: "docs", id, ref: "draft", locale: "es" })
+        if (!spanish.document.fallback && spanish.document.derivedFrom?.digest === sourceDigest) return "translated"
+        const english = await run(all.content_get_document, { collection: "docs", id, ref: "draft" })
+        if (english.document.source.digest !== sourceDigest) return "moved"
+        if (attempt === 0) await between?.()
+        const ifDigest = spanish.document.fallback ? null : spanish.document.digest
+        const saved = await run(all.content_save_draft, { collection: "docs", id, locale: "es", data: { title: `ES ${english.document.data.title}` }, body: `ES ${english.document.body}`, ifDigest, sourceDigest })
+        if (saved.ok || saved.error.code !== "WORKSPACE_CONFLICT") return saved
+      }
+      return "gave up"
+    }
+
+    await docs.save("guide", { data: { title: "A" }, body: "Version A.\n" })
+    const a = await job("guide")
+    // Job A reads English A. Before it saves, English B is saved, and job B translates B and saves first.
+    const result = await translate(a, async () => {
+      const english = await docs.get("guide", { ref: "draft" })
+      await docs.save("guide", { data: { title: "B" }, body: "Version B.\n" }, { ifDigest: english!.digest })
+      expect(await translate(await job("guide"))).toMatchObject({ ok: true, document: { data: { title: "ES B" } } })
+    })
+    // Job A conflicts, reads again, sees that English moved, and stops. Job B's translation stays, and it is current.
+    expect(result).toBe("moved")
+    expect(await docs.get("guide", { ref: "draft", locale: "es" })).toMatchObject({ data: { title: "ES B" } })
+    expect((await docs.status("guide"))?.translations).toEqual({ es: "current" })
+
+    // Without the bound digest, job A would save its old text over B and mark it current. With it, a late save stays stale.
+    const late = await run(all.content_save_draft, {
+      collection: "docs", id: "guide", locale: "es", data: { title: "ES A" }, body: "ES Version A.\n",
+      ifDigest: (await docs.get("guide", { ref: "draft", locale: "es" }))!.digest, sourceDigest: a.sourceDigest,
+    })
+    expect(late).toMatchObject({ ok: true })
+    expect((await docs.status("guide"))?.translations).toEqual({ es: "stale" })
+  })
 })
 
 describe("content capability with the Actor of a chat", () => {
@@ -725,11 +833,11 @@ describe("content capability with the Actor of a chat", () => {
   })
 
   /** The Actor that the generated HTTP chat route of a Web Chat Channel gives the Agent for one request. */
-  async function httpChatActor(headers: Record<string, string> = {}): Promise<AgentActor> {
-    let actor: AgentActor | undefined
+  async function httpChatActor(headers: Record<string, string> = {}): Promise<AgentInvoker> {
+    let actor: AgentInvoker | undefined
     const agent = defineAgent({
       channels: { portal: webChat },
-      driver: { run: (context) => { actor = context.actor; return "ok" } },
+      driver: { run: (context) => { actor = context.invoker; return "ok" } },
       invoker: signedIn,
     })
     // SAFETY: The generated route accepts every Agent Definition that defineAgent() returns.
@@ -745,10 +853,10 @@ describe("content capability with the Actor of a chat", () => {
   }
 
   /** The Actor of a Channel message, such as Discord, after the Agent's own `invoker` ran. */
-  async function channelActor(invoker?: Parameters<typeof defineAgent>[0]["invoker"]): Promise<AgentActor> {
-    let actor: AgentActor | undefined
+  async function channelActor(invoker?: Parameters<typeof defineAgent>[0]["invoker"]): Promise<AgentInvoker> {
+    let actor: AgentInvoker | undefined
     const agent = defineAgent({
-      driver: { run: (context) => { actor = context.actor; return "ok" } },
+      driver: { run: (context) => { actor = context.invoker; return "ok" } },
       ...(invoker ? { invoker } : {}),
     })
     const platformUser = resolveChatTriggerInvoker({
@@ -762,7 +870,7 @@ describe("content capability with the Actor of a chat", () => {
   }
 
   async function recordedAuthorize() {
-    const decisions: Array<{ actor?: AgentActor, user: unknown }> = []
+    const decisions: Array<{ actor?: AgentInvoker, user: unknown }> = []
     const runtime = await setup({
       authorize: (context) => {
         decisions.push({ actor: context.actor, user: context.user })

@@ -17,7 +17,7 @@ async function project(options: string): Promise<string> {
   await writeFile(join(root, "server/content.ts"), [
     "import { defineContent } from \"vite-hub/content\"",
     "import { documents } from \"vite-hub/content/collections\"",
-    `export const content = defineContent(${options})`,
+    `export default defineContent(${options})`,
     "",
   ].join("\n"))
   return root

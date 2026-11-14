@@ -17,27 +17,27 @@ it("keeps pending nonce, registration, host identity and encrypted tokens across
   let client = createClient({ url: `file:${path}` })
   const runtime = () => createConnectionsRuntime({
     definitions: { chatgpt: defineConnection({ provider: chatgpt({ appName: "Persistent app" }), access: { "agent:assistant": { read: true } } }) },
-    store: createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) }),
+    store: createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) }),
     fetch: fake.fetch,
   })
   try {
     const before = runtime()
-    const pending = await before.authorize({ name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
+    const pending = await before.authorize({ actor: "user:owner", name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
     const host = (await before.inspect("chatgpt")).chatgpt?.hostId
     client.close()
     client = createClient({ url: `file:${path}` })
     const after = runtime()
     const callback = await fake.callback(pending.url)
-    const connected = await after.complete({ state: pending.state, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id")! })
+    const connected = await after.complete({ actor: "user:owner", state: pending.state, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id")! })
     expect(connected).toMatchObject({ credential: "chatgpt", account: { email: "test@example.com" }, chatgpt: { hostId: host, plan: "enabled" }, expiresAt: expect.any(String) })
     client.close()
     client = createClient({ url: `file:${path}` })
     const restarted = runtime()
     expect(await restarted.inspect("chatgpt")).toEqual(connected)
-    const returning = await restarted.authorize({ name: "chatgpt", redirectUri: "http://127.0.0.1:54321/callback" })
+    const returning = await restarted.authorize({ actor: "user:owner", name: "chatgpt", redirectUri: "http://127.0.0.1:54321/callback" })
     expect(new URL(returning.url).searchParams.get("client_id")).toBe(connected.chatgpt?.clientId)
     expect(new URL(returning.url).searchParams.get("ext_agent_host_id")).toBe(host)
-    await restarted.revoke({ name: "chatgpt" })
+    await restarted.revoke({ actor: "user:owner", name: "chatgpt" })
     expect((await restarted.inspect("chatgpt")).chatgpt).toEqual({ ...connected.chatgpt, plan: "disabled" })
     const bytes = await readFile(path)
     expect(bytes.includes("test-access-")).toBe(false)

@@ -2,18 +2,18 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/compiler"
 import MagicString from "magic-string"
 
 import { compileMessages } from "./catalogs.ts"
-import { createLinguiConfig, recordsRoot } from "./lingui.ts"
 import { i18nErrorDiagnostics } from "./errors.ts"
+import { createLinguiConfig, recordsRoot } from "./lingui.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
-import { addMessage, extractFileMessages, manifestFile, mergeMessages } from "./manifest.ts"
+import { addMessage, allMessages, extractFileMessages, manifestFile, mergeMessages, scanMessages } from "./manifest.ts"
 import { readRecords } from "./records.ts"
 
 import type { LinguiConfigNormalized } from "@lingui/conf"
@@ -33,9 +33,10 @@ const resolvedCatalogModule = `\0${catalogModule}`
 /** A production catalog holds this string until the chunk renders. Then every message of the bundle is known. */
 const catalogMarker = (locale: string) => `__VITEHUB_I18N_CATALOG_${locale}__`
 const catalogMarkerRe = /"__VITEHUB_I18N_CATALOG_([\w-]+)__"/g
-const clientIdsModule = "virtual:vite-hub/i18n/client-ids"
-const resolvedClientIdsModule = `\0${clientIdsModule}`
+const buildMessagesModule = "virtual:vite-hub/i18n/build-messages"
+const resolvedBuildMessagesModule = `\0${buildMessagesModule}`
 const clientIdsMarker = "__VITEHUB_I18N_CLIENT_IDS__"
+const sourcesMarker = "__VITEHUB_I18N_SOURCES__"
 const generatedPlugin = ".vitehub/nitro/i18n/plugin.mjs"
 const generatedRoute = ".vitehub/nitro/i18n/catalog.mjs"
 /** The browser reads live catalogs from `<liveRoute>/<locale>.json`. */
@@ -59,7 +60,7 @@ interface InternalOptions extends I18nVitePluginOptions {
 
 export type I18nVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata }
 
-type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown, [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 }
+type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown }
 
 function renderNitroPlugin(importBase: string, messagesFile: string, workspace: string | undefined): string {
   // `vite-hub/i18n` gets the Workspace from `vite-hub/workspace/files`, and `@vite-hub/i18n` from `@vite-hub/workspace/files`.
@@ -71,7 +72,7 @@ function renderNitroPlugin(importBase: string, messagesFile: string, workspace: 
     `import { config, messages } from ${JSON.stringify(messagesFile)}`,
     ...(workspace
       ? [
-          `import { clientIds } from ${JSON.stringify(clientIdsModule)}`,
+          `import { clientIds, sources } from ${JSON.stringify(buildMessagesModule)}`,
           `import { useWorkspaceFiles } from ${JSON.stringify(workspaceImport)}`,
         ]
       : []),
@@ -85,7 +86,7 @@ function renderNitroPlugin(importBase: string, messagesFile: string, workspace: 
     "      catch { return undefined }",
     "    },",
     ...(workspace
-      ? [`    workspace: { name: ${JSON.stringify(workspace)}, open: mode => useWorkspaceFiles(${JSON.stringify(workspace)}, { mode }), clientIds },`]
+      ? [`    workspace: { name: ${JSON.stringify(workspace)}, open: mode => useWorkspaceFiles(${JSON.stringify(workspace)}, { mode }), clientIds, sources },`]
       : []),
     "  })",
     "})",
@@ -120,6 +121,19 @@ function renderClientModule(importBase: string, locale: I18nLocaleConfig, live: 
   ].join("\n")
 }
 
+/**
+ * Fails the build when `i18n.workspace` names no Workspace of the app. A wrong name would otherwise only log an error on
+ * each read of the published translations. The Workspace plugin runs first and lists its Workspaces in `buildStart`,
+ * after other plugins, such as Content, contribute theirs, so this check sees every definition.
+ */
+function assertWorkspaceDefined(workspace: string, plugins: readonly Plugin[]): void {
+  // `@vite-hub/workspace/vite` lists its Workspaces in `api.getWorkspaces()`. i18n does not depend on that package.
+  const api: { getWorkspaces?: () => Array<{ name: string }> } | undefined = plugins.find(entry => entry.name === "@vite-hub/workspace/vite")?.api
+  const workspaces = api?.getWorkspaces?.().map(entry => entry.name)
+  if (workspaces?.includes(workspace)) return
+  throw i18nErrorDiagnostics.I18N_UNKNOWN_WORKSPACE({ workspace, workspaces })
+}
+
 /** Vite plugin of ViteHub i18n. `vitehub({ i18n })` and `vite-hub/nuxt` add it for you. */
 export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   const importBase = (options as InternalOptions).importBase ?? packageName
@@ -129,6 +143,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let lingui: LinguiConfigNormalized | undefined
   let isProduction = false
   let isBuild = false
+  let plugins: readonly Plugin[] = []
   /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
   const manifest: I18nManifest = { environments: {} }
   const moduleMessages = new Map<string, Map<string, SourceMessages>>()
@@ -188,7 +203,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     vitehub: {
       cli: async () => {
         const { createI18nCliContributor } = await import("./cli.ts")
-        return createI18nCliContributor(resolveLingui)
+        return createI18nCliContributor(resolveLingui, () => configured.workspace)
       },
       inspect: () => ({
         definitions: [{
@@ -230,8 +245,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         const viteHubConfig = config as ViteHubConfig
         isBuild = env?.command === "build"
         setup(viteHubConfig)
-        // Server messages read the request from Nitro 3's async context. Nitro 2 has no such context on every host.
-        if (viteHubConfig[VITEHUB_NITRO_MAJOR_VERSION] === 2) throw i18nErrorDiagnostics.I18N_UNSUPPORTED_HOST()
         await writeServerFiles()
         const kit = createNitroServerKit(viteHubConfig.nitro)
         kit.addPlugin(resolve(projectRoot!, generatedPlugin), "start")
@@ -247,6 +260,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     configResolved(config) {
       isProduction = config.isProduction
+      plugins = config.plugins
       const vue = config.plugins.find(plugin => plugin.name === "vite:vue") as (Plugin & { api?: { options?: VueOptions } }) | undefined
       // Without Vue, messages still work in scripts and server code.
       if (vue?.api?.options) installTemplateTransform(vue.api.options, isProduction)
@@ -257,17 +271,23 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     buildStart() {
       buildRecords = undefined
+      if (configured.workspace) assertWorkspaceDefined(configured.workspace, plugins)
     },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule
-      if (id === clientIdsModule) return resolvedClientIdsModule
+      if (id === buildMessagesModule) return resolvedBuildMessagesModule
       if (id.startsWith(catalogModule)) return `\0${id}`
     },
     async load(id) {
       if (!projectRoot || !locale) return
       if (id === resolvedClientModule) return renderClientModule(importBase, locale, Boolean(configured.workspace))
-      // The server sends the browser only the translations of browser messages. Development sends all of them.
-      if (id === resolvedClientIdsModule) return `export const clientIds = ${isBuild ? JSON.stringify(clientIdsMarker) : "null"}\n`
+      if (id === resolvedBuildMessagesModule) {
+        // The server sends the browser only the translations of browser messages, and lists the messages that a
+        // locale does not translate. A build fills both when the server chunk renders. Development sends every
+        // translation and reads the messages of the code when the server starts.
+        if (isBuild) return `export const clientIds = ${JSON.stringify(clientIdsMarker)}\nexport const sources = ${JSON.stringify(sourcesMarker)}\n`
+        return `export const clientIds = null\nexport const sources = ${JSON.stringify(lingui ? await scanMessages(lingui) : {})}\n`
+      }
       if (!id.startsWith(resolvedCatalogModule)) return
       const entry = locale.locales.find(candidate => candidate === id.slice(resolvedCatalogModule.length))
       if (!entry) return
@@ -313,12 +333,16 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       manifest.environments[this.environment.name] = mergeMessages(sources)
     },
     async renderChunk(code) {
-      if (code.includes(clientIdsMarker)) {
+      if (code.includes(clientIdsMarker) || code.includes(sourcesMarker)) {
         // The server builds after the browser, so every browser message is known here.
         const ids = [...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {}))
+        const values: Record<string, string> = {
+          [clientIdsMarker]: JSON.stringify([...new Set(ids)].sort()),
+          [sourcesMarker]: JSON.stringify(allMessages(manifest)),
+        }
         const output = new MagicString(code)
-        for (const match of code.matchAll(new RegExp(`"${clientIdsMarker}"`, "g"))) {
-          output.overwrite(match.index, match.index + match[0].length, JSON.stringify([...new Set(ids)].sort()))
+        for (const match of code.matchAll(new RegExp(`"(${clientIdsMarker}|${sourcesMarker})"`, "g"))) {
+          output.overwrite(match.index, match.index + match[0].length, values[match[1]!]!)
         }
         return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
       }

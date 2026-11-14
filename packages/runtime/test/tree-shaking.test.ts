@@ -60,3 +60,8 @@ it("keeps used authority descriptors frozen in a built Runtime consumer", async 
   expect(normalized).not.toBe(runtime.noExecutionAuthority)
   expect(runtime.normalizeExecutionAuthority(normalized)).toBe(normalized)
 })
+
+it("keeps host access free of Node builtins, so browser bundles can import the Runtime entry", async () => {
+  const code = await bundle("detectHost, getHostBinding")
+  expect(code).not.toMatch(/from\s*["']node:/)
+})

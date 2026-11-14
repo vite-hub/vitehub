@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { PrimitiveFramework, PrimitiveProjectVariant } from "~/data/primitive-landings/types";
 
 const props = defineProps<{ variants: PrimitiveProjectVariant[] }>();
@@ -9,45 +10,24 @@ const currentFile = computed(() => currentVariant.value?.files.find((file) => fi
 watch(currentVariant, (variant) => {
   selectedPath.value = variant?.files[0]?.path ?? "";
 }, { immediate: true });
+const frameworkItems = computed(() => props.variants.map((variant) => ({ label: variant.label, value: variant.framework })));
+const fileItems = computed(() => currentVariant.value?.files.map((file) => ({ label: file.path, value: file.path })) ?? []);
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-xl border border-default bg-elevated">
-    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-default px-4 py-3">
-      <div class="flex items-center gap-2 text-xs text-muted">
-        <span class="size-2 rounded-full bg-primary" aria-hidden="true" />
-        <span>Project group</span>
-      </div>
-      <div class="flex rounded-lg border border-default p-0.5" role="tablist" aria-label="Framework">
-        <button
-          v-for="variant in variants"
-          :key="variant.framework"
-          type="button"
-          role="tab"
-          :aria-selected="framework === variant.framework"
-          class="rounded-md px-2.5 py-1 text-xs transition-colors duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-elevated/80 focus-visible:outline-2 focus-visible:outline-primary"
-          :class="framework === variant.framework ? 'bg-elevated text-highlighted' : 'text-muted'"
-          @click="framework = variant.framework"
-        >
-          {{ variant.label }}
-        </button>
-      </div>
+  <div class="overflow-hidden rounded-lg border border-default bg-muted">
+    <!-- The tab strip sits on the bottom line of the header, so its line and the header line are one. -->
+    <div class="flex flex-wrap items-end justify-between gap-x-3 border-b border-default px-4">
+      <Status label="Project group" class="self-center py-3 text-muted" />
+      <UTabs v-model="framework" :items="frameworkItems" :content="false" aria-label="Framework" />
     </div>
     <p v-if="currentVariant?.illustrative" class="border-b border-default px-4 py-3 text-xs text-muted">
       Illustrative pseudocode. This layout is not an executable starter. Follow the guide for setup and API examples.
     </p>
-    <div v-if="currentVariant" class="grid min-h-80 md:grid-cols-[12rem_minmax(0,1fr)]">
-      <nav class="border-b border-default p-2 md:border-b-0 md:border-r" aria-label="Project files">
-        <button
-          v-for="file in currentVariant.files"
-          :key="file.path"
-          type="button"
-          class="block w-full rounded-md px-3 py-2 text-left font-mono text-xs transition-colors duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-elevated hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary"
-          :class="currentFile?.path === file.path ? 'bg-elevated text-highlighted' : 'text-muted'"
-          @click="selectedPath = file.path"
-        >
-          {{ file.path }}
-        </button>
+    <!-- The file column fits the longest path, so no name is cut or runs into the code. -->
+    <div v-if="currentVariant" class="grid min-h-80 md:grid-cols-[minmax(12rem,max-content)_minmax(0,1fr)]">
+      <nav class="min-w-0 border-b border-default p-2 md:border-b-0 md:border-r" aria-label="Project files">
+        <UTabs v-model="selectedPath" :items="fileItems" :content="false" orientation="vertical" class="items-stretch font-mono" />
       </nav>
       <div class="min-w-0 overflow-auto p-4">
         <div class="mb-3 font-mono text-xs text-dimmed">{{ currentFile?.path }}</div>

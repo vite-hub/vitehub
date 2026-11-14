@@ -41,7 +41,7 @@ async function historyWorkspace(): Promise<string> {
   const root = await temporaryRoot()
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `single-${++workspaces}`
@@ -264,7 +264,7 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
 
   it("describes singletons and edits them by id", async () => {
     const { content } = await setup()
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     const collections = await actions.collections(editor)
     expect(collections.find(collection => collection.name === "settings")).toMatchObject({ kind: "singleton", document: "settings", format: "json", titleField: "title" })
     expect(collections.find(collection => collection.name === "posts")).toMatchObject({ kind: "documents", format: "markdown" })
@@ -278,19 +278,19 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
 
   it("hides singleton metadata when its document is not readable", async () => {
     const { content } = await setup("settings.json", ({ id }) => id !== "settings")
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     await expect(actions.collections(editor)).resolves.not.toContainEqual(expect.objectContaining({ name: "settings" }))
   })
 
   it("hides singleton metadata when only its collection is readable", async () => {
     const { content } = await setup("settings.json", ({ id }) => id === undefined)
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     await expect(actions.collections(editor)).resolves.not.toContainEqual(expect.objectContaining({ name: "settings" }))
   })
 
   it("uses document-level policy for singleton write and publish access", async () => {
-    const { content } = await setup("settings.json", ({ action, id }) => id === undefined || action === "read")
-    const actions = createContentConsoleActions({ content })
+    const { content } = await setup("settings.json", ({ action, id }) => id === undefined || action === "read-draft")
+    const actions = createContentConsoleActions({ default: content })
     await expect(actions.collections(editor)).resolves.toContainEqual(expect.objectContaining({
       name: "settings",
       access: { read: true, write: false, publish: false },
@@ -305,7 +305,7 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
   it("keeps the Content section for collections defined with singleton()", async () => {
     const root = await temporaryRoot()
     await mkdir(join(root, "server"), { recursive: true })
-    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { singleton } from "vite-hub/content/collections"\nexport const content = defineContent({ workspace: "site", collections: { settings: singleton({ path: "settings.json", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { singleton } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { settings: singleton({ path: "settings.json", fields: {} }) } })\n`)
     await expect(contentConsoleSection.entry({ projectRoot: root })).resolves.toBe(join(root, "server/content.ts"))
   })
 })

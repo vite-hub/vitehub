@@ -47,7 +47,7 @@ function lines(diff: string) {
     <TraceCollapsible default-open>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-git-commit-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-git-commit-horizontal" /></TraceIcon>
           <TraceTitle>Committed a1b2c3d: Fix the login redirect</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -61,12 +61,12 @@ function lines(diff: string) {
           >
             <button type="button">
               <TraceLine>
-                <TraceIcon><UIcon :name="file.added ? 'i-ph-file-plus-light' : 'i-ph-note-pencil-light'" /></TraceIcon>
+                <TraceIcon><UIcon :name="file.added ? 'i-lucide-file-plus' : 'i-lucide-square-pen'" /></TraceIcon>
                 <TraceTitle>{{ file.added ? "Added" : "Edited" }} {{ file.path }}</TraceTitle>
                 <TraceDescription class="font-mono">
                   +{{ file.additions }} −{{ file.deletions }}
                 </TraceDescription>
-                <TraceIcon><UIcon name="i-ph-caret-right-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-chevron-right" /></TraceIcon>
               </TraceLine>
             </button>
             <template #body>

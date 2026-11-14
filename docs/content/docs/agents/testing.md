@@ -164,17 +164,16 @@ not call the provider. To run the readiness probe, call the `status.get`
 operation of the Console endpoint for the Agent:
 
 ```bash
-curl -X POST -H "Cookie: $VITEHUB_CONSOLE_COOKIE" \
+curl -X POST \
   -H 'Content-Type: application/json' -H 'x-vitehub-console: 1' \
-  --data '{"operation":"status.get","input":{"agent":"support"}}' \
-  'http://localhost:5173/_vitehub/rpc/__call'
+  --data '{"m":"status.get","a":[{"agent":"support"}],"t":"q","i":"1"}' \
+  'http://localhost:5173/_vitehub/rpc'
 ```
 
-`VITEHUB_CONSOLE_COOKIE` is a session cookie of the app Auth or Console Auth
-(`vitehub_console.session_token`, with a `__Secure-` prefix over HTTPS). If the
-host uses a separate bearer policy, send its header instead:
-`curl -H "Authorization: $VITEHUB_CONSOLE_AUTHORIZATION" ...`. These are shell
-variables. `VITEHUB_CONSOLE_TOKEN` is not a ViteHub setting.
+The dev server takes this call without a signature when the app has no
+`console` option or sets `console: { auth: false }`. A deployed app takes only
+[signed requests](/docs/development/console#sign-console-requests): use a
+`vitehub` command with `--url` and `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` there.
 
 This calls `agent.status()`. `ready` means the probe found enough executable,
 authentication, and quota evidence. It runs no Agent turn. See

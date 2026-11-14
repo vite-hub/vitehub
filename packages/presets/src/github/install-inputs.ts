@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { glob, lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { parse } from "yaml";
+import { parse, parseAllDocuments } from "yaml";
 import { parseSyml } from "@yarnpkg/parsers";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const inputNames = new Set([".npmrc", ".yarnrc.yml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock"]);
@@ -35,7 +36,7 @@ function checkDownloadSource(value: string): void {
     if (/\.git\/?$/i.test(url.pathname) || url.hostname === "github.com" && !githubArchive) throw new Error("Git dependencies require preparation inside the provider sandbox.");
   } else if (/(?:^|@)git@/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
 }
-const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links"]);
+const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links", "block-exotic-subdeps"]);
 const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern", "trust-policy-exclude"]);
 const workspaceFields = new Set(["packages", "catalog", "catalogs", "catalogMode", "overrides", "peerDependencyRules", "minimumReleaseAge", "minimumReleaseAgeExclude", "packageExtensions", "patchedDependencies", "onlyBuiltDependencies", "ignoredBuiltDependencies", "neverBuiltDependencies", "allowBuilds"]);
 
@@ -65,8 +66,11 @@ function validateNpmConfig(source: string): void {
 
 export class GitHubDependencyConflictError extends Error {}
 
-/** Validate decoded manifests and lockfiles before a package manager can read host paths. */
-export async function validateGitHubInstallInputs(target: string, prepareLinkedBins?: (paths: readonly string[]) => Promise<void>): Promise<string> {
+/**
+ * Validate decoded manifests and lockfiles before a package manager can read host paths.
+ * `inputs` receives a SHA-256 of each input file by checkout path.
+ */
+export async function validateGitHubInstallInputs(target: string, prepareLinkedBins?: (paths: readonly string[]) => Promise<void>, inputs?: Record<string, string>): Promise<string> {
   const hash = createHash("sha256");
   const root = await realpath(target);
   const inside = (path: string) => { const part = relative(root, path); return part !== ".." && !part.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(part); };
@@ -128,7 +132,11 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
   async function selectPatch(value: string, base: string) {
     await checkPath(value, base);
     const path = resolve(base, decodeURIComponent(value));
-    if (!(await stat(path)).isFile()) throw new Error("Dependency patches must be regular files.");
+    const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCH_MISSING({ path: relative(root, path) });
+      throw error;
+    });
+    if (!info.isFile()) throw new Error("Dependency patches must be regular files.");
     dependencyFiles.add(path);
   }
   async function inspectYarnPatch(value: string, base: string): Promise<boolean> {
@@ -146,9 +154,11 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
     }
     return true;
   }
-  async function inspectPnpmPatches(value: unknown, base: string) {
+  async function inspectPnpmPatches(value: unknown, base: string, lockfile: boolean) {
     if (!isRuntimeRecord(value)) throw new Error("Dependency patches must be a path mapping.");
     for (const entry of Object.values(value)) {
+      // pnpm 12 stores SHA-256 hashes here; workspace settings own the paths.
+      if (lockfile && hasRuntimeType(entry, "string") && /^[a-f\d]{64}$/.test(entry)) continue;
       const path = hasRuntimeType(entry, "string") ? entry : isRuntimeRecord(entry) ? entry.path : undefined;
       if (!hasRuntimeType(path, "string")) throw new Error("Dependency patches must reference checkout files.");
       await selectPatch(path, base);
@@ -182,7 +192,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       if (npmLink && key === "resolved") continue;
       if (key === "workspaces" && pnpm) continue;
       if (key === "patchedDependencies") {
-        await inspectPnpmPatches(entry, base);
+        await inspectPnpmPatches(entry, base, field === "pnpm-lock.yaml");
       } else if (npm && ["package-lock.json", "npm-shrinkwrap.json"].includes(field) && key === "packages" && isRuntimeRecord(entry)) {
         // npm package locations can be nested below any workspace. Their
         // link semantics come from the lockfile map, not a path prefix.
@@ -232,10 +242,18 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
         const source = await readFile(path, "utf8");
         if (/^<{7} /m.test(source)) throw new GitHubDependencyConflictError(`Resolve dependency conflicts in ${relative(root, path)} and call refreshDependencies before validation.`);
         hash.update(relative(root, path)).update("\0").update(source).update("\0");
+        if (inputs) inputs[relative(root, path)] = createHash("sha256").update(source).digest("hex");
         if (entry.name === ".npmrc") { validateNpmConfig(source); continue; }
         // Yarn reads only the validated linker from this file. Other settings
         // are omitted from the host configuration and cannot select executables.
         if (entry.name === ".yarnrc.yml") continue;
+        if (entry.name === "pnpm-lock.yaml") {
+          for (const document of parseAllDocuments(source)) {
+            if (document.errors.length) throw document.errors[0];
+            await inspect(document.toJS(), directory, false, entry.name);
+          }
+          continue;
+        }
         let data: unknown;
         if (entry.name === "yarn.lock") {
           // Classic fields have no YAML separators. The native legacy grammar
@@ -298,11 +316,20 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       return undefined;
     }) : await stat(path);
     // Package managers skip missing commands; their later appearance changes shims.
-    if (!info) { hash.update("missing-bin\0"); continue; }
+    if (!info) {
+      hash.update("missing-bin\0");
+      if (inputs) inputs[relative(root, path)] = "missing";
+      continue;
+    }
     if (linkedBinFiles.has(path) && !info.isFile()) throw new Error("Linked dependency bin targets must be regular files.");
     hash.update(info.mode & 0o111 ? "executable\0" : "regular\0");
-    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    const file = createHash("sha256").update(info.mode & 0o111 ? "executable\0" : "regular\0");
+    for await (const chunk of createReadStream(path)) {
+      hash.update(chunk);
+      file.update(chunk);
+    }
     hash.update("\0");
+    if (inputs) inputs[relative(root, path)] = file.digest("hex");
   }
   return hash.digest("hex");
 }

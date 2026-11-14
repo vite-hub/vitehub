@@ -66,7 +66,7 @@ const channels = [
     <li v-for="channel in channels" :key="channel.helper">
       <NuxtLink
         :to="channel.to"
-        class="flex items-center gap-2 text-sm text-muted hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+        class="flex items-center gap-2 text-sm text-muted hover:text-highlighted"
       >
         <UIcon :name="channel.icon" class="size-4 shrink-0" aria-hidden="true" />
         <span>{{ channel.name }}</span>

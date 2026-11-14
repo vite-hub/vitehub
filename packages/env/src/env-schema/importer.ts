@@ -159,14 +159,10 @@ export function envSchema(
     if (typeof mapped !== "string") fail(field, "Output path must be a string");
     const segments = safePath(mapped, field, publicField);
     const declaration = descriptorVariable(descriptor(field), {
-      ...(field.default !== undefined ? { default: field.default } : {}),
+      ...(field.default !== undefined ? { default: field.default } : { optional: !field.required }),
       mode: publicField ? "build" : "runtime",
-      required: field.required,
       secret: field.sensitive,
-      source: env.source(field.key, {
-        canonical: false,
-        skipEmpty: !field.required && field.type.kind !== "string",
-      }),
+      source: env.source(field.key, { canonical: false }),
     });
     if (publicField) {
       if (publicNames.has(mapped)) fail(field, "Output path collides with another declaration");

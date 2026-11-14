@@ -15,7 +15,7 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 /** Subpaths that moved into another entry of the same package, without `vite-hub/` or `@vite-hub/`. */
 const subpathMoves: ReadonlyArray<readonly [from: string, to: string]> = [
   ...["file", "files", "github", "glob", "markdown"].map(name => [`source/${name}`, "source"] as const),
-  ...["presets", "provider", "schema", "secret", "server"].map(name => [`env/${name}`, "env"] as const),
+  ...["presets", "provider", "schema", "secret"].map(name => [`env/${name}`, "env"] as const),
   ["env/auth", "env/bridge"],
   ["env/http", "env/bridge"],
   ["blob/content-type", "blob"],
@@ -35,15 +35,6 @@ const taskPath = "vite-hub/task"
 const taskValuesPath = "nitro/task"
 const taskTypesPath = "nitro/types"
 const taskTypeNames = new Set(["Task", "TaskContext", "TaskEvent", "TaskMeta", "TaskPayload", "TaskResult"])
-
-/** Low-level names of `env/server` that only generated code used. The Env root does not export them. */
-const privateEnvServerNames = new Map([
-  ["runWithCloudflareEnv", "`runWithCloudflareEnv` is not public. Generated Server Env code wraps each request for you."],
-  ["createServerEnvManagement", "`createServerEnvManagement` is not public. The Console serves the Env bridge."],
-  ["deriveSecret", "Call `deriveSecret()` from `#vitehub/env/server`. The Env root does not export the low-level `deriveSecret()`."],
-  ["ViteHubContext", "Import the `ViteHubContext` type from `vite-hub/runtime`."],
-  ["EnvAccessContext", "Import the `EnvAccessContext` type from `vite-hub/env/bridge`."],
-])
 
 /** Calls whose first argument names a module, such as `vi.mock("vite-hub/browser/actions")`. */
 const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"])
@@ -222,7 +213,6 @@ function rewriteBlock(context: FileContext): boolean {
         continue
       }
       replaceSource(context, statement.source, to)
-      reportPrivateEnvNames(context, from, statement)
       continue
     }
 
@@ -230,7 +220,6 @@ function rewriteBlock(context: FileContext): boolean {
     const from = statement.source.value
     const to = movedTo(from, context.file)
     if (!to) continue
-    reportPrivateEnvNames(context, from, statement)
     if (from === taskPath) {
       context.task = true
       moveTaskImport(context, statement, imports)
@@ -239,7 +228,7 @@ function rewriteBlock(context: FileContext): boolean {
   }
 
   walk(program, (node) => {
-    // `declare module "vite-hub/env/server"`, `import("vite-hub/source/glob")`, and `vi.mock("vite-hub/browser/actions")`.
+    // `declare module "vite-hub/env/presets"`, `import("vite-hub/source/glob")`, and `vi.mock("vite-hub/browser/actions")`.
     let source: Node | undefined
     if (node.type === "TSModuleDeclaration" && node.id.type === "StringLiteral") source = node.id
     else if (node.type === "ImportExpression") source = node.source
@@ -267,23 +256,6 @@ function rewriteBlock(context: FileContext): boolean {
   })
 
   return context.output.toString() !== before
-}
-
-/** `env/server` also had names for generated code that the Env root does not export. */
-function reportPrivateEnvNames(context: FileContext, from: string, statement: Node) {
-  if (!/^(?:@vite-hub|vite-hub)\/env\/server$/.test(from)) return
-  const specifiers = "specifiers" in statement && Array.isArray(statement.specifiers) ? statement.specifiers as Node[] : []
-  if (statement.type === "ExportAllDeclaration" || specifiers.some(specifier => specifier.type === "ImportNamespaceSpecifier" || specifier.type === "ExportNamespaceSpecifier")) {
-    followUp(context, statement, `The Env root omits these server exports; review downstream uses: ${[...privateEnvServerNames.values()].join(" ")}`)
-    return
-  }
-  for (const specifier of specifiers) {
-    const name = specifier.type === "ImportSpecifier"
-      ? importedName(specifier)
-      : specifier.type === "ExportSpecifier" ? specifier.local.name : undefined
-    const message = name ? privateEnvServerNames.get(name) : undefined
-    if (message) followUp(context, specifier, message)
-  }
 }
 
 function mentionsMovedPath(source: string): boolean {

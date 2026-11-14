@@ -9,8 +9,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import hubAuthNuxt from "../src/nuxt.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
-import { createAuthAccessHandler, handleAuthRequest, resetAuth, withAuth } from "../src/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, resetAuth, withAuth } from "../src/internal/server.ts"
 import { createAuthNitroConfig, hubAuth } from "../src/vite.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const roots: string[] = []
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -34,10 +35,11 @@ describe("Auth below an application base path", () => {
   it("serves Better Auth routes and sessions below Nuxt app.baseURL without a configured baseURL", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
     const db: Record<string, unknown[]> = { account: [], session: [], user: [], verification: [] }
-    const definition = defineAuth({
+    const definition = defineFixedAuth({
       appName: "ViteHub",
       emailAndPassword: { enabled: true },
-      runtime: { database: memoryAdapter(db), secret },
+      database: memoryAdapter(db),
+      secret,
     })
     const origin = "https://example.com"
     const headers = { "content-type": "application/json", origin }
@@ -63,10 +65,10 @@ describe("Auth below an application base path", () => {
 
   it("starts provider sign-in with callbacks below the application base path", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
-    const definition = defineAuth({
+    const definition = defineFixedAuth({
       access: { signIn: { provider: "github" } },
       appName: "ViteHub",
-      runtime: { secret, socialProviders: { github: { clientId: "github-client", clientSecret: "github-secret" } } },
+      secret, socialProviders: { github: { clientId: "github-client", clientSecret: "github-secret" } },
     })
 
     const response = await withAuth(() => undefined, definition)(new Request("https://example.com/app/dashboard", {
@@ -81,7 +83,7 @@ describe("Auth below an application base path", () => {
 
   it("matches access routes below the application base path", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
-    const definition = defineAuth({ access: { routes: ["/private/**"] }, appName: "ViteHub", runtime: { secret } })
+    const definition = defineFixedAuth({ access: { routes: ["/private/**"] }, appName: "ViteHub", secret })
     const access = createAuthAccessHandler([{ route: "/private/**" }], definition)
 
     expect((await access(new Request("https://example.com/app/private/page")))?.status).toBe(401)
@@ -90,20 +92,22 @@ describe("Auth below an application base path", () => {
 
   it("matches recursive root access routes below the application base path", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
-    const definition = defineAuth({ access: { routes: ["/**"] }, appName: "ViteHub", runtime: { secret } })
+    const definition = defineFixedAuth({ access: { routes: ["/**"] }, appName: "ViteHub", secret })
     const access = createAuthAccessHandler([{ route: "/**" }], definition)
 
     expect((await access(new Request("https://example.com/app/private")))?.status).toBe(401)
     expect(await access(new Request("https://example.com/public"))).toBeUndefined()
   })
 
-  it("preserves the trailing slash for exact root access routes", async () => {
+  it("guards the base path with and without its trailing slash for exact root access routes", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
-    const definition = defineAuth({ access: { routes: ["/"] }, appName: "ViteHub", runtime: { secret } })
+    const definition = defineFixedAuth({ access: { routes: ["/"] }, appName: "ViteHub", secret })
     const access = createAuthAccessHandler([{ route: "/" }], definition)
 
+    // rou3 ignores one trailing slash, so Nitro sends both paths to the root handler.
     expect((await access(new Request("https://example.com/app/")))?.status).toBe(401)
-    expect(await access(new Request("https://example.com/app"))).toBeUndefined()
+    expect((await access(new Request("https://example.com/app")))?.status).toBe(401)
+    expect(await access(new Request("https://example.com/app/page"))).toBeUndefined()
   })
 
   it("keeps a base path that already includes the application base path", () => {

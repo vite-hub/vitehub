@@ -69,7 +69,7 @@ export const comments = defineComments({
 
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
-Press `C` and click the page to start a thread, or press `B` to highlight part of the page and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
+Press `C` and click the page to start a thread, or press `B` to draw on the page with a marker, a pen, arrows, or text labels and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
 
 ```vue
 <script setup lang="ts">
@@ -168,7 +168,7 @@ This package holds what the server and the UI share:
 - `@vite-hub/comments/client` has no framework. It makes anchors, finds them again, and calls the comment operations through a transport.
 - `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and docs examples.
 
-The Vue parts are in `@vite-hub/ui/comments`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC, which needs Console access. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
+The Vue parts are in `@vite-hub/ui`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC on a development server. A browser cannot sign Console calls, so the RPC transport works only with `console: { auth: false }` or without the `console` option. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
 
 ## Anchors
 
@@ -177,16 +177,18 @@ An anchor says where a comment sits, so the pin can find the spot again after th
 ```ts
 import { createAnchor, resolveAnchor } from "@vite-hub/comments/client";
 
-// From a click: the element under the point, plus where in its box the click landed.
-const anchor = createAnchor({ x: event.clientX, y: event.clientY });
-// { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
+document.addEventListener("click", (event) => {
+  // From a click: the element under the point, plus where in its box the click landed.
+  const anchor = createAnchor({ x: event.clientX, y: event.clientY });
+  // { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
 
-const position = resolveAnchor(anchor);
-if (position.detached) {
-  // The element is gone, hidden, or no longer holds the quote.
-} else {
-  position.x; // The pin position in client coordinates.
-}
+  const position = resolveAnchor(anchor);
+  if (position.detached) {
+    // The element is gone, hidden, or no longer holds the quote.
+  } else {
+    position.x; // The pin position in client coordinates.
+  }
+});
 ```
 
 | Kind | Made from | Keeps |
@@ -206,10 +208,10 @@ Offsets are in thousandths of the element box: `500` is the middle. A pin follow
 ## Client
 
 ```ts
-import { createCommentsClient } from "@vite-hub/comments/client";
+import { createAnchor, createCommentsClient, createRestTransport } from "@vite-hub/comments/client";
 
 const client = createCommentsClient({
-  transport, // see below
+  transport: createRestTransport(), // the Comments API; see Transport below
   user: { id: "ana", name: "Ana Ruiz" },
   query: { page: location.pathname },
 });
@@ -217,11 +219,11 @@ const client = createCommentsClient({
 const stop = client.start(); // Loads the threads, then keeps them fresh.
 await client.create({
   subject: { kind: "page", id: location.pathname },
-  anchor,
+  anchor: createAnchor(document.querySelector("#pricing button")!),
   body: "This button is too small.",
 });
 client.threads; // The cached threads, ordered by number.
-client.onChange(() => render(client.threads));
+client.onChange(() => console.log(`${client.threads.length} threads`));
 ```
 
 To retry a create safely, give it a `requestId`, such as `crypto.randomUUID()`, and keep it for that draft. A second create with the same `requestId` in the same scope returns the first thread and creates no new thread. Only the author of the first thread gets it back, for the same subject, and only when that author may still read it. Anything else fails: the Operations and `POST /threads` answer `409` with `COMMENTS_R0022`, and the server API `comments.create()` returns `COMMENTS_INVALID_INPUT` with the reason. Make a new `requestId` for each new comment.

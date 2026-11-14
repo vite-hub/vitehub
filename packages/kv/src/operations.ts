@@ -61,17 +61,17 @@ const set = defineKVOperation<{ key: string, store?: string, ttl?: number, value
   run: async input => await (await runtime()).runKVOperation("set", input) as KVDevSetResult,
 })
 
-const del = defineKVOperation<{ key: string, store?: string }, KVDevDeleteResult>({
+const deleteKey = defineKVOperation<{ key: string, store?: string }, KVDevDeleteResult>({
   cli: { command: "delete", positional: ["key"] },
   description: "Delete one key. There is no operation that clears a store.",
   input: v.object({ key, store }),
   kind: "destructive",
-  name: "kv.del",
-  run: async input => await (await runtime()).runKVOperation("del", input) as KVDevDeleteResult,
+  name: "kv.delete",
+  run: async input => await (await runtime()).runKVOperation("delete", input) as KVDevDeleteResult,
 })
 
-/** The `kv.*` operations: list, get, has, set, and del. The Console, `vitehub kv`, and agents run them. */
-export const kvOperations: readonly AnyOperation[] = [list, get, has, set, del]
+/** The `kv.*` operations: list, get, has, set, and delete. The Console, `vitehub kv`, and agents run them. */
+export const kvOperations: readonly AnyOperation[] = [list, get, has, set, deleteKey]
 
 export type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult }
 

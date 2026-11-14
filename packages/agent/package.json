@@ -75,6 +75,11 @@
       "import": "./dist/cloudflare/state.js",
       "default": "./dist/cloudflare/state.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./env-identity": {
       "types": "./dist/env-identity.d.ts",
       "import": "./dist/env-identity.js",
@@ -85,40 +90,50 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./internal/default-invocations": {
+      "types": "./dist/internal/default-invocations.d.ts",
+      "import": "./dist/internal/default-invocations.js",
+      "default": "./dist/internal/default-invocations.js"
+    },
+    "./internal/default-invocations-core": {
+      "types": "./dist/internal/default-invocations-core.d.ts",
+      "import": "./dist/internal/default-invocations-core.js",
+      "default": "./dist/internal/default-invocations-core.js"
+    },
+    "./internal/default-invocations-libsql": {
+      "types": "./dist/internal/default-invocations-libsql.d.ts",
+      "import": "./dist/internal/default-invocations-libsql.js",
+      "default": "./dist/internal/default-invocations-libsql.js"
+    },
+    "./invocations": {
+      "types": "./dist/invocations/index.d.ts",
+      "import": "./dist/invocations/index.js",
+      "default": "./dist/invocations/index.js"
+    },
     "./invocations/app": {
       "types": "./dist/invocations/app.d.ts",
       "import": "./dist/invocations/app.js",
       "default": "./dist/invocations/app.js"
-    },
-    "./invocations/d1": {
-      "types": "./dist/invocations/d1.d.ts",
-      "import": "./dist/invocations/d1.js",
-      "default": "./dist/invocations/d1.js"
     },
     "./invocations/database": {
       "types": "./dist/invocations/database.d.ts",
       "import": "./dist/invocations/database.js",
       "default": "./dist/invocations/database.js"
     },
-    "./invocations/default": {
-      "types": "./dist/invocations/default.d.ts",
-      "import": "./dist/invocations/default.js",
-      "default": "./dist/invocations/default.js"
-    },
     "./invocations/drizzle": {
       "types": "./dist/invocations/drizzle.d.ts",
       "import": "./dist/invocations/drizzle.js",
       "default": "./dist/invocations/drizzle.js"
     },
-    "./invocations/sqlite": {
-      "types": "./dist/invocations/sqlite.d.ts",
-      "import": "./dist/invocations/sqlite.js",
-      "default": "./dist/invocations/sqlite.js"
-    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
+    },
+    "./messages": {
+      "types": "./dist/messages.d.ts",
+      "import": "./dist/messages.js",
+      "default": "./dist/messages.js"
     },
     "./observability": {
       "types": "./dist/observability.d.ts",
@@ -135,15 +150,15 @@
       "import": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
-    "./process-host": {
-      "types": "./dist/process-host.d.ts",
-      "import": "./dist/process-host.js",
-      "default": "./dist/process-host.js"
+    "./page": {
+      "types": "./dist/page.d.ts",
+      "import": "./dist/page.js",
+      "default": "./dist/page.js"
     },
-    "./runtime/process": {
-      "types": "./dist/runtime/process.d.ts",
-      "import": "./dist/runtime/process.js",
-      "default": "./dist/runtime/process.js"
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "import": "./dist/process.js",
+      "default": "./dist/process.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -155,10 +170,15 @@
       "import": "./dist/server/internal.js",
       "default": "./dist/server/internal.js"
     },
-    "./state/sqlite": {
-      "types": "./dist/state/sqlite.d.ts",
-      "import": "./dist/state/sqlite.js",
-      "default": "./dist/state/sqlite.js"
+    "./sessions": {
+      "types": "./dist/sessions.d.ts",
+      "import": "./dist/sessions.js",
+      "default": "./dist/sessions.js"
+    },
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js",
+      "default": "./dist/state.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
@@ -196,7 +216,6 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/channels": "workspace:*",
-    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
@@ -207,12 +226,12 @@
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
+    "birpc": "catalog:runtime",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
     "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
-    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
@@ -223,20 +242,21 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@types/proper-lockfile": "catalog:",
+    "@ui-sdk/core": "0.1.0-beta.2",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@whatwg-node/node-fetch": "0.8.6",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
-    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -263,7 +283,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -273,7 +293,6 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:vue-compat",
-    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
     "@vite-hub/connections": "workspace:*"
@@ -325,9 +344,6 @@
       "optional": true
     },
     "vue": {
-      "optional": true
-    },
-    "eve": {
       "optional": true
     },
     "evlog": {

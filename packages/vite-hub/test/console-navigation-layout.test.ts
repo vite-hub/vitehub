@@ -1,155 +1,10 @@
-import { readdirSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 
 import { describe, expect, it } from "vitest"
 
 import { resolveConsoleSectionIds } from "../src/console/runtime/sections"
 
-const component = (name: string) => readFileSync(
-  new URL(`../src/console/runtime/components/${name}.vue`, import.meta.url),
-  "utf8",
-)
-
 describe("shared Console navigation layout", () => {
-  it("renders one navigation rail for every Console route", () => {
-    const frame = component("console-frame")
-    expect(frame).toContain('<ConsoleRail :active="active" :sections-base="sectionsBase" />')
-    // The app owns the frame, so the rail stays mounted while a route loads and between sections.
-    const app = readFileSync(new URL("../src/console/runtime/client/app.vue", import.meta.url), "utf8")
-    expect(app).toMatch(/<ConsoleFrame :active="active" :sections-base="sectionsBase">[\s\S]*<RouterView/)
-    const pages = readdirSync(new URL("../src/console/runtime/components/", import.meta.url))
-      .filter(file => file.endsWith(".vue"))
-      .map(file => file.slice(0, -".vue".length))
-    for (const name of pages) {
-      expect(component(name), name).not.toContain("<ConsoleFrame")
-      expect(component(name), name).not.toContain("ConsolePrimitiveSwitcher")
-      expect(component(name), name).not.toContain("ConsoleSectionNav")
-    }
-    const rail = component("console-rail")
-    expect(rail).toContain("groupConsoleSections(")
-    expect(rail).toContain('<PrimitiveRail class="vitehub-console__rail" label="Console">')
-    expect(rail).toContain(':current="section.id === active"')
-    expect(rail).toContain("<UDashboardSearchButton")
-  })
-
-  it("mounts search on every routed page, so the rail's Search button opens it", () => {
-    const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
-    const pages = [...client.matchAll(/import\("\.\.\/components\/(console-[a-z-]+)\.vue"\)/g)].map(match => match[1])
-    expect(pages).toContain("console-logs")
-    for (const name of pages) expect(component(name), name).toContain("<ConsoleSearch")
-  })
-
-  it("shows appearance and sign-out inside one avatar menu", () => {
-    const rail = component("console-rail")
-    expect(rail).toContain("inject(consoleAppearanceKey, undefined)")
-    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu[\s\S]*?v-if="appearance \|\| signedIn \|\| tokenSignedIn"[\s\S]*?<UAvatar/)
-    expect(rail).toMatch(/type: "checkbox",[\s\S]*?checked: appearance\?\.preference\.value === option/)
-    expect(rail).toContain('label: signOutFailed.value ? "Retry sign out" : "Sign out"')
-    expect(rail).toContain("userIdentity.value")
-    expect(component("console-search-palette")).toContain("inject(consoleAppearanceKey, undefined)")
-    const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
-    // The stored appearance applies before mount, so the first render uses the chosen scheme.
-    expect(client).toMatch(/startConsoleAppearance\([\s\S]*?\.provide\(consoleAppearanceKey, appearance\)[\s\S]*?\.mount\("#app"\)/)
-    // Nuxt UI color mode would write the root class from a second, origin-wide storage key.
-    expect(readFileSync(new URL("../console.hosted.vite.config.ts", import.meta.url), "utf8")).toContain("colorMode: false")
-  })
-
-  it("loads built-in route views on navigation", () => {
-    const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
-    for (const name of ["ConsoleApp", "ConsoleBlob", "ConsoleConnections", "ConsoleDatabase", "ConsoleDefinitions", "ConsoleEnv", "ConsoleHome", "ConsoleKv"]) {
-      const fileName = `console${name.slice("Console".length).replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
-      expect(client).toContain(`const ${name} = () => import("../components/${fileName}.vue")`)
-    }
-    expect(client).not.toMatch(/^import Console(?:App|Blob|Connections|Database|Definitions|Env|Home|Kv) from/m)
-  })
-
-  it("registers Go to chords in the rail and shows them in tooltips and search", () => {
-    const rail = component("console-rail")
-    expect(rail).toContain('import { defineShortcuts } from "@nuxt/ui/composables"')
-    expect(rail).toContain('[consoleOverviewShortcut.join("-")]: () => openShortcut("vitehub-console")')
-    expect(rail).toContain('if (section.shortcut) shortcuts[section.shortcut.join("-")] = () => openShortcut(section.routeName)')
-    expect(rail).toContain(':kbds="section.shortcut ? [...section.shortcut] : undefined"')
-    const search = component("console-search-palette")
-    expect(search).toContain('label: "Go to"')
-    expect(search).toContain("kbds: [...consoleOverviewShortcut]")
-    expect(search).toContain("<template #footer>")
-    // Search loads its palette on first open. Until then, `/`, ⌘K, and the rail button still open it.
-    const launcher = component("console-search")
-    expect(launcher).toContain('"/": show')
-    expect(launcher).toContain('useRuntimeHook("dashboard:search:toggle"')
-    expect(launcher).toContain('defineAsyncComponent(() => import("./console-search-palette.vue"))')
-    const app = component("console-app")
-    expect(app).toContain(':actions="searchActions"')
-    expect(app).toContain('label: "New chat"')
-  })
-
-  it("titles each context panel with its section and drops sidebars that only held navigation", () => {
-    for (const name of ["console-definitions", "console-database"]) {
-      expect(component(name)).toContain('class="vitehub-console__panel-title"')
-      expect(component(name)).toContain('class="vitehub-console__nav"')
-      // A bound `:id` evaluates `console - navigation` and stores the sidebar size under "NaN".
-      expect(component(name)).toMatch(/\sid="console-navigation"/)
-      expect(component(name)).not.toContain(':id="console-navigation"')
-    }
-    // Blob browses folders inside its page, like Content Media, so it needs no sidebar either.
-    for (const name of ["console-home", "console-env", "console-kv", "console-connections", "console-blob"]) {
-      expect(component(name)).not.toContain("<UDashboardSidebar")
-      expect(component(name)).toContain(':toggle="false"')
-    }
-    expect(component("console-app")).toContain('v-if="!isUsageRoute"\n      id="agent-sessions"')
-  })
-
-  it("groups the Overview sections and keeps one open button for each section", () => {
-    const home = component("console-home")
-    expect(home).toContain("groupConsoleSections(availableSections.value)")
-    expect(home).toContain("consoleSectionGroupLabels[id]")
-    expect(home).toContain(':aria-label="`Open ${section.label}`"')
-    expect(home).toContain("readLastConsoleSection()")
-    expect(home).toContain('useCollection("vitehub-console-search"')
-  })
-
-  it("links Overview sections to their docs without nesting links in buttons", () => {
-    const home = component("console-home")
-    // The open button covers the cell and the Docs link sits beside it, never inside it.
-    expect(home).toMatch(/<button\s+type="button"\s+class="vitehub-console__overview-cell-target absolute inset-0"[^>]*\/>/)
-    expect(home).toContain(':href="section.docs"')
-    expect(home).toContain(':aria-label="`${section.label} documentation`"')
-    expect(home).toContain('consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id))')
-    expect(home).toContain(':aria-label="`Set up ${entry.label}`"')
-    expect(home).toContain('v-for="guide in consoleGuides"')
-    expect(home).toContain("Add your first primitive")
-  })
-
-  it("keeps primitive identity in the page header instead of repeating sidebar headings", () => {
-    expect(component("console-definitions")).not.toContain(">Definitions</h1>")
-    expect(component("console-blob")).not.toContain(">Objects</h1>")
-    expect(component("console-database")).not.toContain("tracking-[.1em] text-muted\">\n            Database")
-  })
-
-  it("shows one Agents panel failure and never offers older sessions for an empty list", () => {
-    const app = component("console-app")
-    expect(app).toContain("[agentsError.value, list.error.value].find((error) => isConsoleSignInRequired(error))")
-    expect(app).toContain('v-else-if="!selectedInvocationId && sessionsPanelError"')
-    expect(app).toContain('<template v-if="!sessionsPanelError">')
-    expect(app).toContain('v-if="list.cursor.value && invocationItems.length" class="flex justify-center px-2 py-3"')
-    // Session filters are one select panel with search and checked values, not select menus inside a popover.
-    expect(app).toContain("<UCommandPalette")
-    expect(app).not.toContain("<USelectMenu")
-  })
-
-  it("shows Run now after the Read-only note only for runnable Schedules", () => {
-    const definitions = component("console-definitions")
-    expect(definitions).toMatch(/<template #right>\s*<span[^>]*>Read-only<\/span>\s*<UButton\s+v-if="canRunSelected && catalogView"[\s\S]*?label="Run now"/)
-    // A record Schedule runs from its detail panel.
-    expect(definitions).toMatch(/<article v-if="selectedRecord"[\s\S]*?<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
-    expect(definitions).toContain("Boolean(props.scheduleRunBase && registeredOperations.value.includes(\"schedule.run\") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
-    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: "/_vitehub/api/schedule-run"')
-  })
-
-  it("opens the Database table route in data mode", () => {
-    const routes = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
-    expect(routes).toMatch(/name: "vitehub-console-databases",[\s\S]*?view: "data"/)
-  })
-
   it("enables every registered Database route through navigation", () => {
     const routes = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
     const enabled = resolveConsoleSectionIds({ database: true })
@@ -158,50 +13,24 @@ describe("shared Console navigation layout", () => {
     for (const section of databaseSections) expect(enabled).toContain(section)
   })
 
-  it("lists Agents in the Agents panel and marks the selected Agent", () => {
-    const app = component("console-app")
-    expect(app).toMatch(/class="vitehub-console__panel-title[^"]*">\s*<span class="min-w-0 flex-1 truncate">Agents<\/span>/)
-    expect(app).not.toContain("<UDropdownMenu")
-    expect(app).not.toContain("<UDashboardSearchButton")
-    expect(app).toContain('aria-label="Filter sessions"')
-    expect(app).toContain('<section v-if="hasMultipleAgents" class="vitehub-console__agents')
-    // The selected row exposes its state to assistive technology, not only through color.
-    expect(app).toMatch(/v-for="name in agentRows\.visible"[\s\S]*?:aria-current="name === selectedAgentName \? 'true' : undefined"[\s\S]*?@click="selectAgent\(name\)"/)
-    expect(app).toContain("Show {{ agentRows.hidden }} more")
-    expect(app).toMatch(/<span>Sessions<\/span>\s*<span v-if="selectedAgentName"/)
-    expect(app).toContain('group-by="recency"')
-  })
-
-  it("generates the Tailwind classes that the Console app config declares", () => {
-    const styles = readFileSync(new URL("../src/console/runtime/client/styles.css", import.meta.url), "utf8")
-    const appConfig = readFileSync(new URL("../src/console/app.config.ts", import.meta.url), "utf8")
-    expect(appConfig).toContain("bg-(color:--vitehub-console-floating)")
-    expect(styles).toContain('@source "../../app.config.ts";')
-    expect(styles).toMatch(/--vitehub-console-floating:/)
-  })
-
-  it("loads the Workspace when its active tab is reopened from a file", () => {
-    const inspector = component("console-session-inspector")
-    expect(inspector).toMatch(/selectedPath\.value = undefined;[\s\S]*?if \(!workspace\.value && !workspaceLoading\.value\) void loadWorkspace\(\);/)
-  })
-
   it("loads file and diff renderers only when their views open", () => {
-    const inspector = component("console-session-inspector")
-    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/file-tree")')
-    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
-    expect(inspector).not.toContain('import { FileTree, PatchDiff } from "@vite-hub/ui"')
+    const inspector = readFileSync(new URL("../src/console/runtime/components/console-session-inspector.vue", import.meta.url), "utf8")
+    expect(inspector).toContain('defineAsyncComponent(() => import("./console-lazy-views").then(module => module.FileTree))')
+    expect(inspector).toContain('defineAsyncComponent(() => import("./console-lazy-views").then(module => module.PatchDiff))')
+    expect(inspector).not.toMatch(/import \{[^}]*\b(?:FileTree|PatchDiff)\b[^}]*\} from "@vite-hub\/ui"/)
     const invocation = readFileSync(new URL("../src/console/runtime/components/invocation/agent-invocation.ts", import.meta.url), "utf8")
-    expect(invocation).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
-    expect(invocation).not.toContain("import { Markdown, PatchDiff } from \"@vite-hub/ui\"")
-    const capabilityInspector = readFileSync(new URL("../src/console/runtime/components/invocation/agent-capability-inspector.ts", import.meta.url), "utf8")
-    expect(capabilityInspector).toContain('import { ToolList } from "@vite-hub/ui/tool-list"')
-    expect(capabilityInspector).not.toContain('import { ToolList } from "@vite-hub/ui"')
+    expect(invocation).toContain('defineAsyncComponent(() => import("../console-lazy-views.ts").then(module => module.PatchDiff))')
+    expect(invocation).not.toMatch(/import \{[^}]*\bPatchDiff\b[^}]*\} from "@vite-hub\/ui"/)
   })
 
   it("loads only the requested syntax grammar for workspace previews", () => {
-    const preview = component("console-session-code-preview")
+    const preview = readFileSync(new URL("../src/console/runtime/components/console-session-code-preview.vue", import.meta.url), "utf8")
+    const languages = readFileSync(new URL("../src/console/runtime/client/highlight-languages.ts", import.meta.url), "utf8")
     expect(preview).toContain('import("shiki/core")')
-    expect(preview).toContain('import("shiki/langs/typescript.mjs")')
+    expect(preview).toContain('import { consoleHighlightLanguages } from "../client/highlight-languages"')
+    expect(preview).toContain("consoleHighlightLanguages[languageName]")
+    expect(languages).toContain('typescript: () => import("shiki/langs/typescript.mjs")')
     expect(preview).not.toContain('import("shiki/bundle/web")')
+    expect(languages).not.toContain('import("shiki/bundle/web")')
   })
 })

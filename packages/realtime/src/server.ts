@@ -1,15 +1,17 @@
-import { assertAuthOrigin } from "@vite-hub/auth/server"
+import { assertAuthOrigin } from "@vite-hub/auth/internal/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
-import { H3Event, HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
+import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { RealtimeRequestFrame } from "./protocol.ts"
+import type { RealtimeBus, RealtimeBusMessage, RealtimeBusMessageType, RealtimeRoomRecord } from "./bus-protocol.ts"
 // Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
-import type {} from "@vite-hub/runtime/h3"
+import type {} from "@vite-hub/runtime/internal/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
@@ -18,6 +20,7 @@ import type {
   RealtimeDefinition,
   RealtimeDocumentAdapter,
   RealtimeDocumentContext,
+  RealtimeDocumentDefinition,
   RealtimeEditor,
   RealtimeFieldValue,
   RealtimeIssue,
@@ -33,6 +36,7 @@ import { createRealtimeIdentity } from "./presence.ts"
 import { AwarenessOwnershipConflict, compactRealtimeAwareness, createRealtimeAwarenessOwners } from "./awareness.ts"
 import { isRealtimeDocumentConflict } from "./conflict.ts"
 import {
+  checkRealtimeBody,
   containsRealtimeState,
   createRealtimeYDoc,
   diffRealtimeYDoc,
@@ -46,15 +50,20 @@ import {
   writeRealtimeFields,
   writeRealtimeStatus,
 } from "./document.ts"
+import { assertRealtimeAccess, assertRealtimeCheckpoint } from "./definition.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
 import {
+  decodeRealtimeRequestFramePayload,
   decodeWorkspaceChangePayload,
   encodeRealtimeControl,
+  encodeRealtimeRequestFrame,
   encodeWorkspaceChange,
   messageAwareness,
   messageQueryAwareness,
+  messageRealtimeRequest,
   messageWorkspaceChange,
   realtimeForbiddenWriteCloseCode,
+  realtimeInvalidDocumentCode,
   realtimeKeepalivePing,
   realtimeKeepalivePong,
   realtimeReadOnlyCode,
@@ -65,11 +74,23 @@ import {
 import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import {
+  defaultRequestTimeout,
+  defaultRequestWait,
+  durableRoomsInstance,
+  internalRequestHeader,
+  isDurableSockets,
+  isRealtimeDurableObjectNamespace,
+  localRequesters,
+  roomRequestError,
+  routePrefix,
+  toDurableRequestReply,
+  workerDurableObjects,
+} from "./request.ts"
+import type { DurableSockets, LocalRequestOptions, RealtimeDurableObjectNamespace, RealtimeRoomRequestResult } from "./request.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
-import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { realtimeDurableObjectKey } from "./durable-key.ts"
 
 export { isRealtimeAvailable } from "./availability.ts"
 export { blobDocument } from "./blob-document.ts"
@@ -81,12 +102,24 @@ export { readRealtimeRequestState } from "./transport.ts"
 export { isRealtimeWorkspaceDocument, readRealtimeWorkspaceDocument, workspaceDocument } from "./workspace-document.ts"
 export type { RealtimeWorkspaceDocumentAdapter } from "./workspace-document.ts"
 
+export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
+export { requestRealtimeRoom } from "./request.ts"
+export type { RealtimeDurableObjectNamespace, RealtimeRoomRequestOptions, RealtimeRoomRequestResult } from "./request.ts"
+
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
 }
 
-const routePrefix = "/api/_vitehub/realtime/"
+export interface RealtimeHandlerOptions {
+  /**
+   * Shares the rooms of this server with other instances. ViteHub passes `useRealtimeBus()` from
+   * `@vite-hub/realtime/bus` in Node builds. It runs once, when the first room opens. `undefined` keeps the rooms in
+   * this process.
+   */
+  bus?: () => Promise<RealtimeBus | undefined> | RealtimeBus | undefined
+}
+
 const maxMessageBytes = 1024 * 1024
 const maxRoomStateBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
@@ -108,17 +141,17 @@ const messageSync = 0
 const keepalivePing = new TextEncoder().encode(realtimeKeepalivePing)
 /** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
 const internalRefreshHeader = "x-vitehub-realtime-refresh"
-/**
- * The one Durable Object instance that holds every room. Nitro's Cloudflare entry hands each WebSocket upgrade
- * to this instance before the application runs, so saves, checkpoints, and refreshes must reach it too: a Durable
- * Object per room would have no peers and never match a room's state.
- */
-const durableRoomsInstance = "server"
 
 export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxWait: 10_000 })
 
 /** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
 const serverOrigin = Symbol("vitehub.realtime.server")
+/** Origin of updates that another instance sent over the bus. */
+const busOrigin = Symbol("vitehub.realtime.bus")
+/** A Yjs update with no structs and no deletions. */
+const emptyUpdateBytes = 2
+/** The epoch of rooms that hold no document: Workspace event rooms and the rooms of presence definitions. */
+const eventsEpoch = "events"
 
 /** The fields that the adapter loaded, without the ones it left undefined. */
 function loadedFields(loaded: RealtimeLoadedDocument): Record<string, RealtimeFieldValue> {
@@ -133,6 +166,7 @@ function holdsFields(map: Y.Map<unknown>, fields: Record<string, RealtimeFieldVa
 
 const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
 const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
+const invalidDocumentMessage = "The room document does not fit the editor schema, so Realtime did not save it. Undo the last change or reload."
 const codecReadBackIssue: RealtimeIssue = {
   message: "The editor cannot read back the Markdown that it saved. Some content can change when the document opens again.",
 }
@@ -152,10 +186,31 @@ export function encodeSyncStep1(document: Y.Doc): Uint8Array {
 }
 
 export function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
+  return encodeAwareness(awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
+}
+
+function encodeAwareness(update: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageAwareness)
-  encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
+  encoding.writeVarUint8Array(encoder, update)
   return encoding.toUint8Array(encoder)
+}
+
+/**
+ * The clients that the awareness has a clock for. A client's first awareness update has clock 0, which Yjs does not
+ * apply, so the client has no clock yet and cannot be encoded.
+ */
+function knownAwarenessClients(awareness: awarenessProtocol.Awareness, clients: readonly number[]): number[] {
+  return clients.filter(client => awareness.meta.has(client))
+}
+
+/** Whether a transaction changed only the server-written `status` map. */
+function changesOnlyStatus(document: Y.Doc, transaction: Y.Transaction): boolean {
+  const status: object = document.getMap(realtimeDocumentLayout.status)
+  for (const type of transaction.changed.keys()) {
+    if (type !== status) return false
+  }
+  return true
 }
 
 /** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
@@ -219,8 +274,15 @@ export function assertRealtimeRoomStateQuota(document: Y.Doc, maxStateBytes = ma
   }
 }
 
-export function realtimeRoomKey(definitionName: string, documentId: string): string {
-  return JSON.stringify([definitionName, documentId])
+export function realtimeRoomKey(definitionName: string, documentId: string, scope?: string): string {
+  // The scope is its own element, so no room id can name another person's room.
+  return JSON.stringify(scope === undefined ? [definitionName, documentId] : [definitionName, documentId, scope])
+}
+
+/** The scope of a person's rooms in a Definition with `scope: "user"`, or `undefined` for shared rooms. */
+function roomScope(definition: RealtimeDefinition, user: string | null): string | undefined {
+  if (definition.document !== false || definition.scope !== "user") return undefined
+  return user === null ? "anonymous" : `user:${user}`
 }
 
 export async function restoreRealtimeDocument(
@@ -286,15 +348,15 @@ function storedUpdate(value: unknown): Uint8Array | undefined {
 
 interface ResolvedRealtimeDefinition {
   adapter: RealtimeDocumentAdapter
-  definition: RealtimeDefinition
+  definition: RealtimeDocumentDefinition
   /** The codec of one document: the definition's editor, or the one its editor function picks. */
   editor: (context: RealtimeDocumentContext) => RealtimeEditor
   persistence: { debounce: number, maxWait: number } | false
 }
 
-const resolvedDefinitions = new WeakMap<RealtimeDefinition, ResolvedRealtimeDefinition>()
+const resolvedDefinitions = new WeakMap<RealtimeDocumentDefinition, ResolvedRealtimeDefinition>()
 
-function isDocumentAdapter(document: RealtimeDefinition["document"]): document is RealtimeDocumentAdapter {
+function isDocumentAdapter(document: RealtimeDocumentDefinition["document"]): document is RealtimeDocumentAdapter {
   return "load" in document && "save" in document
 }
 
@@ -307,9 +369,10 @@ function duration(value: unknown, fallback: number, name: "debounce" | "maxWait"
 }
 
 /** Resolves the document adapter, editor codec, and persistence timing of a definition. */
-export function resolveRealtimeDefinition(definition: RealtimeDefinition): ResolvedRealtimeDefinition {
+export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition): ResolvedRealtimeDefinition {
   const cached = resolvedDefinitions.get(definition)
   if (cached) return cached
+  assertRealtimeCheckpoint(definition)
   const document = definition.document
   const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
   const persistence = definition.persistence === false
@@ -331,14 +394,19 @@ export function resolveRealtimeDefinition(definition: RealtimeDefinition): Resol
 interface RoomBase {
   awareness: awarenessProtocol.Awareness
   awarenessOwners: ReturnType<typeof createRealtimeAwarenessOwners>
+  /** Shares the room with other instances. */
+  bus?: RealtimeBus
   channel: string
   document: Y.Doc
   key: string
   peers: Set<WebSocketPeer>
 }
 
+/** A room without a document: the Workspace events room of a definition, or a room of a presence definition. */
 interface EventsRoom extends RoomBase {
   kind: "events"
+  /** The Workspace events room, which relays change hints. */
+  workspace: boolean
 }
 
 interface DocumentRoom extends RoomBase {
@@ -356,6 +424,8 @@ interface DocumentRoom extends RoomBase {
   holdTimer?: ReturnType<typeof setInterval>
   /** Connected clients that may write. */
   writers: Set<WebSocketPeer>
+  /** This instance holds the room lock of a shared room, so a reseed inside a save does not wait for it again. */
+  locked?: boolean
   epoch: string
   firstDirtyAt?: number
   guard: DocumentGuard
@@ -364,10 +434,14 @@ interface DocumentRoom extends RoomBase {
   operations: number
   peerUsers: WeakMap<WebSocketPeer, RealtimeUser>
   persistedUpdates: number
+  /** Gives a running saver time to publish its exact normalized result before treating a mismatch as external. */
+  pendingRecovery?: { digest: string | null, since: number }
   queue: Promise<void>
   resolved: ResolvedRealtimeDefinition
   retryDelay: number
   revision: number
+  /** A successful adapter save whose final shared record write still needs to complete. */
+  unwrittenRecord?: RealtimeRoomRecord
   sql?: RealtimeRoomSql
 }
 
@@ -400,7 +474,14 @@ function guardStatus(guard: DocumentGuard): { error: string | null, issues: Real
 }
 
 function documentTables(sql: RealtimeRoomSql): boolean {
-  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL)")
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL, editor_version TEXT)")
+  try {
+    sql.exec("ALTER TABLE vitehub_realtime_documents ADD COLUMN editor_version TEXT")
+  }
+  catch {
+    // A new table already has the column. A host that rejects ALTER TABLE keeps the five-column table: its rooms read
+    // as unversioned, so they restore only for an editor without `version`.
+  }
   sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
   // Older adapter-era deployments already have this table without the client_update
   // column. SQLite keeps CREATE TABLE IF NOT EXISTS as a no-op in that case, so
@@ -476,6 +557,16 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
   }
 }
 
+function readStoredRoom(sql: RealtimeRoomSql, key: string): Record<string, unknown> | undefined {
+  try {
+    return sql.exec("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
+  }
+  catch {
+    // The host rejected the editor_version column (see documentTables).
+    return sql.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
+  }
+}
+
 function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
   const parsed = new URL(url)
   const path = parsed.pathname
@@ -529,36 +620,60 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
 }
 
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
+  if (definition.auth && !definition.identify) {
+    let auth
+    try {
+      auth = await assertAuthOrigin(request, event)
+    }
+    catch {
+      throw new HTTPError({ status: 403 })
+    }
+    const session = await auth.api.getSession({ headers: request.headers })
+    const user = toRealtimeUser(session?.user)
+    if (!user) throw new HTTPError({ status: 401 })
+    return user
+  }
+  const origin = request.headers.get("origin")
+  // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials, and keep
+  // public definitions on the origins the developer allowed.
+  // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
+  // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
+  // `origins` lets other origins in for definitions that read a credential the page sends.
+  if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
+    throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+  }
   if (definition.identify) {
-    const origin = request.headers.get("origin")
-    // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
-    // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
-    // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
-    if (origin && origin !== forwardedRequestOrigin(request)) throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
     const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
     if (definition.auth && !user) throw new HTTPError({ status: 401 })
     return user
   }
-  if (!definition.auth) return null
+  // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
+  if (definition.document !== false || definition.scope !== "user") return null
   let auth
   try {
     auth = await assertAuthOrigin(request, event)
   }
-  catch {
+  catch (error) {
+    if (isMissingAuth(error)) return null
     throw new HTTPError({ status: 403 })
   }
   const session = await auth.api.getSession({ headers: request.headers })
-  const user = toRealtimeUser(session?.user)
-  if (!user) throw new HTTPError({ status: 401 })
-  return user
+  return toRealtimeUser(session?.user)
+}
+
+/** The app has no Auth Definition (`AUTH_R0005`), so nobody is signed in. */
+function isMissingAuth(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "AUTH_R0005"
 }
 
 async function allows(
   definition: RealtimeDefinition,
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
-  if (!definition.authorize) return true
-  return (await definition.authorize(context)) !== false
+  if (definition.authorize) return (await definition.authorize(context)) !== false
+  // `assertRealtimeAccess()` let the definition load, so it is `auth: true` (identify() already required a user) or
+  // `access: "public"`.
+  return definition.auth === true || definition.access === "public"
 }
 
 function errorMessage(error: unknown): string {
@@ -579,52 +694,12 @@ function localRefreshers(): Set<LocalRefreshRef> {
   return refreshScope[localRefreshKey]
 }
 
-/** The `$DurableObject` namespace binding that holds Realtime rooms on Cloudflare. */
-export interface RealtimeDurableObjectNamespace {
-  get(id: unknown): { fetch(request: Request): Promise<Response> }
-  idFromName(name: string): unknown
-}
-
-/**
- * Accepts the namespace that holds Realtime rooms, and nothing that only inherits `get` and `idFromName` from an
- * arbitrary prototype. Workerd's binding owns no methods: they belong to its `DurableObjectNamespace` class prototype,
- * and Workers have no global `DurableObjectNamespace` to compare with. Any other namespace, such as a test double,
- * must own both methods.
- */
-function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
-  const methods = (target: object) => ["get", "idFromName"].map(name => Object.getOwnPropertyDescriptor(target, name))
-  const callable = (method: PropertyDescriptor | undefined) => !!method && !method.get && typeof method.value === "function"
-    && Function.prototype.toString.call(method.value) !== "function () { [native code] }"
-  try {
-    const own = methods(value)
-    if (own.every(callable)) return true
-    const prototype: unknown = Object.getPrototypeOf(value)
-    if (own.some(Boolean) || prototype === null || typeof prototype !== "object" || Object.getPrototypeOf(prototype) !== Object.prototype) return false
-    return Object.prototype.toString.call(value) === "[object DurableObjectNamespace]" && methods(prototype).every(callable)
-  }
-  catch { return false }
-}
-
 export interface RealtimeRefreshOptions {
   /**
    * On Cloudflare, the `$DurableObject` binding that holds the rooms. Defaults to the binding of the running Worker.
    * Without one, the rooms of this process refresh.
    */
   durableObjects?: RealtimeDurableObjectNamespace
-}
-
-/** The `$DurableObject` binding of the running Worker. Nitro's Cloudflare entry stores each request's bindings in `globalThis.__env__`. */
-function workerDurableObjects(): RealtimeDurableObjectNamespace | undefined {
-  try {
-    // The internal runtime resolves the active request's AsyncLocalStorage scope before
-    // falling back to Nitro's ambient __env__ binding.
-    const binding = getActiveCloudflareBinding<unknown>("$DurableObject")
-    return isRealtimeDurableObjectNamespace(binding) ? binding : undefined
-  }
-  catch {
-    return undefined
-  }
 }
 
 /**
@@ -687,33 +762,12 @@ function refuseUpgrade(request: Request, status: number): Response {
 
 const webSocketHooksKey = Symbol.for("crossws.hooks")
 
-/**
- * An H3 2 event over the Web Request of the event's Standard Context. Nuxt 4 runs Nitro 2, whose H3 1 events carry
- * Node's request, so they get a new H3 2 event with the same context and the same Standard Context: the host
- * bindings, the Durable Object state, and the peer address stay on the original event.
- */
-function toWebEvent(event: H3Event): H3Event {
-  const standard = getStandardContext(event)
-  if (standard.req === event.req) return event
-  const webEvent = new H3Event(standard.req, event.context)
-  Object.defineProperty(webEvent, "~standard", { configurable: true, enumerable: false, value: standard })
-  return webEvent
+/** A request with no headers at all, like the stub that crossws restores a hibernated socket's peer with. Browsers always send some. */
+function isBareRequest(request: Request): boolean {
+  return request.headers.keys().next().done === true
 }
 
-const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)
-// SAFETY: This module owns the process slot shared by the separately bundled handler and Nitro plugin.
-const durableScope = globalThis as typeof globalThis & { [durableObjectKey]?: { env: unknown, state: unknown } }
-
-/**
- * Remembers the Durable Object of this isolate, for the sockets that Nitro 2 upgrades in it: its upgrade hook gets only
- * the request, and the rooms keep their tables in the Durable Object's storage. Realtime's Nitro plugin calls it at
- * `cloudflare:durable:init`.
- */
-export function registerRealtimeDurableObject(state: unknown, env: unknown): void {
-  durableScope[durableObjectKey] = { env, state }
-}
-
-export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
+export function createRealtimeHandler(registry: RealtimeRegistry, options: RealtimeHandlerOptions = {}): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
@@ -732,6 +786,198 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     clearTimeout(held.timer)
   }
 
+  let pendingBus: Promise<RealtimeBus | undefined> | undefined
+  /** Rooms that finished opening, by key. */
+  const openRooms = new Map<string, Room>()
+  /** One owner object per other instance, for the awareness clients of its peers. */
+  const remoteOwners = new Map<string, object>()
+  const repairRequestedAt = new WeakMap<Room, number>()
+  const syncing = new WeakSet<Room>()
+
+  /** The bus that shares rooms with other instances, connected and subscribed on first use. */
+  function sharedBus(): Promise<RealtimeBus | undefined> {
+    if (!options.bus) return Promise.resolve(undefined)
+    if (pendingBus) return pendingBus
+    const connect = options.bus
+    const pending = (async () => {
+      const bus = await connect()
+      if (!bus) return undefined
+      await bus.subscribe(receive, () => {
+        // The bus may have lost messages while it was down: ask the other instances for what each room lacks.
+        for (const room of rooms.values()) room.then(requestSync, () => {})
+      })
+      bus.onClose(announceDeparture)
+      // Pub/sub can also lose a single message without reconnecting, including the last edit in a room.
+      const syncTimer = setInterval(() => {
+        for (const room of openRooms.values()) {
+          if (room.peers.size || (room.kind === "document" && room.dirty)) requestSync(room)
+        }
+      }, 10_000)
+      syncTimer.unref?.()
+      bus.onClose(async () => { clearInterval(syncTimer) })
+      return bus
+    })()
+    pendingBus = pending
+    pending.catch(() => {
+      if (pendingBus === pending) pendingBus = undefined
+    })
+    return pending
+  }
+
+  function roomEpoch(room: Room): string {
+    return room.kind === "document" ? room.epoch : eventsEpoch
+  }
+
+  function publish(room: Room, type: RealtimeBusMessageType, data: Uint8Array): void {
+    room.bus?.publish({ type, room: room.key, epoch: roomEpoch(room), data }).catch((error: unknown) => {
+      console.error("[vitehub] Realtime could not send a room message to the other instances.", error)
+    })
+  }
+
+  /** Asks the other instances for the document updates and the presence that this room lacks. */
+  function requestSync(room: Room): void {
+    if (!room.bus) return
+    if (room.kind !== "document") {
+      publish(room, "sync", new Uint8Array())
+      return
+    }
+    if (room.destroyed || syncing.has(room)) return
+    // A newly opened clean room has not attached its first peer yet. Do not queue an operation that could release it.
+    if (!room.peers.size && !room.dirty) {
+      publish(room, "sync", Y.encodeStateVector(room.document))
+      return
+    }
+    syncing.add(room)
+    // The sender of a reset may have stopped. Reconcile with the record even when no other room answers the sync.
+    enqueue(room, async () => {
+      const record = await room.bus?.readRoom(room.key)
+      if (room.destroyed) return
+      if (record && record.epoch !== room.epoch) await reseedRoom(room, "source-changed", undefined, false, true)
+      if (!room.destroyed) publish(room, "sync", Y.encodeStateVector(room.document))
+    }).catch((error: unknown) => {
+      console.error("[vitehub] Realtime could not repair a shared room.", error)
+    }).finally(() => syncing.delete(room))
+  }
+
+  /** Awareness clients of this instance's peers. */
+  function localAwarenessClients(room: RoomBase): number[] {
+    return knownAwarenessClients(room.awareness, [...room.awareness.getStates().keys()].filter(client => room.awarenessOwners.ownsLocally(client)))
+  }
+
+  /** Tells the other instances that the peers of this instance left, before the bus closes. */
+  async function announceDeparture(): Promise<void> {
+    const sent: Array<Promise<void>> = []
+    for (const pending of rooms.values()) {
+      const room = await pending.catch(() => undefined)
+      if (!room?.bus) continue
+      const clients = localAwarenessClients(room)
+      if (!clients.length) continue
+      // A null state at the current clock removes the client on the other instances.
+      const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, clients, new Map())
+      sent.push(room.bus.publish({ type: "awareness", room: room.key, epoch: roomEpoch(room), data: update }))
+    }
+    await Promise.allSettled(sent)
+  }
+
+  function remoteOwner(instance: string): object {
+    let owner = remoteOwners.get(instance)
+    if (!owner) remoteOwners.set(instance, owner = { instance })
+    return owner
+  }
+
+  /**
+   * Applies a message from another instance to the open room it names. A room that is still opening skips the
+   * message: it asks for what it lacks when it opens.
+   */
+  function receive(message: RealtimeBusMessage): void {
+    if (message.type === "refresh") {
+      const key: unknown = JSON.parse(message.room)
+      const [definitionName, documentId]: unknown[] = Array.isArray(key) ? key : []
+      if (typeof definitionName === "string" && typeof documentId === "string") refreshOpenRoom(definitionName, documentId, false).catch(() => {})
+      return
+    }
+    if (message.type === "reset") {
+      // Also a room that is opening: it may have read the record before the reset.
+      rooms.get(message.room)?.then((room) => {
+        if (room.kind !== "document" || !room.bus || room.destroyed || room.epoch === message.epoch) return
+        enqueue(room, async () => {
+          if (room.epoch !== message.epoch) await reseedRoom(room, "source-changed", undefined, false, true)
+        }).catch(() => {})
+      }, () => {})
+      return
+    }
+    const room = openRooms.get(message.room)
+    if (!room?.bus || (room.kind === "document" && room.destroyed)) return
+    // Updates from another Yjs history would duplicate the document.
+    if (message.epoch !== roomEpoch(room)) {
+      if (message.type === "sync") requestSync(room)
+      return
+    }
+    switch (message.type) {
+      case "update":
+        if (room.kind === "document") {
+          Y.applyUpdate(room.document, message.data, busOrigin)
+          if ((room.document.store.pendingStructs || room.document.store.pendingDs)
+            && Date.now() - (repairRequestedAt.get(room) ?? -Infinity) >= 1_000) {
+            repairRequestedAt.set(room, Date.now())
+            requestSync(room)
+          }
+        }
+        return
+      case "claim": {
+        try {
+          const client = decoding.readVarUint(decoding.createDecoder(message.data))
+          room.awarenessOwners.claim(room.awareness, remoteOwner(message.instance), client, undefined, true)
+        }
+        catch { /* Ignore an invalid claim from another instance. */ }
+        return
+      }
+      case "awareness": {
+        let clients: number[]
+        try {
+          clients = room.awarenessOwners.apply(room.awareness, remoteOwner(message.instance), message.data, undefined, true)
+        }
+        catch {
+          return
+        }
+        const known = knownAwarenessClients(room.awareness, clients)
+        if (!known.length) return
+        const frame = encodeAwarenessState(room.awareness, known)
+        for (const peer of room.peers) peer.send(frame)
+        return
+      }
+      case "sync": {
+        if (room.kind === "document") {
+          const missing = Y.encodeStateAsUpdate(room.document, message.data)
+          if (missing.byteLength > emptyUpdateBytes) publish(room, "update", missing)
+        }
+        const clients = localAwarenessClients(room)
+        if (clients.length) publish(room, "awareness", awarenessProtocol.encodeAwarenessUpdate(room.awareness, clients))
+        return
+      }
+      case "frame":
+        for (const peer of room.peers) peer.send(message.data)
+    }
+  }
+
+  /**
+   * Relays the awareness changes that are not a peer's own message: clients that timed out, and clients that another
+   * instance removed. Awareness removes a client 30 seconds after its last update, so the presence of an instance that
+   * stopped without a goodbye expires on the others.
+   */
+  function watchAwareness(room: RoomBase): void {
+    const awareness = room.awareness
+    awareness.on("update", ({ removed }: { removed: number[] }, origin: unknown) => {
+      if (room.awareness !== awareness || !removed.length) return
+      room.awarenessOwners.releaseRemote(removed)
+      if (origin !== "timeout") return
+      const clients = knownAwarenessClients(awareness, removed)
+      if (!clients.length) return
+      const frame = encodeAwarenessState(awareness, clients)
+      for (const peer of room.peers) peer.send(frame)
+    })
+  }
+
   /** The Cloudflare bindings and execution context, or the Durable Object state, in the event's Standard Context. */
   function resolveCloudflare(event: H3Event): { context?: unknown, env?: unknown } | undefined {
     return getStandardContext(event).runtime?.cloudflare
@@ -746,10 +992,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     } | undefined
     if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
     let request = event.req
-    if (request.headers.has(internalRefreshHeader)) {
-      // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
+    if (request.headers.has(internalRefreshHeader) || request.headers.has(internalRequestHeader)) {
+      // Only refreshRealtimeDocument() and requestRealtimeRoom() may send them, straight to the Durable Object.
       const headers = new Headers(request.headers)
       headers.delete(internalRefreshHeader)
+      headers.delete(internalRequestHeader)
       request = new Request(request, { headers })
     }
     return await binding.get(binding.idFromName(durableRoomsInstance)).fetch(request)
@@ -789,6 +1036,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const loader = Object.hasOwn(registry, definitionName) ? registry[definitionName] : undefined
     const module = await loader?.()
     if (!module) throw new HTTPError({ status: 404, message: `Unknown realtime definition ${JSON.stringify(definitionName)}.` })
+    assertRealtimeAccess(module.default)
     return module.default
   }
 
@@ -832,21 +1080,27 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return value
   }
 
-  function getEventsRoom(definitionName: string): Promise<EventsRoom> {
-    const key = JSON.stringify([definitionName, { workspaceEvents: true }])
-    return openRoom(key, undefined, async () => {
+  function getEventsRoom(key: string, workspace: boolean, sql: RealtimeRoomSql | undefined): Promise<EventsRoom> {
+    return openRoom(key, sql, async () => {
+      const bus = await sharedBus()
       const document = new Y.Doc()
       const awareness = new awarenessProtocol.Awareness(document)
       awareness.setLocalState(null)
-      return {
+      const room: EventsRoom = {
         awareness,
         awarenessOwners: createRealtimeAwarenessOwners(),
+        bus,
         channel: `vitehub:realtime:${key}`,
         document,
         key,
         kind: "events",
         peers: new Set(),
+        workspace,
       }
+      watchAwareness(room)
+      openRooms.set(key, room)
+      requestSync(room)
+      return room
     })
   }
 
@@ -863,13 +1117,20 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   function listen(room: DocumentRoom, document: Y.Doc): void {
-    document.on("update", (update: Uint8Array, origin: unknown) => {
+    document.on("update", (update: Uint8Array, origin: unknown, _document: Y.Doc, transaction: Y.Transaction) => {
       if (room.document !== document) return
       persistRoomUpdate(room, update, origin !== serverOrigin)
       const message = encodeSyncUpdate(update)
       const sender = roomPeer(room, origin)
       if (sender) sender.publish(room.channel, message)
       else for (const peer of room.peers) peer.send(message)
+      if (origin === busOrigin) {
+        // Another instance saves its own status. Its edits make this room dirty too, so a save here loses nothing if
+        // that instance stops.
+        if (!changesOnlyStatus(document, transaction)) markDirty(room, undefined)
+        return
+      }
+      publish(room, "update", update)
       if (origin !== serverOrigin) markDirty(room, sender && room.peerUsers.get(sender))
     })
   }
@@ -878,7 +1139,145 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     room.document = document
     room.awareness = createAwareness(document)
     room.awarenessOwners = createRealtimeAwarenessOwners()
+    watchAwareness(room)
     listen(room, document)
+  }
+
+  /**
+   * The document of a shared room: the shared record when it holds the stored digest, else a new seed that becomes the
+   * record. Instances that open a room at the same time agree on one record, so every instance edits one Yjs history.
+   * `replaced` is true when this instance moved the record to a new epoch.
+   */
+  async function sharedDocument(bus: RealtimeBus, key: string, editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<{ document: Y.Doc, epoch: string, replaced: boolean, dirty?: boolean }> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const found = await bus.readRoom(key)
+      const record = found && await recoverSharedRecord(bus, key, editor, loaded, found)
+      if (record && record.digest === loaded.digest) {
+        const document = new Y.Doc()
+        try {
+          Y.applyUpdate(document, record.state)
+          if (readRealtimeStatus(document).digest !== record.digest) writeRealtimeStatus(document, { digest: record.digest }, serverOrigin)
+          return { document, epoch: record.epoch, replaced: false, dirty: record.pending }
+        }
+        catch (error) {
+          document.destroy()
+          throw error
+        }
+      }
+      const document = await seedDocument(editor, loaded, guard)
+      const epoch = crypto.randomUUID()
+      if (await bus.writeRoom(key, { epoch, digest: loaded.digest, state: Y.encodeStateAsUpdate(document) }, record?.epoch ?? null)) {
+        return { document, epoch, replaced: !!record }
+      }
+      // Another instance wrote the record first. Read it again.
+      document.destroy()
+    }
+    throw new HTTPError({ status: 503, message: "Realtime instances changed this room at the same time. Connect again." })
+  }
+
+  /** All callers hold the room lock. Never report a save as clean when its record was not written. */
+  async function writeSharedRecord(bus: RealtimeBus, key: string, record: RealtimeRoomRecord): Promise<void> {
+    let failure: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (await bus.writeRoom(key, record, record.epoch)) return
+        console.error("[vitehub] Realtime room record compare-and-set failed.", key)
+        // Internal invariant: compare-and-set rejection is caught here and retried before the room save reports failure.
+        throw new Error("Realtime room record compare-and-set failed.")
+      }
+      catch (error) { failure = error }
+    }
+    console.error("[vitehub] Realtime could not write the shared room record.", failure)
+    throw failure
+  }
+
+  /** A process can stop between adapter.save() and the final record write. Recover that save without a new epoch. */
+  async function recoverSharedRecord(bus: RealtimeBus, key: string, editor: RealtimeEditor, loaded: RealtimeLoadedDocument, record: RealtimeRoomRecord): Promise<RealtimeRoomRecord> {
+    if (!record.pending || loaded.digest === record.digest) return record
+    const submitted = new Y.Doc()
+    try {
+      Y.applyUpdate(submitted, record.state)
+      const snapshot = await readRealtimeYDoc(editor, submitted)
+      if (keepRealtimeFinalNewline(snapshot.body, loaded.body.endsWith("\n")) !== loaded.body
+        || !realtimeJsonEqual(snapshot.fields, loadedFields(loaded))) return record
+      writeRealtimeStatus(submitted, { digest: loaded.digest, error: null }, serverOrigin)
+      const recovered = { ...record, digest: loaded.digest, state: Y.encodeStateAsUpdate(submitted), pending: false }
+      await writeSharedRecord(bus, key, recovered)
+      return recovered
+    }
+    finally { submitted.destroy() }
+  }
+
+  /**
+   * Takes the saves of other instances into a shared room before it saves: their Yjs state, their digest, and the
+   * stored form that a save with no edits keeps. Returns `false` when the room re-seeded on another instance, after
+   * this room followed it.
+   */
+  async function adoptSharedRecord(room: DocumentRoom, bus: RealtimeBus): Promise<boolean> {
+    let record = await bus.readRoom(room.key)
+    let pendingLoaded: RealtimeLoadedDocument | undefined
+    if (!record) return true
+    if (record.epoch !== room.epoch) {
+      room.unwrittenRecord = undefined
+      await reseedRoom(room, "source-changed", undefined, false, true)
+      return false
+    }
+    const unwritten = room.unwrittenRecord
+    if (unwritten) {
+      const saved = new Y.Doc()
+      try {
+        Y.applyUpdate(saved, unwritten.state)
+        // Another instance may already have recovered or advanced the record. Never replace a newer pending save
+        // with our older result. A readback digest, rather than body equality, also covers adapter normalization.
+        if (record.pending && unwritten.epoch === record.epoch && containsRealtimeState(saved, record.state)) {
+          const loaded = await room.resolved.adapter.load(room.context)
+          if (loaded.digest === unwritten.digest) {
+            await writeSharedRecord(bus, room.key, unwritten)
+            record = unwritten
+          }
+        }
+        room.unwrittenRecord = undefined
+      }
+      finally { saved.destroy() }
+    }
+    if (record.pending) {
+      const loaded = await room.resolved.adapter.load(room.context)
+      pendingLoaded = loaded
+      record = await recoverSharedRecord(bus, room.key, room.editor, loaded, record)
+      if (record.digest !== loaded.digest) {
+        if (room.pendingRecovery?.digest !== loaded.digest) room.pendingRecovery = { digest: loaded.digest, since: Date.now() }
+        if (Date.now() - room.pendingRecovery.since < 10_000) {
+          throw new HTTPError({ status: 503, message: "Realtime is waiting for another instance to finish its interrupted save. Retry the save." })
+        }
+        await reseedRoom(room, "source-changed", loaded)
+        return false
+      }
+    }
+    room.pendingRecovery = undefined
+    const sameStored = record.digest === room.digest && !record.pending
+    const saved = new Y.Doc()
+    try {
+      Y.applyUpdate(saved, record.state)
+      const stored = record.pending && pendingLoaded
+        ? { body: pendingLoaded.body, fields: loadedFields(pendingLoaded) }
+        : await readRealtimeYDoc(room.editor, saved)
+      if (room.destroyed || room.epoch !== record.epoch) return false
+      Y.applyUpdate(room.document, record.state, busOrigin)
+      room.digest = record.digest
+      if (readRealtimeStatus(room.document).digest !== record.digest) writeRealtimeStatus(room.document, { digest: record.digest }, serverOrigin)
+      if (sameStored) return true
+      room.guard = {
+        clean: { body: keepRealtimeFinalNewline(stored.body, room.guard.finalNewline), fields: stored.fields },
+        finalNewline: room.guard.finalNewline,
+        issues: [],
+        readOnly: false,
+      }
+      if (record.pending) markDirty(room, undefined)
+      return true
+    }
+    finally {
+      saved.destroy()
+    }
   }
 
   async function seedDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<Y.Doc> {
@@ -891,26 +1290,48 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function getDocumentRoom(definitionName: string, documentId: string, resolved: ResolvedRealtimeDefinition, sql: RealtimeRoomSql | undefined): Promise<DocumentRoom> {
     const key = realtimeRoomKey(definitionName, documentId)
     return openRoom(key, sql, async () => {
-      const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : "memory", definition: definitionName, documentId }
+      const bus = sql ? undefined : await sharedBus()
+      const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : bus?.authority ?? "memory", definition: definitionName, documentId }
       const editor = resolved.editor(context)
-      const loaded = await resolved.adapter.load(context)
-      const guard = await verifyDocument(editor, loaded)
+      // A shared room loads the document and reads the record under the room lock, so no save of another instance
+      // runs in between: a digest that differs from the record then means a change outside the room.
+      const { loaded, guard, shared } = bus
+        ? await bus.withRoomLock(key, async () => {
+            const loaded = await resolved.adapter.load(context)
+            const guard = await verifyDocument(editor, loaded)
+            return { loaded, guard, shared: await sharedDocument(bus, key, editor, loaded, guard) }
+          })
+        : await (async () => {
+            const loaded = await resolved.adapter.load(context)
+            return { loaded, guard: await verifyDocument(editor, loaded), shared: undefined }
+          })()
       if (sql) {
         const clientUpdateColumn = documentTables(sql)
         migrateLegacyDocument(sql, key, clientUpdateColumn)
       }
-      const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
+      const stored = sql && readStoredRoom(sql, key)
       const storedDigest = text(stored?.digest) ?? null
       const storedEpoch = text(stored?.epoch)
       const storedState = storedUpdate(stored?.update_blob)
       // Restore persisted Yjs state while it still describes the stored document. A different
       // digest means an external write: seed a new room so stale client state cannot merge back.
+      // A different editor version means a schema that may not read the old state: TipTap would
+      // delete the nodes it does not know from the room, so seed from the Markdown instead.
       const restores = !!sql && !!storedState && !!storedEpoch && storedDigest === loaded.digest
+        && (text(stored?.editor_version) ?? null) === (editor.version ?? null)
       let document: Y.Doc
       let persistedUpdates = 0
       let dirty = false
       let refreshedFields = false
-      if (restores) {
+      let sharedEpoch: string | undefined
+      let replacedEpoch = false
+      if (shared) {
+        document = shared.document
+        sharedEpoch = shared.epoch
+        replacedEpoch = shared.replaced
+        dirty = shared.dirty ?? false
+      }
+      else if (restores) {
         document = new Y.Doc()
         try {
           Y.applyUpdate(document, storedState)
@@ -951,6 +1372,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const room: DocumentRoom = {
         awareness: createAwareness(document),
         awarenessOwners: createRealtimeAwarenessOwners(),
+        bus,
         channel: `vitehub:realtime:${key}`,
         context,
         destroyed: false,
@@ -959,7 +1381,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         dirty,
         editor,
         editors: new Map(),
-        epoch: restores && storedEpoch ? storedEpoch : crypto.randomUUID(),
+        epoch: sharedEpoch ?? (restores && storedEpoch ? storedEpoch : crypto.randomUUID()),
         guard,
         held: false,
         writers: new Set(),
@@ -975,9 +1397,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         revision: 0,
         sql,
       }
+      watchAwareness(room)
       listen(room, document)
       if (sql && (!restores || refreshedFields)) persistRoom(room)
       if (dirty) scheduleSave(room)
+      openRooms.set(key, room)
+      // Rooms of other instances at an older epoch follow this one.
+      if (replacedEpoch) publish(room, "reset", new Uint8Array())
+      requestSync(room)
       return room
     })
   }
@@ -985,14 +1412,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
     // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
-    room.sql.exec(
-      "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)",
-      room.key,
-      room.epoch,
-      room.digest,
-      room.dirty ? 1 : 0,
-      Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer,
-    )
+    const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
+    try {
+      room.sql.exec(
+        "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob, editor_version) VALUES (?, ?, ?, ?, ?, ?)",
+        ...row,
+        room.editor.version ?? null,
+      )
+    }
+    catch {
+      // The host rejected the editor_version column (see documentTables).
+      room.sql.exec("INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)", ...row)
+    }
     room.sql.exec("DELETE FROM vitehub_realtime_document_updates WHERE room_key = ?", room.key)
     room.persistedUpdates = 0
   }
@@ -1033,6 +1464,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
+    if (openRooms.get(room.key) === room) openRooms.delete(room.key)
     inactiveMemoryRoomKeys.delete(room.key)
     memoryRoomKeys.delete(room.key)
   }
@@ -1040,6 +1472,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   /** Releases an idle room: durable rooms leave memory; clean memory rooms become reclaimable. */
   function releaseRoom(room: Room): void {
     if (room.peers.size > 0) return
+    // A presence room has nothing to keep, and a Durable Object never reclaims rooms that it does not destroy.
+    if (room.kind === "events" && (room.bus || !room.workspace)) {
+      destroyRoom(room)
+      return
+    }
     if (room.kind === "events") {
       inactiveMemoryRoomKeys.delete(room.key)
       inactiveMemoryRoomKeys.add(room.key)
@@ -1048,6 +1485,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (room.operations > 0 || room.destroyed || room.held) return
     if (room.sql) {
       persistRoom(room)
+      destroyRoom(room)
+      return
+    }
+    // A shared room without unsaved edits opens again from its record and the other instances.
+    if (room.bus && !room.dirty) {
       destroyRoom(room)
       return
     }
@@ -1144,23 +1586,74 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }, wait)
   }
 
-  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument, preserveEdits = false): Promise<boolean> {
+  /** Runs `task` under the room lock of a shared room, or at once when this instance already holds it. */
+  async function underRoomLock<T>(room: DocumentRoom, task: () => Promise<T>): Promise<T> {
+    const bus = room.bus
+    if (!bus || room.locked) return await task()
+    return await bus.withRoomLock(room.key, async () => {
+      room.locked = true
+      try {
+        return await task()
+      }
+      finally {
+        room.locked = false
+      }
+    })
+  }
+
+  /**
+   * `follow` re-seeds a shared room at the epoch that another instance moved its record to. It replaces the document
+   * also after a concurrent edit: a room at an older epoch cannot reach the other instances.
+   */
+  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument, preserveEdits = false, follow = false): Promise<boolean> {
     const revision = room.revision
-    const source = loaded ?? await room.resolved.adapter.load(room.context)
-    const guard = await verifyDocument(room.editor, source)
-    const next = await seedDocument(room.editor, source, guard)
+    const stale = () => room.destroyed || (!follow && (room.revision !== revision || (preserveEdits && room.dirty)))
+    let source: RealtimeLoadedDocument
+    let guard: DocumentGuard
+    let next: Y.Doc
+    let epoch: string
+    let replaced = false
+    let dirty = false
+    const bus = room.bus
+    if (bus) {
+      // Under the room lock, the load and the record agree unless the document changed outside the room.
+      const shared = await underRoomLock(room, async () => {
+        const source = loaded ?? await room.resolved.adapter.load(room.context)
+        const guard = await verifyDocument(room.editor, source)
+        if (stale()) return undefined
+        return { source, guard, ...await sharedDocument(bus, room.key, room.editor, source, guard) }
+      })
+      if (!shared) return false
+      ;({ source, guard, document: next, epoch, replaced } = shared)
+      dirty = shared.dirty ?? false
+      if (room.destroyed) {
+        next.destroy()
+        return false
+      }
+    }
+    else {
+      source = loaded ?? await room.resolved.adapter.load(room.context)
+      guard = await verifyDocument(room.editor, source)
+      next = await seedDocument(room.editor, source, guard)
+      epoch = crypto.randomUUID()
+    }
     // Verification and seeding are asynchronous. Preserve edits that arrive while they run.
     // A client update can arrive during verification or seeding. The revision
     // guard applies to every reseed, including conflict recovery, so that the
     // live document is never replaced after a concurrent edit.
-    if (room.destroyed || room.revision !== revision || (preserveEdits && room.dirty)) return false
+    if (!room.bus && stale()) {
+      next.destroy()
+      return false
+    }
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
     // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
-    room.epoch = crypto.randomUUID()
+    room.epoch = epoch
+    room.unwrittenRecord = undefined
+    room.pendingRecovery = undefined
     room.digest = source.digest
     room.guard = guard
-    room.dirty = false
+    room.dirty = dirty
     room.editors.clear()
     room.firstDirtyAt = undefined
     room.retryDelay = 0
@@ -1170,6 +1663,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     previous.awareness.destroy()
     previous.document.destroy()
     persistRoom(room)
+    if (dirty) scheduleSave(room)
+    if (replaced) publish(room, "reset", new Uint8Array())
+    // Edits that other instances made at this epoch before this room followed it.
+    requestSync(room)
     const reset = encodeRealtimeControl({ type: "reset", epoch: room.epoch, reason })
     for (const peer of peers) {
       terminalPeers.add(peer)
@@ -1181,7 +1678,56 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return true
   }
 
+  /**
+   * Saves of a shared room run one at a time across instances, under the room lock. Each first takes in the saves of
+   * the other instances, so its `ifDigest` is the stored digest, unless the document changed outside the room. After
+   * the save, the record holds the saved state and digest for the next instance.
+   */
   async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
+    const bus = room.bus
+    if (!bus) return await saveRoomNow(room, reason, force)
+    try {
+      return await underRoomLock(room, async () => {
+        if (!(await adoptSharedRecord(room, bus))) {
+          if (!force) return undefined
+          throw new HTTPError({
+            status: 409,
+            message: "The document re-seeded on another instance. The room was re-seeded.",
+            data: { code: realtimeSourceChangedCode },
+          })
+        }
+        // Record the submitted state before saving. A later instance can distinguish a completed save from an
+        // outside write if this process stops before recording the new digest. Later edits stay unsaved.
+        return await saveRoomNow(room, reason, force,
+          async (digest, state) => {
+            const record = { epoch: room.epoch, digest, state }
+            room.unwrittenRecord = record
+            await writeSharedRecord(bus, room.key, record)
+            room.unwrittenRecord = undefined
+          },
+          async (state) => {
+            await writeSharedRecord(bus, room.key, { epoch: room.epoch, digest: room.digest, state, pending: true })
+          })
+      })
+    }
+    catch (error) {
+      // Reads and recovery writes can fail before saveRoomNow installs its retry.
+      if (room.dirty && room.resolved.persistence && !room.idleTimer) {
+        room.retryDelay = Math.min(Math.max(room.resolved.persistence.debounce, room.retryDelay * 2), maxSaveRetryMs)
+        scheduleSave(room, room.retryDelay)
+      }
+      throw error
+    }
+  }
+
+  /** `onStored` gets the digest and the Yjs state of what the adapter stored, before later edits. */
+  async function saveRoomNow(
+    room: DocumentRoom,
+    reason: RealtimeSaveOptions["reason"],
+    force: boolean,
+    onStored?: (digest: string | null, state: Uint8Array) => Promise<void>,
+    onSubmitting?: (state: Uint8Array) => Promise<void>,
+  ): Promise<RealtimeSaved | undefined> {
     const { adapter, persistence } = room.resolved
     const editor = room.editor
     if (room.guard.readOnly) {
@@ -1211,16 +1757,26 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       persistRoom(room)
     }
     try {
+      try {
+        checkRealtimeBody(editor, submitted)
+      }
+      catch {
+        // A codec reads such JSON as an empty or partial document. Writing it would lose content, so keep the room dirty.
+        throw new HTTPError({ status: 422, message: invalidDocumentMessage, data: { code: realtimeInvalidDocumentCode } })
+      }
       const written = await readRealtimeYDoc(editor, submitted)
       const document = { ...written, body: keepRealtimeFinalNewline(written.body, room.guard.finalNewline) }
       const { clean } = room.guard
       if (room.digest !== null && document.body === clean.body && realtimeJsonEqual(document.fields, clean.fields)) {
         // The edits cancel out, or only change the codec's own form of the stored document: write nothing.
-        writeRealtimeStatus(room.document, { error: null }, serverOrigin)
+        writeRealtimeStatus(submitted, { digest: room.digest, error: null }, serverOrigin)
+        await onStored?.(room.digest, Y.encodeStateAsUpdate(submitted))
+        Y.applyUpdate(room.document, Y.encodeStateAsUpdate(submitted), serverOrigin)
         finishSave()
         return { ...readRealtimeStatus(room.document), document }
       }
       const readsBack = await realtimeCodecReadsBack(editor, submitted, written.body)
+      await onSubmitting?.(Y.encodeStateAsUpdate(submitted))
       let result
       try {
         result = await adapter.save(room.context, document, { editors, ifDigest: room.digest, reason, user })
@@ -1246,7 +1802,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       }
       if (result.stored) {
         const update = await diffRealtimeYDoc(editor, submitted, result.stored)
-        if (update.byteLength > 0) Y.applyUpdate(room.document, update, serverOrigin)
+        if (update.byteLength > 0) {
+          Y.applyUpdate(room.document, update, serverOrigin)
+          Y.applyUpdate(submitted, update, serverOrigin)
+        }
       }
       const status = {
         digest: result.digest,
@@ -1255,7 +1814,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         savedAt: new Date().toISOString(),
         savedBy: user ?? null,
       }
-      writeRealtimeStatus(room.document, status, serverOrigin)
+      writeRealtimeStatus(submitted, status, serverOrigin)
+      await onStored?.(result.digest, Y.encodeStateAsUpdate(submitted))
+      Y.applyUpdate(room.document, Y.encodeStateAsUpdate(submitted), serverOrigin)
       finishSave()
       return { ...status, document: { ...document, ...result.stored, fields: result.stored?.fields ?? document.fields } }
     }
@@ -1295,7 +1856,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     persistRoom(room)
   }
 
+  /**
+   * For a shared room, the whole refresh holds the room lock: a load from before another instance's reseed or save
+   * would otherwise replace the newer record with stale state.
+   */
   async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
+    return await underRoomLock(room, () => refreshRoomNow(room))
+  }
+
+  async function refreshRoomNow(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
+    // A save on another instance changed the stored digest inside the room.
+    if (room.bus && !(await adoptSharedRecord(room, room.bus))) return { digest: room.digest, reseeded: true }
     const revision = room.revision
     const loaded = await room.resolved.adapter.load(room.context)
     // A client may edit while the adapter is loading. Preserve that live edit
@@ -1309,14 +1880,122 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return { digest: room.digest, reseeded }
   }
 
-  /** Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. */
-  async function refreshOpenRoom(definitionName: string, documentId: string): Promise<boolean> {
-    const pending = rooms.get(realtimeRoomKey(definitionName, documentId))
+  /**
+   * Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. With a bus,
+   * the rooms of the other instances refresh too, unless the call came from the bus.
+   */
+  async function refreshOpenRoom(definitionName: string, documentId: string, fanOut = true): Promise<boolean> {
+    const key = realtimeRoomKey(definitionName, documentId)
+    if (fanOut) {
+      const bus = await sharedBus().catch(() => undefined)
+      await bus?.publish({ type: "refresh", room: key, epoch: "", data: new Uint8Array() }).catch(() => {})
+    }
+    const pending = rooms.get(key)
     const room = pending ? await pending.catch(() => undefined) : undefined
     if (!room || room.kind !== "document" || room.destroyed) return false
     return await enqueue(room, async () => !room.dirty && (await refreshRoom(room)).reseeded)
   }
   localRefreshers().add(new WeakRef(refreshOpenRoom))
+
+  /** Requests that wait for a browser's answer, by request id, with the id of the peer that must answer. */
+  const pendingRequests = new Map<string, { peer: string, settle: (result: RealtimeRoomRequestResult) => void }>()
+
+  /**
+   * The browsers in a room. Inside a Durable Object they come from its sockets and their crossws attachment (`i` is the
+   * peer id, `t` the subscribed channels), which outlive hibernation; elsewhere from the open room.
+   */
+  function requestTargets(key: string, durable: DurableSockets | undefined): Array<{ id: string, send: (frame: Uint8Array) => void }> {
+    const channel = `vitehub:realtime:${key}`
+    if (durable) {
+      return durable.getWebSockets().flatMap((socket) => {
+        const state = socket.deserializeAttachment()
+        if (!state || typeof state !== "object" || !("i" in state) || typeof state.i !== "string" || !("t" in state)) return []
+        const topics = state.t
+        return topics instanceof Set && topics.has(channel) ? [{ id: state.i, send: (frame: Uint8Array) => socket.send(frame) }] : []
+      })
+    }
+    const room = openRooms.get(key)
+    return room ? [...room.peers].map(peer => ({ id: peer.id, send: (frame: Uint8Array) => peer.send(frame) })) : []
+  }
+
+  /** Asks the one browser in a room of this process or Durable Object. `requestRealtimeRoom()` calls it. */
+  async function requestRoom(definitionName: string, documentId: string, body: unknown, ask: LocalRequestOptions, durable?: DurableSockets): Promise<RealtimeRoomRequestResult> {
+    let definition: RealtimeDefinition
+    try {
+      definition = await getDefinition(definitionName)
+    }
+    catch {
+      return roomRequestError("REALTIME_ROOM_REQUESTS_OFF", { definition: definitionName })
+    }
+    if (definition.document !== false || definition.requests !== true) return roomRequestError("REALTIME_ROOM_REQUESTS_OFF", { definition: definitionName })
+    if (definition.scope === "user" && ask.user === undefined) {
+      return roomRequestError("REALTIME_ROOM_REFUSED", { reason: `the Definition "${definitionName}" keeps a room per person, so the request must name one with { user }.` })
+    }
+    const key = realtimeRoomKey(definitionName, documentId, roomScope(definition, ask.user ?? null))
+    const deadline = Date.now() + ask.wait
+    let targets = requestTargets(key, durable)
+    // A tab that reloads or reconnects leaves the room for a moment, and its old socket can close after the new one joins.
+    while (targets.length !== 1 && Date.now() < deadline && !ask.signal?.aborted) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      targets = requestTargets(key, durable)
+    }
+    if (ask.signal?.aborted) return roomRequestError("REALTIME_ROOM_ABORTED")
+    if (targets.length > 1) return roomRequestError("REALTIME_ROOM_CROWDED", { count: targets.length })
+    const target = targets[0]
+    if (!target) return roomRequestError(options.bus ? "REALTIME_ROOM_ELSEWHERE" : "REALTIME_ROOM_EMPTY")
+    const id = crypto.randomUUID()
+    return await new Promise<RealtimeRoomRequestResult>((resolve) => {
+      const finish = (result: RealtimeRoomRequestResult) => {
+        clearTimeout(timer)
+        ask.signal?.removeEventListener("abort", abort)
+        pendingRequests.delete(id)
+        resolve(result)
+      }
+      const abort = () => finish(roomRequestError("REALTIME_ROOM_ABORTED"))
+      const timer = setTimeout(() => finish(roomRequestError("REALTIME_ROOM_TIMEOUT", { timeout: ask.timeout })), ask.timeout)
+      ask.signal?.addEventListener("abort", abort, { once: true })
+      pendingRequests.set(id, { peer: target.id, settle: finish })
+      try {
+        target.send(encodeRealtimeRequestFrame({ kind: "request", id, body }))
+      }
+      catch {
+        finish(roomRequestError("REALTIME_ROOM_EMPTY"))
+      }
+    })
+  }
+  // The handler below calls `requestRoom` for the Durable Object path, which keeps it alive as long as this handler.
+  localRequesters().add(new WeakRef(requestRoom))
+
+  /** Settles the request that a browser's answer frame names, when that browser is the one asked. */
+  function settleRequest(peer: WebSocketPeer, data: Uint8Array): void {
+    const decoder = decoding.createDecoder(data)
+    let frame: RealtimeRequestFrame | undefined
+    try {
+      decoding.readVarUint(decoder)
+      frame = decodeRealtimeRequestFramePayload(decoder)
+    }
+    catch {
+      return
+    }
+    if (frame?.kind !== "answer") return
+    const pending = pendingRequests.get(frame.id)
+    if (!pending || pending.peer !== peer.id) return
+    pending.settle(frame.ok ? [undefined, frame.body] : roomRequestError("REALTIME_ROOM_REFUSED", { reason: frame.why }))
+  }
+
+  const restoredPeerHandler = defineWebSocketHandler({
+    message(peer, message: WebSocketMessage) {
+      const data = message.uint8Array()
+      if (data[0] === messageRealtimeRequest && data.byteLength <= maxMessageBytes) settleRequest(peer, data)
+    },
+  })
+
+  /** The browser asked has left: its requests fail now instead of at their timeout. */
+  function settleRequestsOf(peer: WebSocketPeer): void {
+    for (const pending of pendingRequests.values()) {
+      if (pending.peer === peer.id) pending.settle(roomRequestError("REALTIME_ROOM_EMPTY"))
+    }
+  }
 
   async function checkpointRoom(room: DocumentRoom, user: RealtimeUser | null): Promise<RealtimeCheckpoint> {
     const { adapter, definition } = room.resolved
@@ -1346,11 +2025,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   async function requestContext(event: H3Event) {
     const { definitionName, documentId, searchParams, workspaceEvents } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
-    const resolved = resolveRealtimeDefinition(definition)
+    const resolved = definition.document === false ? undefined : resolveRealtimeDefinition(definition)
     const user = await identify(event.req, event, definitionName, definition)
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
-    return { access, definitionName, documentId, resolved, searchParams, user, workspaceEvents }
+    const scope = roomScope(definition, user?.id ?? null)
+    return { access, definitionName, documentId, resolved, scope, searchParams, user, workspaceEvents }
   }
 
   const httpHandler = defineEventHandler(async (event) => {
@@ -1363,7 +2043,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
     const request = await requestContext(event)
     if (request.workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events have no document to save." })
-    if (action === "checkpoint" && (!request.resolved.definition.history?.checkpoint || !request.resolved.adapter.checkpoint)) {
+    const resolved = request.resolved
+    if (!resolved) throw new HTTPError({ status: 404, message: "This Realtime Definition has no document." })
+    // `resolveRealtimeDefinition()` rejects `history.checkpoint` on an adapter without `checkpoint()`.
+    if (action === "checkpoint" && !resolved.definition.history?.checkpoint) {
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
@@ -1371,7 +2054,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
     const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
     if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
-    const room = await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+    const room = await getDocumentRoom(request.definitionName, request.documentId, resolved, resolveRealtimeRoomSql(event))
     if (action === "refresh") return await enqueue(room, async () => room.dirty ? { digest: room.digest, reseeded: false } : refreshRoom(room))
     return await enqueue(room, async () => {
       if (!containsRealtimeState(room.document, state!)) {
@@ -1390,14 +2073,22 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const websocketHandler = defineWebSocketHandler(async (event) => {
     const request = await requestContext(event)
     if (!(await request.access("read"))) throw new HTTPError({ status: 403 })
-    const writable = !request.workspaceEvents && await request.access("write")
+    const writable = !request.workspaceEvents && !!request.resolved && await request.access("write")
     const identity: RealtimeIdentity | undefined = request.user ? createRealtimeIdentity({ ...request.user }) : undefined
     const room: Room = request.workspaceEvents
-      ? await getEventsRoom(request.definitionName)
-      : await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+      ? await getEventsRoom(JSON.stringify([request.definitionName, { workspaceEvents: true }]), true, undefined)
+      : request.resolved
+        ? await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId, request.scope), false, resolveRealtimeRoomSql(event))
     const clientEpoch = request.searchParams.get("epoch")
+    // A browser on another editor version reads the room with another schema. TipTap deletes the nodes that schema does
+    // not know from the shared document as soon as it renders, so the connection may read but never write.
+    const otherEditor = room.kind === "document" && request.searchParams.get("editor") !== (room.editor.version ?? null)
+    const clientId = request.searchParams.get("clientId")
+    const awarenessClient = clientId !== null && /^\d+$/.test(clientId) && Number.isSafeInteger(Number(clientId)) ? Number(clientId) : undefined
 
     function leave(peer: WebSocketPeer) {
+      settleRequestsOf(peer)
       if (terminalPeers.has(peer)) clearHeldUpdates(peer)
       else applyHeldUpdates(peer)
       if (!room.peers.delete(peer)) return
@@ -1407,8 +2098,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const clients = room.awarenessOwners.release(peer)
       if (clients.length) {
         awarenessProtocol.removeAwarenessStates(room.awareness, clients, peer)
-        peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+        // A client whose first update never applied has no clock, and nobody saw its state.
+        const known = knownAwarenessClients(room.awareness, clients)
+        if (known.length) {
+          const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, known)
+          peer.publish(room.channel, encodeAwareness(update))
+          publish(room, "awareness", update)
+        }
         room.awareness = compactRealtimeAwareness(room.awareness)
+        watchAwareness(room)
       }
       peer.unsubscribe(room.channel)
       if (room.kind === "document" && room.writers.delete(peer) && room.held) {
@@ -1427,11 +2125,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     function applyDocumentMessage(peer: WebSocketPeer, data: Uint8Array) {
       if (room.kind !== "document") return
       try {
-        const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
+        const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable || otherEditor
         const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })
         if (response) peer.send(response)
       }
       catch (error) {
+        // The deletes of another editor version arrive on their own when it renders. Closing would make the browser
+        // reconnect and send them again, so drop them and keep the connection open for live updates.
+        if (error instanceof RealtimeWriteRejected && otherEditor) return
         if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
         else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
       }
@@ -1488,7 +2189,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
         return
       }
-      if (clients.length) peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+      // A client's first update has clock 0, which Yjs does not apply: there is nothing to relay for it yet.
+      const known = knownAwarenessClients(room.awareness, clients)
+      if (!known.length) return
+      const update = awarenessProtocol.encodeAwarenessUpdate(room.awareness, known)
+      peer.publish(room.channel, encodeAwareness(update))
+      publish(room, "awareness", update)
     }
 
     return {
@@ -1505,8 +2211,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         }
         room.peers.add(peer)
         peer.subscribe(room.channel)
+        if (awarenessClient !== undefined && room.awarenessOwners.claim(room.awareness, peer, awarenessClient, identity)) {
+          const claim = encoding.createEncoder()
+          encoding.writeVarUint(claim, awarenessClient)
+          publish(room, "claim", encoding.toUint8Array(claim))
+        }
         if (room.kind === "document") {
-          const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : writable ? undefined : "access"
+          const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : !writable ? "access" : otherEditor ? "version" : undefined
           peer.send(encodeRealtimeControl(reason
             ? { type: "session", access: "read", epoch: room.epoch, reason }
             : { type: "session", access: "write", epoch: room.epoch }))
@@ -1520,8 +2231,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
       },
       message(peer, message: WebSocketMessage) {
-        if (!room.peers.has(peer)) return
         const data = message.uint8Array()
+        // An answer to `requestRealtimeRoom()`. It is matched by the peer id, so it still settles after a Durable Object
+        // woke from hibernation and its rooms in memory are new.
+        if (data[0] === messageRealtimeRequest) {
+          if (data.byteLength <= maxMessageBytes) settleRequest(peer, data)
+          return
+        }
+        if (!room.peers.has(peer)) return
         // On Cloudflare the Durable Object answers the keepalive itself, so it reaches this hook only on other hosts.
         if (data.byteLength === keepalivePing.byteLength && data.every((byte, index) => byte === keepalivePing[index])) {
           peer.send(realtimeKeepalivePong)
@@ -1541,7 +2258,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           return
         }
         if (messageType === messageWorkspaceChange) {
-          if (room.kind !== "events") {
+          if (room.kind !== "events" || !room.workspace) {
             peer.close(4400, "Workspace changes require the workspace room.")
             return
           }
@@ -1568,7 +2285,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
             peer.close(4429, "Workspace change rate limit exceeded.")
             return
           }
-          peer.publish(room.channel, encodeWorkspaceChange(change))
+          const frame = encodeWorkspaceChange(change)
+          peer.publish(room.channel, frame)
+          publish(room, "frame", frame)
           return
         }
         if (messageType === messageQueryAwareness) {
@@ -1620,7 +2339,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
               if (response) peer.send(response)
             }
             else if (syncType !== syncProtocol.messageYjsSyncStep2) {
-              peer.close(4400, "Document updates cannot use the workspace room.")
+              peer.close(4400, room.workspace ? "Document updates cannot use the workspace room." : "This Realtime Definition has no document.")
             }
             return
           }
@@ -1650,8 +2369,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
   })
 
-  const handler = defineEventHandler(async (input) => {
-    const event = toWebEvent(input)
+  const handler = defineEventHandler(async (event) => {
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
     // Inside the Durable Object, a refresh from refreshRealtimeDocument(). The Worker strips the header from client requests.
@@ -1659,6 +2377,25 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       return { reseeded: await refreshOpenRoom(definitionName, documentId) }
     }
+    // Inside the Durable Object, a request from requestRealtimeRoom(). The Worker strips the header from client requests.
+    if (event.req.headers.has(internalRequestHeader) && resolveRealtimeRoomSql(event)) {
+      const { definitionName, documentId } = parseRoomPath(event.req.url)
+      const input: unknown = await event.req.json().catch(() => undefined)
+      const field = (name: string) => input && typeof input === "object" && name in input ? (input as Record<string, unknown>)[name] : undefined
+      const timeout = field("timeout")
+      const wait = field("wait")
+      const user = field("user")
+      const context = resolveCloudflare(event)?.context
+      return toDurableRequestReply(await requestRoom(definitionName, documentId, field("body"), {
+        timeout: typeof timeout === "number" && timeout > 0 ? timeout : defaultRequestTimeout,
+        wait: typeof wait === "number" && wait >= 0 ? wait : defaultRequestWait,
+        ...(typeof user === "string" || user === null ? { user } : {}),
+      }, isDurableSockets(context) ? context : undefined))
+    }
+    // After a Durable Object hibernates, crossws restores each socket's peer with a bare GET of its first URL, with no
+    // headers, and resolves its hooks again. Those hooks take the answers to `requestRealtimeRoom()`, which match by
+    // peer id. The rest of the room protocol still needs the original upgrade.
+    if (event.req.method === "GET" && isBareRequest(event.req)) return restoredPeerHandler(event)
     if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") return httpHandler(event)
     try {
       return await websocketHandler(event)
@@ -1667,43 +2404,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       return refuseUpgrade(event.req, error instanceof HTTPError ? error.status : 500)
     }
   })
-  // Nitro 2, which Nuxt 4 runs, upgrades sockets itself and reads their hooks from `handler.__websocket__`. These run
-  // the handler for each upgrade, then pass each socket to the hooks that the handler returned for it. Durable Object
-  // peers keep the upgrade request, Node peers its context: either one leads back to the hooks.
-  const socketHooks = new WeakMap<object, Partial<WebSocketHooks>>()
-  const hooksOf = (peer: WebSocketPeer) => {
-    const context: unknown = Reflect.get(peer.request, "context")
-    return socketHooks.get(peer.context) ?? (context instanceof Object ? socketHooks.get(context) : undefined)
-  }
-  const nitro2Hooks: Partial<WebSocketHooks> = {
-    async upgrade(request) {
-      const durable = durableScope[durableObjectKey]
-      const context = { ...request.context }
-      if (durable) {
-        const platform = context._platform as { cloudflare?: Record<string, unknown> } | undefined
-        context._platform = {
-          ...platform,
-          cloudflare: { ...platform?.cloudflare, context: durable.state, env: durable.env },
-        }
-      }
-      // crossws makes `request.context` read-only, and an event sets it, so the event reads its own copy.
-      const response: unknown = await handler(new H3Event(new Request(request.url, { headers: request.headers, method: request.method }), context))
-      const hooks: unknown = response instanceof Response ? Reflect.get(response, "crossws") : undefined
-      if (!hooks || typeof hooks !== "object") return response instanceof Response ? response : new Response(null, { status: 500 })
-      if (request.context) socketHooks.set(request.context, hooks)
-      // SAFETY: the handler answers an upgrade with crossws hooks, as h3's defineWebSocketHandler and refuseUpgrade() do.
-      return await (hooks as Partial<WebSocketHooks>).upgrade?.(request)
-    },
-    open: peer => hooksOf(peer)?.open?.(peer),
-    message(peer, message) {
-      const hooks = hooksOf(peer)
-      // A Durable Object that woke from hibernation lost its rooms. The client reconnects and joins again.
-      if (!hooks) return peer.close(1012, "The realtime room restarted.")
-      return hooks.message?.(peer, message)
-    },
-    close: (peer, details) => hooksOf(peer)?.close?.(peer, details),
-    error: (peer, error) => hooksOf(peer)?.error?.(peer, error),
-  }
   // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
-  return Object.assign(handler, { __websocket__: nitro2Hooks }) as RealtimeHandler
+  return handler as RealtimeHandler
 }

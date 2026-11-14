@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 const require = createRequire(import.meta.url);
 const requireFromTinyglobby = createRequire(require.resolve("tinyglobby"));
@@ -13,6 +13,7 @@ const fdirEntry = resolve(
 
 export default defineConfig({
   pack: {
+    ...packDefaults,
     alias: {
       // Transform the ESM entry below so Workers never receive its optional createRequire probe.
       fdir: fdirEntry,
@@ -38,13 +39,10 @@ try {
         },
       },
     ],
-    tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [
-        /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
         "fdir",
-        "ocache",
         "picomatch",
         "tinyglobby",
       ],
@@ -74,10 +72,5 @@ try {
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

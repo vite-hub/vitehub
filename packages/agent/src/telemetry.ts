@@ -2,7 +2,6 @@ import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 type OtlpResourceAttributes = Record<string, boolean | number | string>
@@ -37,7 +36,7 @@ function consumeOtlpBinaryBudget(budget: OtlpEncodingBudget, byteLength: number)
 }
 
 function isDate(value: unknown): value is Date {
-  if (!value || !hasRuntimeType(value, "object")) return false
+  if (!value || typeof value !== "object") return false
   try {
     Date.prototype.getTime.call(value)
     return true
@@ -48,18 +47,18 @@ function isDate(value: unknown): value is Date {
 }
 
 async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestors = new Set<object>()): Promise<OtlpAnyValue> {
-  if (hasRuntimeType(value, "boolean")) return { boolValue: value }
-  if (hasRuntimeType(value, "number")) {
+  if (typeof value === "boolean") return { boolValue: value }
+  if (typeof value === "number") {
     if (!Number.isFinite(value)) return { stringValue: String(value) }
     if (Object.is(value, -0)) return { stringValue: "-0" }
     return Number.isSafeInteger(value) ? { intValue: String(value) } : { doubleValue: value }
   }
-  if (hasRuntimeType(value, "bigint")) {
+  if (typeof value === "bigint") {
     return value >= -(2n ** 63n) && value <= 2n ** 63n - 1n
       ? { intValue: String(value) }
       : { stringValue: String(value) }
   }
-  if (hasRuntimeType(value, "string")) return { stringValue: value }
+  if (typeof value === "string") return { stringValue: value }
   if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
     consumeOtlpBinaryBudget(budget, value.byteLength)
     const bytes = value instanceof ArrayBuffer
@@ -105,19 +104,19 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
   if (value instanceof Blob) {
     const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get?.call(value)
     const mediaType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get?.call(value)
-    if (!hasRuntimeType(size, "number") || !hasRuntimeType(mediaType, "string")) {
+    if (typeof size !== "number" || typeof mediaType !== "string") {
       throw agentDiagnostics.AGENT_R0860({ message: "OTLP/HTTP JSON Blob payload is invalid." })
     }
     consumeOtlpBinaryBudget(budget, size)
     const FileConstructor = globalThis.File
-    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
+    const file = typeof FileConstructor === "function" && value instanceof FileConstructor ? value : undefined
     const bytes = new Uint8Array(await Blob.prototype.arrayBuffer.call(value))
     let binary = ""
     for (const byte of bytes) binary += String.fromCharCode(byte)
     if (file) {
       const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
       const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
-      if (!hasRuntimeType(name, "string") || !hasRuntimeType(lastModified, "number")) {
+      if (typeof name !== "string" || typeof lastModified !== "number") {
         throw agentDiagnostics.AGENT_R0861({ message: "OTLP/HTTP JSON File payload is invalid." })
       }
       return {
@@ -154,7 +153,7 @@ async function otlpAnyValue(value: unknown, budget: OtlpEncodingBudget, ancestor
       },
     }
   }
-  if (value && hasRuntimeType(value, "object")) {
+  if (value && typeof value === "object") {
     if (ancestors.has(value)) return { stringValue: "[Circular]" }
     const nextAncestors = new Set(ancestors)
     nextAncestors.add(value)
@@ -309,14 +308,14 @@ async function wait(milliseconds: number): Promise<void> {
 }
 
 function otlpResponseRejected(response: unknown, field: "rejectedLogRecords" | "rejectedSpans"): boolean {
-  if (!response || !hasRuntimeType(response, "object")) return false
+  if (!response || typeof response !== "object") return false
   // SAFETY: The runtime object guard establishes a record whose optional property can be inspected.
   const partialSuccess = (response as { partialSuccess?: unknown }).partialSuccess
-  if (!partialSuccess || !hasRuntimeType(partialSuccess, "object")) return false
+  if (!partialSuccess || typeof partialSuccess !== "object") return false
   // SAFETY: The runtime object guard establishes an indexable record for the named OTLP field.
   const value = (partialSuccess as Record<string, unknown>)[field]
-  if (hasRuntimeType(value, "number")) return value > 0
-  return hasRuntimeType(value, "string") && /^\d+$/.test(value) && !/^0+$/.test(value)
+  if (typeof value === "number") return value > 0
+  return typeof value === "string" && /^\d+$/.test(value) && !/^0+$/.test(value)
 }
 
 async function postOtlp(
@@ -374,8 +373,8 @@ export function otlpHttpJson<TRuntimeConfig extends AgentRuntimeConfig = AgentRu
   return async (context) => {
     if (context.signal === "logs" ? !context.records.length : !context.spans.length) return
     const [configuredHeaders, configuredResource] = await Promise.all([
-      hasRuntimeType(options.headers, "function") ? options.headers(context) : options.headers,
-      hasRuntimeType(options.resource, "function") ? options.resource(context) : options.resource,
+      typeof options.headers === "function" ? options.headers(context) : options.headers,
+      typeof options.resource === "function" ? options.resource(context) : options.resource,
     ])
     const headers = new Headers(configuredHeaders)
     headers.set("content-type", "application/json")

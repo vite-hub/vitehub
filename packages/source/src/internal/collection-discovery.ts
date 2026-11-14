@@ -1,12 +1,11 @@
 import { readFile, readdir } from "node:fs/promises"
 import { basename, extname, join, relative, resolve } from "node:path"
 
-import { argumentExpression, findCalls, findProperty, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
-import { findExportNames } from "mlly"
+import { argumentExpression, exportNames, findCalls, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { CallExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, Node, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 export interface CollectionDiscoveryOptions {
   projectRoot: string
@@ -22,13 +21,48 @@ export interface DiscoveredCollection {
   route: boolean
 }
 
-/** The initializers of top-level `const`, `let`, and `var` declarations named `name`. */
+/** The initializers of top-level `const`, `let`, and `var` declarations named `name`, with their declaration kind. */
 function declarationInitializers(module: ScannedModule, name: string, exportedOnly: boolean) {
   return module.program.body.flatMap((statement) => {
     const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : exportedOnly ? undefined : statement
     if (declaration?.type !== "VariableDeclaration") return []
-    return declaration.declarations.flatMap(declarator => declarator.id.type === "Identifier" && declarator.id.name === name && declarator.init ? [declarator.init] : [])
+    return declaration.declarations.flatMap(declarator => declarator.id.type === "Identifier" && declarator.id.name === name && declarator.init
+      ? [{ init: declarator.init, constant: declaration.kind === "const" }]
+      : [])
   })
+}
+
+const viteHubSourceSpecifier = /^(?:@vite-hub\/source|vite-hub\/source)(?:\/|$)/
+
+/** Checks binding targets, including nested destructuring, without treating property keys or defaults as bindings. */
+function bindsCollectionFactory(binding: Node): boolean {
+  switch (binding.type) {
+    case "Identifier": return binding.name === "defineCollection"
+    case "ObjectPattern": return binding.properties.some(property => bindsCollectionFactory(property.type === "RestElement" ? property.argument : property.value))
+    case "ArrayPattern": return binding.elements.some(element => element !== null && bindsCollectionFactory(element))
+    case "AssignmentPattern": return bindsCollectionFactory(binding.left)
+    case "RestElement": return bindsCollectionFactory(binding.argument)
+    default: return false
+  }
+}
+
+/**
+ * True when `defineCollection` in this module is ViteHub's factory: imported from a ViteHub Source entry, or not
+ * declared in the module at all (an auto-import). A local function or an import from elsewhere with that name can
+ * return any Collection, so its options say nothing about the route.
+ */
+function callsViteHubFactory(module: ScannedModule): boolean {
+  for (const statement of module.program.body) {
+    if (statement.type === "ImportDeclaration") {
+      const local = statement.specifiers.some(specifier => specifier.local.name === "defineCollection")
+      if (local) return statement.importKind !== "type" && viteHubSourceSpecifier.test(statement.source.value)
+      continue
+    }
+    const declaration = statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration" ? statement.declaration : statement
+    if ((declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") && declaration.id?.name === "defineCollection") return false
+    if (declaration?.type === "VariableDeclaration" && declaration.declarations.some(declarator => bindsCollectionFactory(declarator.id))) return false
+  }
+  return true
 }
 
 /** The local binding that `export { local as exportName }` exports, without a module source. */
@@ -46,12 +80,16 @@ function exportedLocalName(module: ScannedModule, exportName: string): string | 
  * Finds the `defineCollection(...)` call that initializes the named export. An initializer with more than one call,
  * such as a conditional, has no known call: the scanner cannot know which branch runs.
  */
-function findCollectionDefinitionCall(source: string, exportName: string, file: string): CallExpression | undefined {
-  const module = scanModule(source, file)
+function findCollectionDefinitionCall(source: string, exportName: string, file: string): CollectionDefinitionCall | undefined {
+  // Collection files may use TypeScript syntax whatever their extension, such as a `.mjs` file from generated types.
+  const module = scanModule(source, `${file}.ts`)
   const calls = findCalls(module, ["defineCollection"])
-  const callIn = (initializer: { end: number, start: number }) => {
-    const matches = calls.filter(call => call.start >= initializer.start && call.end <= initializer.end)
-    return matches.length === 1 ? matches[0] : undefined
+  const factory = callsViteHubFactory(module)
+  const callIn = ({ init, constant }: { init: Expression, constant: boolean }) => {
+    const matches = calls.filter(call => call.start >= init.start && call.end <= init.end)
+    const [call] = matches
+    // Only a `const` keeps its initializer: a later `var` declaration or an assignment can export another value.
+    return matches.length === 1 && call ? { call, exported: factory && constant && unwrapExpression(init) === call } : undefined
   }
   for (const initializer of declarationInitializers(module, exportName, true)) {
     const call = callIn(initializer)
@@ -67,11 +105,31 @@ function findCollectionDefinitionCall(source: string, exportName: string, file: 
   }
 }
 
-function collectionRouteDisabled(call: CallExpression | undefined): boolean {
-  if (!call) return false
-  const options = argumentExpression(call.arguments[1] ?? call.arguments[0])
-  const route = options?.type === "ObjectExpression" ? findProperty(options, "route")?.value : undefined
-  return route !== undefined && staticValue(route) === false
+interface CollectionDefinitionCall {
+  call: CallExpression
+  /** True when the export is the value that ViteHub's `defineCollection()` returns from this call. */
+  exported: boolean
+}
+
+/**
+ * True only for a literal `route: false` in the options of the exported `defineCollection()` call. A spread or a
+ * computed key after it can set `route` again when the module runs, so the route stays. Any other form keeps the route,
+ * and `defineCollectionHandler()` answers 404 at request time when the Collection has `route: false`.
+ */
+function collectionRouteDisabled(definition: CollectionDefinitionCall | undefined): boolean {
+  if (!definition?.exported) return false
+  const options = argumentExpression(definition.call.arguments[1] ?? definition.call.arguments[0])
+  if (options?.type !== "ObjectExpression") return false
+  const properties = objectProperties(options)
+  const index = properties.findLastIndex(property => property.key === "route")
+  const route = properties[index]?.value
+  return route !== undefined && staticValue(route) === false && properties.slice(index + 1).every(property => property.key !== undefined)
+}
+
+/** Whether the module exports `exportName`, and whether that Collection gets a generated route. */
+export function inspectCollectionSource(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
+  const exported = exportNames(source, `${file}.ts`).includes(exportName)
+  return { exported, routeEnabled: exported && !collectionRouteDisabled(findCollectionDefinitionCall(source, exportName, file)) }
 }
 
 export async function collectCollectionFiles(directory: string): Promise<string[]> {
@@ -107,11 +165,11 @@ export async function discoverCollections(options: CollectionDiscoveryOptions): 
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
+      if (!exportNames(source, `${file}.ts`).includes(exportName)) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       const definition = findCollectionDefinitionCall(source, exportName, file)
-      return { definition, exportName, file, name, route: !collectionRouteDisabled(definition) }
+      return { definition: definition?.call, exportName, file, name, route: !collectionRouteDisabled(definition) }
     }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 

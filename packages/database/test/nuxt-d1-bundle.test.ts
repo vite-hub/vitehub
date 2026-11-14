@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { build } from "esbuild"
 import { describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 import { resolveDBViteConfig } from "../src/config.ts"
 import { usesD1HttpOnly, usesRemoteLibsql } from "../src/internal/vite-build.ts"
 
@@ -23,7 +23,7 @@ describe("Nuxt D1 HTTP bundles", () => {
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await symlink(join(packageRoot, "node_modules"), join(root, "node_modules"), "dir")
-      const definition = join(root, "server/databases/config.ts")
+      const definition = join(root, "server/databases/default.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, [
         `import { defineDatabase } from ${JSON.stringify(join(packageRoot, "src/index.ts"))}`,
@@ -32,7 +32,7 @@ describe("Nuxt D1 HTTP bundles", () => {
           ? "export default defineDatabase({ cloudflare: { databaseId: 'd1-id', databaseName: 'notes', http: true }, ...overrides, connection: { url: 'libsql://notes.example' }, schema: {} })"
           : "export default defineDatabase({ cloudflare: { databaseId: 'd1-id', databaseName: 'notes', http: true }, schema: {} })",
       ].join("\n"))
-      await hubDb({ driver: "d1", databaseId: "d1-id", databaseName: "notes" })(undefined, {
+      await hubDatabase({ driver: "d1", databaseId: "d1-id", databaseName: "notes" })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => void | Promise<void>) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -40,7 +40,7 @@ describe("Nuxt D1 HTTP bundles", () => {
       })
       const config = { alias: {} as Record<string, string>, exportConditions: [] as string[], preset }
       for (const hook of hooks) await hook(config)
-      const runtime = config.alias["@vite-hub/database/drizzle"]!
+      const runtime = config.alias["@vite-hub/database/runtime/registry"]!
       expect(runtime).toBeTruthy()
       const bundled = await build({
         alias: { "#vitehub/database/definition-runtime": join(packageRoot, "src/runtime/definition-hosted.ts"), ...config.alias },
@@ -71,13 +71,13 @@ describe("Nuxt Cloudflare bundles", () => {
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await symlink(join(packageRoot, "node_modules"), join(root, "node_modules"), "dir")
-      const definition = join(root, "server/databases/config.ts")
+      const definition = join(root, "server/databases/default.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, [
         `import { defineDatabase } from ${JSON.stringify(join(packageRoot, "src/index.ts"))}`,
         `export default defineDatabase({ cloudflare: { binding: 'DB', databaseId: 'd1-id', databaseName: 'notes' }, ${connection} schema: {} })`,
       ].join("\n"))
-      await hubDb()(undefined, {
+      await hubDatabase()(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => void | Promise<void>) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -89,7 +89,7 @@ describe("Nuxt Cloudflare bundles", () => {
         alias: { "#vitehub/database/definition-runtime": join(packageRoot, "src/runtime/definition-hosted.ts"), ...config.alias },
         bundle: true,
         conditions: ["workerd", "worker", "browser", ...config.exportConditions],
-        entryPoints: [config.alias["@vite-hub/database/drizzle"]!],
+        entryPoints: [config.alias["@vite-hub/database/runtime/registry"]!],
         external: ["@vite-hub/internal/*", "cloudflare:workers", "node:*"],
         format: "esm",
         metafile: true,
@@ -114,7 +114,7 @@ describe("D1-only runtime classification", () => {
   ])("keeps libSQL for a definition that can override HTTP: %s", async (properties) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-d1-dynamic-"))
     try {
-      const file = join(root, "server/databases/config.ts")
+      const file = join(root, "server/databases/default.ts")
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, `export default defineDatabase({ ${properties}, schema: {} })`)
       const config = resolveDBViteConfig(undefined, root)!

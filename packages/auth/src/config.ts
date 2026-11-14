@@ -4,14 +4,13 @@ import { defaultExportExpression, objectProperties, scanModule, staticString, st
 
 import type { CallExpression, Expression, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
-import { discoverAuthDefinition } from "./discovery.ts"
+import { accessRouteSyntaxError } from "./application-path.ts"
+import { discoverAuthAbilities, discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthOptions,
   ResolvedAuthAccessRoute,
-  ResolvedAuthDatabaseConfiguration,
-  ResolvedAuthSecondaryStorageConfiguration,
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -67,6 +66,9 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
+  if (hasObjectProperty(objectLiteral(options) ?? readReturnedObject(options), "runtime")) {
+    throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
+  }
   if (options.type === "ObjectExpression") {
     assertAuthDatabasePlacement(options, options, authDatabase)
     return { authDatabase, body: options, callback: false }
@@ -93,16 +95,11 @@ function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression
     const unconditional = options.body.body.some(statement => statement.type === "ReturnStatement" && statement.argument && unwrapExpression(statement.argument) === body)
     if (returns !== 1 || !unconditional) throw authDatabasePlacementError()
   }
-  const runtime = readObjectPropertyValue(body, "runtime")
-  const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
-  if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
-  for (const options of [body, runtimeBody]) {
-    for (const model of ["user", "session", "account", "verification"]) {
-      const config = objectLiteral(readObjectPropertyValue(options, model))
-      const additionalFields = readObjectPropertyValue(config, "additionalFields")
-      const fields = objectLiteral(additionalFields)
-      if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
-    }
+  for (const model of ["user", "session", "account", "verification"]) {
+    const config = objectLiteral(readObjectPropertyValue(body, model))
+    const additionalFields = readObjectPropertyValue(config, "additionalFields")
+    const fields = objectLiteral(additionalFields)
+    if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
   }
   const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
   const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
@@ -156,15 +153,6 @@ function readStaticRouteProperty(body: ObjectExpression | undefined, property: s
   return value
 }
 
-function readStaticBooleanProperty(body: ObjectExpression | undefined, property: string, label: string): boolean | undefined {
-  if (!hasObjectProperty(body, property)) return
-  const value = readStaticBooleanLiteral(readObjectPropertyValue(body, property))
-  if (typeof value === "undefined") {
-    throw authErrorDiagnostics.AUTH_C0004({ message: `\`defineAuth()\` ${label} must be an inline boolean literal.` })
-  }
-  return value
-}
-
 function assertOnlyObjectKeys(body: ObjectExpression | undefined, allowed: Set<string>, label: string): void {
   const unknownEntry = readObjectEntries(body).find(entry => !entry.key || !allowed.has(entry.key))
   if (!unknownEntry) return
@@ -189,12 +177,18 @@ function readAuthRouteConfig(body: ObjectExpression | undefined): false | string
   throw authErrorDiagnostics.AUTH_C0008({ message: "`defineAuth()` route can only be `false` when provided." })
 }
 
+function assertLiteralAccessRoute(route: string, label: string): void {
+  const message = accessRouteSyntaxError(route, label)
+  if (message) throw authErrorDiagnostics.AUTH_C0068({ message })
+}
+
 function readAuthAccessRoute(entry: Expression | undefined, index: number): ResolvedAuthAccessRoute {
   const route = staticString(entry)
   if (typeof route !== "undefined") {
     if (!route.startsWith("/")) {
       throw authErrorDiagnostics.AUTH_C0009({ message: `\`defineAuth()\` access.routes[${index}] must start with \`/\`.` })
     }
+    assertLiteralAccessRoute(route, `access.routes[${index}]`)
     return { route }
   }
 
@@ -209,6 +203,7 @@ function readAuthAccessRoute(entry: Expression | undefined, index: number): Reso
   if (!resolvedRoute) {
     throw authErrorDiagnostics.AUTH_C0011({ message: `\`defineAuth()\` access.routes[${index}].route is required.` })
   }
+  assertLiteralAccessRoute(resolvedRoute, `access.routes[${index}].route`)
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
   const authorize = readObjectEntries(routeObject).find(entry => entry.key === "authorize")
@@ -232,6 +227,24 @@ function readAuthAccessRoutesConfig(body: ObjectExpression | undefined): Resolve
   return routes.elements.map((entry, index) => readAuthAccessRoute(entry === null || entry.type === "SpreadElement" ? undefined : entry, index))
 }
 
+function readAuthAccessPublicConfig(body: ObjectExpression | undefined): string[] {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
+  if (!access || !hasObjectProperty(access, "public")) return []
+
+  const routes = readObjectPropertyValue(access, "public")
+  if (routes?.type !== "ArrayExpression") {
+    throw authErrorDiagnostics.AUTH_C0064({ message: "`defineAuth()` access.public must be an inline array." })
+  }
+
+  return routes.elements.map((entry, index) => {
+    const route = entry === null || entry.type === "SpreadElement" ? undefined : staticString(entry)
+    if (typeof route === "undefined" || !route.startsWith("/")) {
+      throw authErrorDiagnostics.AUTH_C0064({ message: `\`defineAuth()\` access.public[${index}] must be an inline route string that starts with \`/\`.` })
+    }
+    return route
+  })
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -252,57 +265,29 @@ function readAuthTablesConfig(body: ObjectExpression | undefined, authDatabase: 
   return { database: name }
 }
 
-function readAuthDatabaseConfig(body: ObjectExpression | undefined, allowRuntimeValue = false, authDatabase: ReadonlySet<string> = new Set()): ResolvedAuthDatabaseConfiguration {
-  if (!hasObjectProperty(body, "database")) return { mode: "default" }
-  if (readAuthDatabaseCall(body, authDatabase)) return { mode: "default" }
-
-  const expression = readObjectPropertyValue(body, "database")
-  const flag = readStaticBooleanLiteral(expression)
-  if (flag === true) return { mode: "default" }
-  if (flag === false) {
-    throw authErrorDiagnostics.AUTH_C0013({ message: "`defineAuth()` database cannot be `false`." })
-  }
-
-  const database = objectLiteral(expression)
-  if (typeof database === "undefined") {
-    if (allowRuntimeValue) return { mode: "default" }
-    throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `true` or an inline object with `name`." })
-  }
-
-  assertOnlyObjectKeys(database, new Set(["dedicated", "name"]), "database")
-
-  return {
-    dedicated: readStaticBooleanProperty(database, "dedicated", "database.dedicated") ?? false,
-    mode: "named",
-    name: readStaticStringProperty(database, "name", "database.name") ?? (() => {
-      throw authErrorDiagnostics.AUTH_C0015({ message: "`defineAuth()` database.name is required when database is an object." })
-    })(),
-  }
+/** Reports `true`, `false`, or an object literal with only `keys`: the removed placement forms, which create no storage. */
+function isPlacementLiteral(expression: Expression | undefined, keys: ReadonlySet<string>): boolean {
+  if (readStaticBooleanLiteral(expression) !== undefined) return true
+  const object = objectLiteral(expression)
+  return object !== undefined && readObjectEntries(object).every(entry => keys.has(entry.key))
 }
 
-function readAuthSecondaryStorageConfig(body: ObjectExpression | undefined, allowRuntimeValue = false): false | ResolvedAuthSecondaryStorageConfiguration {
-  if (!hasObjectProperty(body, "secondaryStorage")) return false
-
-  const expression = readObjectPropertyValue(body, "secondaryStorage")
-  const flag = readStaticBooleanLiteral(expression)
-  if (flag === true) return { mode: "default" }
-  if (flag === false) {
-    throw authErrorDiagnostics.AUTH_C0016({ message: "`defineAuth()` secondaryStorage cannot be `false`." })
+/**
+ * `database` and `secondaryStorage` take Better Auth adapters only. A static Definition can hold only `authDatabase()` or
+ * `"memory"`.
+ */
+function assertAuthStorageConfig(body: ObjectExpression | undefined, callback: boolean, authDatabase: ReadonlySet<string>): void {
+  const database = readObjectPropertyValue(body, "database")
+  if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase) && staticString(database) !== "memory") {
+    if (!callback || isPlacementLiteral(database, new Set(["dedicated", "name"]))) {
+      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+    }
   }
-
-  const secondaryStorage = objectLiteral(expression)
-  if (typeof secondaryStorage === "undefined") {
-    if (allowRuntimeValue) return false
-    throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage must be `true` or an inline object with `store`." })
-  }
-
-  assertOnlyObjectKeys(secondaryStorage, new Set(["store"]), "secondaryStorage")
-
-  return {
-    mode: "named",
-    store: readStaticStringProperty(secondaryStorage, "store", "secondaryStorage.store") ?? (() => {
-      throw authErrorDiagnostics.AUTH_C0018({ message: "`defineAuth()` secondaryStorage.store is required when secondaryStorage is an object." })
-    })(),
+  if (hasObjectProperty(body, "secondaryStorage")) {
+    const secondaryStorage = readObjectPropertyValue(body, "secondaryStorage")
+    if (!callback || isPlacementLiteral(secondaryStorage, new Set(["store"]))) {
+      throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback. `true` and `{ store }` do not create storage." })
+    }
   }
 }
 
@@ -322,18 +307,22 @@ export function resolveAuthViteConfig(
   }
   const body = definitionObject.body
   assertStaticObjectKeys(body, "options")
+  assertAuthStorageConfig(body, definitionObject.callback, definitionObject.authDatabase)
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
 
+  const abilities = discoverAuthAbilities(rootDir, discovery)
+  const publicRoutes = readAuthAccessPublicConfig(body)
   return {
+    ...(abilities ? { abilities } : {}),
     access: {
       routes: readAuthAccessRoutesConfig(body),
+      ...(publicRoutes.length ? { public: publicRoutes } : {}),
     },
     basePath,
-    database: readAuthDatabaseConfig(body, definitionObject.callback, definitionObject.authDatabase),
     definition,
     rootDir,
     route: readAuthRouteConfig(body),
-    secondaryStorage: readAuthSecondaryStorageConfig(body, definitionObject.callback),
     tables: readAuthTablesConfig(body, definitionObject.authDatabase),
+    ...(!definitionObject.callback && !["database", "preset"].some(key => hasObjectProperty(body, key)) ? { implicitMemory: true as const } : {}),
   }
 }

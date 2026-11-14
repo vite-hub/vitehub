@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { clearActiveCloudflareEnv, runWithActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { defineRelations } from "drizzle-orm"
 import { pgTable, serial, text } from "drizzle-orm/pg-core"
 
 import { defineDatabase } from "../src/definition.ts"
@@ -12,7 +13,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "../src/internal/cloudflare.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 import { writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 import { createAgentDatabase } from "../src/runtime/agent.ts"
 
 const driver = vi.hoisted(() => ({
@@ -99,19 +100,18 @@ describe("Postgres Database Definitions", () => {
   it("returns a plain Postgres Definition", () => {
     const definition = defineDatabase({
       cloudflare: { hyperdriveId: "hyperdrive-id" },
-      connection: { url: "postgres://localhost/app" },
+      connection: { replicas: ["postgres://replica/app", process.env.VITEHUB_UNSET_REPLICA_URL], url: "postgres://localhost/app" },
       dialect: "postgresql",
-      drizzle: { casing: "snake_case" },
       name: "app",
       schema: { notes },
     })
 
     expect(definition).toEqual({
       cloudflare: { hyperdriveId: "hyperdrive-id" },
-      connection: { url: "postgres://localhost/app" },
+      connection: { replicas: ["postgres://replica/app", undefined], url: "postgres://localhost/app" },
       dialect: "postgresql",
-      drizzle: { casing: "snake_case" },
       name: "app",
+      relations: defineRelations({ notes }),
       schema: { notes },
     })
   })
@@ -127,12 +127,22 @@ describe("Postgres Database Definitions", () => {
     expect(() => defineDatabase({ dialect: "mysql", schema: { notes } }))
       .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
+
+  it("accepts `driver: \"pglite\"` only on a Postgres Definition", () => {
+    expect(defineDatabase({ dialect: "postgresql", driver: "pglite", schema: { notes } })).toMatchObject({ driver: "pglite" })
+    // @ts-expect-error PGlite is the only driver option.
+    expect(() => defineDatabase({ dialect: "postgresql", driver: "postgres", schema: { notes } }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DRIVER" }))
+    // @ts-expect-error A SQLite Definition has no driver option.
+    expect(() => defineDatabase({ driver: "pglite", schema: {} }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_OPTION", message: expect.stringContaining("driver") }))
+  })
 })
 
 describe("Postgres build configuration", () => {
   it("resolves Hyperdrive bindings and connection URLs without SQLite or D1 defaults", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  cloudflare: { hyperdriveId: process.env.CLOUDFLARE_HYPERDRIVE_ID || 'hyperdrive-id' },",
       "  connection: { url: process.env.DATABASE_URL },",
@@ -162,12 +172,12 @@ describe("Postgres build configuration", () => {
 
   it("names Hyperdrive bindings per Named Database and rejects conflicting bindings", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/analytics/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/analytics/index.ts", [
       "  name: 'analytics',",
       "  dialect: 'postgresql',",
       "  cloudflare: { hyperdriveId: 'analytics-id' },",
     ])
-    await writePostgresDefinition(rootDir, "server/databases/billing/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/billing/index.ts", [
       "  name: 'billing',",
       "  dialect: \"postgresql\",",
       "  cloudflare: { binding: 'HYPERDRIVE_ANALYTICS', hyperdriveId: 'billing-id' },",
@@ -180,14 +190,14 @@ describe("Postgres build configuration", () => {
 
   it("requires a literal dialect", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: process.env.DATABASE_DIALECT,"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: process.env.DATABASE_DIALECT,"])
 
     expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
 
   it("generates a postgresql Drizzle Kit config and a typed registry", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  connection: { url: process.env.DATABASE_URL },",
     ])
@@ -197,27 +207,28 @@ describe("Postgres build configuration", () => {
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
     expect(drizzleConfig).toContain("dialect: \"postgresql\"")
-    expect(drizzleConfig).toContain("  dbCredentials: (process.env[\"DATABASE_URL\"])?.trim() ? { url: (process.env[\"DATABASE_URL\"]).trim() } : { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
-    expect(drizzleConfig).toContain("out: \"server/databases/migrations\"")
+    expect(drizzleConfig).toContain("const url = (process.env[\"DATABASE_URL\"])?.trim()\n")
+    expect(drizzleConfig).toContain("  ...(url ? { dbCredentials: { url } } : postgresEnv ? { dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] } } : { driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/pglite\" } }),\n")
+    expect(drizzleConfig).toContain("out: \"server/databases/default/migrations\"")
     await expect(readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")).resolves.toContain("export { table_0 as notes }")
     const types = await readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")
     expect(types).toContain("dialect: \"postgresql\"")
   })
 
-  it("gives Drizzle Kit the PG* environment variables when a Postgres Definition has no URL", async () => {
+  it("gives Drizzle Kit the PG* environment variables, else the PGlite folder, when a Postgres Definition has no URL", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
     const config = resolveDBViteConfig(undefined, rootDir)!
 
     await writeGeneratedDatabaseArtifacts(config)
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
-    expect(drizzleConfig).toContain("  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+    expect(drizzleConfig).toContain("  ...(postgresEnv ? { dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] } } : { driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/pglite\" } }),\n")
   })
 
-  it("gives Drizzle Kit the PG* environment variables for an empty literal URL", async () => {
+  it("gives Drizzle Kit the PG* environment variables, else the PGlite folder, for an empty literal URL", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  connection: { url: '   ' },",
     ])
@@ -226,30 +237,54 @@ describe("Postgres build configuration", () => {
     await writeGeneratedDatabaseArtifacts(config)
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
-    expect(drizzleConfig).toContain("  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+    expect(drizzleConfig).toContain("  ...(postgresEnv ? { dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] } } : { driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/pglite\" } }),\n")
+  })
+
+  it("gives Drizzle Kit the PGlite folder for `driver: \"pglite\"`, even with a URL", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/reports.ts", [
+      "  name: 'reports',",
+      "  dialect: 'postgresql',",
+      "  driver: 'pglite',",
+      "  connection: { url: process.env.DATABASE_URL },",
+    ])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    await writeGeneratedDatabaseArtifacts(config)
+
+    const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
+    expect(drizzleConfig).toContain("  ...{ driver: \"pglite\", dbCredentials: { url: \".vitehub/data/database/reports.pglite\" } },\n")
+    expect(drizzleConfig).not.toContain("DATABASE_URL")
+  })
+
+  it("requires a literal `driver`", async () => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',", "  driver: process.env.DATABASE_DRIVER,"])
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DRIVER" }))
   })
 
   it("keeps the libSQL runtime out of the Vite databases module of a Postgres-only app", async () => {
     const rootDir = await createLoadableProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
-    const plugin = hubDb()
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
+    const plugin = hubDatabase()
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: rootDir })
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
 
     const code = await load((await resolveId("#vitehub/database/databases"))!)
     expect(code).toContain("runtime/postgres")
     // Contributed tables live in the generated schema, so the client gets that schema, not the Definition's own.
-    expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: schema_0 },")
+    expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 },")
     expect(code).not.toContain("runtime/hosted")
   })
 
   it("rejects a contribution with another dialect in Definition inspection, as the build does", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
     const plugins = [{ name: "history-owner/vite", vitehub: { databases: [{ definition: { module: "history-tables/schema" }, dialect: "sqlite", name: "history" }] } }]
 
     await expect(inspectDatabaseDefinitions({ plugins, projectRoot: rootDir, rootDir })).rejects.toMatchObject({
@@ -260,18 +295,38 @@ describe("Postgres build configuration", () => {
 
   it("lists the Postgres dialect in Definition inspection", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',"])
 
     expect((await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir }))[0]?.fields).toEqual([
       { label: "Mode", value: "Default" },
       { label: "Dialect", value: "PostgreSQL" },
       { label: "Tables", value: "notes" },
+      { label: "Development", value: "PGlite in `.vitehub/data/database/pglite` when there is no `connection.url` and no PG* variable." },
     ])
+  })
+
+  it("lists the number of read replicas in Definition inspection, without their URLs", async () => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
+      "  dialect: 'postgresql',",
+      "  connection: { url: process.env.DATABASE_URL, replicas: [process.env.DATABASE_REPLICA_1, 'postgres://user:secret@replica/app'] },",
+    ])
+    await writePostgresDefinition(rootDir, "server/databases/analytics.ts", [
+      "  name: 'analytics',",
+      "  dialect: 'postgresql',",
+      "  connection: { replicas: process.env.REPLICAS?.split(',') },",
+    ])
+
+    const definitions = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
+    const replicas = (name: string) => definitions.find(definition => definition.name === name)?.fields.find(field => field.label === "Read replicas")?.value
+    expect(replicas("default")).toBe("2 URLs in `connection.replicas`. `db.$replica` reads from one of them. A Hyperdrive binding and PGlite ignore them.")
+    expect(replicas("analytics")).toBe("Set in `connection.replicas`. `db.$replica` reads from one of them. A Hyperdrive binding and PGlite ignore them.")
+    expect(JSON.stringify(definitions)).not.toContain("secret")
   })
 
   it("writes hosted runtime modules that create Postgres clients without the SQLite runtime", async () => {
     const rootDir = await createTempProject()
-    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
       "  dialect: 'postgresql',",
       "  cloudflare: { hyperdriveId: 'hyperdrive-id' },",
       "  connection: { url: process.env.DATABASE_URL },",
@@ -285,7 +340,7 @@ describe("Postgres build configuration", () => {
       const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
       expect(code).toContain("import { createPostgresDatabase } from")
       expect(code).toContain("runtime/postgres")
-      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).not.toContain("createHostedDrizzleDb")
     }
   })
@@ -304,8 +359,8 @@ describe("Postgres build configuration", () => {
 describe("Postgres runtime", () => {
   const definition = {
     dialect: "postgresql" as const,
-    drizzle: {},
     name: "default",
+    relations: defineRelations({ notes }),
     schema: { notes },
   }
 
@@ -328,6 +383,31 @@ describe("Postgres runtime", () => {
     // Array columns need the type metadata that postgres.js discovers.
     expect(driver.clients[0]!.options).not.toHaveProperty("fetch_types")
     expect(driver.clients[0]!.end).not.toHaveBeenCalled()
+  })
+
+  it("drops server notices and keeps warnings, on every client", async () => {
+    clearActiveCloudflareEnv()
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://app" })
+    clientOf(db)
+    await runWithActiveCloudflareEnv({ HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }, () => clientOf(db))
+    const log = vi.spyOn(console, "log").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      for (const { options } of driver.clients) {
+        const onnotice = options.onnotice as (notice: Record<string, string>) => void
+        // postgres.js parses each notice into these fields. `severity` is not translated.
+        onnotice({ code: "42P07", message: "relation \"kv\" already exists, skipping", severity: "NOTICE", severity_local: "NOTICE" })
+        onnotice({ code: "01000", message: "disk almost full", severity: "WARNING", severity_local: "WARNUNG" })
+      }
+      expect(driver.clients).toHaveLength(2)
+      expect(log).not.toHaveBeenCalled()
+      expect(warn.mock.calls).toEqual([["[vitehub] Postgres warning: disk almost full"], ["[vitehub] Postgres warning: disk almost full"]])
+    }
+    finally {
+      log.mockRestore()
+      warn.mockRestore()
+    }
   })
 
   it("keys requests by the installed env when the host cannot wrap the request", async () => {
@@ -354,7 +434,7 @@ describe("Postgres runtime", () => {
       })
 
       expect(clientOf(db)).toBe(clientOf(db))
-      expect(driver.clients).toEqual([expect.objectContaining({ options: {}, url: "postgres://first/app" })])
+      expect(driver.clients).toEqual([expect.objectContaining({ options: { onnotice: expect.any(Function) }, url: "postgres://first/app" })])
 
       vi.stubEnv("VITEHUB_TEST_DATABASE_URL", "postgres://second/app")
       expect(clientOf(db)).toMatchObject({ url: "postgres://second/app" })
@@ -377,6 +457,90 @@ describe("Postgres runtime", () => {
     expect(clientOf(db)).toMatchObject({ url: "postgres://definition/app" })
     runWithActiveCloudflareEnv({ APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" }, HYPERDRIVE: { connectionString: "postgres://other/app" } }, () => {
       expect(clientOf(db)).toMatchObject({ url: "postgres://hyperdrive/app" })
+    })
+  })
+
+  describe("read replicas", () => {
+    it("opens one client per replica URL, and `db.$replica` reads from one of them", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("VITEHUB_TEST_REPLICA_URL", "postgres://replica-b/app")
+      try {
+        const db = createPostgresDatabase({
+          ...definition,
+          connection: { replicas: ["postgres://replica-a/app", "", undefined, { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_REPLICA_URL" } }], url: "postgres://primary/app" },
+        }, { binding: "HYPERDRIVE" })
+
+        expect(clientOf(db)).toMatchObject({ url: "postgres://primary/app" })
+        expect(driver.clients.map(client => client.url)).toEqual(["postgres://primary/app", "postgres://replica-a/app", "postgres://replica-b/app"])
+        const replicaUrls = new Set<unknown>()
+        for (let read = 0; read < 50; read++) replicaUrls.add(Reflect.get(clientOf(db.$replica), "url"))
+        expect(replicaUrls).toEqual(new Set(["postgres://replica-a/app", "postgres://replica-b/app"]))
+        // Writes and other queries stay on the primary.
+        expect(Reflect.get(db.select() as object, "url")).toBe("postgres://primary/app")
+        expect(driver.clients).toHaveLength(3)
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it("replaces the pools and ends every client when a replica URL changes", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("VITEHUB_TEST_REPLICA_URL", "postgres://replica-1/app")
+      try {
+        const db = createPostgresDatabase({
+          ...definition,
+          connection: { replicas: [{ kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_REPLICA_URL" } }], url: "postgres://primary/app" },
+        }, { binding: "HYPERDRIVE" })
+        expect(clientOf(db.$replica)).toMatchObject({ url: "postgres://replica-1/app" })
+        expect(driver.clients).toHaveLength(2)
+
+        vi.stubEnv("VITEHUB_TEST_REPLICA_URL", "postgres://replica-2/app")
+        expect(clientOf(db.$replica)).toMatchObject({ url: "postgres://replica-2/app" })
+        expect(driver.clients.map(client => client.url)).toEqual(["postgres://primary/app", "postgres://replica-1/app", "postgres://primary/app", "postgres://replica-2/app"])
+        expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
+        expect(driver.clients[1]!.end).toHaveBeenCalledOnce()
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it("opens replica clients per Cloudflare request without Hyperdrive", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, connection: { replicas: ["postgres://replica/app"], url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+
+      runWithActiveCloudflareEnv({}, () => {
+        expect(clientOf(db.$replica)).toMatchObject({ options: { max: 5 }, url: "postgres://replica/app" })
+      })
+      expect(driver.clients.map(client => client.url)).toEqual(["postgres://primary/app", "postgres://replica/app"])
+    })
+
+    it("skips the replicas under Hyperdrive, warns once, and `db.$replica` is the database", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, connection: { replicas: ["postgres://replica/app"], url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+      try {
+        const env = { HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
+        runWithActiveCloudflareEnv(env, () => {
+          expect(clientOf(db.$replica)).toMatchObject({ url: "postgres://hyperdrive/app" })
+          expect(clientOf(db.$replica)).toBe(clientOf(db))
+        })
+        runWithActiveCloudflareEnv(env, () => clientOf(db))
+        expect(driver.clients.map(client => client.url)).toEqual(["postgres://hyperdrive/app", "postgres://hyperdrive/app"])
+        expect(warn.mock.calls).toEqual([["[vitehub] Database \"default\" uses the Hyperdrive binding \"HYPERDRIVE\", which has one origin, so it ignores `connection.replicas`. `db.$replica` queries the Hyperdrive origin."]])
+      }
+      finally {
+        warn.mockRestore()
+      }
+    })
+
+    it("gives `db.$replica` as the database itself without replicas", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, connection: { url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+
+      expect(clientOf(db.$replica)).toBe(clientOf(db))
+      expect(driver.clients).toHaveLength(1)
     })
   })
 
@@ -419,7 +583,7 @@ describe("Postgres runtime", () => {
 
       expect(clientOf(db)).toBe(clientOf(db))
       // Without a URL argument, postgres.js reads its own PG* environment fallback.
-      expect(driver.clients.map(client => client.args)).toEqual([[{}]])
+      expect(driver.clients.map(client => client.args)).toEqual([[{ onnotice: expect.any(Function) }]])
     })
 
     it("replaces the pool when the PG* environment changes", async () => {

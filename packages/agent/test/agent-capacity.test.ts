@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { agentWithColocatedInstructions, createAgentInspectionMetadata, defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
+import { agentWithColocatedInstructions, defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
+import { createAgentInspectionMetadata } from "../src/workspace-agent.ts"
 import { runAgentInline, streamAgentInline } from "../src/internal/agent-run.ts"
 import { inputCommands } from "../src/capabilities.ts"
 import { createProcessAgentCapacity } from "../src/runtime/process.ts"

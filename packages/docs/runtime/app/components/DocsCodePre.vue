@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useClipboard } from "@vueuse/core"
+import { CopyButton } from "@vite-hub/ui"
 
 const props = defineProps<{
   code?: string
@@ -11,11 +11,7 @@ const props = defineProps<{
 }>()
 
 const pre = useTemplateRef<HTMLPreElement>("pre")
-const { copy, copied } = useClipboard({ copiedDuring: 1500 })
-
-function copyCode() {
-  copy(props.code ?? pre.value?.textContent ?? "")
-}
+const code = () => props.code ?? pre.value?.textContent ?? ""
 </script>
 
 <template>
@@ -30,17 +26,7 @@ function copyCode() {
       :data-code-filename="filename || undefined"
     ><slot /></pre>
     <!-- After the filename bar, so the tutorial code panel still finds the bar as the first child. -->
-    <UButton
-      :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-      color="neutral"
-      variant="ghost"
-      size="xs"
-      aria-label="Copy code"
-      class="vh-code-copy"
-      @click="copyCode"
-    />
-    <!-- The icon confirms the copy in place. Screen readers hear it here, once. -->
-    <span class="sr-only" aria-live="polite">{{ copied ? "Code copied" : "" }}</span>
+    <CopyButton :value="code" size="xs" aria-label="Copy code" class="vh-code-copy" />
   </div>
 </template>
 
@@ -50,7 +36,7 @@ function copyCode() {
   min-width: 0;
   margin-block: 1rem;
   border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
+  border-radius: calc(var(--ui-radius) * 2);
 }
 
 .vh-code-filename {
@@ -59,6 +45,9 @@ function copyCode() {
   align-items: center;
   gap: 0.5rem;
   border-bottom: 1px solid var(--ui-border);
+  /* The bar fills the top of the frame, so it follows the frame's corners. */
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
   background: var(--ui-bg-muted);
   /* The copy button sits over the end of the bar, so a long name wraps before it. */
   padding: 0.375rem 2.75rem 0.375rem 0.75rem;

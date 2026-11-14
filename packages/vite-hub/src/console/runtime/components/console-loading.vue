@@ -13,13 +13,13 @@ withDefaults(defineProps<{ label?: string }>(), { label: "Opening Console…" })
       {{ label }}
     </p>
     <div class="grid gap-4" aria-hidden="true">
-      <USkeleton class="h-8 w-2/3 animate-none rounded" />
-      <USkeleton class="h-4 w-1/3 animate-none rounded" />
+      <USkeleton class="h-8 w-2/3 animate-none rounded-md" />
+      <USkeleton class="h-4 w-1/3 animate-none rounded-md" />
       <div class="mt-4 grid gap-3">
         <USkeleton
           v-for="index in 6"
           :key="index"
-          class="h-4 animate-none rounded"
+          class="h-4 animate-none rounded-md"
           :class="index % 3 === 0 ? 'w-2/3' : 'w-full'"
         />
       </div>

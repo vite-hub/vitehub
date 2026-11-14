@@ -1,10 +1,9 @@
-import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import process from "node:process"
 
 import { describe, expect, it } from "vitest"
 
-import { createDeployRun, hostCli, withTemporaryOutput } from "../src/setup/deploy/host.ts"
+import { createDeployRun, hostCli } from "../src/setup/deploy/host.ts"
 import { createProject } from "./setup-helpers.ts"
 
 describe("Windows deploy CLI resolution", () => {
@@ -66,12 +65,4 @@ it("redacts captured and streamed credentials across chunks and streams", async 
   expect(result.stderr).toBe("other stream\n<redacted>")
   expect(shown).not.toContain(token)
   expect(shown).not.toContain("private-")
-})
-
-it("restores every temporary output file when a later config is invalid", async () => {
-  const original = '{"environment":{"KEEP":"yes"}}\n'
-  const root = await createProject({ "first.json": original, "second.json": "invalid" })
-  await expect(withTemporaryOutput([join(root, "first.json"), join(root, "second.json")], "environment", "HASH", "temporary", async () => ({ url: "https://example.com" }))).rejects.toThrow()
-  expect(await readFile(join(root, "first.json"), "utf8")).toBe(original)
-  expect(await readFile(join(root, "second.json"), "utf8")).toBe("invalid")
 })

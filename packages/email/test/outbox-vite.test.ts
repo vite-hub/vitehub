@@ -46,14 +46,14 @@ async function configure(plugin: ReturnType<typeof hubEmail>, root: string, comm
 }
 
 describe("Email development outbox output", () => {
-  it("exposes the configured runtime identity through the public server export", async () => {
+  it("exposes the configured runtime identity through the Email root", async () => {
     const root = await createTempProject()
     const { definition } = await configure(hubEmail({ driver: "resend" }), root, "serve")
     await symlink(resolve("node_modules"), join(root, "node_modules"), "dir")
     const file = join(root, "public-email-server.mjs")
     await build({
       bundle: true,
-      entryPoints: [resolve("src/server.ts")],
+      entryPoints: [resolve("src/index.ts")],
       format: "esm",
       outfile: file,
       packages: "external",
@@ -66,7 +66,7 @@ describe("Email development outbox output", () => {
       }],
     })
     const server: { email: EmailClient, emailOutboxRuntimeId: string } = await import(pathToFileURL(file).href)
-    await server.email.send({ from: "hello@example.com", subject: "Public reader", to: "ada@example.com" })
+    await server.email.send({ from: "hello@example.com", subject: "Public reader", text: "Hello", to: "ada@example.com" })
     const messages = listEmailOutbox(server.emailOutboxRuntimeId).messages
     expect(messages).toHaveLength(1)
     expect(getEmailOutboxMessage(messages[0]!.id, server.emailOutboxRuntimeId)?.subject).toBe("Public reader")
@@ -78,7 +78,7 @@ describe("Email development outbox output", () => {
     const root = await createTempProject()
     const plugin = hubEmail({ driver: "resend" })
     const { definition } = await configure(plugin, root, "serve")
-    const load = plugin.load
+    const load: unknown = Reflect.get(Object(plugin.load), "handler")
     if (!(load instanceof Function)) throw new Error("Expected the Email load hook")
     const virtual: unknown = await Reflect.apply(load, undefined, ["\0#vitehub/email/definition"])
     if (typeof virtual !== "string") throw new Error("Expected the virtual definition source")

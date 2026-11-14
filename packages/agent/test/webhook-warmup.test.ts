@@ -6,7 +6,6 @@ import type { UserConfig } from "vite"
 
 import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
-import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler, createAgentWebhookWarmup } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { agentRuntimeModule } from "../src/vite.ts"
@@ -140,8 +139,8 @@ async function generate(options: Record<string, unknown>) {
   cleanups.push(() => rm(root, { force: true, recursive: true }))
   await mkdir(join(root, "server", "agents"), { recursive: true })
   await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-  const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:agent-state.sqlite" } }, ...options })
-  if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+  const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "file:agent-state.sqlite" } }, ...options })
+  if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
   // SAFETY: The hook reads only command and root from this test config.
   await plugin.configResolved.call({} as never, { command: "build", root } as never)
   const read = (file: string) => readFile(join(root, ".vitehub/agent", file), "utf8")
@@ -151,7 +150,7 @@ async function generate(options: Record<string, unknown>) {
 async function nitroHandlers(options: Record<string, unknown>, handlers: unknown[] = []) {
   const { hubAgent } = await import("../src/vite.ts")
   const plugin = hubAgent(options)
-  if (!isRuntimeFunction(plugin.config)) throw new Error("Expected the Agent Vite config hook.")
+  if (typeof plugin.config !== "function") throw new Error("Expected the Agent Vite config hook.")
   const config = { nitro: { handlers }, root: hostedAgentRoot }
   // SAFETY: The fixture supplies only the config fields read by the Agent config hook.
   await plugin.config.call({} as never, config as UserConfig, { command: "build", mode: "production" })

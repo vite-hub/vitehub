@@ -11,8 +11,8 @@ icon: i-lucide-circle-alert
 Throw `ViteHubError` for failures that look the same on every provider. ViteHub's own failures use the fixed `WorkflowErrorCode` list.
 
 ```ts [server/workflows/transcribe.ts] fragment
-import { ViteHubError } from '@vite-hub/runtime'
-import { defineWorkflow } from '@vite-hub/workflow'
+import { ViteHubError } from 'vite-hub/runtime'
+import { defineWorkflow } from 'vite-hub/workflow'
 
 export default defineWorkflow('transcribe', async (payload: { recordingId: string }) => {
   try {

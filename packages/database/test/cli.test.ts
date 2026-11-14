@@ -27,6 +27,19 @@ afterEach(async () => {
 
 // The package root has drizzle-kit in its dependencies, like a project that uses `vitehub database`.
 const projectRoot = resolve(import.meta.dirname, "..")
+
+/**
+ * Waits for the next second. Drizzle Kit 1.0 names a SQLite migration folder by the current second only, and orders
+ * folders of the same second by name, so two generates in one second can come out in the wrong order.
+ */
+async function nextSecond() {
+  await new Promise(resolve => setTimeout(resolve, 1_010 - Date.now() % 1_000))
+}
+
+/** Migration folders that Drizzle Kit 1.0 wrote, oldest first: `<YYYYMMDDHHmmss>_<name>/migration.sql`. */
+async function migrationFolders(migrationsDir: string) {
+  return (await readdir(migrationsDir).catch(() => [])).filter(name => existsSync(join(migrationsDir, name, "migration.sql"))).sort()
+}
 const drizzleKitBin = join(projectRoot, "node_modules", "drizzle-kit", "bin.cjs")
 
 function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
@@ -99,7 +112,7 @@ describe("DB CLI contributor", () => {
     tempDirs.push(rootDir)
     const definitionDir = join(rootDir, "server/databases")
     await mkdir(definitionDir, { recursive: true })
-    await writeFile(join(definitionDir, "config.ts"), [
+    await writeFile(join(definitionDir, "default.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
       `const url = ${JSON.stringify(`file:${databaseFile}`)}`,
@@ -132,8 +145,7 @@ describe("DB CLI contributor", () => {
     const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
     const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
     await generate.run([], context)
-    const migrations = await readdir(join(definitionDir, "migrations"))
-    expect(migrations.some(file => file.endsWith(".sql"))).toBe(true)
+    expect(await migrationFolders(join(definitionDir, "default", "migrations"))).toHaveLength(1)
     const databasePath = join(rootDir, databaseFile)
     expect(existsSync(databasePath)).toBe(false)
     await expect(migrate.run(["--dry-run"], context)).resolves.toBe(0)
@@ -179,7 +191,7 @@ describe("DB CLI contributor", () => {
     const result = await runRealDrizzleKit(rootDir)
 
     expect(result).toEqual({ exitCode: 0, stderr: "" })
-    expect((await readdir(join(rootDir, "migrations"))).some(file => file.endsWith(".sql"))).toBe(true)
+    expect((await migrationFolders(join(rootDir, "migrations"))).length > 0).toBe(true)
   }, 60_000)
 
   // A custom migration that changes the tables, such as the Comments upgrade, must leave nothing for the next generate.
@@ -197,14 +209,19 @@ describe("DB CLI contributor", () => {
       "",
     ].join("\n"))
 
+    await nextSecond()
     await expect(runRealDrizzleKit(rootDir, "generate", { args })).resolves.toEqual({ exitCode: 0, stderr: "" })
+    await nextSecond()
     await expect(runRealDrizzleKit(rootDir)).resolves.toEqual({ exitCode: 0, stderr: "" })
 
-    const files = await readdir(join(rootDir, "migrations"))
-    expect(files.filter(file => file.endsWith(".sql"))).toHaveLength(migrations)
-    const [first, second] = await Promise.all(["0000", "0001"].map(async prefix => JSON.parse(await readFile(join(rootDir, "migrations/meta", `${prefix}_snapshot.json`), "utf8"))))
-    expect(second.prevId).toBe(first.id)
-    expect(Object.keys(second.tables).toSorted()).toEqual(args.includes("--schema-snapshot") ? ["notes", "threads"] : ["notes"])
+    const folders = await migrationFolders(join(rootDir, "migrations"))
+    expect(folders).toHaveLength(migrations)
+    // Kit can give two folders the same second, so follow the snapshot chain instead of the folder order.
+    const snapshots = await Promise.all(folders.map(async folder => JSON.parse(await readFile(join(rootDir, "migrations", folder, "snapshot.json"), "utf8")) as { ddl: Array<{ entityType: string, name: string }>, id: string, prevIds: string[] }))
+    const first = snapshots.find(snapshot => snapshot.prevIds.every(id => /^0+(?:-0+)*$/.test(id)))
+    const second = snapshots.find(snapshot => snapshot.prevIds.includes(first!.id))
+    expect(second).toBeDefined()
+    expect(second!.ddl.filter(entity => entity.entityType === "tables").map(entity => entity.name).toSorted()).toEqual(args.includes("--schema-snapshot") ? ["notes", "threads"] : ["notes"])
     expect(existsSync(join(rootDir, ".vitehub/database")) && (await readdir(join(rootDir, ".vitehub/database"))).some(name => name.startsWith("schema-snapshot-"))).toBe(false)
   }, 120_000)
 
@@ -234,7 +251,7 @@ describe("DB CLI contributor", () => {
 
     await expect(runRealDrizzleKit(rootDir, "generate", { path, viteRoot })).resolves.toEqual({ exitCode: 0, stderr: "" })
 
-    expect((await readdir(join(rootDir, "migrations"))).some(file => file.endsWith(".sql"))).toBe(true)
+    expect((await migrationFolders(join(rootDir, "migrations"))).length > 0).toBe(true)
     expect(existsSync(join(viteRoot, "migrations"))).toBe(false)
   })
 
@@ -295,19 +312,27 @@ describe("DB CLI contributor", () => {
   it("fails with an install hint when the project does not have drizzle-kit", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-cli-"))
     tempDirs.push(rootDir)
-    const spawn = vi.fn(async () => ({ exitCode: 0 }))
-    const stderr = { write: vi.fn() }
-    const contributor = createDbCliContributor(undefined, () => ({
-      databaseNames: ["default"],
-      generatedDrizzleConfigFile: join(rootDir, ".vitehub/database/drizzle.config.ts"),
-      rootDir,
-    }) as unknown as ResolvedDBViteConfig)!
-    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
-
-    await expect(generate.run([], { rootDir, spawn, stderr, stdout: { write: vi.fn() } } as never)).resolves.toBe(1)
-
-    expect(spawn).not.toHaveBeenCalled()
-    expect(stderr.write).toHaveBeenCalledWith(expect.stringContaining(`Cannot find drizzle-kit in the dependencies of ${rootDir}`))
+    // pnpm's test shim adds the workspace to NODE_PATH. Start a fresh resolver
+    // without that path so the empty project cannot borrow the workspace's Kit.
+    await expect(execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import { createDbCliContributor } from ${JSON.stringify(pathToFileURL(resolve(import.meta.dirname, "../src/cli.ts")).href)};
+      const rootDir = ${JSON.stringify(rootDir)};
+      const contributor = createDbCliContributor(undefined, () => ({
+        databaseNames: ["default"],
+        generatedDrizzleConfigFile: rootDir + "/.vitehub/database/drizzle.config.ts",
+        rootDir,
+      }));
+      const generate = contributor.namespaces[0].features.find(feature => feature.name === "generate");
+      process.exitCode = await generate.run([], {
+        rootDir,
+        spawn() { throw new Error("Drizzle Kit must not run in an empty project"); },
+        stderr: process.stderr,
+        stdout: process.stdout,
+      });
+    `], { env: { ...process.env, NODE_PATH: "" } })).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining(`Cannot find drizzle-kit in the dependencies of ${rootDir}`),
+    })
   })
 
   it("creates the local libSQL data directory before the first migrate", async () => {
@@ -359,9 +384,9 @@ describe("DB CLI contributor", () => {
       configFile,
     ], { cwd: rootDir })
 
-    const migration = (await readdir(outputDir)).find(file => file.endsWith(".sql"))
+    const [migration] = await migrationFolders(outputDir)
     expect(migration).toBeDefined()
-    await expect(readFile(join(outputDir, migration!), "utf8")).resolves.toContain("CREATE TABLE `notes`")
+    await expect(readFile(join(outputDir, migration!, "migration.sql"), "utf8")).resolves.toContain("CREATE TABLE `notes`")
   })
 
   it("runs Drizzle Kit once per named database config", async () => {

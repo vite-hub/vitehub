@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { BrowserSupportNotice } from "@vite-hub/ui/browser-support-notice";
-import { checkWebContainerSupport } from "@vite-hub/web-container";
-import { useClipboard, useMediaQuery } from "@vueuse/core";
+import { usePlaygroundDevice } from "@vite-hub/ui/workspace";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
 import { frameworkNodes, splitTutorialDocument } from "~/utils/runnable-tutorial";
@@ -11,7 +9,8 @@ import type { DocsPageResponse } from "@vite-hub/docs";
 import type { TutorialActions } from "~/utils/tutorial-actions";
 
 // The lesson is the docs page of the tutorial, so the prose has one source. This page adds the live workspace.
-definePageMeta({ layout: "tutorial" });
+// The docs sidebar starts as a narrow strip, so the workspace gets the width, and the reader can open it.
+definePageMeta({ layout: "docs", sidebar: "collapsed" });
 
 const route = useRoute();
 const router = useRouter();
@@ -45,21 +44,13 @@ const nodes = computed(() => [
   ...step.value === total - 1 ? lesson.outro : [],
 ]);
 
-// Only desktops boot the workspace on their own. Tablets boot it on a tap. Phones never boot it.
-// The server cannot know the viewport, so the first render matches it and CSS picks the layout until mount.
-const mounted = ref(false);
-const desktopQuery = useMediaQuery("(min-width: 64rem)");
-const tabletQuery = useMediaQuery("(min-width: 48rem)");
-const desktop = computed(() => mounted.value && desktopQuery.value);
-const tablet = computed(() => mounted.value && tabletQuery.value);
-const supported = ref<boolean>();
+// The workspace gates itself by device. The page only places it: next to the lesson on a desktop that can run it,
+// else in the lesson column. Before mount both places render, and CSS shows the one that fits the width.
+const { device, supported } = usePlaygroundDevice();
 const opened = ref(false);
-onMounted(() => {
-  mounted.value = true;
-  supported.value = checkWebContainerSupport().supported;
-});
-const workspaceShown = computed(() => mounted.value && supported.value === true && (desktop.value || (tablet.value && opened.value)));
-const unsupported = computed(() => supported.value === false && tablet.value);
+const side = computed(() => device.value === "pending" || (device.value === "desktop" && supported.value === true));
+const inline = computed(() => device.value !== "desktop" || supported.value === false);
+const twoColumns = computed(() => device.value === "desktop" && supported.value === true);
 
 const selected = ref(Object.keys(tutorial.steps[step.value]?.files ?? {})[0] ?? "vite.config.ts");
 watch(step, (index) => {
@@ -76,7 +67,7 @@ const actions = reactive<TutorialActions>({
 });
 // On a tablet, "Show in editor" opens the workspace first.
 const lessonActions = reactive({
-  available: computed(() => actions.available || (supported.value === true && tablet.value)),
+  available: computed(() => actions.available || (supported.value === true && device.value === "tablet")),
   running: computed(() => actions.running),
   // Every file of the app in any step, so a block can open a file that its step creates.
   paths: [...new Set([...Object.keys(tutorial.files), ...tutorial.steps.flatMap(item => Object.keys(item.files))])],
@@ -124,14 +115,12 @@ function key(event: KeyboardEvent) {
   event.preventDefault();
 }
 
-const { copy, copied } = useClipboard({ copiedDuring: 1500 });
-const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 </script>
 
 <template>
   <div
     class="vh-run"
-    :class="{ 'has-workspace': workspaceShown && desktop, 'is-unsupported': supported === false }"
+    :class="{ 'has-workspace': twoColumns, 'is-unsupported': supported === false }"
     :style="{ '--vh-run-lesson': `${split}%` }"
   >
     <div ref="lessonColumn" class="vh-run-lesson">
@@ -140,8 +129,8 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
           <span class="text-muted">Step {{ step + 1 }} of {{ total }} · </span>
           <span class="font-medium text-highlighted">{{ tutorial.steps[step]?.title }}</span>
         </p>
-        <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
-        <UButton v-if="step < total - 1" size="sm" color="neutral" trailing-icon="i-lucide-arrow-right" label="Next" @click="step = step + 1" />
+        <UButton variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
+        <UButton v-if="step < total - 1" trailing-icon="i-lucide-arrow-right" label="Next" @click="step = step + 1" />
       </header>
 
       <div class="vh-run-prose">
@@ -152,24 +141,8 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         </p>
         <h1 v-if="step === 0" class="mt-4 text-balance text-3xl font-semibold text-highlighted">{{ tutorial.title }}</h1>
 
-        <BrowserSupportNotice v-if="unsupported" class="mt-6" :supported="false" />
-
-        <aside class="vh-run-mobile" aria-labelledby="vh-run-mobile-title">
-          <p id="vh-run-mobile-title" class="text-sm text-highlighted">This tutorial has a live workspace. Open it on a desktop to edit and run the code.</p>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <UButton size="sm" color="neutral" variant="outline" :icon="copied ? 'i-lucide-check' : 'i-lucide-link'" :label="copied ? 'Copied' : 'Copy link'" @click="copy(`${site.url}${route.fullPath}`)" />
-            <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-download" label="Download starter" :to="starter" external download />
-          </div>
-        </aside>
-
-        <div v-if="!desktop && supported !== false" class="vh-run-tablet">
-          <div v-if="workspaceShown" class="vh-run-tablet-workspace">
-            <TutorialWorkspace v-model:selected="selected" :tutorial="tutorial" :step="step" :actions="actions" />
-          </div>
-          <div v-else class="vh-run-open">
-            <p class="text-sm text-muted">Edit and run the code of each step in your browser.{{ tutorial.snapshot ? "" : " The first start installs the app, which takes a few minutes." }}</p>
-            <UButton class="mt-3" color="neutral" icon="i-lucide-play" label="Open workspace" @click="opened = true" />
-          </div>
+        <div v-if="inline" class="vh-run-inline" :class="{ 'is-open': opened }">
+          <TutorialWorkspace v-model:open="opened" v-model:selected="selected" :tutorial="tutorial" :step="step" :actions="actions" />
         </div>
 
         <!-- One step shows at a time, so its heading counts on from the steps before it. -->
@@ -178,15 +151,16 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         </UPageBody>
 
         <nav class="vh-run-footer" aria-label="Steps">
-          <UButton color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
-          <UButton v-if="step < total - 1" color="neutral" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
-          <UButton v-else color="neutral" variant="outline" to="/learn" label="Back to Learn" />
+          <UButton variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
+          <UButton v-if="step < total - 1" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
+          <UButton v-else variant="outline" to="/learn" label="Back to Learn" />
         </nav>
       </div>
     </div>
 
-    <template v-if="workspaceShown && desktop">
+    <template v-if="side">
       <div
+        v-if="twoColumns"
         class="vh-run-divider"
         role="separator"
         aria-label="Resize lesson"
@@ -202,11 +176,6 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         <TutorialWorkspace v-model:selected="selected" :tutorial="tutorial" :step="step" :actions="actions" />
       </div>
     </template>
-    <!-- Before mount the page cannot know if the browser runs the workspace, so the space shows the first boot step. -->
-    <div v-else-if="supported === undefined" class="vh-run-placeholder">
-      <div class="vh-run-placeholder-bar" />
-      <p class="text-sm text-muted">Starting the workspace</p>
-    </div>
   </div>
 </template>
 
@@ -251,41 +220,19 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
   padding-top: 1.5rem;
 }
 
-/* Phones: prose only, and a quiet card that points to a desktop. */
-.vh-run-mobile {
+/* Tablets: the workspace opens in the lesson column. */
+.vh-run-inline.is-open {
+  height: 75dvh;
   margin-top: 1.5rem;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
-  padding: 1rem;
+  overflow: hidden;
 }
 
-.vh-run-tablet,
-.vh-run-placeholder {
-  display: none;
-}
-
-@media (min-width: 48rem) {
-  .vh-run-mobile {
-    display: none;
-  }
-
-  .vh-run-tablet {
-    display: block;
-    margin-top: 1.5rem;
-  }
-
-  .vh-run-open {
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    padding: 1rem;
-  }
-
-  .vh-run-tablet-workspace {
-    height: 75dvh;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    overflow: hidden;
-  }
+/* The column beside the lesson shows from desktop widths on. Before mount, the lesson column holds no placeholder. */
+.vh-run-workspace,
+.vh-run-inline :deep(.vh-pc-placeholder) {
+  display: none !important;
 }
 
 /* Desktops: the lesson and the workspace side by side, each as tall as the viewport under the header. */
@@ -310,35 +257,16 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
     flex-basis: 100%;
   }
 
-  /* Desktops boot the workspace on their own, so they never show the tablet card. */
-  .vh-run-tablet {
-    display: none;
-  }
-
-  .vh-run-placeholder {
-    display: flex;
+  .vh-run-workspace {
+    display: flex !important;
     flex: 1 1 0;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    border-left: 1px solid var(--ui-border);
-  }
-
-  .vh-run-placeholder-bar {
-    align-self: stretch;
-    height: 2.75rem;
-    margin-top: 0;
-    margin-bottom: auto;
-    border-bottom: 1px solid var(--ui-border);
-  }
-
-  .vh-run-placeholder p {
-    margin-bottom: auto;
-  }
-
-  .vh-run-workspace {
-    flex: 1 1 0;
     min-width: 0;
+  }
+
+  /* Before mount the workspace column has no divider, so its edge draws the line. */
+  .vh-run:not(.has-workspace) .vh-run-workspace {
+    border-left: 1px solid var(--ui-border);
   }
 }
 
@@ -361,10 +289,5 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 
 .vh-run-divider:hover {
   background: var(--ui-border-accented);
-}
-
-.vh-run-divider:focus-visible {
-  background: var(--ui-primary);
-  outline: none;
 }
 </style>

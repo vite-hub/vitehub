@@ -1,9 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { zipFiles } from "@vite-hub/ui/playground";
 import { webContainerHeaders } from "@vite-hub/web-container/vite";
 import { addTemplate, addTypeTemplate, defineNuxtModule } from "nuxt/kit";
-import { buildRunnableTutorial, readWorkspaceVersions, tutorialStepFiles } from "./build";
+import { buildRunnableTutorial, readWorkspaceVersions } from "./build";
 import { runnableTutorials } from "./list";
 import { readLearnFacts } from "./learn";
 import { buildPlaygroundTemplates, snapshotSources } from "./playground";
@@ -27,7 +26,6 @@ interface NitroConfig {
  * At build time this module reads each lesson and its fixture, and writes:
  * - `#build/runnable-tutorials.mjs`: the files before step 1 and the files that each step writes.
  * - `#build/playground-templates.mjs`: the files of each playground template, read from its fixture.
- * - `/_tutorials/<slug>-starter.zip`: the files at the start of step 1, for readers who cannot run the workspace.
  * - `/_tutorials/snapshots/<slug>.<hash>.<part>.bin`: the `node_modules` of the workspace, so the browser skips
  *   `npm install`. A playground template with the dependencies of a tutorial mounts the snapshot of that tutorial.
  *   `nuxt build` writes them, pinned by `locks/<slug>.package-lock.json`. `nuxt dev` reuses the last ones while
@@ -66,9 +64,6 @@ export default defineNuxtModule({
     // Not in buildDir: Nuxt empties it after modules set up, before Nitro copies public assets.
     const assetsDir = resolve(nuxt.options.rootDir, "node_modules/.cache/runnable-tutorials");
     await mkdir(assetsDir, { recursive: true });
-    for (const tutorial of tutorials) {
-      await writeFile(resolve(assetsDir, `${tutorial.slug}-starter.zip`), zipFiles(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
-    }
 
     const locksDir = resolve(import.meta.dirname, "locks");
     const sources = snapshotSources(runnableTutorials, templates);

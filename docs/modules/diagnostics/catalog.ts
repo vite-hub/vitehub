@@ -30,6 +30,13 @@ export interface DiagnosticSite {
   message: string | null
 }
 
+/** One `codes` object of a catalog call, with its codes in source order. */
+export interface DiagnosticCatalog {
+  /** Catalog file, relative to the repository root. */
+  file: string
+  codes: DiagnosticCode[]
+}
+
 const catalogCalls = new Set(["defineErrors", "defineDiagnostics", "defineProdDiagnostics"])
 const codePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
 const declaresCatalog = /define(?:Errors|Diagnostics|ProdDiagnostics)\(/
@@ -37,18 +44,10 @@ const mayHoldDiagnostics = /define(?:Errors|Diagnostics|ProdDiagnostics)\(|[.["'
 
 /** Every code of every catalog under `packages/*\/src`, with its call sites. */
 export function readDiagnosticCodes(root: string): DiagnosticCode[] {
-  const files = packageSources(root)
+  const { sources, catalogs } = readCatalogs(root)
   const codes = new Map<string, DiagnosticCode>()
-  // Most files neither define a catalog nor raise a code. Parse only those that can.
-  const texts = files
-    .map(file => ({ file, text: readFileSync(file, "utf8") }))
-    .filter(({ text }) => mayHoldDiagnostics.test(text))
-  // A code prefix names its owner only when that package declares a catalog, so a package such as the Console app
-  // does not take the `CONSOLE_*` codes of vite-hub.
-  const packages = new Set(texts.filter(({ text }) => declaresCatalog.test(text)).map(({ file }) => relative(join(root, "packages"), file).split(/[\\/]/)[0]!))
-  const sources = texts.map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
-  for (const { file, source } of sources) {
-    for (const code of catalogCodes(root, file, source, packages)) {
+  for (const catalog of catalogs) {
+    for (const code of catalog.codes) {
       const existing = codes.get(code.code)
       // A package can declare another package's code again, such as CMS for Content. The catalog of the package that
       // the code prefix names wins, and keeps the other's text where its own has none.
@@ -76,12 +75,30 @@ export function readDiagnosticCodes(root: string): DiagnosticCode[] {
   return [...codes.values()].sort((left, right) => left.code.localeCompare(right.code))
 }
 
+/** Every catalog under `packages/*\/src`, without call sites. A code that two catalogs declare is in both. */
+export function readDiagnosticCatalogs(root: string): DiagnosticCatalog[] {
+  return readCatalogs(root).catalogs
+}
+
+function readCatalogs(root: string): { sources: { file: string, source: ts.SourceFile }[], catalogs: DiagnosticCatalog[] } {
+  // Most files neither define a catalog nor raise a code. Parse only those that can.
+  const texts = packageSources(root)
+    .map(file => ({ file, text: readFileSync(file, "utf8") }))
+    .filter(({ text }) => mayHoldDiagnostics.test(text))
+  // A code prefix names its owner only when that package declares a catalog, so a package such as the Console app
+  // does not take the `CONSOLE_*` codes of vite-hub.
+  const packages = new Set(texts.filter(({ text }) => declaresCatalog.test(text)).map(({ file }) => relative(join(root, "packages"), file).split(/[\\/]/)[0]!))
+  const sources = texts.map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
+  return { sources, catalogs: sources.flatMap(({ file, source }) => fileCatalogs(root, file, source, packages)) }
+}
+
 function owns(code: DiagnosticCode): boolean {
   return code.file.startsWith(`packages/${code.pkg}/`)
 }
 
-/** The package that the code prefix names, such as `rate-limit` for `RATE_LIMIT_C0001`. The longest prefix wins. */
+/** Numbered diagnostics name their owner package; named runtime errors belong to their declaring catalog. */
 function ownerPackage(code: string, packages: ReadonlySet<string>): string | null {
+  if (!/_[A-Z]\d{4}$/.test(code)) return null
   const parts = code.toLowerCase().split("_").slice(0, -1)
   for (let length = parts.length; length > 0; length--) {
     const name = parts.slice(0, length).join("-")
@@ -90,10 +107,29 @@ function ownerPackage(code: string, packages: ReadonlySet<string>): string | nul
   return null
 }
 
-function helperFix(value: ts.Expression): string | null {
-  if (!ts.isCallExpression(value) || value.arguments.length !== 1) return null
-  const [argument] = value.arguments
+/**
+ * The text that a catalog helper call passes as its `why` or `fix` parameter, such as `guidance("Retry.")` or
+ * `code(why, fix, docs, action)`. The helper must be a function of the same file. Only literal arguments count.
+ */
+function helperText(value: ts.Expression, key: "why" | "fix"): string | null {
+  if (!ts.isCallExpression(value) || !ts.isIdentifier(value.expression)) return null
+  const index = helperParameters(value.expression)?.findIndex(parameter => ts.isIdentifier(parameter.name) && parameter.name.text === key) ?? -1
+  const argument = index < 0 ? undefined : value.arguments[index]
   return argument && (ts.isStringLiteralLike(argument) || ts.isTemplateExpression(argument)) ? templateText(argument) : null
+}
+
+/** The parameters of a same-file function declaration or of a variable that holds an arrow or function expression. */
+function helperParameters(name: ts.Identifier): ts.NodeArray<ts.ParameterDeclaration> | null {
+  for (let scope = name.parent; scope; scope = scope.parent) {
+    if (!ts.isSourceFile(scope) && !ts.isBlock(scope)) continue
+    for (const statement of scope.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name?.text === name.text) return statement.parameters
+      if (!ts.isVariableStatement(statement)) continue
+      const initializer = statement.declarationList.declarations.find(candidate => ts.isIdentifier(candidate.name) && candidate.name.text === name.text)?.initializer
+      if (initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))) return initializer.parameters
+    }
+  }
+  return null
 }
 
 function packageSources(root: string): string[] {
@@ -114,8 +150,8 @@ function packageSources(root: string): string[] {
     .sort()
 }
 
-function catalogCodes(root: string, file: string, source: ts.SourceFile, packages: ReadonlySet<string>): DiagnosticCode[] {
-  const found: DiagnosticCode[] = []
+function fileCatalogs(root: string, file: string, source: ts.SourceFile, packages: ReadonlySet<string>): DiagnosticCatalog[] {
+  const catalogs: DiagnosticCatalog[] = []
   const declaring = relative(join(root, "packages"), file).split(/[\\/]/)[0]!
   visit(source, (node) => {
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || !catalogCalls.has(node.expression.text)) return
@@ -129,6 +165,7 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
     const codesProperty = options.properties.find(property => propertyName(property) === "codes")
     const codes = objectValue(propertyValue(codesProperty))
     if (!codes) throw new Error(`Cannot read diagnostic codes in ${relative(root, file)}:${lineOf(source, node)}. Use a same-file object literal.`)
+    const found: DiagnosticCode[] = []
     let group: string | null = null
     for (const property of codes.properties) {
       const code = propertyName(property)
@@ -140,17 +177,17 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
         pkg: ownerPackage(code, packages) ?? declaring,
         file: relative(root, file),
         line: lineOf(source, property),
-        why: definition ? textOf(definition, "why") : null,
-        // `guidance("Retry.")` passes the fix to a helper.
-        fix: definition ? textOf(definition, "fix") : helperFix(property.initializer),
+        why: definition ? textOf(definition, "why") : helperText(property.initializer, "why"),
+        fix: definition ? textOf(definition, "fix") : helperText(property.initializer, "fix"),
         group,
         docsBase,
         docs: definition ? stringValue(source, definition.properties.find(property => propertyName(property) === "docs")) : null,
         sites: [],
       })
     }
+    catalogs.push({ file: relative(root, file), codes: found })
   })
-  return found
+  return catalogs
 }
 
 /** Resolve literal objects and same-file variable references in their enclosing block or source file. */

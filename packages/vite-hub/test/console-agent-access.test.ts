@@ -24,8 +24,8 @@ describe("Agent operation authorization", () => {
     }
   })
 
-  it.each([null, { id: "agent-user" }])("denies discovery and execution under a token-only policy, with user %j", async (user) => {
-    const authorize = vi.fn((context: ConsoleAuthorizeContext) => context.via === "token" ? { sections: ["kv"] } : false)
+  it.each([null, { id: "agent-user" }])("denies discovery and execution under a signature-only policy, with user %j", async (user) => {
+    const authorize = vi.fn((context: ConsoleAuthorizeContext) => context.via === "console" || context.via === "cli" ? { sections: ["kv"] } : false)
     installConsoleAccess({ authorize, mode: "token" })
 
     await expect(installedOperationSectionResolver()?.({ user })).resolves.toEqual([])

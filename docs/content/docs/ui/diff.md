@@ -3,7 +3,7 @@ title: Diff
 description: "Render unified patches, file comparisons, parsed diffs, and merge conflicts with Pierre."
 navigation.order: 37
 navigation.group: Agent work
-icon: i-ph-file-code-light
+icon: i-lucide-file-code
 ---
 
 The diff components wrap Pierre's `@pierre/diffs` views for Vue. Use them to review the changes an Agent made. Pierre parses, highlights, selects, and renders. The look follows your Nuxt UI theme.
@@ -13,7 +13,7 @@ The diff components wrap Pierre's `@pierre/diffs` views for Vue. Use them to rev
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/patch-diff`, `@vite-hub/ui/multi-file-diff`, `@vite-hub/ui/file-diff`, and `@vite-hub/ui/unresolved-file`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { FileDiff, MultiFileDiff, PatchDiff, UnresolvedFile } from "@vite-hub/ui";
@@ -48,7 +48,7 @@ Pick the component that matches your input:
 - The theme follows Nuxt UI backgrounds, borders, radius, typography, and semantic colors.
 - Syntax highlighting loads only when a code view first renders.
 - Split and unified layouts with `options.diffStyle`.
-- `selectedLines` highlights a range from app state.
+- `selectedLines` highlights a range from app state, and `scrollToSelectedLines` scrolls to it.
 
 ## Compare Two Files
 
@@ -110,6 +110,7 @@ Renders one file from a unified patch.
 | `options`         | `FileDiffOptions`                    |          | Layout, themes, headers, interactions, hydration. |
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Your line content. |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | Selected line range. Controlled when set. |
+| `scrollToSelectedLines` | `boolean`                      | `false`  | Scrolls to `selectedLines` for each new diff or range. |
 
 ### MultiFileDiff
 
@@ -124,6 +125,7 @@ Renders the diff between two versions of one file.
 | `options`         | `FileDiffOptions`                    |          | Layout, themes, headers, interactions, hydration. |
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Your line content. |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | Selected line range. Controlled when set. |
+| `scrollToSelectedLines` | `boolean`                      | `false`  | Scrolls to `selectedLines` for each new diff or range. |
 
 ### FileDiff
 
@@ -137,6 +139,7 @@ Renders one file from parsed diff metadata.
 | `options`         | `FileDiffOptions`                    |          | Layout, themes, headers, interactions, hydration. |
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Your line content. |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | Selected line range. Controlled when set. |
+| `scrollToSelectedLines` | `boolean`                      | `false`  | Scrolls to `selectedLines` for each new diff or range. |
 
 ### UnresolvedFile
 
@@ -150,6 +153,7 @@ Renders merge conflict markers with resolution controls.
 | `options`         | `UnresolvedFileOptions`              |          | Pierre options for the conflict view.          |
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Your line content. |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | Selected line range. Controlled when set. |
+| `scrollToSelectedLines` | `boolean`                      | `false`  | Scrolls to `selectedLines` for each new diff or range. |
 
 ## Related
 

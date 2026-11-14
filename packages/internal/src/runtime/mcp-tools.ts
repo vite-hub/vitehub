@@ -1,7 +1,24 @@
+/**
+ * The JSON Schema of one argument. A tool lists only these keywords, plus
+ * `description` and `title` for the Agent.
+ */
+export type ViteHubMcpValueSchema = {
+  description?: string
+  title?: string
+  enum?: ReadonlyArray<string | number | boolean | null>
+} & (
+  | { type?: never }
+  | { type: "boolean" }
+  | { type: "integer" | "number", minimum?: number, maximum?: number }
+  | { type: "string", minLength?: number, maxLength?: number }
+  | { type: "array", items?: ViteHubMcpValueSchema }
+  | { type: "object", properties?: Record<string, ViteHubMcpValueSchema>, required?: string[], additionalProperties?: boolean }
+)
+
 /** A JSON Schema object for the arguments of a tool. */
 export interface ViteHubMcpInputSchema {
   type: "object"
-  properties: Record<string, Record<string, unknown>>
+  properties: Record<string, ViteHubMcpValueSchema>
   required?: string[]
   additionalProperties?: boolean
 }
@@ -22,8 +39,8 @@ export interface ViteHubMcpToolContext {
 }
 
 /**
- * One tool of the ViteHub MCP server at `/_vitehub/mcp`. An owner package registers its tools when the server starts.
- * The server lists and runs a tool only for a person whose Console access includes the tool's `section`.
+ * One tool for an app's own MCP server, such as a Comments tool of `commentsMcpTools()`. ViteHub MCP offers operations
+ * instead. The server lists and runs a tool only for a person whose Console access includes the tool's `section`.
  */
 export interface ViteHubMcpTool {
   /** Snake case and prefixed with the owner, such as `comments_list_threads`. */
@@ -36,19 +53,4 @@ export interface ViteHubMcpTool {
   /** The Console section whose access the tool needs, such as `comments`. */
   section: string
   call(input: Record<string, unknown>, context: ViteHubMcpToolContext): Promise<ViteHubMcpToolResult>
-}
-
-const registryKey: unique symbol = Symbol.for("vitehub.mcp.tools")
-// SAFETY: This module owns the process slot that separately bundled owner plugins and the MCP route share.
-const scope = globalThis as typeof globalThis & { [registryKey]?: Map<string, readonly ViteHubMcpTool[]> }
-
-/** Registers the tools of one owner, such as `comments`. A second call replaces them, as in development reloads. */
-export function registerViteHubMcpTools(owner: string, tools: readonly ViteHubMcpTool[]): void {
-  const registry = scope[registryKey] ??= new Map()
-  registry.set(owner, tools)
-}
-
-/** Every registered tool, in owner registration order. */
-export function getViteHubMcpTools(): ViteHubMcpTool[] {
-  return [...scope[registryKey]?.values() ?? []].flat()
 }

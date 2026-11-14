@@ -12,7 +12,7 @@ The `cms` preset works without options. Pass a tuple to pick another Database, B
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, { database: 'content', blob: 'media', workspace: 'site' }],
   collections: { posts },
 })
@@ -39,7 +39,7 @@ The preset sets `workspace` in `defineContent()`, so do not pass `workspace` nex
 
 ## Turn the features on
 
-`vitehub()` needs no settings for the preset. When `server/content.ts` uses it, `vitehub()` turns on `workspace`, `database`, and `blob` if you left them unset. The GitHub store needs no Blob.
+ViteHub needs no settings for the preset. When `server/content.ts` uses it, ViteHub turns on `workspace`, `database`, and `blob` if you left them unset. The GitHub store needs no Blob.
 
 A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `workspace: false` keeps Workspace off and fails the build with [`CONTENT_B0002`](/docs/cms/limits-and-errors#errors).
 
@@ -48,9 +48,9 @@ A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `wo
 | Piece | Value | Inspect it |
 | --- | --- | --- |
 | Workspace | `content`, on the [Blob + Database Store](/docs/workspace/configure#blob-database-store) with workspace identity `content` | `vitehub inspect definitions` and the Console Workspaces section list it as added by `@vite-hub/cms/vite`. The generated module is `.vitehub/content/workspace.mjs`. |
-| Database | Only when the app has no Database Definition: the implicit `default` Database. Its migrations go to `server/databases/migrations/`, where `server/databases/config.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Definition: Implicit` and names `@vite-hub/cms/vite` as a plugin that needs it. |
+| Database | Only when the app has no Database Definition: the implicit `default` Database. Its migrations go to `server/databases/default/migrations/`, where `server/databases/default.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Definition: Implicit` and names `@vite-hub/cms/vite` as a plugin that needs it. |
 | Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the `default` Database or the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
-| Features | `workspace`, `database`, and `blob`, when `vitehub()` leaves them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
+| Features | `workspace`, `database`, and `blob`, when the ViteHub options leave them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files live under `vitehub/workspace-history/` in that store. |
 | `defineContent()` | `workspace: 'content'`. With `access: 'roles'`, also the CMS roles as `authorize` when the app sets none | `content.collection(name)` reads and writes that Workspace. `vitehub inspect definitions --kind cms` shows what decides access. |
 
@@ -63,15 +63,15 @@ Turn on CMS roles with `extends: [cms, { access: 'roles' }]`. Install the Better
 The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) check access through `content.can()`. To use your own policy instead, set `authorize` in `defineContent()`:
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   extends: cms,
   collections: { posts },
-  // Editors do everything. Other signed-in users read drafts.
-  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
+  // Everyone reads /api/content/**. Editors do everything. Other signed-in users read drafts.
+  authorize: ({ user, action }) => action === 'read' || user?.role === 'editor' || (action === 'read-draft' && Boolean(user)),
 })
 ```
 
-`action` is `read` for drafts, `write` for save, remove, and restore, or `publish`. Published documents stay public through `/api/content/**`.
+`action` is `read` for a request to `/api/content/**`, `read-draft` for drafts, `write` for save, remove, and restore, or `publish`. With a policy, `/api/content/**` serves only the requests that it allows for `read`. The CMS roles allow `read` only to users with a role, so a site whose visitors read `/api/content/**` sets `access: 'public'`. The roles still decide `read-draft`, `write`, and `publish`.
 
 - [Access](/docs/content/configure#access) lists every field that `authorize` gets, and shows how to give Agents less access than their user.
 - [Give editors only the Content section](/docs/content/console#give-editors-only-the-content-section) keeps editors out of other Console sections.
@@ -86,7 +86,7 @@ import { cms } from 'vite-hub/cms'
 import { defineContent } from 'vite-hub/content'
 import { documents } from 'vite-hub/content/collections'
 
-export const content = defineContent({
+export default defineContent({
   extends: [cms, {
     repo: 'onmax/docs',
     branch: 'main',
@@ -100,7 +100,7 @@ export const content = defineContent({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time.
+Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time. To keep the store off your personal rate limit, use a GitHub App instead: set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` ([GitHub Store](/docs/workspace/configure#github-store)).
 
 - `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with the GitHub store. `blob` does not.
 - Set `store: 'github'` without `repo` only when the repository comes from `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`.
@@ -118,6 +118,12 @@ Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. Vi
 | Schedules | Not supported. |
 
 The preset adds `contentSessionsSchema` to the Database, but not `workspaceHistorySchema`. It needs Workspace and Database, and no Blob. ViteHub generates the Content Workspace with the `github` store, `refs: { published: branch, draft: draftBranch }`, and your Database.
+
+### Reads on serverless hosts
+
+A Content read asks GitHub only for what changed. Branch heads are revalidated with their ETag, and GitHub does not count a `304 Not Modified` against the rate limit. Answers for a commit sha never change, so with [KV](/docs/kv) enabled they stay in KV for 7 days, and a new server instance, such as a new Cloudflare Worker isolate, reads them there ([GitHub Store](/docs/workspace/configure#github-store)). When Content needs many documents of one commit, for example to count issues, it reads one archive of the commit. `updatedAt` walks the branch history only for the documents that a read returns.
+
+On a Worker that just started, with KV, the Console overview of a repository with 413 documents and 450 commits sends 3 GitHub requests. Without KV, it sends 19. Enable KV on Cloudflare Workers and other hosts that start new server instances often.
 
 ### Commit mode
 
@@ -140,9 +146,9 @@ With `publish: 'pr'`, `content.publish()` does not touch `branch`. It checks the
 
 1. creates `vitehub/publish/<draft7>-<timestamp>-<uuid>` from the head of `branch` (`<draft7>` is the first 7 characters of the draft revision), and commits the changes there;
 2. opens a pull request from that branch into `branch`;
-3. returns `{ revision, documents, pullRequest: { number, url }, pending: true }`. `revision` is the commit on the publish branch.
+3. returns `{ revision, documents, pullRequest: { number, url }, pending: true }`. `revision` is the commit on the publish branch. With [`previews: true`](/docs/content/preview#branch-commit-and-pull-request-previews) and a `github()` Source of the same repository, it also returns `previews: [{ collection, id, url, expiresAt }]`: a `/pr/<number>/<url>` link for each document with a `url`. Publish branches are private, so each link has a signed token that works for one hour.
 
-`onPublish` listeners and Comark source refreshes run when `branch` changes, so not for a pending publish. Until the pull request merges, `status()` keeps the document state (`draft` or `changed`) and adds `pullRequest: { number, url }`. When `branch` has the bytes of the publish branch, the document is `published` and the link goes away. A pull request closed without a merge shows nothing, and the draft keeps the change. The Console shows the link in the publish message, and `vitehub content publish` prints it.
+`onPublish` listeners and Comark source refreshes run when `branch` changes, so not for a pending publish. Until the pull request merges, `status()` keeps the document state (`draft` or `changed`) and adds `pullRequest: { number, url }`. When `branch` has the bytes of the publish branch, the document is `published` and the link goes away. A pull request closed without a merge shows nothing, and the draft keeps the change. The Console shows the link in the publish message, or "Open preview" when it has a preview link that it can open, and `vitehub content publish` prints both.
 
 It is a normal pull request: review it, wait for checks, and merge it any way. Merge commits, squashes, and rebases all work. If the draft changed since, it keeps its newer text. The token needs permission to create branches and pull requests.
 
@@ -152,9 +158,9 @@ It is a normal pull request: review it, wait for checks, and merge it any way. M
 
 ## Take over the Database
 
-To set the Database yourself, for example its connection URL or Cloudflare D1 options, add `server/databases/config.ts`. The preset's tables then go to your Definition instead of the implicit `default` Database. It keeps `server/databases/migrations/`, so existing migrations still apply.
+To set the Database yourself, for example its connection URL or Cloudflare D1 options, add `server/databases/default.ts`. The preset's tables then go to your Definition instead of the implicit `default` Database. It keeps `server/databases/default/migrations/`, so existing migrations still apply.
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ schema: {} })
@@ -186,7 +192,7 @@ With the earlier setup, the app has a Database Definition that lists `workspaceH
 
 1. Remove `workspaceHistorySchema` and `contentSessionsSchema` from the Database Definition. The preset adds them, and listing them twice fails with `DATABASE_DUPLICATE_TABLE`.
 
-   ```ts [server/databases/content/config.ts]
+   ```ts [server/databases/content/index.ts]
    import { defineDatabase } from 'vite-hub/database'
 
    export default defineDatabase({ name: 'content', schema: {} })
@@ -196,7 +202,7 @@ With the earlier setup, the app has a Database Definition that lists `workspaceH
 3. Use the preset with the old names. `workspace` must equal the old `createBlobDatabaseWorkspaceStore({ workspace })` identity, because the identity picks the stored history.
 
    ```ts [server/content.ts] fragment
-   export const content = defineContent({
+   export default defineContent({
      extends: [cms, { database: 'content', blob: 'content', workspace: 'site' }],
      collections: { posts },
    })

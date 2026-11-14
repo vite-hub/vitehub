@@ -68,7 +68,7 @@ Select Cloudflare Artifacts when a deployed Worker must keep Workspace state:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     workspace: {
       store: {
         provider: 'cloudflare-artifacts',
@@ -90,7 +90,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -113,7 +113,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -128,7 +128,7 @@ export default defineConfig({
 :::
 ::
 
-The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
+The Vite integration adds Artifacts Stores for the module and each definition to the generated Cloudflare config. It reads the `store` of a definition when it loads the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`. Then set the store in the `workspace` config. When the provider changes, it removes only bindings that Workspace generated. One binding name for two namespaces fails the build. Each named Workspace uses the repository `<repoPrefix><encoded-workspace-name>` unless `repo` selects one, so names with unsafe characters stay isolated.
 
 `workspace.snapshot()` commits and pushes the current file tree. The snapshot id is the pushed Git commit SHA. File metadata lives in the repository with the tree, so Source write protection and media types survive a new Worker instance.
 

@@ -1,6 +1,6 @@
-import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/vue/collapsible";
 import { defineComponent, h, type PropType } from "vue";
-import { slotPart } from "../internal/slot-part.ts";
+import { kitSlot, slotPart } from "../internal/slot-part.ts";
 
 export type TraceLineStatus = "running" | "error" | "pending";
 
@@ -31,14 +31,13 @@ export const TraceCollapsible = defineComponent({
   setup(props, { emit, slots }) {
     return () =>
       h(
-        CollapsibleRoot,
+        Collapsible,
         {
-          "data-slot": "trace-collapsible",
-          defaultOpen: props.defaultOpen,
-          open: props.open,
+          // The kit takes `open` or `defaultOpen`, not both.
+          ...(props.open === undefined ? { defaultOpen: props.defaultOpen } : { open: props.open }),
           "onUpdate:open": (open: boolean) => emit("update:open", open),
         },
-        { default: () => slots.default?.() },
+        { render: kitSlot("div", "trace-collapsible"), default: () => slots.default?.() },
       );
   },
 });
@@ -54,7 +53,8 @@ export const TraceCollapsibleTrigger = defineComponent({
   name: "TraceCollapsibleTrigger",
   setup(_props, { slots }) {
     return () =>
-      h(CollapsibleTrigger, { "data-slot": "trace-collapsible-trigger" }, {
+      h(CollapsibleTrigger, null, {
+        render: kitSlot("button", "trace-collapsible-trigger"),
         default: () => [slots.default?.(), chevron()],
       });
   },
@@ -66,7 +66,8 @@ export const TraceCollapsibleContent = defineComponent({
   inheritAttrs: false,
   setup(_props, { attrs, slots }) {
     return () =>
-      h(CollapsibleContent, { "data-slot": "trace-collapsible-content" }, {
+      h(CollapsiblePanel, null, {
+        render: kitSlot("div", "trace-collapsible-content"),
         default: () => h("div", { ...attrs, "data-slot": "trace-collapsible-content-inner" }, slots.default?.()),
       });
   },

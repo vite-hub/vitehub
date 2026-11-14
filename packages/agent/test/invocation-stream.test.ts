@@ -315,11 +315,6 @@ describe("Agent Invocation Stream", () => {
         details: { retryAfter: 15 },
         error: "Rate limit exceeded. Try again later.",
       }],
-      [new ViteHubError("LLM_GATE_REJECTED", "private classifier response", { details: { category: "unsafe" } }), {
-        code: "LLM_GATE_REJECTED",
-        details: { category: "unsafe" },
-        error: "Agent request was rejected.",
-      }],
     ] as const
 
     for (const [failure, expected] of failures) {

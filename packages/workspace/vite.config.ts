@@ -1,9 +1,9 @@
 import { defineConfig } from "vite-plus";
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
@@ -21,6 +21,7 @@ export default defineConfig({
       "src/blob-database.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
+      "src/durability.ts",
       "src/files.ts",
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",
@@ -74,10 +75,5 @@ export default defineConfig({
       },
       inlinedDependencies: false,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
   },
 });

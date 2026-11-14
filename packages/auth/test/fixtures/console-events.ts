@@ -1,24 +1,32 @@
 import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins";
+import type { SecondaryStorage } from "better-auth";
 import { defineAuth, createDatabaseAuthEventStore } from "../../src/index.ts";
-import { createBetterAuthOptions, getAuthForDefinition } from "../../src/server.ts";
+import { createBetterAuthOptions, getAuthForDefinition } from "../../src/internal/server.ts";
 import { createAuthConsole } from "../../src/console-runtime.ts";
 import { eventDatabase } from "../event-helpers.ts";
+import { defineFixedAuth } from "../fixed-auth.ts"
+
+type AuthDefinitionPlugins = NonNullable<Parameters<typeof defineAuth>[0]>["plugins"];
 
 /** A local Better Auth provider and durable SQLite event reader. No external service is used. */
-export async function consoleEventsFixture() {
+export async function consoleEventsFixture(options: {
+  plugins?: AuthDefinitionPlugins
+  secondaryStorage?: SecondaryStorage
+  /** The role of the operator account. `admin` by default. */
+  operatorRole?: string
+} = {}) {
   const database = eventDatabase();
   const store = createDatabaseAuthEventStore({ db: database.db });
   const origin = "http://localhost:5173";
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
-    plugins: [admin()],
+    plugins: options.plugins ?? [admin()],
     events: { store },
-    runtime: {
-      database: database.sqlite,
-      secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
-      baseURL: origin,
-    },
+    database: database.sqlite,
+    ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
+    secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
+    baseURL: origin,
   });
   try {
     await (await getMigrations(createBetterAuthOptions(definition))).runMigrations();
@@ -55,7 +63,7 @@ export async function consoleEventsFixture() {
       };
     };
     const operator = await signup("Operator", "operator@example.com");
-    database.sqlite.prepare("UPDATE user SET role = 'admin' WHERE id = ?").run(operator.id);
+    database.sqlite.prepare("UPDATE user SET role = ? WHERE id = ?").run(options.operatorRole ?? "admin", operator.id);
     const member = await signup("Ada Lovelace", "ada@example.com");
     const api = createAuthConsole(auth, {}, store);
     const operatorRequest = new Request(`${origin}/_vitehub/auth/manage`, {

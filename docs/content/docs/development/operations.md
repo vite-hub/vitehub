@@ -10,7 +10,7 @@ An operation is a named action of your app, such as `content.publish` or `invoca
 
 | Surface | How it calls the operation |
 | --- | --- |
-| Console | Sends `{ operation, input }` to `POST /_vitehub/rpc/__call`. |
+| Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](/docs/development/console#call-format). |
 | CLI | `vitehub <namespace> <command>` sends the same request. |
 | Agent | The `operations()` capability turns the operation into a tool. |
 
@@ -48,6 +48,7 @@ export const reportOperations = [
 | `output` | Optional. A Standard Schema of the result. |
 | `cli` | Optional. `namespace` and `command` rename the command. `positional` lists input keys passed without a flag. `default: true` makes `vitehub <namespace>` run it when no command is named. `format` prints a readable result. Without it the CLI prints JSON. |
 | `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
+| `mcp` | Optional. `false` keeps the operation out of MCP. `{ title, format }` sets the short title that MCP clients show, and `format(output)` the text that the Agent reads. The result stays the structured content. Without `format`, the text is the result as JSON. |
 | `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips confirmation, and an agent runs it without approval. Without it, every `destructive` call asks. |
 | `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |
 | `run` | Does the work. It gets the checked input and the context. |
@@ -60,7 +61,7 @@ import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/op
 interface OperationContext {
   access: OperationAccess // the checked Console access of the call
   user: OperationUser | null // the signed-in user
-  actor?: OperationActor // the Agent Actor, when an agent calls for `user`
+  actor?: OperationActor // the Agent Invoker, when an agent calls for `user`
   surface: 'console' | 'cli' | 'mcp' | 'agent'
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
@@ -71,7 +72,7 @@ interface OperationContext {
 
 An operation with `invoke: true` runs app code: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`. The Console registers it only when `console.invoke` is on. That is the default in development, and off in a production build. With `console.invoke` off, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch, so `schedule run --url` can run with a dispatch key and no Console credentials.
 
-The generated commands call the Console RPC. `vitehub()` installs it. Standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
+The generated commands call the Console RPC. `vitehub()` installs it. Standalone `hubKV()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
 
 `console.authorize` grants a section as `'kv'` (every operation) or `'kv:read'` (only `kind: 'read'` operations and calls that `readOnlyWhen` marks as reads). The check runs once, in the shared access path, so the Console RPC, the CLI with `--url`, agent tools, and MCP agree. An operation that both reads and writes under one name, such as `documents.action`, sets `readOnlyWhen` so a read-only role keeps its reads.
 
@@ -93,7 +94,7 @@ const reports = {
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
   vite: {
     plugins: [reports],
   },
@@ -114,7 +115,7 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub({ preset: 'node' }), nitro(), reports] })
+export default defineConfig({ plugins: [vitehub({ host: 'node' }), nitro(), reports] })
 ```
 :::
 
@@ -122,20 +123,23 @@ export default defineConfig({ plugins: [vitehub({ preset: 'node' }), nitro(), re
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import type { OperationContributingPlugin } from 'vite-hub/operations'
 
 const reports = {
   name: 'reports',
   vitehub: {
     operations: [{ module: 'my-app/operations', export: 'reportOperations' }],
   },
-}
+} satisfies OperationContributingPlugin
 
-export default defineConfig({ plugins: [vitehub({ preset: 'node' }), reports] })
+export default defineConfig({ plugins: [vitehub({ host: 'node' }), reports] })
 ```
 :::
 ::
 
-`module` is a specifier your app can import. `export` is one operation or a list. Two operations with the same name fail the build with `INTERNAL_B0048`, naming both plugins.
+A library that does not install `vite-hub` imports `defineOperation` and the same types from `@vite-hub/runtime/operations`.
+
+The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.
 
 Run `vitehub inspect definitions --kind operation` to list the app's operations.
 
@@ -156,9 +160,11 @@ Each input schema key becomes a flag. `url`, `timeout`, `json`, `yes`, and `inpu
 To let an agent call operations, add the capability:
 
 ```ts [server/agents/editor.ts]
+import { defineAgent } from 'vite-hub/agent'
 import { operations } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [operations({ include: ['reports.*'], approve: 'write' })],
 })
 ```
@@ -167,7 +173,7 @@ Each operation becomes a tool with dots as underscores: `reports.list` is `repor
 
 `approve` sets which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as a read never waits.
 
-The agent acts for the Auth user its Actor stands for (`auth.user(actor)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
+The agent acts for the Auth user its Invoker stands for (`auth.user(invoker)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
 
 ::warning
 Without `console.authorize`, nothing filters by section, and `include` is the only gate. List only what the agent may do.
@@ -209,15 +215,15 @@ Core error codes:
 
 ## Access
 
-The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, since it needs `console.auth`.
+The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, and takes only [signed requests](/docs/development/console#sign-console-requests).
 
-In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, and accepts calls from the [hosted Console](/docs/development/console#in-development) without a token.
+In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature. `console: false` turns this RPC off.
 
 ::warning
-A dev RPC without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To open the dev Console to other people, set `console.auth` to `"app"` or a Console Auth config.
+A dev RPC without signed calls (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth`, so it takes only signed calls.
 ::
 
-In `vite dev`, a call with no signed-in user runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments, Content, and MCP see the same user. A build never adds it: a production call without sign-in has `context.user` unset.
+In `vite dev`, a call without a signed user runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments and Content see the same user. A build never adds it: a production call from the CLI has `context.user` unset, and a call from the Console has the person that the Console signed.
 
 Duplicate operation names fail every build, also without a `console` option. An app without `server/content.ts` has no Content operations.
 
@@ -225,19 +231,19 @@ Duplicate operation names fail every build, also without a `console` option. An 
 
 | Package | Operations |
 | --- | --- |
-| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
-| [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, `blob.variants` |
-| [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.del` |
+| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
+| [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
+| [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
 | [Email](/docs/development/cli#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
 | [Rate Limit](/docs/development/cli#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
-| [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap` |
+| [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap`, `content.previews` |
 | [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-show`, `workflow.runs-clear` (development only) |
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-- `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
+- `blob.put`, `blob.delete`, `kv.set`, and `kv.delete` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
 - `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
 - The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
 - Queue has no peek, because the provider-independent Queue contract cannot read a backlog.

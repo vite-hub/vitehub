@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Status } from "@vite-hub/ui";
 import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -13,8 +14,8 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleStatus from "./console-status.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import ConsoleConfirm from "./console-confirm.vue";
 
 interface KVListResponse {
   cursor?: string;
@@ -79,6 +80,9 @@ const storeItems = computed(() => stores.value.map((store) => ({ label: store, v
 const valueLimit = 256 * 1024;
 // The filter lives in the URL with the store and key, so a reload or a shared link opens the same view.
 const { q: keyFilter } = useConsoleQuery({ q: queryText() });
+function clearKeyFilter(): void {
+  keyFilter.value = "";
+}
 // The filter narrows the loaded keys. Load more to search further in a large store.
 const visibleKeys = computed(() => {
   const filter = keyFilter.value.trim().toLowerCase();
@@ -108,24 +112,17 @@ function parseList(value: unknown): KVListResponse {
     throw viteHubErrorDiagnostics.VITE_HUB_R0103({ message: "The Console returned an invalid KV key list." });
   }
   return {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     cursor: typeof source.cursor === "string" ? source.cursor : undefined,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
     limit: typeof source.limit === "number" ? source.limit : 100,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional prefix at this boundary.
     prefix: typeof source.prefix === "string" ? source.prefix : "",
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the selected store at this boundary.
     store: typeof source.store === "string" ? source.store : "default",
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every store identity before rendering it.
     stores: source.stores.filter((store): store is string => typeof store === "string"),
   };
 }
 
 function parseValue(value: unknown): KVValueResponse {
   const source = record(value);
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate required key and store identities at this boundary.
   if (!source || typeof source.key !== "string" || typeof source.store !== "string") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0104({ message: "The Console returned an invalid KV value." });
   }
@@ -135,9 +132,7 @@ function parseValue(value: unknown): KVValueResponse {
     store: source.store,
   };
   if (source.format === "json" || source.format === "text") parsed.format = source.format;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional type label at this boundary.
   if (typeof source.type === "string") parsed.type = source.type;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional serialized value at this boundary.
   if (typeof source.value === "string") parsed.value = source.value;
   if (source.truncated === true) parsed.truncated = true;
   parsed.editable = source.editable === true;
@@ -202,7 +197,7 @@ async function confirmRemove(): Promise<void> {
   if (key === undefined || removing.value) return;
   removing.value = true;
   try {
-    await requestConsole(props.kvBase, { body: { action: "del", key, store: selectedStore.value }, method: "POST" });
+    await requestConsole(props.kvBase, { body: { action: "delete", key, store: selectedStore.value }, method: "POST" });
     removeOpen.value = false;
     toast.show({ title: "Key deleted" });
     selectedKey.value = undefined;
@@ -419,17 +414,17 @@ onBeforeUnmount(() => {
       :sections-base="sectionsBase"
     />
 
-    <UDashboardPanel id="kv-value" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="kv-value">
       <ConsolePageHeader title="KV" :description="stores.length > 1 ? undefined : selectedStore" :toggle="false">
         <template #right>
                     <UTooltip text="Refresh keys">
-            <UButton aria-label="Refresh keys" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="listLoading || valueLoading" @click="refresh" />
+            <UButton aria-label="Refresh keys" icon="i-lucide-refresh-cw" variant="ghost" :loading="listLoading || valueLoading" @click="refresh" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
       <ConsolePageToolbar v-if="stores.length > 1 || keys.length">
-        <USelect v-if="stores.length > 1" v-model="selectedStore" class="w-40" size="sm" :items="storeItems" aria-label="KV store" />
-        <UInput v-model="keyFilter" class="w-full sm:w-64" icon="i-lucide-search" size="sm" placeholder="Filter loaded keys…" aria-label="Filter loaded keys" />
+        <USelect v-if="stores.length > 1" v-model="selectedStore" class="w-40" :items="storeItems" aria-label="KV store" />
+        <UInput v-model="keyFilter" class="w-full sm:w-64" icon="i-lucide-search" placeholder="Filter loaded keys…" aria-label="Filter loaded keys" />
         <span class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ keyFilter.trim() ? `${visibleKeys.length} of ${keyCount}` : keyCount }}</span>
       </ConsolePageToolbar>
 
@@ -454,10 +449,18 @@ onBeforeUnmount(() => {
                 <span class="max-w-[80%] shrink-0 truncate">{{ key.slice(keyPrefix(key).length) || "(empty key)" }}</span>
               </span>
             </button>
-            <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="listLoading" @click="loadMore" />
+            <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" variant="ghost" :loading="listLoading" @click="loadMore" />
           </template>
-          <p v-else-if="keys.length" class="px-2 py-1.5 text-xs text-muted">No loaded keys match “{{ keyFilter.trim() }}”.</p>
-          <p v-else class="px-2 py-1.5 text-xs text-muted">No keys in this store yet.</p>
+          <UEmpty
+            v-else-if="keys.length"
+            variant="naked"
+            size="xs"
+            icon="i-lucide-search"
+            :title="`No loaded keys match “${keyFilter.trim()}”`"
+            description="The filter checks only the keys that loaded."
+            :actions="[{ label: 'Clear filter', variant: 'ghost', onClick: clearKeyFilter }]"
+          />
+          <UEmpty v-else variant="naked" size="xs" icon="i-lucide-key-round" title="No keys yet" description="Keys show here when the application writes them." />
         </nav>
 
         <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Value">
@@ -480,21 +483,21 @@ onBeforeUnmount(() => {
               <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted" :title="selectedValue.key">
                 {{ selectedValue.key || "(empty key)" }}
               </h2>
-              <ConsoleStatus v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
+              <Status v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
               <span v-if="valueFormat" class="text-xs text-muted">{{ valueFormat }}</span>
               <template v-if="!editing">
                 <UTooltip :text="editable ? 'Edit value' : readOnly ? 'This access can only read KV' : reserved ? 'ViteHub keeps this key for itself' : 'Bytes and cut values are read only'">
-                  <UButton aria-label="Edit value" icon="i-lucide-pencil" size="sm" variant="ghost" :disabled="!editable" @click="startEdit" />
+                  <UButton aria-label="Edit value" icon="i-lucide-pencil" variant="ghost" :disabled="!editable" @click="startEdit" />
                 </UTooltip>
                 <UTooltip text="Delete key">
-                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" size="sm" variant="ghost" :disabled="reserved || readOnly" @click="removeOpen = true" />
+                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" variant="ghost" :disabled="reserved || readOnly" @click="removeOpen = true" />
                 </UTooltip>
               </template>
             </header>
             <div v-if="editing" class="flex min-h-0 flex-1 flex-col gap-2 p-4">
-              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
+              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono' }" aria-label="Value" autofocus />
               <div class="flex flex-wrap items-center gap-2">
-                <UInput v-model="editTtl" class="w-40" size="sm" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
+                <UInput v-model="editTtl" class="w-40" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
                 <span class="text-xs text-muted">Expires in seconds</span>
               </div>
               <p v-if="selectedValue.expiry === 'unknown'" class="text-xs text-warning" role="status">
@@ -520,17 +523,9 @@ onBeforeUnmount(() => {
       </div>
     </UDashboardPanel>
 
-    <UModal v-model:open="removeOpen" title="Delete this key?" :ui="{ content: 'sm:max-w-[440px]' }">
-      <template #body>
-        <p class="text-[13px] text-muted">
-          <span class="font-mono text-xs text-highlighted">{{ selectedKey || "(empty key)" }}</span> is deleted from the store <span class="font-medium">{{ selectedStore }}</span>. This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton variant="ghost" label="Cancel" @click="removeOpen = false" />
-          <UButton color="error" label="Delete" :loading="removing" @click="confirmRemove" />
-        </div>
-      </template>
-    </UModal>
+    <ConsoleConfirm v-model:open="removeOpen" title="Delete this key?" confirm-label="Delete" destructive :loading="removing" @confirm="confirmRemove">
+      <p>
+        <span class="font-mono text-xs text-highlighted">{{ selectedKey || "(empty key)" }}</span> is deleted from the store <span class="font-medium">{{ selectedStore }}</span>. This cannot be undone.
+      </p>
+    </ConsoleConfirm>
 </template>

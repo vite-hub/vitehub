@@ -1,3 +1,5 @@
+import { isRecordOrFunction as isRecord } from "./object.ts"
+
 /**
  * The small internal seam between ViteHub packages and Nitro configuration.
  *
@@ -23,10 +25,6 @@ export interface NitroServerKit {
 
 function cloneArray(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : []
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 function sameHandler(left: Record<string, unknown>, right: NitroServerHandler): boolean {
@@ -60,4 +58,15 @@ export function createNitroServerKit(value: unknown = {}): NitroServerKit {
       else plugins.push(plugin)
     },
   }
+}
+
+/** Add one module id to a Nitro or Rollup `external` option, in each form that option takes. */
+export function mergeNitroExternal(value: unknown, addition: string): unknown {
+  if (typeof value === "undefined") return [addition]
+  if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
+  if (typeof value === "string" || value instanceof RegExp) return [value, addition]
+  if (typeof value === "function") {
+    return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
+  }
+  return value
 }

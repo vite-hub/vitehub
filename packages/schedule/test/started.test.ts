@@ -73,7 +73,7 @@ describe("discovery of Definitions without cron", () => {
   it("adds no tick when every Definition has a cron", async () => {
     const rootDir = await createTempDir("vitehub-schedule-started-none-")
     await mkdir(join(rootDir, "server", "schedules"), { recursive: true })
-    await writeFile(join(rootDir, "server", "schedules", "daily.ts"), "export default defineSchedule('0 8 * * *', () => {})\n")
+    await writeFile(join(rootDir, "server", "schedules", "daily.ts"), "export default defineSchedule({ cron: '0 8 * * *', handler: () => {} })\n")
 
     expect(discoverScheduleDefinitions({ rootDir }).map(definition => definition.name)).toEqual(["daily"])
     expect(discoverStartableScheduleDefinitions({ rootDir })).toEqual([])
@@ -207,7 +207,7 @@ const runtime = await import(runtimeEntry)
 const root = await import(rootEntry)
 const file = key => join(storeDir, encodeURIComponent(key))
 const kvStore = {
-  async del(key) { await rm(file(key), { force: true }) },
+  async delete(key) { await rm(file(key), { force: true }) },
   async get(key) { try { return JSON.parse(await readFile(file(key), "utf8")) } catch { return undefined } },
   async has(key) { return (await readdir(storeDir)).includes(encodeURIComponent(key)) },
   async keys(base) { return (await readdir(storeDir)).map(decodeURIComponent).filter(key => key.startsWith(base)) },

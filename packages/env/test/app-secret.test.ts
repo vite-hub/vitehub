@@ -7,6 +7,8 @@ import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
+import { consoleBodySha256, readConsolePublicKeys, readConsoleSigningKey, signConsoleRequest, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
+
 import { secretCliFeatures } from "../src/secret-cli.ts"
 import { unseal } from "../src/index.ts"
 import { deriveSecret } from "../src/server.ts"
@@ -35,7 +37,8 @@ afterEach(async () => {
 describe("root app secret", () => {
   it("generates and keeps a development secret when none is configured", async () => {
     vi.stubEnv("VITEHUB_SECRET", "")
-    vi.stubEnv("NUXT_APP_SECRET", "")
+    // Nuxt's app secret is not a ViteHub root secret.
+    vi.stubEnv("NUXT_APP_SECRET", "nuxt-root-secret-at-least-32-characters")
     vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
     const root = await runConfig("serve")
     const secretPath = join(root, ".vitehub", "env", "secret")
@@ -46,7 +49,7 @@ describe("root app secret", () => {
     expect(process.env.VITEHUB_SECRET).toBe("")
     expect(process.env.VITEHUB_SECRET_GENERATED).toBe("")
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    await expect(deriveSecret("app:session", undefined, secret, true)).resolves.toBe(await deriveViteHubSecret(secret, "app:session"))
+    await expect(deriveSecret("app:session", { root: secret }, { generated: true })).resolves.toBe(await deriveViteHubSecret(secret, "app:session"))
     const config = await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
     expect(config).toHaveProperty("__vitehubEnvDevelopmentSecret", secret)
     expect(await readFile(secretPath, "utf8")).toBe(secret)
@@ -76,7 +79,6 @@ describe("root app secret", () => {
 
   it("isolates generated, configured, and later generated projects", async () => {
     vi.stubEnv("VITEHUB_SECRET", undefined)
-    vi.stubEnv("NUXT_APP_SECRET", undefined)
     vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
     const projectRoots = await Promise.all(["first", "configured", "last"].map(name => mkdtemp(join(tmpdir(), `vitehub-${name}-`))))
     roots.push(...projectRoots)
@@ -97,9 +99,9 @@ describe("root app secret", () => {
     await expect(stat(join(configured!, ".vitehub/env/secret"))).rejects.toThrow()
   })
 
-  it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("honors a project %s and preserves shell precedence", async (name) => {
-    vi.stubEnv("VITEHUB_SECRET", undefined)
-    vi.stubEnv("NUXT_APP_SECRET", undefined)
+  it("honors a project VITEHUB_SECRET and preserves shell precedence", async () => {
+    const name = "VITEHUB_SECRET"
+    vi.stubEnv(name, undefined)
     const root = await mkdtemp(join(tmpdir(), "vitehub-configured-secret-"))
     roots.push(root)
     const projectSecret = "project-root-secret-at-least-32-characters"
@@ -133,7 +135,7 @@ describe("root app secret", () => {
     vi.stubEnv("VITEHUB_SECRET", "short")
     await expect(deriveSecret("app:session")).rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" })
     vi.stubEnv("VITEHUB_SECRET", "")
-    vi.stubEnv("NUXT_APP_SECRET", "")
+    vi.stubEnv("NUXT_APP_SECRET", "nuxt-root-secret-at-least-32-characters")
     await expect(deriveSecret("app:session")).rejects.toMatchObject({ code: "ENV_REQUIRED_MISSING" })
   })
 
@@ -145,11 +147,35 @@ describe("root app secret", () => {
 
     const derived = output()
     const env = { VITEHUB_SECRET: "cli-root-secret-at-least-32-characters-long" }
-    expect(await derive!.run(["vitehub:dispatch"], { env, stderr: output().stream, stdout: derived.stream } as never)).toBe(0)
-    expect(derived.text().trim()).toBe(await deriveViteHubSecret(env.VITEHUB_SECRET, "vitehub:dispatch"))
+    expect(await derive!.run(["app:webhooks"], { env, stderr: output().stream, stdout: derived.stream } as never)).toBe(0)
+    expect(derived.text().trim()).toBe(await deriveViteHubSecret(env.VITEHUB_SECRET, "app:webhooks"))
 
     const missing = output()
-    expect(await derive!.run(["vitehub:dispatch"], { env: {}, stderr: missing.stream, stdout: output().stream } as never)).toBe(1)
+    expect(await derive!.run(["app:webhooks"], { env: {}, stderr: missing.stream, stdout: output().stream } as never)).toBe(1)
     expect(missing.text()).toContain("Set VITEHUB_SECRET")
+  })
+
+  it("prints a Console key pair whose private key signs requests that the public key verifies", async () => {
+    const consoleKey = secretCliFeatures.find(feature => feature.name === "console-key")!
+    const printed = output()
+    expect(await consoleKey.run(["ci"], { env: {}, stderr: output().stream, stdout: printed.stream } as never)).toBe(0)
+    const lines = Object.fromEntries(printed.text().split("\n").filter(line => line && !line.startsWith("#")).map(line => line.split("=") as [string, string]))
+    expect(Object.keys(lines)).toEqual(["VITEHUB_CONSOLE_KEY_CI", "VITEHUB_CONSOLE_PRIVATE_KEY_CI"])
+    const key = readConsoleSigningKey({ VITEHUB_CONSOLE_PRIVATE_KEY_CI: lines.VITEHUB_CONSOLE_PRIVATE_KEY_CI })!
+    const url = "https://app.example.com/_vitehub/rpc"
+    const body = JSON.stringify({ a: [{}], i: "1", m: "project.get", t: "q" })
+    const headers = new Headers(await signConsoleRequest({ body, caller: { via: "cli" }, key, method: "POST", url }))
+    const keys = readConsolePublicKeys({ VITEHUB_CONSOLE_KEY_CI: lines.VITEHUB_CONSOLE_KEY_CI })
+    if (!(keys instanceof Map)) throw new Error(keys.message)
+    await expect(verifyConsoleSignature({ headers, keys, method: "POST", origin: "https://app.example.com", url })).resolves.toEqual({
+      bodySha256: await consoleBodySha256(body),
+      caller: { via: "cli" },
+      key: "CI",
+      ok: true,
+    })
+
+    const refused = output()
+    expect(await consoleKey.run(["a", "b"], { env: {}, stderr: refused.stream, stdout: output().stream } as never)).toBe(1)
+    expect(refused.text()).toContain("Usage: vitehub secret console-key [name]")
   })
 })

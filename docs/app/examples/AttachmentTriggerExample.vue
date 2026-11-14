@@ -6,15 +6,15 @@ const open = ref(false);
   <div class="flex w-full max-w-sm flex-col gap-4">
     <Attachment class="w-full">
       <AttachmentMedia>
-        <UIcon name="i-ph-file-magnifying-glass-light" />
+        <UIcon name="i-lucide-file-search" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle>research-summary.pdf</AttachmentTitle>
         <AttachmentDescription>Open the preview dialog</AttachmentDescription>
       </AttachmentContent>
       <AttachmentActions>
-        <AttachmentAction icon="i-ph-copy-light" aria-label="Copy the link to research-summary.pdf" />
-        <AttachmentAction icon="i-ph-x-light" aria-label="Remove research-summary.pdf" />
+        <AttachmentAction icon="i-lucide-copy" aria-label="Copy the link to research-summary.pdf" />
+        <AttachmentAction icon="i-lucide-x" aria-label="Remove research-summary.pdf" />
       </AttachmentActions>
       <AttachmentTrigger aria-label="Preview research-summary.pdf" @click="open = true" />
     </Attachment>

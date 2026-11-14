@@ -2,18 +2,21 @@ import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
-// Content editing in the Console with app Auth. `server/console-authorize.ts` limits editors to the Content section,
-// and `content.authorize` in `server/content.ts` decides who may read, write, and publish.
+// Content with app Auth. `content.authorize` in `server/content.ts` decides who may read, write, and publish.
+// `console: { auth: false }` lets the `vitehub` commands call this dev server without a signature.
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
+      // `server/agents/translator.ts` translates English docs pages. `server/queues/translate.ts` runs it after each change.
+      agent: true,
       auth: true,
       // `serve` exposes stored images at /api/_vitehub/blob, so SEO previews and social cards can show them.
-      blob: { driver: "fs", base: ".vitehub/data/blob", serve: true },
+      blob: { driver: "fs", base: ".vitehub/data/blob", serve: { access: "public" } },
       database: true,
-      console: { auth: "app", authorize: "./server/console-authorize.ts" },
+      console: { auth: false },
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+      queue: true,
       // Content edits posts live in one Node process. `vite dev` uses the memory authority; a Node build needs
       // `realtime: { authority: "memory" }`, and hosts without a room authority keep one editor at a time.
       realtime: true,

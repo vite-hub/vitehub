@@ -1,5 +1,4 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { installStandardContext } from "@vite-hub/runtime/h3"
 import { HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -65,8 +64,9 @@ describe("managed Rate Limit guard", () => {
   it("requires a key when the request has no client address", async () => {
     await expect(requireRateLimit(requestEvent(), "background-uploads", { limit: 1, window: "1m" }))
       .rejects.toThrow("`requireRateLimit()` could not determine a request key")
-    await expect(checkRateLimit(requestEvent(), "background-checks", { limit: 1, window: "1m" }))
-      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+    const [error, decision] = await checkRateLimit(requestEvent(), "background-checks", { limit: 1, window: "1m" })
+    expect(decision).toBeUndefined()
+    expect(error).toMatchObject({ code: "RATE_LIMIT_R0013", message: expect.stringContaining("`checkRateLimit()` could not determine a request key") })
   })
 
   it("isolates budgets by stable ID", async () => {
@@ -140,63 +140,6 @@ describe("managed Rate Limit guard", () => {
     expect(limit).toHaveBeenCalledWith({ key: "198.51.100.9" })
   })
 
-  it("limits H3 1 events, because Nuxt 4 bundles every h3 import as its own h3 1", async () => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
-      const { setRateLimitRuntimeConfig: configure } = await import("../src/runtime.ts")
-      const { createApp, eventHandler, toWebHandler } = await import("h3-v1")
-      const limit = vi.fn(async ({ key }: { key: string }) => ({ success: key !== "198.51.100.10" }))
-      const app = createApp().use(eventHandler(async (event) => {
-        event.context.cloudflare = { env: { [getCloudflareRateLimitBindingName("nuxt4-uploads")]: { limit } } }
-        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
-        installStandardContext(event)
-        await requireOnH3V1(event, "nuxt4-uploads", { limit: 1, window: "1m" })
-        return "accepted"
-      }))
-      const handle = toWebHandler(app)
-
-      configure({ provider: "cloudflare" })
-      const allowed = await handle(new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "198.51.100.9" } }))
-      const limited = await handle(new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "198.51.100.10" } }))
-
-      expect(allowed.status).toBe(200)
-      expect(limited.status).toBe(429)
-      expect(limit).toHaveBeenCalledWith({ key: "198.51.100.9" })
-      expect(limit).toHaveBeenCalledWith({ key: "198.51.100.10" })
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
-  })
-
-  it("sends Retry-After from an H3 1 event", async () => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
-      const { createApp, eventHandler, toWebHandler } = await import("h3-v1")
-      const handle = toWebHandler(createApp().use(eventHandler(async (event) => {
-        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
-        installStandardContext(event)
-        await requireOnH3V1(event, "nuxt4-retry", { key: "user", limit: 1, window: "1m" })
-        return "accepted"
-      })))
-
-      expect((await handle(new Request("https://example.com/upload"))).status).toBe(200)
-      const limited = await handle(new Request("https://example.com/upload"))
-
-      expect(limited.status).toBe(429)
-      expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0)
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
-  })
-
   it("reads only the Standard Context that the host set", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
@@ -227,7 +170,7 @@ describe("managed Rate Limit guard", () => {
     expect(limited).toMatchObject({ status: 429 })
     expect(limited.headers?.get("Retry-After")).toBe("30")
     await expect(checkRateLimit(request, "request-checks", { limit: 1, window: "1m" }))
-      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+      .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
   })
 
   it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
@@ -250,10 +193,10 @@ describe("managed Rate Limit guard", () => {
       const name = `request-metadata-${property}-${inherited}`
       const options = { key: "user", limit: 1, window: "1m" } as const
 
-      await expect(checkRateLimit(request, name, options)).resolves.toMatchObject({ allowed: true })
+      await expect(checkRateLimit(request, name, options)).resolves.toMatchObject([undefined, { allowed: true }])
       await expect(requireRateLimit(request, name, options)).rejects.toMatchObject({ status: 429 })
       await expect(checkRateLimit(request, name, { limit: 1, window: "1m" }))
-        .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+        .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
     }
   })
 
@@ -271,24 +214,6 @@ describe("managed Rate Limit guard", () => {
       requireRateLimit(request, "request-metadata-cloudflare", { limit: 1, window: "1m" }))
 
     expect(limit).toHaveBeenCalledWith({ key: "203.0.113.10" })
-  })
-
-  it("keeps the H3 1 rate-limit error for request-shaped inputs with event-named metadata", async () => {
-    vi.resetModules()
-    vi.doMock("h3", () => import("h3-v1"))
-    try {
-      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
-      const request = { headers: new Headers(), req: {}, node: {}, "~standard": {} }
-      const options = { key: "user", limit: 1, window: "1m" } as const
-
-      await requireOnH3V1(request, "request-metadata-h3-v1", options)
-      await expect(requireOnH3V1(request, "request-metadata-h3-v1", options))
-        .rejects.toMatchObject({ statusCode: 429, statusMessage: "Too Many Requests" })
-    }
-    finally {
-      vi.doUnmock("h3")
-      vi.resetModules()
-    }
   })
 
   it("counts by the Standard Context client address", async () => {
@@ -379,18 +304,25 @@ describe("managed Rate Limit guard", () => {
 })
 
 describe("non-throwing Rate Limit check", () => {
-  it("consumes a token and returns the decision instead of throwing", async () => {
+  it("consumes a token and returns the decision as a Result", async () => {
     vi.spyOn(Date, "now").mockReturnValue(30_000)
     const event = requestEvent("192.0.2.30")
     const policy = { limit: 2, window: "1m" } as const
 
-    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({ allowed: true, limit: 2, remaining: 1 })
-    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({ allowed: true, remaining: 0 })
-    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject([undefined, { allowed: true, limit: 2, remaining: 1 }])
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject([undefined, { allowed: true, remaining: 0 }])
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject([undefined, {
       allowed: false,
       reason: "limited",
       retryAfter: 30,
-    })
+    }])
+  })
+
+  it("returns a missing Cloudflare binding as an error", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const [error, decision] = await checkRateLimit(cloudflareEvent("other-binding", { limit: async () => ({ success: true }) }), "missing-binding", { key: "user", limit: 1, window: "1m" })
+    expect(decision).toBeUndefined()
+    expect(error).toMatchObject({ code: "RATE_LIMIT_R0009", name: "RATE_LIMIT_R0009" })
   })
 
   it("shares counters with requireRateLimit() and peekRateLimit()", async () => {
@@ -401,7 +333,7 @@ describe("non-throwing Rate Limit check", () => {
     await requireRateLimit(event, "shared", policy)
     await expect(peekRateLimit("shared", "user")).resolves.toMatchObject({ counters: [{ used: 2 }] })
     await expect(requireRateLimit(event, "shared", policy)).rejects.toMatchObject({ status: 429 })
-    await expect(checkRateLimit(event, "shared", policy)).resolves.toMatchObject({ allowed: false, reason: "limited" })
+    await expect(checkRateLimit(event, "shared", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
   })
 
   it("reports provider unavailability as a decision", async () => {
@@ -409,11 +341,12 @@ describe("non-throwing Rate Limit check", () => {
     const cause = new Error("provider unavailable")
     const event = cloudflareEvent("unavailable-previews", { limit: async () => { throw cause } })
 
-    const closed = await checkRateLimit(event, "unavailable-previews", { failure: "deny", key: "user", limit: 1, window: "1m" })
+    const [error, closed] = await checkRateLimit(event, "unavailable-previews", { failure: "deny", key: "user", limit: 1, window: "1m" })
+    expect(error).toBeUndefined()
     expect(closed).toMatchObject({ allowed: false, reason: "unavailable" })
-    expect(closed.cause).toBeDefined()
+    expect(closed?.cause).toBeDefined()
     await expect(checkRateLimit(event, "unavailable-previews", { failure: "allow", key: "user", limit: 1, window: "1m" }))
-      .resolves.toMatchObject({ allowed: true, reason: "unavailable" })
+      .resolves.toMatchObject([undefined, { allowed: true, reason: "unavailable" }])
   })
 
   it("still throws for invalid options", async () => {

@@ -7,12 +7,14 @@ export type ViteHubUIComponentName =
   | "UChatReasoning"
   | "UChatTool"
   | "UCollapsible"
+  | "UDropdownMenu"
   | "UEditorDragHandle"
   | "UEditorSuggestionMenu"
   | "UEditorToolbar"
   | "UIcon"
   | "UInput"
-  | "UModal";
+  | "UModal"
+  | "UTabs";
 
 /** Components that replace the Nuxt UI ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
 export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Component>>;
@@ -28,6 +30,7 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
   UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
   UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
   UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
+  UDropdownMenu: defineAsyncComponent(() => import("@nuxt/ui/components/DropdownMenu.vue")),
   UEditorDragHandle: defineAsyncComponent(() => import("@nuxt/ui/components/EditorDragHandle.vue")),
   UEditorSuggestionMenu: defineAsyncComponent(() => import("@nuxt/ui/components/EditorSuggestionMenu.vue")),
   UEditorToolbar: defineAsyncComponent(() => import("@nuxt/ui/components/EditorToolbar.vue")),
@@ -36,6 +39,7 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
   UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
   UInput: defineAsyncComponent(() => import("@nuxt/ui/components/Input.vue")),
   UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
+  UTabs: defineAsyncComponent(() => import("@nuxt/ui/components/Tabs.vue")),
 };
 
 /**

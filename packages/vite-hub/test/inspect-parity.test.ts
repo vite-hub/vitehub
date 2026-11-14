@@ -37,17 +37,17 @@ describe("Definition inspection parity", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-parity-"))
     directories.push(root)
     await writeProjectFile(root, "package.json", "{}\n")
-    await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: { notes } })\n")
+    await writeProjectFile(root, "server/databases/default.ts", "export default defineDatabase({ schema: { notes } })\n")
     await writeProjectFile(root, "server/queues/email.ts", "export default defineQueue({ handler() {} })\n")
     await writeProjectFile(root, "server/api/login.post.ts", 'export default defineHandler(async (event) => { await requireRateLimit(event, "login", { limit: 5, window: "1m" }) })\n')
-    await writeProjectFile(root, "src/runner.sandbox-task.ts", "export default defineSandboxTask({ run: async () => ({}) })\n")
+    await writeProjectFile(root, "src/runner.sandbox-task.ts", "export default defineSandboxTask({ handler: async () => ({}) })\n")
     await writeProjectFile(root, "server/schedules/adhoc.ts", "export default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
     await writeProjectFile(root, "server/workflows/welcome.ts", "export default defineWorkflow(\"welcome\", async () => {})\n")
-    await writeProjectFile(root, "server/workspaces/docs/config.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+    await writeProjectFile(root, "server/workspaces/docs/config.ts", "export default { store: { provider: 'memory' } }\n")
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "cloudflare", queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })],
+      plugins: [vitehub({ blob: false, console: false, database: true, env: false, host: "cloudflare", queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })],
       root,
     }, "build")
     const inspectors = await collectViteHubDefinitionInspectors(config.plugins)
@@ -84,7 +84,7 @@ describe("Definition inspection parity", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-tables-"))
     directories.push(root)
     await writeProjectFile(root, "package.json", "{}\n")
-    await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: { notes } })\n")
+    await writeProjectFile(root, "server/databases/default.ts", "export default defineDatabase({ schema: { notes } })\n")
     const tables = join(root, "vendor/history.mjs")
     await writeProjectFile(root, "vendor/history.mjs", "export const historySchema = {}\n")
     const historyOwner = {
@@ -94,7 +94,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "node" }), historyOwner],
+      plugins: [vitehub({ blob: false, console: false, database: true, env: false, host: "node" }), historyOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "database")
@@ -110,7 +110,13 @@ describe("Definition inspection parity", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-"))
     directories.push(root)
     await writeProjectFile(root, "package.json", "{}\n")
-    await writeProjectFile(root, "server/workspaces/docs.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+    await writeProjectFile(root, "server/workspaces/docs.ts", "export default { store: { provider: 'memory' } }\n")
+    await writeProjectFile(root, "node_modules/content-owner/package.json", JSON.stringify({
+      exports: { "./workspace": "./workspace.mjs" },
+      name: "content-owner",
+      type: "module",
+    }))
+    await writeProjectFile(root, "node_modules/content-owner/workspace.mjs", "export const contentWorkspace = { store: { provider: 'memory' } }\n")
     const contentOwner = {
       name: "content-owner/vite",
       vitehub: { workspaces: () => [{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }] },
@@ -118,7 +124,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", workspace: true }), contentOwner],
+      plugins: [vitehub({ blob: false, console: false, env: false, host: "node", workspace: true }), contentOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "workspace")
@@ -145,7 +151,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", schedule: { runtime: { driver: "process" } } }), contentOwner],
+      plugins: [vitehub({ blob: false, console: false, env: false, host: "node", schedule: { runtime: { driver: "process" } } }), contentOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "schedule")

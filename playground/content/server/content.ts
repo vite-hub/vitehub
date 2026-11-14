@@ -5,7 +5,7 @@ import { z } from "zod"
 
 const link = z.object({ label: z.string().min(1), to: z.string().min(1), icon: z.string().optional() })
 
-export const content = defineContent({
+export default defineContent({
   workspace: "site",
   collections: {
     // One document for the whole site. The fields are this site's choice; ViteHub has no fixed settings schema.
@@ -63,8 +63,9 @@ export const content = defineContent({
       },
     }),
   },
-  // /sitemap.xml lists published posts and docs pages with their URL; /robots.txt points crawlers at it.
-  seo: { sitemap: true, robots: { disallow: ["/_vitehub", "/login"] } },
+  // /sitemap.xml lists published posts and docs pages with their URL; /robots.txt points crawlers at it. `llms` serves
+  // /llms.txt, /llms-full.txt, and /sitemap.md, and each page as Markdown at its URL plus `.md`.
+  seo: { sitemap: true, robots: { disallow: ["/_vitehub", "/login"] }, llms: { title: "Content playground" } },
   // The CMS roles decide. This app keeps its own `site` Workspace instead of `extends: cms`, so it names the policy.
   // Publishers and admins publish, editors save drafts, and commenters read them.
   authorize: cmsContentAuthorize,

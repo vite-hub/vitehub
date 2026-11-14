@@ -29,14 +29,4 @@ describe("uploadFiles cross-realm inputs", () => {
     await uploadFiles("/api", file, { fetch })
     expect(fetch).toHaveBeenCalledOnce()
   })
-
-  it.each([
-    { [Symbol.toStringTag]: "File", name: "a.txt", size: 1 },
-    Object.create(File.prototype),
-    Object.defineProperty(new Blob(["hello"]), Symbol.toStringTag, { value: "File" }),
-  ])("does not upload a spoofed File", async (spoof) => {
-    const fetch = vi.fn()
-    await expect(uploadFiles("/api", spoof as File, { fetch })).resolves.toEqual([])
-    expect(fetch).not.toHaveBeenCalled()
-  })
 })

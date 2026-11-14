@@ -21,7 +21,7 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
 | `hubSource` from `vite-hub/source/vite` | Finds Collections and Content and generates their routes. `vitehub()` and the Nuxt module add it. |
-| `useDatabase` from `vite-hub/database/drizzle` | Get a database and its generated schema for `table()`. |
+| `useDatabase` from `vite-hub/database` | Get a database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read registry, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. Each `vite-hub/source/*` path re-exports the matching `@vite-hub/source/*` path unchanged.
@@ -146,12 +146,28 @@ await cachedRecaps.get('2026-07')
 
 ## Expose a typed Collection
 
-A Collection is the paged list that your app serves to clients. For a Drizzle database, let `table()` build the query:
+A Collection is the paged list that your app serves to clients. For a Drizzle database, let `table()` build the query. This example reads the `articles` table of the default Database:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    articles: sqliteTable('articles', {
+      id: text('id').primaryKey(),
+      title: text('title').notNull(),
+      author: text('author').notNull(),
+      createdAt: integer('created_at').notNull(),
+    }),
+  },
+})
+```
 
 ```ts [server/collections/articles.ts] fragment
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineCollection } from 'vite-hub/source'
 import { table } from 'vite-hub/source/drizzle'
 
@@ -185,8 +201,17 @@ Pass a loader function to `defineCollection` when the data is not one Drizzle ta
 import { defineCollection } from 'vite-hub/source'
 import * as v from 'valibot'
 
+interface Article { id: string, title: string, createdAt: number }
+
 export const articles = defineCollection(async ({ cursor, limit, query }) => {
-  return db.listArticles({ after: cursor, author: query.author, limit })
+  // A CMS API that pages by the last (createdAt, id) it returned
+  const url = new URL('https://cms.example.com/api/articles')
+  url.searchParams.set('limit', String(limit))
+  if (cursor) url.searchParams.set('after', cursor.join(','))
+  if (query.author) url.searchParams.set('author', query.author)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
+  return await response.json() as Article[]
 }, {
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
@@ -253,6 +278,7 @@ ViteHub finds modules in `server/collections` and generates their types and read
 - Export a Collection named like the file: `articles.ts` exports `articles` and serves `/api/articles`. Do not add a matching `server/api` handler.
 - Nuxt auto-imports `useCollection`. Elsewhere, import it from `vite-hub/source/client`.
 - Restart Nuxt after you add, remove, or rename a Collection, so Nitro rebuilds its handler list.
+- Set `route: false` to keep a Collection server-only. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
 
 To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
 
@@ -275,11 +301,21 @@ A Collection route is public unless it sets `authorize`.
 
 `authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
 
-```ts [server/collections/meals.ts]
-export const meals = defineCollection({
-  source: table({ /* ... */ }),
-  authorize: ({ user }) => user.role === 'owner',
-  transform: meal => ({ id: meal.id, calories: meal.calories }),
+```ts [server/collections/drafts.ts]
+import { useDatabase } from 'vite-hub/database'
+import { defineCollection } from 'vite-hub/source'
+import { table } from 'vite-hub/source/drizzle'
+
+const { db, schema } = useDatabase('default')
+
+export const drafts = defineCollection({
+  source: table({
+    db,
+    table: schema.articles,
+    orderBy: { column: schema.articles.createdAt, direction: 'desc', tieBreaker: schema.articles.id },
+  }),
+  authorize: ({ user }) => user?.role === 'owner',
+  transform: article => ({ id: article.id, title: article.title }),
 })
 ```
 
@@ -288,11 +324,14 @@ The loader form takes it too: `defineCollection(load, { authorize, ... })`. Vite
 - No session returns JSON `401`. `false` returns `403`. A returned `Response` is sent as is.
 - The check reads the same-origin session cookie, so `useCollection()` needs no extra headers. It sets `error` to a `CollectionAccessError` with `status` `401` or `403`:
 
-```ts
-import { CollectionAccessError } from 'vite-hub/source/client'
+```ts [app/composables/drafts.ts]
+import { computed } from 'vue'
+import { CollectionAccessError, useCollection } from 'vite-hub/source/client'
 
-const { error } = useCollection('meals')
-const signedOut = computed(() => error.value instanceof CollectionAccessError && error.value.status === 401)
+export function useDraftsSignedOut() {
+  const { error } = useCollection('drafts')
+  return computed(() => error.value instanceof CollectionAccessError && error.value.status === 401)
+}
 ```
 
 Enable Auth and add `server/auth.ts` before you use `authorize`. Without Auth, the route cannot read a session and denies every request with `SOURCE_R0025`.

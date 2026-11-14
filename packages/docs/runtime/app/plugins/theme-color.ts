@@ -1,18 +1,18 @@
-import { defineNuxtPlugin, useHead } from "#imports"
+import { defineNuxtPlugin, nextTick, ref, useHead, watch } from "#imports"
+import { ownsApp } from "#docs/shell"
 
-const canvas = { light: "#ffffff", dark: "#09090b" }
-
-// The browser bar matches the page canvas. Prerendered HTML has one color per system mode. In the browser, both follow
-// the mode that the reader picked. A plugin, and not `app.vue`, so the error page has it too.
+// The browser bar matches the page canvas: the `--ui-bg` of the design system, read from the page, so the theme stays
+// the only place that names the color. It follows the mode that the reader picks. A plugin, and not `app.vue`, so the
+// error page has it too. An app with its own `app.vue` keeps its browser bar color. Prerendered HTML has no value, and
+// browsers use their own bar color until the app starts.
 export default defineNuxtPlugin((nuxtApp) => {
-  const color = (scheme: "light" | "dark") => () => {
-    const mode = nuxtApp.$colorMode
-    return !mode || mode.unknown ? canvas[scheme] : canvas[mode.value === "dark" ? "dark" : "light"]
+  if (!ownsApp || import.meta.server) return
+  const color = ref<string>()
+  const read = () => {
+    color.value = getComputedStyle(document.documentElement).backgroundColor || undefined
   }
-  useHead({
-    meta: [
-      { name: "theme-color", media: "(prefers-color-scheme: light)", content: color("light") },
-      { name: "theme-color", media: "(prefers-color-scheme: dark)", content: color("dark") },
-    ],
-  })
+  nuxtApp.hook("app:mounted", read)
+  // The color mode module sets the class on `<html>` after the value changes, so read after that render.
+  watch(() => nuxtApp.$colorMode?.value, () => nextTick(() => requestAnimationFrame(read)))
+  useHead({ meta: [{ name: "theme-color", content: color }] })
 })

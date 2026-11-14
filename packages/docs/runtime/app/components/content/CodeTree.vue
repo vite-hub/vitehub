@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// `::code-tree` shows code blocks as a project: a file tree beside the code of the open file. Each child code block names
-// its file with a path, such as ```ts [server/api/kv.ts]```. The tree lists folders first, like an editor, and
-// `default-value` names the file that opens first, else the first block. In a narrow panel, such as a hero beside its
-// copy, the tree becomes one row of file tabs above the code, so the code keeps the width.
-import { useElementSize } from "@vueuse/core";
+// `::code-tree` shows code blocks as a project: file tabs beside the code of the open file. Each child code block names
+// its file with a path, such as ```ts [server/api/kv.ts]```. The tabs list folders first, like an editor, and
+// `default-value` names the file that opens first, else the first block. A wide panel shows the tabs as a column beside
+// the code. A narrow panel, such as a hero beside its copy, shows them as a row above the code, so the code keeps the width.
 import type { VNode } from "vue";
 
 const props = defineProps<{
@@ -12,13 +11,6 @@ const props = defineProps<{
 }>();
 
 const slots = defineSlots<{ default?: () => VNode[] }>();
-const id = useId();
-const selected = ref(0);
-const tree = useTemplateRef<HTMLElement>("tree");
-const frame = useTemplateRef<HTMLElement>("frame");
-// The tree is a column from 44rem of panel width, the same width as the container query below.
-const { width } = useElementSize(frame);
-const orientation = computed(() => (width.value === 0 ? undefined : width.value >= 704 ? "vertical" : "horizontal"));
 
 function flatten(nodes: VNode[]): VNode[] {
   return nodes.flatMap((node) =>
@@ -31,103 +23,62 @@ const files = computed(() =>
     .map((node) => ({ node, path: String(node.props?.filename ?? "") }))
     .filter((file) => file.path),
 );
+const selected = ref(files.value.find((file) => file.path === props.defaultValue)?.path ?? files.value[0]?.path ?? "");
 
-const rows = computed(() => buildFileTree(files.value.map((file) => file.path)));
-if (props.defaultValue) selected.value = Math.max(0, files.value.findIndex((file) => file.path === props.defaultValue));
-
-// The row of tabs hides the folders, so two files with the same name also show their folder.
-const sharedNames = computed(() => {
+// The tabs show file names, so two files with the same name also show their folder.
+const items = computed(() => {
   const names = files.value.map((file) => file.path.split("/").at(-1));
-  return new Set(names.filter((name, index) => names.indexOf(name) !== index));
+  const shared = new Set(names.filter((name, index) => names.indexOf(name) !== index));
+  return buildFileTree(files.value.map((file) => file.path)).flatMap((row) => {
+    if (row.kind !== "file") return [];
+    const parts = row.path.split("/");
+    const folder = shared.has(row.name) && parts.length > 1 ? `${parts.at(-2)}/` : "";
+    return [{ label: row.name, value: row.path, folder }];
+  });
 });
-
-function folderOf(path: string) {
-  const parts = path.split("/");
-  return sharedNames.value.has(parts.at(-1)) && parts.length > 1 ? `${parts.at(-2)}/` : "";
-}
-
-// The file rows are tabs. Arrow keys move through them in tree order. The tree is a column or a row,
-// depending on the panel width, so both arrow pairs work.
-function onTreeKeydown(event: KeyboardEvent) {
-  const order = rows.value.flatMap((row) => (row.kind === "file" ? [row.index] : []));
-  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
-  const target = event.key === "Home" ? order[0] : event.key === "End" ? order.at(-1)
-    : step ? order[(order.indexOf(selected.value) + step + order.length) % order.length] : undefined;
-  if (target === undefined) return;
-  event.preventDefault();
-  selected.value = target;
-  tree.value?.querySelector<HTMLElement>(`[data-index="${target}"]`)?.focus();
-}
 </script>
 
 <template>
-  <div ref="frame" class="vh-files-frame">
-  <div class="vh-files">
-    <div ref="tree" class="vh-files-tree" role="tablist" aria-label="Files" :aria-orientation="orientation" @keydown="onTreeKeydown">
-      <template v-for="row in rows" :key="row.path">
-        <div v-if="row.kind === 'folder'" class="vh-files-row is-folder" role="presentation" :style="{ '--depth': row.depth }">
-          <UIcon name="i-lucide-folder-open" class="size-3.5 shrink-0" aria-hidden="true" />
-          <span>{{ row.name }}</span>
-        </div>
-        <button
-          v-else
-          :id="`${id}-tab-${row.index}`"
-          type="button"
-          role="tab"
-          class="vh-files-row is-file"
-          :style="{ '--depth': row.depth }"
-          :data-index="row.index"
-          :data-state="selected === row.index ? 'active' : 'inactive'"
-          :aria-selected="selected === row.index"
-          :aria-controls="`${id}-panel-${row.index}`"
-          :aria-label="row.path"
-          :tabindex="selected === row.index ? 0 : -1"
-          @click="selected = row.index"
-        >
+  <div class="vh-files-frame">
+    <div class="vh-files">
+      <!-- Both tab lists render on the server. The container query shows one, so the layout never moves. -->
+      <UTabs v-for="orientation in (['horizontal', 'vertical'] as const)" :key="orientation" v-model="selected" :items="items" :content="false" :orientation="orientation" class="vh-files-tabs items-start font-mono" :class="orientation === 'vertical' ? 'is-column' : 'is-row'" aria-label="Files">
+        <template #leading="{ item }">
           <!-- The file's language icon, as in Nuxt UI code block headers. The box keeps the names aligned when a
                file has no icon. -->
-          <span class="vh-files-icon" aria-hidden="true"><ProseCodeIcon :filename="row.path" /></span>
-          <span><span v-if="folderOf(row.path)" class="vh-files-folder">{{ folderOf(row.path) }}</span>{{ row.name }}</span>
-        </button>
-      </template>
-    </div>
+          <span class="vh-files-icon" aria-hidden="true"><ProseCodeIcon :filename="item.value" /></span>
+        </template>
+        <template #default="{ item }">
+          <span><span v-if="item.folder" class="text-dimmed">{{ item.folder }}</span>{{ item.label }}</span>
+        </template>
+      </UTabs>
 
-    <div
-      v-for="(file, index) in files"
-      :id="`${id}-panel-${index}`"
-      :key="file.path"
-      role="tabpanel"
-      class="vh-files-code"
-      :data-state="selected === index ? 'active' : 'inactive'"
-      :aria-labelledby="`${id}-tab-${index}`"
-    >
-      <p class="vh-files-path">{{ file.path }}</p>
-      <div class="vh-files-body" data-code-header>
-        <component :is="file.node" hide-header tabindex="-1" />
+      <!-- Inactive files stay mounted but hidden, so switching files does not move the page. -->
+      <div v-for="file in files" v-show="selected === file.path" :key="file.path" role="tabpanel" class="vh-files-code" :aria-label="file.path">
+        <p class="vh-files-path">{{ file.path }}</p>
+        <div class="vh-files-body" data-code-header>
+          <component :is="file.node" hide-header tabindex="-1" />
+        </div>
       </div>
     </div>
-  </div>
   </div>
 </template>
 
 <style scoped>
-/* The panel width, not the viewport, decides where the tree goes. */
+/* The panel width, not the viewport, decides where the tabs go. */
 .vh-files-frame {
   container-type: inline-size;
 }
 
-/* One framed panel, like a small editor: the tree on a tinted pane, the code under a header with its path. */
+/* One framed panel, like a small editor: the file tabs, then the code under a header with its path. */
 .vh-files {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--ui-border);
-  border-radius: calc(var(--ui-radius) * 3);
+  border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.04),
-    0 12px 32px -16px rgb(0 0 0 / 0.16);
 }
 
 @media (min-width: 40rem) {
@@ -136,76 +87,48 @@ function onTreeKeydown(event: KeyboardEvent) {
   }
 }
 
-/* Narrow panels: the files are one row of tabs. The path header names the folder. */
-.vh-files-tree {
-  display: flex;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--ui-border);
-  background: var(--ui-bg-muted);
-  padding: 0.25rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  white-space: nowrap;
-  scrollbar-width: none;
-}
-
-.vh-files-row.is-folder {
+.vh-files-tabs.is-column {
   display: none;
 }
 
-.vh-files-folder {
-  color: var(--ui-text-dimmed);
+/* A row of many files scrolls instead of cutting the names. The padding keeps the list's bottom line in view. */
+.vh-files-tabs.is-row {
+  overflow-x: auto;
+  padding-bottom: 1px;
+  scrollbar-width: none;
 }
 
-/* Wide panels: the tree column fits its longest name, so file names never truncate. The code takes the rest. */
+.vh-files-tabs.is-row :deep([data-slot="list"]) {
+  width: max-content;
+  min-width: 100%;
+}
+
+.vh-files-tabs.is-row :deep([data-slot="trigger"]) {
+  flex: none;
+}
+
+/* Wide panels: the tab column fits its longest name, so file names never truncate. The code takes the rest. */
 @container (min-width: 44rem) {
   .vh-files {
     grid-template-columns: max-content minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
-  .vh-files-tree {
+  .vh-files-tabs.is-row {
+    display: none;
+  }
+
+  .vh-files-tabs.is-column {
+    display: flex;
     min-width: 9rem;
-    flex-direction: column;
     overflow: hidden auto;
     border-right: 1px solid var(--ui-border);
-    border-bottom: 0;
-    padding: 0.5rem 0.25rem;
-  }
-
-  .vh-files-row.is-folder {
-    display: flex;
-  }
-
-  .vh-files-folder {
-    display: none;
+    padding: 0.5rem;
   }
 
   .vh-files-code {
     grid-area: 1 / 2;
   }
-}
-
-.vh-files-row {
-  display: flex;
-  min-height: 1.75rem;
-  flex: none;
-  align-items: center;
-  gap: 0.4375rem;
-  border-radius: var(--ui-radius);
-  padding-inline: 0.5rem;
-  color: var(--ui-text-muted);
-  text-align: start;
-}
-
-@container (min-width: 44rem) {
-  .vh-files-row {
-    padding-inline: calc(0.375rem + var(--depth) * 0.75rem) 0.375rem;
-  }
-}
-
-.vh-files-row.is-folder {
-  color: var(--ui-text-dimmed);
 }
 
 .vh-files-icon {
@@ -221,28 +144,6 @@ function onTreeKeydown(event: KeyboardEvent) {
   height: 100%;
 }
 
-.vh-files-row.is-file {
-  cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.vh-files-row.is-file:hover {
-  color: var(--ui-text-highlighted);
-}
-
-.vh-files-row.is-file[data-state="active"] {
-  background: color-mix(in srgb, var(--ui-text-highlighted) 7%, transparent);
-  color: var(--ui-text-highlighted);
-}
-
-.vh-files-row.is-file:focus-visible {
-  outline: 2px solid var(--ui-text-highlighted);
-  outline-offset: -2px;
-}
-
-/* Inactive files stay mounted but hidden, so switching files does not move the page. */
 .vh-files-code {
   display: flex;
   min-width: 0;
@@ -250,14 +151,9 @@ function onTreeKeydown(event: KeyboardEvent) {
   flex-direction: column;
 }
 
-.vh-files-code[data-state="inactive"] {
-  display: none;
-}
-
-/* The header lines up with the first tree row. */
 .vh-files-path {
   display: flex;
-  min-height: 2.75rem;
+  min-height: 2.5rem;
   flex: none;
   align-items: center;
   margin: 0;

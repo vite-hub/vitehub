@@ -5,10 +5,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
-import { consoleBlobKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey, installConsoleEnvScope, resolveConsoleEnv } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import { installConsoleEnv, manageConsoleEnv } from "../src/console/runtime/server/env.ts"
+import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import envHandlerRoute from "../src/console/runtime/server/env.get.ts"
 import { allowed } from "./support/console-access.ts"
@@ -28,16 +27,13 @@ async function temporaryDirectory(prefix: string) {
 
 const envHandler = allowed(envHandlerRoute)
 
-// SAFETY: Console state uses the same optional symbol keys in runtime and tests.
-const scope = globalThis as ConsoleInvocationScope
-const symbols = [consoleBlobKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey]
-afterEach(() => { for (const key of symbols) { Reflect.deleteProperty(scope, key); Reflect.deleteProperty(process, key) } })
+afterEach(() => { Reflect.deleteProperty(globalThis, consoleStateKey) })
 
 describe("Console Env", () => {
   it("loads declaration metadata without importing provider-backed Server Env", async () => {
     const root = await temporaryDirectory("vitehub-console-env-")
     const plugin = join(root, "console.mjs")
-    await writeConsoleNitroPlugin(plugin, root, ["env"], [], { agents: [], content: {} }, [])
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["env"], catalog: { agents: [], content: {} }, blobStores: [] })
     const generated = await readFile(plugin, "utf8")
     // The Console runtime loads the declarations with the first Console request.
     const runtimeImports = generated.split("\n").find(line => line.includes("await Promise.all("))
@@ -81,7 +77,6 @@ describe("Console Env", () => {
       [undefined, [""]],
     ])
   })
-  it("uses registry keys distinct from Blob", () => { expect(consoleEnvKey).not.toBe(consoleBlobKey) })
   it("serves declaration metadata and rejects mutations", async () => {
     installConsoleSections("/env-test", ["env"])
     const metadata = { entries: [{ path: "env.server.token", source: "provider" as const, provider: "vault", secret: true, required: true, hasDefault: false, type: "string" }, { path: "env.server.dryRun", source: "env" as const, secret: false, required: true, hasDefault: true, type: "boolean" }] }
@@ -101,7 +96,7 @@ describe("Console Env", () => {
       { masked: false, path: "env.server.label", required: false, source: "env" as const, status: "missing" as const },
       { masked: true, provider: "vault", required: true, source: "provider" as const, status: "missing" as const },
     ] }))
-    installConsoleEnv("/env-test", metadata, undefined, inspect)
+    installConsoleEnv("/env-test", metadata, inspect)
     await expect(envHandler(consoleEvent({ method: "GET", url: "http://localhost/_vitehub/api/env" }))).resolves.toEqual(metadata)
     expect(inspect).not.toHaveBeenCalled()
     await expect(envHandler(consoleEvent({ url: "/_vitehub/api/env?status=1" }))).resolves.toEqual({
@@ -120,36 +115,11 @@ describe("Console Env", () => {
     const statusEvent = consoleEvent({ url: "/_vitehub/api/env?status=1" })
     installConsoleEnv("/env-test", { entries: [] })
     await expect(envHandler(statusEvent)).rejects.toMatchObject({ statusCode: 503, statusMessage: "Env status is unavailable." })
-    installConsoleEnv("/env-test", { entries: [] }, undefined, async () => { throw new Error("private provider detail") })
+    installConsoleEnv("/env-test", { entries: [] }, async () => { throw new Error("private provider detail") })
     await expect(envHandler(statusEvent)).rejects.toMatchObject({ statusCode: 503, statusMessage: "Env status is unavailable." })
-  })
-  it("preserves the authenticated request and keeps management out of metadata", async () => {
-    installConsoleSections("/env-test", ["env"])
-    const request = new Request("https://app.test/_vitehub/env/manage", { method: "POST", headers: { cookie: "session=test", origin: "https://app.test" }, body: JSON.stringify({ action: "inspect", path: "env.server.token" }) })
-    let received: Request | undefined
-    installConsoleEnv("/env-test", { entries: [] }, async value => { received = value; return Response.json({ ok: true }) })
-    await expect(envHandler(consoleEvent({ method: "GET", url: "http://localhost/_vitehub/api/env" }))).resolves.toEqual({ entries: [] })
-    expect(await (await manageConsoleEnv(request)).json()).toEqual({ ok: true })
-    expect(received).toBe(request)
-    expect(received?.headers.get("cookie")).toBe("session=test")
-    expect(await received?.json()).toEqual({ action: "inspect", path: "env.server.token" })
-    installConsoleSections("/env-test", [])
-    expect((await manageConsoleEnv(request)).status).toBe(404)
   })
   it("rejects requests when Env is disabled", async () => {
     installConsoleSections("/env-test", [])
     await expect(envHandler(consoleEvent({ method: "GET", url: "http://localhost/_vitehub/api/env" }))).rejects.toThrow("Env section not found")
-  })
-  it("isolates project inventories across shared process state", () => {
-    const processState = {}
-    const first: ConsoleInvocationScope = { process: processState }
-    const second: ConsoleInvocationScope = { process: processState }
-    const a = { entries: [] }
-    const b = { entries: [{ path: "env.server.other", source: "env" as const, secret: true, required: true, hasDefault: false }] }
-    installConsoleEnvScope("/first", a, first)
-    installConsoleEnvScope("/second", b, second)
-    expect(resolveConsoleEnv(first)).toBe(a)
-    expect(resolveConsoleEnv(second)).toBe(b)
-    expect(resolveConsoleEnv({ process: processState })).toBeUndefined()
   })
 })

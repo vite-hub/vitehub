@@ -9,7 +9,7 @@ import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search
 import { defineContent } from "vite-hub/content"
 import { glob } from "vite-hub/source"
 
-export const content = defineContent({
+export default defineContent({
   plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
     docs: glob({ cwd: "docs", include: "**/*.md" }),
@@ -66,7 +66,7 @@ import { nitro } from "nitro/vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node" }), nitro()],
+  plugins: [vitehub({ host: "node" }), nitro()],
 })`,
         },
         ...contentFiles,
@@ -91,7 +91,7 @@ export default defineNitroConfig({
           path: "server/routes/api/content/[...path].ts",
           language: "typescript",
           content: `import { defineContentHandler } from "vite-hub/content"
-import { content } from "../../../content"
+import content from "../../../content"
 
 export default defineContentHandler(content)`,
         },
@@ -108,7 +108,7 @@ export default defineContentHandler(content)`,
           content: `import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node" }]],
+  modules: [[viteHubNuxt, { host: "node" }]],
 })`,
         },
         ...contentFiles,

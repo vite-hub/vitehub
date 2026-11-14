@@ -9,6 +9,7 @@ import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
 import comarkUiHtml from "comark-ui/html"
 import comarkUi from "comark-ui/vue"
+import { contentSearchSections } from "@vite-hub/content"
 import { defu } from "defu"
 import css from "shiki/dist/langs/css.mjs"
 import diff from "shiki/dist/langs/diff.mjs"
@@ -31,8 +32,10 @@ export interface DocsDocument {
 
 export interface DocsParserOptions {
   /**
-   * comark-ui's preset options, merged over the built-in ones: `{ typeset: false, chips: false, badge: { download:
-   * false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
+   * comark-ui's preset options, merged over the built-in ones: `{ typeset: false, chips: false, diagrams: false,
+   * badge: { download: false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
+   * `diagrams: true` draws D2, PlantUML, and Graphviz fences through kroki.io, which receives their source. Set
+   * `diagrams: { server }` to use your own Kroki server.
    */
   comarkUi?: PresetOptions
   /** Blocks that show their first fenced block rendered, next to its source. */
@@ -56,15 +59,19 @@ const languages = [css, diff, html, markdownLanguage, mdc]
 const themes = { light: githubLight, dark: githubDark }
 
 /**
- * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, and the rest. The
- * site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web link into a chip
- * and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`.
+ * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, Mermaid diagrams,
+ * and the rest. The site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web
+ * link into a chip and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`. Kroki diagrams are
+ * off: they send each D2, PlantUML, or Graphviz fence to kroki.io while the page parses. Mermaid stays on, since
+ * comark-pele draws it in the process.
  *
  * The plugins are the HTML preset's, so annotate, comments, diff, and quiz parse too, with the Vue preset's copy of
  * every plugin the two share.
  */
 function docsBlocks(options: PresetOptions = {}) {
-  const merged = defu(options, { typeset: false, chips: false, badge: { download: false } }) as PresetOptions
+  const merged = defu(options, { typeset: false, chips: false, diagrams: false, badge: { download: false } }) as PresetOptions
+  // Keep the plugin's authored-SVG rejection when remote drawing is off, without changing explicit opt-ins.
+  if (merged.diagrams === false) merged.diagrams = { draw: false }
   const vue = new Map(comarkUi(merged).plugins.map(plugin => [plugin.name, plugin]))
   return comarkUiHtml(merged).plugins.map(plugin => vue.get(plugin.name) ?? plugin)
 }
@@ -127,16 +134,20 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
 }
 
 /**
- * Parse Markdown with components (`::name`), comark-ui's blocks, GitHub alerts, task lists, highlighted code, and a
- * heading outline. The client renders the nodes with comark-ui's components.
+ * The Comark parser options of a docs page: components (`::name`), comark-ui's blocks, GitHub alerts, task lists,
+ * highlighted code, and a heading outline. The page route parses through Content with these options, and drafts,
+ * credits, and search parse with the same ones through `createDocsParser()`, so every path gives the same nodes.
+ *
+ * Pass them to `defineContent({ markdown })`. `preset: false` keeps Content's own comark-ui preset out, since these
+ * plugins already hold the docs configuration of comark-ui.
  */
-export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
+export function docsMarkdown(options: DocsParserOptions = {}): { preset: false, autoClose: true, plugins: NonNullable<ParserOptions["plugins"]> } {
   const extra = options.plugins ?? []
   const configured = options.examples ?? {}
   const isSources = (value: DocsExamplesOptions | Record<string, string>): value is Record<string, string> => Object.values(value).every(source => typeof source === "string")
   const settings = isSources(configured) ? {} : configured
   const sources = { ...options.exampleSources, ...(isSources(configured) ? configured : {}) }
-  const examplePlugin = examples(markdown => parseDocument(markdown), sources, settings)
+  const examplePlugin = examples(markdown => parseExample(markdown), sources, settings)
   // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
   // plugins replace both.
   const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks(options.comarkUi), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), examplePlugin, ...extra]
@@ -144,17 +155,36 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   // Generate default previews after site plugins have had a chance to supply their own.
   const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin && plugin !== examplePlugin)
   if (byName.get(examplePlugin.name) === examplePlugin) plugins.push(examplePlugin)
-  const parse = createMarkdownParser({ plugins })
-  const parseDocument = async (markdown: string): Promise<DocsDocument> => {
+  // An example's preview parses without the page step: the page step runs once, over the whole page.
+  const parseExample = createMarkdownParser({ autoClose: true, plugins })
+  return { preset: false, autoClose: true, plugins: [...plugins, docsPageStep] }
+}
+
+/** The last step of a page parse, after every plugin: list items without paragraphs, example anchors, and HTML-only blocks. */
+const docsPageStep: ComarkPlugin = {
+  name: "docs-page",
+  async post(state) {
+    const nodes = isolateExampleHeadings(unwrapListParagraphs(state.tree.nodes))
+    await renderHtmlBlocks(nodes)
+    state.tree.nodes = nodes
+  },
+}
+
+/**
+ * Parse Markdown with the plugins of `docsMarkdown()`. The client renders the nodes with comark-ui's components.
+ */
+export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
+  const { autoClose, plugins } = docsMarkdown(options)
+  const parse = createMarkdownParser({ autoClose, plugins })
+  return async (markdown) => {
     const document = await parse(markdown)
     return { nodes: document.nodes, toc: tocOf(document) }
   }
-  return async (markdown) => {
-    const document = await parseDocument(markdown)
-    const nodes = isolateExampleHeadings(unwrapListParagraphs(document.nodes))
-    await renderHtmlBlocks(nodes)
-    return { ...document, nodes }
-  }
+}
+
+/** The page of a document that Content parsed with `docsMarkdown()`. */
+export function docsDocumentOf(document: { nodes: ComarkNode[], meta: object }): DocsDocument {
+  return { nodes: document.nodes, toc: tocOf(document) }
 }
 
 const markdownLanguages = new Set(["md", "markdown", "mdc", "comark"])
@@ -166,7 +196,7 @@ const defaultExampleTags = ["example", "correct", "incorrect"]
  * Markdown, parsed here with the page's own plugins. With `name`, it is the Vue file of that name in the examples
  * folder, and its source becomes the code block. Either way the page reaches the browser as nodes.
  */
-function examples(parse: (markdown: string) => Promise<DocsDocument>, sources: Record<string, string>, options: DocsExamplesOptions): ComarkPlugin {
+function examples(parse: (markdown: string) => Promise<MarkdownDocument>, sources: Record<string, string>, options: DocsExamplesOptions): ComarkPlugin {
   const exampleTags = new Set(options.tags ?? defaultExampleTags)
   const visit = async (nodes: ComarkNode[]): Promise<void> => {
     for (const node of nodes) {
@@ -254,44 +284,18 @@ function unwrapListParagraphs(nodes: ComarkNode[], inListItem = false): ComarkNo
   })
 }
 
-function tocOf(document: MarkdownDocument): DocsTocLink[] {
-  const meta: { toc?: { links?: DocsTocLink[] } } = document.meta
-  return meta.toc?.links ?? []
+function tocOf(document: { meta: object }): DocsTocLink[] {
+  const toc: { links?: DocsTocLink[] } | undefined = Reflect.get(document.meta, "toc")
+  return toc?.links ?? []
 }
 
-/** Blocks that only agents read. The site renders nothing for them, so search skips them too. */
-const agentOnly = new Set(["agent-only"])
-/** An example's preview repeats its source, which search already reads in the code block. */
-const repeated = new Set(["example-preview"])
+/**
+ * Blocks that search skips: `::agent-only`, which the site does not render, an example's preview, which repeats its
+ * source, and the styles that comark-ui adds.
+ */
+const searchIgnore = ["agent-only", "example-preview", "typeset-styles"]
 
 /** Split a page into one search entry per h2 and h3, like Nuxt UI's content search expects. */
 export function docsSearchSections(path: string, title: string, nodes: ComarkNode[]): DocsSearchSection[] {
-  const sections: DocsSearchSection[] = [{ id: path, title, titles: [], level: 1, content: "" }]
-  const titles = [title]
-  const visit = (node: ComarkNode) => {
-    if (typeof node === "string") {
-      sections.at(-1)!.content += node
-      return
-    }
-    const [tag, props, ...children] = node
-    if (tag === null || agentOnly.has(tag) || repeated.has(tag) || tag === "typeset-styles") return
-    const level = /^h([23])$/.exec(tag)?.[1]
-    if (level) {
-      const depth = Number(level)
-      titles.length = depth - 1
-      const text = textOf(children)
-      sections.push({ id: `${path}#${String(props.id ?? "")}`, title: text, titles: [...titles], level: depth, content: "" })
-      titles[depth - 1] = text
-      return
-    }
-    for (const child of children) visit(child)
-    if (/^(p|li|pre|h4|h5|h6|td|th|blockquote)$/.test(tag)) sections.at(-1)!.content += " "
-  }
-  for (const node of nodes) visit(node)
-  for (const section of sections) section.content = section.content.replace(/\s+/g, " ").trim()
-  return sections
-}
-
-function textOf(nodes: ComarkNode[]): string {
-  return nodes.map(node => typeof node === "string" ? node : node[0] === null ? "" : textOf(node.slice(2) as ComarkNode[])).join("")
+  return contentSearchSections({ path, title, nodes }, { ignore: searchIgnore })
 }

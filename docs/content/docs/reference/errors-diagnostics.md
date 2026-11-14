@@ -30,13 +30,13 @@ if (error) {
 }
 ```
 
-`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
+`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
 
 A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics 1.3 requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
 
 ## Diagnostic codes
 
-Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Other packages still use numbered codes:
+New codes use names: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Codes that a package published with a number keep it:
 
 | Format | Catalog group |
 | --- | --- |
@@ -51,10 +51,10 @@ Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, suc
 Catch a diagnostic by its full `code` when your app can fix or classify that exact defect.
 
 ```ts
-import { getAgentFromRegistry } from '@vite-hub/agent'
+import { loadAgent } from 'vite-hub/agent'
 
 try {
-  await getAgentFromRegistry('triage', {})
+  await loadAgent('triage', {})
 }
 catch (error) {
   if (error instanceof Error && 'code' in error && error.code === 'AGENT_R0001') {
@@ -66,17 +66,23 @@ catch (error) {
 
 A wrapped lower-level failure stays in `cause` for protected in-process diagnostics. ViteHub does not wrap `DOMException`, `AggregateError`, cancellation errors, or app and third-party errors when the contract depends on their type.
 
-`isRuntimeDiagnostic(error)` from `@vite-hub/runtime` detects a live Nostics error, even across bundled copies. Then compare its `code` with the codes you handle. It rejects serialized records. It does not make diagnostic text safe for a public response.
+`isRuntimeDiagnostic(error)` from `vite-hub/runtime` detects a live Nostics error, even across bundled copies. Then compare its `code` with the codes you handle. It rejects serialized records. It does not make diagnostic text safe for a public response.
 
 Browser page evaluation, uploaded Sandbox scripts, standalone Deno deploy runners, and test helpers cannot load Nostics, so they throw native errors. The owning package translates or sanitizes them when they return to the ViteHub process.
 
 ## Operational errors
 
-Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` copies and freezes its public `name`, `code`, `message`, `details`, and `requestId` when created. `toJSON()` omits its `cause`. Public details must be bounded JSON data.
 
 Use an operational code to choose what your app does. Use a Nostics code to find and fix ViteHub config, build, or runtime code.
+
+<a id="durability"></a>
+
+## Durability diagnostics
+
+A Node server throws `RUNTIME_R0017` at boot when `VITEHUB_INSTANCES` or `node.instances` is greater than 1 and a primitive keeps its state in one process or on one host. The message lists each primitive with its fix. Move each one to a shared store, or run one instance. `RUNTIME_R0018` means that the instance count is not a positive integer. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances).
 
 ## Agent diagnostics
 
@@ -107,7 +113,7 @@ The model sees the diagnostic message, fix, sources, and docs. Put only text the
 
 The AI SDK reads only `error.message`, so its adapter wraps a Nostics tool failure in an `Error` with the formatted message. The original diagnostic is its `cause`.
 
-`normalizeRuntimeDiagnosticError(error)` keeps Nostics metadata, also from serialized errors, in bounded records. `formatRuntimeDiagnosticError(error)` from `@vite-hub/runtime` formats them as text. Sources share the node limit, and all strings share the size limit, so large records can lose metadata.
+`normalizeRuntimeDiagnosticError(error)` keeps Nostics metadata, also from serialized errors, in bounded records. `formatRuntimeDiagnosticError(error)` from `vite-hub/runtime` formats them as text. Sources share the node limit, and all strings share the size limit, so large records can lose metadata.
 
 Nostics does not change public HTTP error mapping, approval decisions, or cancellation. A diagnostic does not become a public `ViteHubError`. Unknown public failures map to `INTERNAL`. Public HTTP responses never include causes or stacks.
 
@@ -127,12 +133,13 @@ For ViteHub defects, check the diagnostic code instead of native `TypeError` and
 | `AGENT_TRIGGER_NAME_INVALID` | `AGENT_C0006` |
 | `AGENT_CAPABILITY_MODE_INVALID` | `AGENT_C0007` |
 | `AGENT_CAPABILITIES_INVALID` | `AGENT_C0008` |
-| `AGENT_EXTENSION_NOT_COMPILED` | `AGENT_B0001` |
 | `AGENT_CAPABILITY_DUPLICATE` | `AGENT_C0009` |
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
 Content uses `AGENT_C0012` for invalid `content()` options, `AGENT_R1011` when the `content` primitive is not a Content runtime with collections, and `AGENT_R1012` for an unknown collection. See [Content capability](/docs/content/agent-capability).
+
+i18n uses `AGENT_C0014` for invalid `i18n()` options, and `AGENT_R0104` when the `i18n` primitive is missing or is not `agentI18n` from `vite-hub/i18n/server`. See [i18n capability](/docs/i18n/agent-capability).
 
 Forge uses `AGENT_C0011` for invalid options. `AGENT_R0941` to `AGENT_R0945` cover credentials, repository access, context, requests, and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
@@ -175,7 +182,7 @@ Keep the raw error in protected diagnostics. Provider payloads and causes can co
 | `APPROVAL_REQUIRED` | A Capability needs approval to continue. `requestId` names the approval request, if there is one. |
 | `HOST_RESTARTED` | The host restarted during an inline Chat invocation. `details.retry` is `pending` when ViteHub will retry the message, or `exhausted` after a second restart. |
 | `TIMEOUT` | A Chat or queued webhook invocation hit its `timeout`. Chat replies say the Agent ran out of time, not the generic `INTERNAL` text. |
-| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | A known public app or Capability failure. |
+| `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `CAPABILITY_*`, `TRANSCRIPTION_*` | A known public app or Capability failure. |
 | `INTERNAL` | No approved public mapping. The message stays generic. |
 
 `PROVIDER_QUOTA_EXHAUSTED` carries the reset time when the provider text says `try again at <time>.` with a timestamp ViteHub can parse.
@@ -191,7 +198,7 @@ Public errors include only bounded ids, categories, retry delays, reset times, a
 
 ## Bundle checks
 
-`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning.
+`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning. [Bundle checks](/docs/bundle/checks) shows how to run them in CI.
 
 ### BUNDLE_STARTUP_UNUSED
 

@@ -3,7 +3,7 @@ export type { ViteHubContext } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import {
@@ -13,8 +13,6 @@ import {
   invalidRuntimeEnvValue,
   missingRequiredEnv,
 } from "./core/errors.ts"
-import { createEnvBridgeHandler, type EnvBridgeRequestOptions } from "./http.ts"
-import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
 import type { RuntimeEnvEntry, RuntimeProviderEntry } from "./core/registry.ts"
@@ -82,33 +80,49 @@ function runtimeEnv(event?: ViteHubContext): RuntimeEnv {
 
 let warnedGeneratedSecret = false
 
+/** Options of `deriveSecret()`. */
+export interface DeriveSecretOptions {
+  /** The request event. On Cloudflare, ViteHub reads `VITEHUB_SECRET` from its Worker bindings. */
+  event?: ViteHubContext
+  /** The root secret. Without it, ViteHub reads `VITEHUB_SECRET`. */
+  root?: string
+}
+
+/** The development secret that the Vite plugin generated or selected for one project. Private to the generated module. */
+interface DevelopmentSecret {
+  envKey?: string
+  generated?: boolean
+}
+
 /**
- * Derives a 32-byte hex secret for one purpose from the root app secret, `VITEHUB_SECRET` (or `NUXT_APP_SECRET`).
+ * Derives a 32-byte hex secret for one purpose from the root app secret, `VITEHUB_SECRET`.
  * It uses HKDF-SHA256, so the result is stable while the root is unchanged and distinct for every purpose.
  * Namespace the purpose to its owner, such as `my-module:session`. ViteHub reserves the `vitehub:` prefix.
  * Throws `ENV_REQUIRED_MISSING` when no root secret is set, and `ENV_RUNTIME_VALUE_INVALID` when it is shorter than 32 characters.
+ * Only the generated `#vitehub/env/server` module passes `development`, with the project's development secret.
  */
-export async function deriveSecret(purpose: string, event?: ViteHubContext, rootOverride?: string, generatedOverride = false, rootEnvKey?: string): Promise<string> {
-  const env = runtimeEnv(event)
-  const root = rootOverride ?? readViteHubSecret(env) ?? (rootEnvKey ? env[rootEnvKey] as string | undefined : undefined)
+export async function deriveSecret(purpose: string, options: DeriveSecretOptions = {}, development: DevelopmentSecret = {}): Promise<string> {
+  const env = runtimeEnv(options.event)
+  const root = options.root ?? readViteHubSecret(env) ?? (development.envKey ? env[development.envKey] as string | undefined : undefined)
   if (!root) throw missingRequiredEnv("env", "deriveSecret() requires VITEHUB_SECRET. Generate one with `openssl rand -base64 32`.", "VITEHUB_SECRET")
   if (root.length < viteHubSecretMinimumLength) {
     throw invalidRuntimeEnvValue("env", `VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`, "VITEHUB_SECRET")
   }
-  if ((generatedOverride || env.VITEHUB_SECRET_GENERATED === "1") && !warnedGeneratedSecret) {
+  if ((development.generated || env.VITEHUB_SECRET_GENERATED === "1") && !warnedGeneratedSecret) {
     warnedGeneratedSecret = true
     console.warn("[vitehub] A generated development VITEHUB_SECRET is in use. Set VITEHUB_SECRET for deployments: builds never generate one.")
   }
   return await deriveViteHubSecret(root, purpose)
 }
 
-function hasRuntimeName(entry: RuntimeEnvEntry, env: RuntimeEnv, name: string): boolean {
-  return Object.hasOwn(env, name) && env[name] !== undefined && !(entry.source.skipEmpty && env[name] === "")
+/** An empty variable counts as missing, so it never shadows a later name or satisfies a required value. */
+function hasRuntimeName(env: RuntimeEnv, name: string): boolean {
+  return Object.hasOwn(env, name) && env[name] !== undefined && env[name] !== ""
 }
 
 function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, name?: string, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    if (hasRuntimeName(entry, env, name)) return { found: true, name, value: env[name] }
+    if (hasRuntimeName(env, name)) return { found: true, name, value: env[name] }
   }
   return { found: false }
 }
@@ -119,7 +133,7 @@ function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { 
   if (!source.found || canonical === undefined || canonical === false) return {}
   if (source.name !== canonical) return { via: "conventional" }
   const conflict = (entry.source.names || [entry.source.name])
-    .some(name => name !== canonical && hasRuntimeName(entry, env, name) && env[name] !== source.value)
+    .some(name => name !== canonical && hasRuntimeName(env, name) && env[name] !== source.value)
   return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 
@@ -648,15 +662,4 @@ export async function inspectServerEnv(
   }
   if (options.signal?.aborted) throw abortReason(options.signal)
   return Object.freeze({ entries: Object.freeze(entries.map(entry => Object.freeze(entry))) })
-}
-
-/** Limit management to safe, declared provider paths. Host variables stay read-only. */
-export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response> {
-  const targets = new Map<string, { key: string; management: EnvManagement }>()
-  for (const { entry, path } of runtimeRegistryEntries(registry)) {
-    if (!isRuntimeProviderEntry(entry)) continue
-    const management = Object.hasOwn(providers, entry.source.provider) ? providers[entry.source.provider]?.management : undefined
-    if (inspectionPath(path).path && management) targets.set(path, { key: entry.source.key, management })
-  }
-  return createEnvBridgeHandler(path => targets.get(path))
 }

@@ -2,7 +2,8 @@ import { createHmac } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineChatCapability as chat } from "../src/chat-trigger.ts"
-import { defineAgent, runAgentTrigger, verifyAgentWebhookRequest } from "../src/index.ts"
+import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { verifyAgentWebhookRequest } from "../src/trigger-runtime.ts"
 import type { ForgejoChannelOptions } from "../src/channels.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 
@@ -574,6 +575,102 @@ describe("bearer webhook signature", () => {
     await expect(missing.send({ authorization: "Bearer secret-token" })).resolves.toMatchObject({ status: 500 })
     await expect(missing.send()).resolves.toMatchObject({ status: 500 })
     expect(missing.run).not.toHaveBeenCalled()
+  })
+
+  it("rejects a registration whose secretToken resolves to no secret and that has no header", async () => {
+    const registration = [{ id: "custom", provider: "custom", secretToken: () => undefined }]
+    await expect(verifyAgentWebhookRequest(registration, new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
+      .rejects.toMatchObject({ message: expect.stringContaining("Webhook registration \"custom\" declares secretToken but it resolved to no secret"), statusCode: 401 })
+  })
+
+  it("does not call verify with an empty key when secretToken resolves to no secret", async () => {
+    const verify = vi.fn(() => true)
+    const registration = [{ id: "custom", provider: "custom", secretToken: () => undefined, signature: { verify } }]
+    await expect(verifyAgentWebhookRequest(registration, new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
+      .rejects.toMatchObject({ statusCode: 401 })
+    expect(verify).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unsigned request on a Channel route whose secretToken resolves to no secret", async () => {
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        intake: channelAdapter("intake", {
+          messages: false,
+          triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "check" } }) }) },
+          webhooks: { path: "/api/intake/webhook", secretToken: () => undefined },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/intake/webhook", {
+      body: "{}",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), "intake", { agentName: "ops" })
+    expect(response.status).toBe(401)
+    expect(run).not.toHaveBeenCalled()
+  })
+})
+
+describe("channelAdapter() webhook registrations without verification", () => {
+  async function intake() {
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
+    const invoke = vi.fn(() => Response.json({ ran: true }))
+    return { channelAdapter, invoke, triggers: { hook: defineChannelTrigger({ invoke }) } }
+  }
+
+  async function post(channel: unknown) {
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const agent = defineAgent({ channels: { intake: channel as never }, driver: { run: () => "ok" } })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    return await handler(new Request("https://example.com/api/_vitehub/channels/intake", {
+      body: "{}",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), "intake", { agentName: "ops" })
+  }
+
+  it("throws at define time when a registration declares no verification and no opt-out", async () => {
+    const { channelAdapter, triggers } = await intake()
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: {} })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: true })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: [{ secretToken: false }, { id: "second" }] })).toThrow(/"second"/)
+    expect(() => channelAdapter("intake", {
+      messages: false,
+      triggers: { hook: { ...triggers.hook, webhooks: [{ provider: "intake" }] } },
+      webhooks: false,
+    })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
+  })
+
+  it("answers 401 to an unsigned POST when a registration declares no verification", async () => {
+    const { channelAdapter, invoke, triggers } = await intake()
+    // A hand-built Channel skips the define-time check, so the route must still fail closed.
+    const response = await post({ ...channelAdapter("intake", { messages: false, triggers, webhooks: false }), webhooks: {} })
+    expect(response.status).toBe(401)
+    expect(await response.text()).toContain("declares no verification")
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("answers 401 to an unsigned POST when a trigger's own registration declares no verification", async () => {
+    const { channelAdapter, invoke, triggers } = await intake()
+    const channel = channelAdapter("intake", { messages: false, triggers, webhooks: false })
+    const response = await post({ ...channel, triggers: { hook: { ...triggers.hook, webhooks: [{ provider: "intake" }] } } })
+    expect(response.status).toBe(401)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("accepts an unsigned POST when the registration opts out with secretToken: false", async () => {
+    const { channelAdapter, invoke, triggers } = await intake()
+    const response = await post(channelAdapter("intake", { messages: false, triggers, webhooks: { secretToken: false } }))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ran: true })
+    expect(invoke).toHaveBeenCalledOnce()
   })
 })
 

@@ -32,24 +32,24 @@ export default defineChannel({
 
 | Option | Value |
 | --- | --- |
-| `adapter` | The connection. `stripe()` and `webhook()` from `vite-hub/channels` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/agent/channels` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(text, options)`. |
+| `adapter` | The connection. `stripe()` and `webhook()` from `vite-hub/channels` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/agent/channels` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(message, options)`. |
 | `on` | Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. See [Receive webhooks](#receive-webhooks). |
 | `instructions`, `capabilities`, `history` | Read by the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. |
 
 ## Send a message
 
-`useChannel()` returns immediately. `send()` calls the adapter's `send` and returns a `Result` from `vite-hub/runtime`: `[undefined, receipt]` on success or `[error, undefined]` on failure. The options are the adapter's own send options. The receipt has the Channel name, a ViteHub delivery ID, and the optional provider message ID. Check the error before you use the receipt. See [Errors](#errors) for each code.
+`useChannel()` returns immediately. `send()` calls the adapter's `send` and returns a `Result` from `vite-hub/runtime`: `[undefined, receipt]` on success or `[error, undefined]` on failure. The message is non-empty text, or an object that the adapter's `send` accepts, such as a card. The options are the adapter's own send options. The receipt has the Channel name, a ViteHub delivery ID, and the optional provider message ID. Check the error before you use the receipt. See [Errors](#errors) for each code.
 
 The optional provider `id` must be a string. Unreadable or non-string IDs are left out of the receipt and the delivery log.
 
 Clients share one definition load per runtime registry. A failed load retries on the next send. A new registry clears the cache.
 
-```ts [server/api/build-finished.post.ts] fragment
+```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
 
 export default defineEventHandler(async () => {
-  const [error, receipt] = await useChannel('alerts').send('Build finished.', { chatId: 'build-room' })
+  const [error, receipt] = await useChannel('alerts').send('Build finished.', { chatId: '@build_room' })
   if (error) throw error
   return receipt
 })
@@ -102,9 +102,9 @@ An event without a target answers 200 with `{ accepted: false, reason }`, so the
 
 | `webhook()` option | Value |
 | --- | --- |
-| `signature` | `'bearer'`, `'github-sha256'`, `'stripe-sha256'`, `{ preset: 'hmac-sha256', prefix, encoding, secretEncoding }`, or `{ verify }`. |
-| `secret` | A string, a sealed Server Env secret, or a function that returns one. `false` turns verification off. |
-| `header` | The header with the signature. `bearer` reads `authorization`, `github-sha256` reads `x-hub-signature-256`, and `stripe-sha256` reads `stripe-signature`. |
+| `signature` | `'bearer'`, `'token'`, `'github-sha256'`, `'stripe-sha256'`, `{ preset: 'hmac-sha256', prefix, encoding, secretEncoding }`, or `{ verify }`. Required with `secret`. |
+| `secret` | A string, a sealed Server Env secret, or a function that returns one. Required with `signature`. `secret: false` without `signature` accepts requests that anyone can send. |
+| `header` | The header with the signature. `bearer` reads `authorization`, `github-sha256` reads `x-hub-signature-256`, and `stripe-sha256` reads `stripe-signature`. `token` has no default, so set it. |
 | `event` | `(payload, request) => name`. The name selects the `on` target. Defaults to `'webhook'`. |
 | `id` | `(payload, request) => id`. The delivery ID that drops repeats. Defaults to the SHA-256 of the body. |
 | `path`, `aliases` | More routes. String literals, because ViteHub reads them without running the module. |
@@ -168,7 +168,7 @@ export default defineSchedule({
 
 ## Send through a chat adapter
 
-The chat adapters in `vite-hub/agent/channels` also send: `teams()`, `slack()`, `discord()`, and `telegram()`. Each one sends Markdown through one Chat SDK adapter, which it builds on the first send. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
+The chat adapters in `vite-hub/agent/channels` also send: `teams()`, `slack()`, `discord()`, and `telegram()`. Each one sends through one Chat SDK adapter, which it builds on the first send. Text is Markdown. An object goes to the Chat SDK adapter as is, so a card from `Card()` in `chat` shows as an Adaptive Card in Teams and as Block Kit in Slack. Use `{ raw }` for text without Markdown conversion. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
 
 ```ts [server/channels/teams.ts]
 import { teams } from 'vite-hub/agent/channels'
@@ -198,10 +198,20 @@ if (error) throw error
 | Option | Value |
 | --- | --- |
 | `recipient` | A Chat SDK thread ID where the bot got a message, or `user:<id>` for a direct message. |
-| `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first text, and stores it in KV. The recipient must be a channel without a message ID. |
+| `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first message, and stores it in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
 | `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message and returns the same receipt. Without a stored receipt, it posts as usual. |
 | `replace` | Optional. Needs `idempotencyKey`. Set it to the `idempotencyKey` of an earlier send to the same `recipient` and `thread`, not this send's key. After this send posts or edits, ViteHub deletes that message and its receipt. Without a stored receipt, it deletes nothing. |
+
+Send a card with `fallbackText` for notifications and clients that cannot show it. The `ChatMessage` type from `vite-hub/agent/channels` lists every form.
+
+```ts fragment
+import { Card, CardText } from 'chat'
+
+const card = Card({ title: `Build ${buildId}`, children: [CardText(`Failed on ${branch}.`)] })
+const [error] = await useChannel('teams').send({ card, fallbackText: `Build ${buildId} failed` }, { recipient: teamsChannelThreadId })
+if (error) throw error
+```
 
 Use `update` to keep one message current, such as a status card:
 

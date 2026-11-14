@@ -14,7 +14,7 @@ features you select.
 
 Use the [Nuxt module](/docs/frameworks-hosts/nuxt) in a Nuxt app, or
 [Nitro and Vite](/docs/frameworks-hosts/nitro-unjs) when you configure the
-server build yourself. The [overview](/docs/frameworks-hosts) explains presets
+server build yourself. The [overview](/docs/frameworks-hosts) explains hosts
 and the default provider for each feature.
 
 To deploy, open the guide for
@@ -30,7 +30,7 @@ resources.
 
 The [development tools](/docs/development) show the Definitions ViteHub finds
 and the output it generates. Use the [CLI](/docs/development/cli) or the
-[Console](/docs/development/console) at [console.vitehub.dev](https://console.vitehub.dev). It opens the dev server and deployed apps from one place.
+[Console](/docs/development/console) at [console.vitehub.dev](https://console.vitehub.dev), which opens your deployed apps from one place.
 Read
 [Troubleshooting](/docs/development/troubleshooting) when an integration or
 provider fails.

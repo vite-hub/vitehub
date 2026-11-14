@@ -1,11 +1,11 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
-import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default.ts"
+import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default-core.ts"
 
 import type { AgentInvocationObservationOptions, AgentInvocations, AgentInvocationsOptions, AgentInvocationStore } from "../invocations.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import type { DatabaseAgentInvocationStoreOptions } from "./database.ts"
-import type { DefaultAgentInvocationsD1 } from "./default.ts"
+import type { DefaultAgentInvocationsD1, DefaultAgentInvocationsLibsql } from "./default-core.ts"
 
 /** Built-in Invocation journal stores. `database` uses the app's ViteHub Database. `memory` keeps records in the server process. */
 export type AgentInvocationsStoreName = "database" | "memory"
@@ -63,6 +63,11 @@ export type AgentInvocationsDefault =
 export interface DefaultAgentJournalLocation {
   /** Store the journal in this D1 binding. A Cloudflare production build sets it from the default Database Definition. */
   d1?: DefaultAgentInvocationsD1
+  /**
+   * The libSQL driver for a local SQLite file or a libSQL URL. A Cloudflare production build without
+   * `agent.invocations.databaseUrl` omits it, so the Worker does not ship the libSQL client.
+   */
+  libsql?: DefaultAgentInvocationsLibsql
   /** The ViteHub project root. The default journal file and relative `file:` URLs resolve from it. */
   projectRoot: string
 }
@@ -164,7 +169,7 @@ export function resolveDefaultAgentInvocations(): AgentInvocations | undefined {
 
 /**
  * Replace the app-wide journal of Agent Definitions that set no journal, while `resolve` returns a journal.
- * A development tool, such as the fixture mode of the ViteHub Console, uses it. Pass `undefined` to remove it.
+ * The Console uses it for a journal that `installConsoleAgentDefinitions()` receives. Pass `undefined` to remove it.
  */
 export function installAgentInvocationsOverride(resolve: (() => AgentInvocations | undefined) | undefined): void {
   if (resolve) runtime()[overrideInvocationsKey] = resolve
@@ -203,10 +208,11 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     if (globalThis.process?.env?.VITEHUB_CONSOLE_DATABASE_URL?.trim()) {
       throw agentDiagnostics.AGENT_R1032({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
     }
-    const { d1, projectRoot } = options.journal
+    const { d1, libsql, projectRoot } = options.journal
     const key = JSON.stringify({
       d1: d1?.binding,
       databaseUrl: setting?.databaseUrl,
+      libsql: libsql !== undefined,
       observations: setting?.observations,
       projectRoot,
       retention: setting?.retention,
@@ -214,7 +220,7 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     })
     // Keep one journal per location and options when development reloads the generated plugin.
     if (state[defaultInvocationsKey]?.key === key) return
-    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, projectRoot }), key }
+    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot }), key }
     return
   }
   const key = JSON.stringify(setting)

@@ -254,7 +254,7 @@ async function reopen(): Promise<void> {
       <div ref="root" class="console-comment-thread flex h-full min-h-0 flex-col">
         <div v-if="error || !thread" class="flex items-center justify-between gap-2 border-b border-default py-1.5 ps-3 pe-2">
           <span class="font-semibold text-highlighted">{{ title }}</span>
-          <UButton aria-label="Close" color="neutral" icon="i-lucide-x" size="xs" variant="ghost" @click="emit('close')" />
+          <UButton aria-label="Close" icon="i-lucide-x" size="xs" variant="ghost" @click="emit('close')" />
         </div>
         <ConsoleState v-if="error" :error="error" title="Couldn't load the thread" :retry="load" />
         <p v-else-if="!thread" role="status" class="p-4 text-sm text-muted">Loading the thread…</p>
@@ -276,7 +276,7 @@ async function reopen(): Promise<void> {
         >
           <template #actions>
             <UTooltip v-if="link" text="Open page">
-              <UButton aria-label="Open page" color="neutral" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
+              <UButton aria-label="Open page" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
             </UTooltip>
           </template>
           <template #anchor="{ thread: current }">
@@ -288,7 +288,7 @@ async function reopen(): Promise<void> {
         </CommentThread>
         <p v-if="attachmentError" role="alert" class="border-t border-default px-3 py-2 text-xs text-muted">
           Some attachments could not be loaded.
-          <UButton label="Retry" size="xs" variant="link" @click="loadAttachments" />
+          <UButton label="Retry" size="xs" variant="ghost" @click="loadAttachments" />
         </p>
         <p v-if="thread && !loading && !canWrite && !sessionError" class="border-t border-default px-3 py-2 text-xs text-muted">
           You can read this thread. The app's <code>authorize</code> policy does not let you reply to it.

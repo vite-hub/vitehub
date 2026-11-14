@@ -21,26 +21,26 @@ const images = [
     </AttachmentGroup>
     <Attachment state="uploading" class="w-full">
       <AttachmentMedia>
-        <UIcon name="i-ph-circle-dashed-light" />
+        <UIcon name="i-lucide-circle-dashed" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle>sales-dashboard.pdf</AttachmentTitle>
         <AttachmentDescription>Uploading · 64%</AttachmentDescription>
       </AttachmentContent>
       <AttachmentActions>
-        <AttachmentAction icon="i-ph-x-light" aria-label="Cancel the upload of sales-dashboard.pdf" />
+        <AttachmentAction icon="i-lucide-x" aria-label="Cancel the upload of sales-dashboard.pdf" />
       </AttachmentActions>
     </Attachment>
     <Attachment class="w-full">
       <AttachmentMedia>
-        <UIcon name="i-ph-file-code-light" />
+        <UIcon name="i-lucide-file-code" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle>message-renderer.vue</AttachmentTitle>
         <AttachmentDescription>Vue · 12 KB</AttachmentDescription>
       </AttachmentContent>
       <AttachmentActions>
-        <AttachmentAction icon="i-ph-x-light" aria-label="Remove message-renderer.vue" />
+        <AttachmentAction icon="i-lucide-x" aria-label="Remove message-renderer.vue" />
       </AttachmentActions>
     </Attachment>
   </div>

@@ -2,11 +2,10 @@ import { runInNewContext } from "node:vm"
 import { Window } from "happy-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
-import { H3 } from "h3"
 import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuthAccessRoutes, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/server.ts"
+import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 
 import type { AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"
@@ -22,11 +21,14 @@ vi.mock("better-auth", () => ({
 }))
 
 const definition = defineAuth({ appName: "ViteHub" })
-const request = new Request("https://example.com/api/private")
+// Each test sends its own request: guards of one request share one session lookup.
+let request: Request
 const protectedAction = vi.fn((_input: unknown, _authorization: AuthAuthorization) => "protected")
 
 describe("server authentication provider boundaries", () => {
   beforeEach(() => {
+    resetAuth()
+    request = new Request("https://example.com/api/private")
     providerMocks.betterAuth.mockReset()
     providerMocks.getSession.mockReset()
     providerMocks.handler.mockReset()
@@ -46,7 +48,7 @@ describe("server authentication provider boundaries", () => {
     providerMocks.getSession.mockResolvedValue(null)
     await expect(guarded(request)).resolves.toMatchObject({ status: 401 })
     providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-    await expect(guarded(request)).resolves.toBe("user-1")
+    await expect(guarded(new Request(request.url))).resolves.toBe("user-1")
   })
 
   it("runs a foreign authorization callback and enforces its verdict", async () => {
@@ -56,7 +58,7 @@ describe("server authentication provider boundaries", () => {
     await expect(guarded(request)).resolves.toBe("protected")
 
     providerMocks.getSession.mockResolvedValue({ session: { id: "session-2" }, user: { id: "user-2" } })
-    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    await expect(guarded(new Request(request.url))).resolves.toMatchObject({ status: 403 })
     expect(protectedAction).toHaveBeenCalledOnce()
   })
 
@@ -189,7 +191,7 @@ describe("server authentication provider boundaries", () => {
 
     const providerError = new ViteHubError("AUTH_PROVIDER_OPERATION_FAILED", "Custom provider failure.")
     providerMocks.getSession.mockRejectedValueOnce(providerError)
-    await expect(withAuth(protectedAction, definition)(request)).rejects.toBe(providerError)
+    await expect(withAuth(protectedAction, definition)(new Request(request.url))).rejects.toBe(providerError)
   })
 
   it("keeps handleAuthRequest as the exact Better Auth passthrough", async () => {
@@ -394,12 +396,12 @@ describe("server authentication provider boundaries", () => {
     expect(origin).toBe("https://example.com")
   })
 
-  it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
+  it("resolves the Definition callback once for an Auth request", async () => {
     const resolve = vi.fn(() => ({
       baseURL: "https://example.com",
       secret: "abcdefghijklmnopqrstuvwxyz0123456789",
     }))
-    const requestDefinition = kind === "definition" ? defineAuth(resolve) : defineAuth({ runtime: resolve })
+    const requestDefinition = defineAuth(resolve)
     const response = new Response("ok")
     providerMocks.handler.mockResolvedValue(response)
 
@@ -461,7 +463,7 @@ describe("server authentication provider boundaries", () => {
     allowed = false
     const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition)
     expect(forbidden?.status).toBe(403)
-    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    expect(await forbidden?.json()).toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
     expect(authorize).toHaveBeenCalledTimes(2)
   })
 
@@ -478,7 +480,7 @@ describe("server authentication provider boundaries", () => {
     const forbidden = await requireAuthAccessRoutes(request, [0], accessDefinition, [0])
 
     expect(forbidden?.status).toBe(403)
-    expect(await forbidden?.json()).toEqual({ error: "Forbidden." })
+    expect(await forbidden?.json()).toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
   })
 
   it("passes through custom route authorization responses", async () => {
@@ -513,7 +515,7 @@ describe("server authentication provider boundaries", () => {
       if (!(response instanceof Response)) return
       expect(response.status).toBe(401)
       expect(response.headers.get("location")).toBeNull()
-      expect(await response.json()).toEqual({ error: "Unauthorized." })
+      expect(await response.json()).toEqual({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "SIGNED_OUT" } })
       expect(authorize).not.toHaveBeenCalled()
       expect(protectedAction).not.toHaveBeenCalled()
     })
@@ -545,7 +547,7 @@ describe("server authentication provider boundaries", () => {
       expect(forbidden).toBeInstanceOf(Response)
       if (!(forbidden instanceof Response)) return
       expect(forbidden.status).toBe(403)
-      expect(await forbidden.json()).toEqual({ error: "Forbidden." })
+      expect(await forbidden.json()).toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
       expect(protectedAction).toHaveBeenCalledOnce()
     })
 
@@ -579,7 +581,7 @@ describe("server authentication provider boundaries", () => {
       expect(protectedAction).not.toHaveBeenCalled()
 
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-      await Reflect.apply(guarded, undefined, [request, forged])
+      await Reflect.apply(guarded, undefined, [new Request(request.url), forged])
       expect(protectedAction.mock.calls[0]?.[1]).not.toBe(forged)
       expect(protectedAction.mock.calls[0]?.[1]).toMatchObject({ user: { id: "user-1" } })
     })
@@ -624,10 +626,10 @@ describe("server authentication provider boundaries", () => {
       expect(signedOut).toMatchObject({ status: 401 })
       if (!(signedOut instanceof Response)) return
       expect(signedOut.headers.get("location")).toBeNull()
-      expect(await signedOut.json()).toEqual({ error: "Unauthorized." })
+      expect(await signedOut.json()).toEqual({ status: 401, statusText: "Unauthorized", message: "Unauthorized.", data: { code: "SIGNED_OUT" } })
 
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-      await expect(guarded(requestEvent(sharedRequest))).resolves.toMatchObject({ status: 403 })
+      await expect(guarded(requestEvent(new Request(sharedRequest.url)))).resolves.toMatchObject({ status: 403 })
       expect(anonymousAction).not.toHaveBeenCalled()
     })
 

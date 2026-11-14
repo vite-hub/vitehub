@@ -119,6 +119,10 @@ export default defineConnection({
 
 This file defines `portal:acme` and `portal:globex`. Use them like any other Connection, for example `useConnection("portal:acme")` or `mcp({ servers: { portal_acme: { connection: "portal:acme" } } })`. `list()`, the CLI, and the Console show each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
 
+## Write setup docs
+
+Put the steps a person needs before connecting, such as which account to choose, in a Markdown file next to the definition: `server/connections/crm.md` for `crm.ts`. The Console shows it on the Connection before the **Connect** button, `vitehub connections inspect` prints it, and `inspect()` returns it as `docs`. A definition's `docs` option replaces the file, for example to give each instance its own steps.
+
 ## Pace and retry requests
 
 Set `requests` on an OAuth provider or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
@@ -180,20 +184,11 @@ A custom Connections store must supply the token revision as the second `bridge.
 The actor module default-exports one of these policies:
 
 - A function `(request) => string | Response | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request (`403`), or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the Standard Context of the event, so `getStandardContext(request)` and the Auth helpers accept it. Relative module paths resolve from the project root.
-- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
+- The string `"development"`. It allows a request from this machine as `user:local`, but only when `NODE_ENV` is `development`. A request from another machine, such as a LAN address of `vite --host` or a tunnel, returns `403` with `CONNECTIONS_FORBIDDEN`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
 
-With `vite-hub` and the Console, the policy is the Console access policy of the data routes. The Connections routes first run the same check, then name the manager:
-
-| Console access | Check | Manager |
-| --- | --- | --- |
-| Console Auth (`console: { auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
-| App Auth (`console: { auth: "app" }`) | The app Auth session and the access routes that protect the Console. | The signed-in user, `user:<id>`. |
-| Cloudflare Access (`console: { auth: { provider: "cloudflare-access" } }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
-| No sign-in (`console: { auth: false }`) | None. | `user:host-managed` (stable actor for upgrades). |
-
-`console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
+The management API belongs to the app, not to the Console. With `vite-hub`, set `connections: { management: { actor: "./server/connections-auth.ts" } }` to mount it in production. It does not need the Console.
 
 ```ts
 import { hubConnections } from "@vite-hub/connections/vite";
@@ -218,7 +213,7 @@ const response = await handler.fetch(new Request("http://localhost/_vitehub/conn
 | `GET /_vitehub/connections/connect/:name` | Start the OAuth flow, set the `state` cookie, and redirect to the provider. Cross-site requests get `403`. |
 | `GET /_vitehub/connections/callback` | Complete the OAuth flow. |
 
-Every route runs the access policy itself, before the route body. Middleware, such as Console Auth, is an extra layer and not the only check. A route body gets the Connections runtime only from the access that the policy creates for the current request.
+Every route runs the access policy itself, before the route body. Middleware is an extra layer and not the only check. A route body gets the Connections runtime only from the access that the policy creates for the current request.
 
 The OAuth callback is reached by a browser redirect from the provider. It completes the flow only when all of these are true:
 
@@ -226,7 +221,7 @@ The OAuth callback is reached by a browser redirect from the provider. It comple
 - The `state` is known and not expired. The store deletes it when the callback reads it, so a `state` works one time only.
 - The access policy accepts the callback request, and returns the same manager that started the flow. A `state` that another manager started returns `403` and is consumed.
 
-`runtime.complete({ actor, code, state })` applies the same manager check. `actor` defaults to `user:local`, as in `runtime.authorize()`.
+`runtime.complete({ actor, code, state })` applies the same manager check. `actor` must be the manager that called `runtime.authorize()`.
 
 ## Generate API catalogs
 

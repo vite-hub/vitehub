@@ -18,7 +18,7 @@ const scopes = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.g
 
 async function fixture(rule: { read?: boolean, write?: readonly string[], approve?: boolean } = { read: true, write: ["gmail.users.drafts.create"], approve: false }) {
   const database = createClient({ url: ":memory:" })
-  const store = createDatabaseConnectionStore({ db: drizzle(database), encryptionKey: new Uint8Array(32).fill(3) })
+  const store = createDatabaseConnectionStore({ db: drizzle({ client: database }), encryptionKey: new Uint8Array(32).fill(3) })
   const requests: Array<{ body?: string, method: string, signal?: AbortSignal | null, url: URL }> = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString())
@@ -44,8 +44,8 @@ async function fixture(rule: { read?: boolean, write?: readonly string[], approv
   })
   const createRuntime = () => createConnectionsRuntime({ definitions: { google: definition } as never, fetch, store })
   const runtime = createRuntime()
-  const { state } = await runtime.authorize({ name: "google", redirectUri: "http://localhost/callback" })
-  await runtime.complete({ code: "fake-code", state })
+  const { state } = await runtime.authorize({ actor: "user:owner", name: "google", redirectUri: "http://localhost/callback" })
+  await runtime.complete({ actor: "user:owner", code: "fake-code", state })
   const tools = async (active = runtime, name = "labeller") => {
     const capability = gmail({ operations: ["search", "read", "draft"] })
     if (typeof capability.tools !== "function") throw new Error("Missing Gmail tools")
@@ -123,7 +123,7 @@ it("persists a draft approval and executes it once through Connections", async (
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
     expect(approval).toMatchObject({ action: "gmail.users.drafts.create", actor: "agent:labeller", invocationId: "invocation-1" })
     expect(await test.runtime.approve({ actor: "user:owner", id: approval!.id })).toMatchObject({ approval: { status: "executed" }, result: { id: "d1" } })
-    await expect(test.runtime.approve({ id: approval!.id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    await expect(test.runtime.approve({ actor: "user:owner", id: approval!.id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
     expect(test.requests.filter(request => request.url.pathname.endsWith("/drafts"))).toHaveLength(1)
   }
   finally { test.close() }

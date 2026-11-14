@@ -3,7 +3,7 @@ title: Prompt Input
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
 navigation.order: 24
 navigation.group: Chat
-icon: i-ph-paper-plane-tilt-light
+icon: i-lucide-send
 ---
 
 `PromptInput` is a chat input with attachments, like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input). It has a textarea that grows with its text, [Attachment](/docs/ui/attachment) parts above it, and round attach and send buttons below it. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds file paste and one `submit` payload with the text and AI SDK file parts.
@@ -13,7 +13,7 @@ icon: i-ph-paper-plane-tilt-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/prompt-input`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
 
 ```ts
 import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
@@ -131,6 +131,7 @@ Renders a `<form>` with a textarea, attachments, and attach and submit buttons.
 | ------------- | ---------------------------------------------- | --------- | ---------------------------------------------------------------- |
 | `modelValue`  | `string`                                       | `""`      | The draft text. Use `v-model`.                                   |
 | `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and handling. |
+| `attachVariant` | `"outline" \| "ghost"`                       | `"outline"` | The attach button's look. `ghost` is a muted icon, for a box that has its own frame. |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files. Text stays editable. |
 | `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and rule. |

@@ -1,22 +1,13 @@
 import { defineConfig } from "vite-plus";
 
-import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { packDefaults } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
-    tsconfig: "tsconfig.build.json",
+    ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
     },
-    entry: ["src/h3.ts", "src/index.ts", "src/node.ts", "src/shutdown.ts", "src/internal/drain.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts", "src/internal/execution-budget.ts", "src/internal/test-mode.ts", "src/internal/test-mode-setup.ts"],
-    exports: {
-      customExports: normalizePackageExports,
-      inlinedDependencies: false,
-    },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: "ci-only",
+    entry: ["src/durability.ts", "src/internal/h3.ts", "src/index.ts", "src/operations.ts", "src/internal/node.ts", "src/internal/public-url.ts", "src/internal/shutdown.ts", "src/internal/drain.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts", "src/internal/execution-budget.ts", "src/internal/test-mode.ts", "src/internal/test-mode-setup.ts"],
   },
 });

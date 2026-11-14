@@ -1,4 +1,4 @@
-import { docsPanelOf, docsPanelPages } from "./navigation.ts"
+import { docsManifestPages, docsPanelOf, docsPanelPages, isDocsPath } from "./navigation.ts"
 
 import type { DocsDocument } from "./markdown.ts"
 import type { DocsPageFrontmatter } from "./schema.ts"
@@ -85,12 +85,21 @@ export interface DocsRoute {
 }
 
 /**
- * Whether the app's catch-all pages answer every docs page, so the module does not add its own. `pages/[...slug].vue`
- * answers every path. `pages/docs/[...slug].vue` answers the pages under `/docs`, and `pages/blog/[...slug].vue` none.
+ * The URL prefix of every page: the docs base when all pages sit below it, else `/`. The docs page answers only below
+ * it, so an app that keeps its docs under `/docs` keeps its own pages and its own "Page not found" everywhere else.
  */
-export function coversDocsPages(routes: DocsRoute[], pagePaths: string[]): boolean {
-  const prefixes = routePaths(routes).flatMap(path => /^(.*?)\/:\w+\(\.\*\)\*?$/.exec(path)?.[1] ?? [])
-  return prefixes.length > 0 && pagePaths.every(path => prefixes.some(prefix => path === prefix || path.startsWith(`${prefix}/`)))
+export function docsMount(manifest: DocsManifest): string {
+  return docsManifestPages(manifest).every(page => isDocsPath(page.path, manifest.base)) ? manifest.base : "/"
+}
+
+/**
+ * Whether the app has its own catch-all page at the docs mount, which then replaces the docs page:
+ * `pages/[...slug].vue` for docs at `/`, `pages/docs/[...slug].vue` for docs at `/docs`. A catch-all at another
+ * prefix, such as `pages/blog/[...slug].vue` or the app's root catch-all beside docs at `/docs`, does not.
+ */
+export function replacesDocsPage(routes: DocsRoute[], mount: string): boolean {
+  const prefix = mount === "/" ? "" : mount
+  return routePaths(routes).some(path => /^(.*?)\/:\w+\(\.\*\)\*?$/.exec(path)?.[1] === prefix)
 }
 
 function routePaths(routes: DocsRoute[], parent = ""): string[] {

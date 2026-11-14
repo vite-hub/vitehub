@@ -1,6 +1,5 @@
 import { agentHostWorkspaceRoute } from './server/host-workspace.ts'
 import { createHash } from 'node:crypto'
-import { hasRuntimeType } from './internal/runtime-type.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Plugin, UserConfig } from 'vite'
@@ -29,7 +28,7 @@ export function agentHostRoutes(options: {
       for (const kind of ['health', 'workspace'] as const) {
         const configured = options[kind]
         if (configured === undefined) continue
-        const { exportName, route = kind === 'health' ? '/api/health' : agentHostWorkspaceRoute } = hasRuntimeType(configured, 'string') ? { exportName: configured } : configured
+        const { exportName, route = kind === 'health' ? '/api/health' : agentHostWorkspaceRoute } = typeof configured === 'string' ? { exportName: configured } : configured
         if (!/^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u.test(exportName))
           throw new Error('Agent host route exportName must be a JavaScript identifier.')
         if (!route.startsWith('/') || /[?#*]/.test(route) || (kind === 'workspace' && !route.split('/').includes(':id')))

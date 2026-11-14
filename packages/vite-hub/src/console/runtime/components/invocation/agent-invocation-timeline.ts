@@ -1,3 +1,4 @@
+import { consoleDuration } from "../../client/format.ts";
 import { computed, defineComponent, h, type PropType } from "vue";
 import type { AgentInvocationView } from "./types.ts";
 import {
@@ -23,15 +24,6 @@ export interface AgentInvocationTimelineItem {
   title: string;
 }
 
-export function formatTimelineDuration(value: number): string | undefined {
-  if (!Number.isFinite(value) || value < 0) return;
-  if (value < 1_000) return `${Math.round(value)}ms`;
-  if (value < 60_000) {
-    return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value / 1_000)}s`;
-  }
-  const seconds = Math.round(value / 1_000);
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
 
 /** ViteHub owns preparation, delivery, and its own tools; the Agent owns the rest. */
 export function timelineOwner(activity: InvocationActivity): AgentInvocationTimelineOwner {
@@ -62,8 +54,8 @@ export function invocationTimeline(invocation: AgentInvocationView, activities =
     const durationMs = Number.isFinite(activity.durationMs) ? (activity.durationMs ?? 0) : 0;
     const offsetMs = Number.isFinite(started) ? Math.max(0, started - zero) : 0;
     const timing = [
-      offsetMs ? `+${formatTimelineDuration(offsetMs)}` : "start",
-      durationMs ? formatTimelineDuration(durationMs) : undefined,
+      offsetMs ? `+${consoleDuration(offsetMs)}` : "start",
+      durationMs ? consoleDuration(durationMs) : undefined,
     ].filter(Boolean).join(" · ");
     const item: AgentInvocationTimelineItem = {
       activity,
@@ -106,7 +98,7 @@ export const AgentInvocationTimeline = defineComponent({
             }, [
               h("span", { "aria-hidden": "true", class: "vh-invocation-timeline__dot" }),
               // Screen readers hear the owner and the outcome; sighted readers get the dot shape, the ring, and the cross.
-              h("span", { class: "vh-visually-hidden" }, `${item.owner === "vitehub" ? "ViteHub" : "Agent"}${item.activity.status === "failed" ? ", failed" : ""}: `),
+              h("span", { "data-slot": "visually-hidden" }, `${item.owner === "vitehub" ? "ViteHub" : "Agent"}${item.activity.status === "failed" ? ", failed" : ""}: `),
               h("span", { class: "vh-invocation-timeline__heading" }, [
                 h("strong", item.title),
                 item.detail ? h("code", { class: "vh-invocation-timeline__detail" }, item.detail) : null,

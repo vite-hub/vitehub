@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on `host: 'node'`, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -27,12 +27,20 @@ Set `queue: true` in your ViteHub config, then import from `vite-hub/queue`. Rou
 
 ## Queue job
 
-The handler gets one job in the same shape on every provider.
+The handler gets one job in the same shape on every provider. The examples on this page enqueue the `welcome-email` Definition from Get started:
+
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload, id }) => {
+  console.log(`Processing welcome job ${id} for ${payload.email}`)
+})
+```
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `payload` | `TPayload` | The payload you sent. |
-| `id` | `string` | The provider message id, or a generated id. |
+| `id` | `string` | The message id. On the local and postgres providers and on Vercel, it is the `messageId` that `sendQueue()` returned. Cloudflare assigns its own id. |
 | `attempts` | `number` | Number of delivery attempts. |
 | `metadata` | `unknown` | Provider delivery metadata, if any. |
 
@@ -45,7 +53,7 @@ Providers can retry a failed delivery, so a handler must be safe to run again af
 | Provider | Default | Override |
 | --- | --- | --- |
 | Cloudflare | Success acknowledges the message. Failure retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`, or `void` for the default. |
-| Local | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
+| Local and postgres | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
 | Vercel | Vercel decides. When the callback returns `undefined`, ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), and Vercel retries the rest. | Return a directive from `callbackOptions.retry`, or `void` for the default. |
 
 In `vite dev`, Cloudflare and Vercel apps run jobs with the local provider and their provider's retry rules, without `onError` or `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
@@ -119,7 +127,6 @@ An option that the provider does not support returns `QUEUE_UNSUPPORTED_OPTION`,
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `id` | `string` | Message ID. Generated if omitted. It does not stop duplicates on every provider. |
 | `delaySeconds` | `number` | Delay before delivery, in seconds. |
 
 ### Cloudflare options
@@ -132,11 +139,11 @@ Cloudflare accepts the shared options and `contentType`. Guard side effects that
 
 ### Vercel options
 
-Vercel only. The app needs `preset: 'vercel'`, Queue on, `@vercel/queue`, and a deployed Queue callback. See [Vercel](/docs/frameworks-hosts/vercel) and [Queue hosts](/docs/queue/hosts).
+Vercel only. The app needs `host: 'vercel'`, Queue on, `@vercel/queue`, and a deployed Queue callback. See [Vercel](/docs/frameworks-hosts/vercel) and [Queue hosts](/docs/queue/hosts).
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `idempotencyKey` | `string` | Idempotency key. Defaults to the message `id`. |
+| `idempotencyKey` | `string` | A send with the same key does not add a second job. |
 | `region` | `string` | Send region for this job. |
 | `retentionSeconds` | `number` | Message retention, in seconds. |
 
@@ -184,7 +191,7 @@ type QueueSendResult = {
 
 Config errors, such as an unknown queue name or a missing Cloudflare binding, throw. See [Queue limits and errors](/docs/queue/limits-and-errors).
 
-`status: 'queued'` means accepted on every provider. Vercel returns its message id, or `undefined` when it accepts the job for later processing. Cloudflare returns the ViteHub `id`. Cloudflare never gets that id, so its delivery has a different message id.
+`status: 'queued'` means accepted on every provider. ViteHub does not take a message id from the caller: an `id` option returns `QUEUE_UNSUPPORTED_OPTION`. Use `idempotencyKey` to deduplicate sends. When `messageId` is set, the handler gets the same value as `id`. The local and postgres providers return the id of the stored job. Vercel returns its message id, or `undefined` when it accepts the job for later processing. Cloudflare returns no `messageId`, because its binding does not report the id that the handler gets.
 
 ### `deferQueue(name, payload, options?)`
 

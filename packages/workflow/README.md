@@ -21,11 +21,11 @@ Then install the dependency required by the selected provider:
 
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
-| Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
+| Cloudflare Workflows | None in application code                                           | Cloudflare owns run state. Without the binding, only `vite dev` runs inline; a Worker fails with `WORKFLOW_R0036`. |
+| Vercel Workflow      | `@vercel/functions`; add `workflow@5.2.3` and `@workflow/builders@5.0.6` for native durable definitions ([versions](#make-a-vercel-workflow-durable)) | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
 
-Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
+Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
 
 Set `workflow.sqlite.path` or `workflow.postgres.url` to select OpenWorkflow storage. An explicit value takes precedence over ambient storage environment variables. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`.
 
@@ -131,7 +131,7 @@ export default defineConfig({
 });
 ```
 
-The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on Vercel hosting. On other hosts, such as Node, Docker, and Deno, `postgres.url` or `sqlite.path` selects OpenWorkflow. Without them, a build fails with `WORKFLOW_C0020` and shows the config to add. Netlify cannot infer a provider. `vite dev`, and the Workflow that only the Agent turns on, run each Workflow inline in the process instead. `vitehub durability list` shows the store that the app uses.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
@@ -141,7 +141,7 @@ OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted
 
 ```ts fragment
 // worker.ts
-import { startOpenWorkflowWorker } from "@vite-hub/workflow/runtime/openworkflow-worker";
+import { startOpenWorkflowWorker } from "@vite-hub/workflow/openworkflow";
 import { installWorkflowRuntime } from "./server/workflow-runtime.ts";
 
 installWorkflowRuntime();
@@ -168,7 +168,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
 The other runtime helpers are:
 
@@ -187,11 +187,13 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Make a Vercel workflow durable
 
-A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same handler and register a native Workflow DevKit entry:
+A plain Vercel definition executes inline and does not survive a function restart. Install `@vercel/functions` as shown in the provider table above for all Vercel definitions. For durable execution, also install the Workflow DevKit packages, keep the same handler, and register a native entry:
 
 ```sh
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
+
+The peer ranges accept any 5.x from these versions. ViteHub tests with 5.2.3 and 5.0.6. Workflow 5.3.0 and later end a run as soon as the workflow function returns, even while a losing `Promise.race` step still runs; see [Upgrade the Vercel Workflow SDK](https://vitehub.dev/docs/workflows/hosts#upgrade-the-vercel-workflow-sdk).
 
 ```ts fragment
 import { defineWorkflow, type WorkflowProviderContext } from "@vite-hub/workflow";
@@ -221,7 +223,7 @@ async function inlineOnboard(payload: OnboardPayload) {
 export default defineWorkflow("onboard-user", inlineOnboard, { native: durableOnboard });
 ```
 
-ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
+ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
 
 ## Handle stable failures
 

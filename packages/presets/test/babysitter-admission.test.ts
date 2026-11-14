@@ -1,5 +1,5 @@
 import { createClient } from "@libsql/client";
-import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite";
+import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { babysitterModelAdmission, createBabysitterAdmission, babysitterAdmissionDecision, babysitterBudgetWindows, resolveBabysitterAdmissionLimits } from "../src/babysitter/admission.ts";

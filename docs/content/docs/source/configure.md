@@ -12,12 +12,12 @@ A loader reads one kind of origin, such as a GitHub repository. Use a built-in o
 
 | Loader | Key options | Behavior |
 | --- | --- | --- |
-| `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source root. `workspacePath` sets the key. |
+| `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source root. `workspacePath` sets the key. The returned Source has that key in `key`. A Workspace puts the file at this path unless the binding sets `mount`. |
 | `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Same as `file()`, with `text/markdown` as the default media type. It requires an options object. |
 | `glob(pattern)`, `glob(options)` | A pattern such as `'content/docs/**/*.md'`, or `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Finds files with `tinyglobby`. Keys are relative to `cwd` (in a pattern, the folders before the first wildcard). `prefix` adds a path before each item. `keyCache: false` turns off the key cache. Symlinks are off by default. A build bundles the files ([Hosts without a file system](#hosts-without-a-file-system)). |
 | `files(entries, options?)` | A record of path to content or a content loader, `base`, and `prefix`. | Serves files from memory. A loader runs on each read, so an `import.meta.glob()` record works. `base` is removed from each path, then a leading `./` is removed from the key. A build turns `glob()` into this. Needs no file system. |
 | `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `ignore`, `cache`. | Reads repository content through [`forges`](https://forges.link). `ref` defaults to the default branch. `auth` is a token string or a trusted callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. `auth: false` uses no token. |
-| `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. |
+| `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. Install `@modelcontextprotocol/sdk` to use it. Agent apps already have it. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines your own loader, with inferred item types. |
 
 `github()` reads only GitHub.com repositories, with `repo` as `owner/name`. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, so in GitHub Actions set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes only to the GitHub API and the sparse Git fetch, never to the `codeload.github.com` redirect. Without a token, public archives come from `codeload.github.com`, outside the anonymous API limit.
@@ -36,7 +36,7 @@ Point `glob()` at your project files and deploy to any host:
 import { defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source'
 
-export const content = defineContent({
+export default defineContent({
   sources: {
     docs: glob('content/docs/**/*.md'),
   },
@@ -52,6 +52,8 @@ The build bundles a call only when its options are literals: a string, or an obj
 ### Cache options
 
 `github()`, `mcpResources()`, and your own loaders can set a cache policy. `false` turns it off. GitHub applies it to its ref, archive, and metadata caches.
+
+The consumer of the Source reads `cache`. Today that is the Workspace, which keeps a copy of the Source content and refreshes it after `maxAge`. A reader from `createSource()` alone does not cache. To cache its reads, wrap it in [`cachedSource()`](/docs/source/server-api).
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |

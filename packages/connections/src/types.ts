@@ -135,8 +135,11 @@ export type ConnectionActionPattern<TApis> =
  */
 export interface ConnectionAccessRule<TPattern extends string = string> {
   read?: boolean
-  /** Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after approval. */
-  write?: readonly TPattern[] | true | "approve"
+  /**
+   * Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after
+   * approval. `false`, the default, denies every write.
+   */
+  write?: readonly TPattern[] | boolean | "approve"
   /** Require approval for each allowed write. Defaults to `true` for `agent:` actors. */
   approve?: boolean
 }
@@ -189,6 +192,12 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
 }
 
 interface ConnectionDefinitionRules<TApis extends object, TSelection extends ConnectionApiSelection<TApis>> {
+  /**
+   * Markdown for the person who connects it: what to set up first, which account to choose, what to
+   * approve. The Console shows it on the Connection, and `inspect()` returns it. Without it, a
+   * `<name>.md` next to the definition file is used.
+   */
+  docs?: string
   /** API methods to expose. Omit to expose every method of every provider API. */
   api?: TSelection
   /**
@@ -239,6 +248,12 @@ export interface ConnectionChatGPTDefinition {
   access: Readonly<Record<string, { read?: boolean }>>
   api?: never
   scopes?: never
+  /**
+   * Markdown for the person who connects it: what to set up first, which account to choose, what to
+   * approve. The Console shows it on the Connection, and `inspect()` returns it. Without it, a
+   * `<name>.md` next to the definition file is used.
+   */
+  docs?: string
 }
 
 export type ConnectionDefinition<
@@ -394,6 +409,8 @@ export interface ConnectionInspection {
   credential: "api-key" | "oauth2" | "chatgpt"
   /** The provider's MCP endpoint, when it declares one. */
   mcp?: string
+  /** Markdown for the person who connects it, from the definition's `docs` or a `<name>.md` next to it. */
+  docs?: string
   /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
   keySource?: "fallback" | "stored"
   name: string

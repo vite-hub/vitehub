@@ -26,10 +26,18 @@ describe("diagnostic catalogs", () => {
   })
 
   it("reads `why` and `fix`, with each template expression as a placeholder", () => {
-    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "Add `hubQueue()` to the Vite config and do not set `queue: false`." })
+    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host." })
     // A function `why` shows the most detailed text that it can return.
     expect(code("QUEUE_BINDING_NOT_FOUND").why).toBe("The Cloudflare queue binding \"<binding>\" is not in the Worker env.")
     expect(code("QUEUE_PROVIDER_FAILED").group).toBe("Runtime errors")
+  })
+
+  it("reads the `code(why, fix, docs, action)` helper of the Console catalog", () => {
+    expect(code("CONSOLE_SIGNATURE_STALE")).toMatchObject({
+      pkg: "vite-hub",
+      why: "The request was signed more than 5 minutes before or after the app clock.",
+      fix: "Sync the clock of the machine that signs, then send the request again.",
+    })
   })
 
   it("reads the message that a call site passes to a numbered code", () => {
@@ -43,6 +51,24 @@ describe("diagnostic catalogs", () => {
 
   it("gives the package that the code prefix names a code that two catalogs declare", () => {
     expect(code("CONTENT_R0006").pkg).toBe("content")
+  })
+
+  it("keeps Agent MCP errors in their existing section alongside the new app MCP catalog", () => {
+    for (const name of ["MCP_SERVER_FAILED", "MCP_TOOL_CALL_FAILED", "MCP_TOOL_CANCELLED", "MCP_TOOL_NOT_FOUND", "MCP_TOOL_TIMEOUT"]) {
+      expect(code(name)).toMatchObject({ pkg: "agent", docsBase: "https://vitehub.dev/docs/agents/diagnostics" })
+    }
+    for (const name of ["MCP_B0001", "MCP_B0002", "MCP_B0003"]) {
+      expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/mcp/diagnostics" })
+    }
+  })
+
+  it("names the `vitehub()` option in each fix that names an owner plugin", () => {
+    // These fixes are about an owner plugin that the app adds itself, so `vitehub()` has no part in them.
+    const ownerPluginOnly = new Set(["AUTH_B0001", "QUEUE_PLUGIN_INCOMPATIBLE"])
+    const missing = codes
+      .filter(candidate => /\bhub[A-Z]\w*\(/.test(candidate.fix ?? "") && !candidate.fix!.includes("vitehub(") && !ownerPluginOnly.has(candidate.code))
+      .map(candidate => `${candidate.code}: ${candidate.fix}`)
+    expect(missing).toEqual([])
   })
 })
 
@@ -73,6 +99,26 @@ describe("catalog object references", () => {
   it.each(["loadCodes()", "missing", "cycle"])("fails explicitly for unreadable codes: %s", (expression) => {
     expect(() => readFixture(`const cycle = cycle; defineDiagnostics({ codes: ${expression} });`))
       .toThrow("Cannot read diagnostic codes in packages/example/src/diagnostics.ts:1")
+  })
+
+  it("reads `why` and `fix` that a same-file helper takes by parameter name", () => {
+    const found = readFixture(`
+      const guide = "https://example.com/guide";
+      const code = (why: string, fix: string, docs: string, action: string) => ({ why: () => why, fix, docs, data: { action } });
+      function guidance(fix: string) { return { fix }; }
+      defineDiagnostics({ codes: {
+        EXAMPLE_FAILED: code("Failed.", \`Set \${guide}.\`, guide, "docs"),
+        EXAMPLE_RETRY: guidance("Retry."),
+        EXAMPLE_COMPUTED: code(reason, fixText, guide, "docs"),
+        EXAMPLE_UNKNOWN: imported("Not read."),
+      } });
+    `)
+    expect(found.map(({ code, why, fix }) => ({ code, why, fix }))).toEqual([
+      { code: "EXAMPLE_COMPUTED", why: null, fix: null },
+      { code: "EXAMPLE_FAILED", why: "Failed.", fix: "Set <guide>." },
+      { code: "EXAMPLE_RETRY", why: null, fix: "Retry." },
+      { code: "EXAMPLE_UNKNOWN", why: null, fix: null },
+    ])
   })
 
   it.each(['docs: "https://example.com/guide#failed"', "docs"])("reads per-code URL overrides: %s", (property) => {

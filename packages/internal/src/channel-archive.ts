@@ -1,11 +1,9 @@
+import { isRecord } from "./object.ts"
+
 /**
  * The archive files of a Channel conversation. The Console, the CLI, and the Agent package read and write them the
  * same way: attachment data lives in `media/` files, and the messages point to them with `file`.
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
 
 export interface ChannelArchiveMedia {
   base64: string

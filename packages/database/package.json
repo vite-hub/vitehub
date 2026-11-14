@@ -43,6 +43,7 @@
       "default": "./dist/runtime/definition-local.js"
     },
     "#vitehub/database/libsql": "./dist/runtime/libsql.js",
+    "#vitehub/database/migrations": "./dist/runtime/virtual-migrations.js",
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {
@@ -71,10 +72,10 @@
       "import": "./dist/connect/node.js",
       "default": "./dist/connect/node.js"
     },
-    "./drizzle": {
-      "types": "./dist/drizzle.d.ts",
-      "import": "./dist/drizzle.js",
-      "default": "./dist/drizzle.js"
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -85,6 +86,11 @@
       "types": "./dist/runtime/libsql-drizzle.d.ts",
       "import": "./dist/runtime/libsql-drizzle.js",
       "default": "./dist/runtime/libsql-drizzle.js"
+    },
+    "./runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
     },
     "./runtime/request-stats": {
       "types": "./dist/runtime/request-stats.d.ts",
@@ -124,14 +130,17 @@
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "get-tsconfig": "^4.14.3",
     "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
@@ -142,12 +151,19 @@
     "postgres": "catalog:database"
   },
   "peerDependencies": {
-    "drizzle-kit": "catalog:database",
-    "drizzle-orm": "catalog:database",
+    "@electric-sql/pglite": "catalog:database",
+    "drizzle-kit": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@electric-sql/pglite": {
+      "optional": true
+    },
+    "drizzle-kit": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     },

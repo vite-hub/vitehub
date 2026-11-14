@@ -21,7 +21,7 @@ afterEach(() => {
 function setup() {
   const client = createClient({ url: ":memory:" });
   cleanup.push(() => client.close());
-  const db = drizzle(client);
+  const db = drizzle({ client: client });
   const runtimeAttribution = vi.fn(() => undefined);
   function namespace(name: string, encryptionKey = new Uint8Array(32).fill(8)) {
     const store = createDatabaseEnvStore({ db, namespace: name, encryptionKey });

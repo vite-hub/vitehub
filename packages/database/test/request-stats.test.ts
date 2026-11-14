@@ -80,7 +80,7 @@ describe("database request stats", () => {
   })
 
   it("counts each libSQL query that Drizzle runs", async () => {
-    const db = createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, drizzle: {}, name: "test" }, {}, {
+    const db = createDrizzleSqliteAdapter({ connection: { url: ":memory:" }, name: "test" }, {}, {
       libsql: localLibsql,
       missingConnection: "a connection",
       requireRemoteUrl: false,

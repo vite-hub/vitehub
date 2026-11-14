@@ -21,11 +21,11 @@ In this tutorial, you write a browser task that gets the HTML of `https://exampl
 Add the Browser package and Wrangler, the Cloudflare development tool, to your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/browser
+pnpm add @vite-hub/browser valibot
 pnpm add -D wrangler
 ```
 
-Then, in the ViteHub options of your app, set `preset: 'cloudflare'` and turn on Browser. Keep the other options of your app.
+Then, in the ViteHub options of your app, set `host: 'cloudflare'` and turn on Browser. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -33,7 +33,7 @@ Then, in the ViteHub options of your app, set `preset: 'cloudflare'` and turn on
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { remote: true },
   },
 })
@@ -48,7 +48,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { remote: true },
   }), nitro()],
 })
@@ -62,7 +62,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { remote: true },
   })],
 })
@@ -70,7 +70,7 @@ export default defineConfig({
 ::::
 :::
 
-- `preset: 'cloudflare'` builds your app for Cloudflare. Browser works only with this preset.
+- `host: 'cloudflare'` builds your app for Cloudflare. Browser works only with this host.
 - `remote: true` lets your app call the browser on Cloudflare while you test on your computer.
 
 ::
@@ -102,18 +102,17 @@ export default defineBrowser(async (
 Create `server/api/page-html.post.ts`. This route sends the request body to the `page-html` task.
 
 ```ts [server/api/page-html.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runBrowser } from 'vite-hub/browser'
 
 export default defineEventHandler(async (event) => {
-  const input = await readBody<{ url: string }>(event)
-  if (!input?.url) throw createError({ statusCode: 400, message: 'Send a url.' })
+  const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.pipe(v.string(), v.minLength(1)) }), body))
   return await runBrowser('page-html', input)
 })
 ```
 
-- `readBody()` returns `undefined` when the request has no body, so the route checks `input` first.
-
+- `readValidatedBody()` answers `400` when the body has no non-empty `url` string.
 - `runBrowser('page-html', input)` runs the task by its name. ViteHub knows the input type of each task, so TypeScript checks `input`.
 - It returns a normal `Response`. If the task fails, the `Response` has an error status and a JSON body.
 

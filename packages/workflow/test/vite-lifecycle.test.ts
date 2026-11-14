@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+let projectRoot: string
 
 const lifecycle = vi.hoisted(() => ({
   capture: vi.fn((_context: unknown, _catalog: unknown) => undefined),
@@ -17,10 +21,6 @@ const lifecycle = vi.hoisted(() => ({
 
 vi.mock("../src/internal/registry-types.ts", () => ({
   writeWorkflowTypes: lifecycle.writeWorkflowTypes,
-}))
-
-vi.mock("@vite-hub/internal/build/mode", () => ({
-  getViteMode: () => undefined,
 }))
 
 vi.mock("@vite-hub/internal/build/bundle-options", async (importOriginal) => ({
@@ -107,7 +107,7 @@ async function createPlugin(options: { finalNitroEnvironment?: boolean; nitroPlu
     command: "build",
     plugins: options.nitroPlugin ? [{ name: "nitro:main" }] : [],
     resolve: { alias: [] },
-    root: "/project",
+    root: projectRoot,
   })
   return plugin
 }
@@ -126,8 +126,13 @@ async function runRenderFailureLifecycle(plugin: ReturnType<typeof hubWorkflow>,
   await functionHook(plugin.renderError, "renderError").call(context, new Error("render failed"))
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  projectRoot = await mkdtemp(join(tmpdir(), "vitehub-workflow-lifecycle-"))
+})
+
+afterEach(async () => {
+  await rm(projectRoot, { recursive: true, force: true })
 })
 
 describe("Workflow Provider Output lifecycle", () => {
@@ -140,8 +145,8 @@ describe("Workflow Provider Output lifecycle", () => {
       define: { __VITEHUB_PUBLIC_URL__: JSON.stringify("https://shared.example.com") },
       plugins: [],
       resolve: { alias: [] },
-      root: "/project",
-      __vitehubServerDirs: [`/project/${name}`],
+      root: projectRoot,
+      __vitehubServerDirs: [join(projectRoot, name)],
     }))
     for (const config of configs) await functionHook(plugin.configResolved, "configResolved")(config)
     const catalogs = lifecycle.useCatalog.mock.results.map(result => result.value)
@@ -154,8 +159,8 @@ describe("Workflow Provider Output lifecycle", () => {
     for (const [index, context] of contexts.entries()) {
       await functionHook(plugin.buildEnd, "buildEnd").call(context)
       expect(lifecycle.writeProviderEntries).toHaveBeenLastCalledWith(
-        "/project", workflow, expect.anything(), configs[index]!.__vitehubServerDirs,
-        undefined, undefined, "/project", expect.any(String), expect.any(Map),
+        projectRoot, workflow, expect.anything(), configs[index]!.__vitehubServerDirs,
+        undefined, undefined, projectRoot, expect.any(String), expect.any(Map),
       )
       expect(lifecycle.contribute).toHaveBeenLastCalledWith(catalogs[index], expect.anything(), undefined)
       await closeBundleHook(plugin).call(context)
@@ -173,7 +178,7 @@ describe("Workflow Provider Output lifecycle", () => {
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow("requires resolved Vite config")
   })
 
-  it("keeps Provider Output work in the Nuxt 4 SSR environment", async () => {
+  it("keeps Provider Output work in the Nuxt SSR environment when Nitro builds outside Vite", async () => {
     const plugin = await createPlugin({ nitroPlugin: true, viteHubNitroContext: true })
     await runSuccessfulProviderLifecycle(plugin, "client")
 
@@ -192,7 +197,7 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.finalize).toHaveBeenCalledOnce()
   })
 
-  it("cleans staged Provider Output after a Nuxt 4 SSR render failure", async () => {
+  it("cleans staged Provider Output after a Nuxt SSR render failure when Nitro builds outside Vite", async () => {
     await runRenderFailureLifecycle(await createPlugin({ nitroPlugin: true, viteHubNitroContext: true }), "ssr")
 
     expect(lifecycle.capture).toHaveBeenCalledOnce()
@@ -291,8 +296,8 @@ describe("Workflow Provider Output lifecycle", () => {
 
     expect(lifecycle.retainSources).not.toHaveBeenCalled()
     expect(lifecycle.writeProviderEntries).toHaveBeenCalledWith(
-      "/project", undefined, expect.anything(), undefined,
-      undefined, undefined, "/project", expect.any(String), expect.any(Map),
+      projectRoot, undefined, expect.anything(), undefined,
+      undefined, undefined, projectRoot, expect.any(String), expect.any(Map),
     )
     expect(lifecycle.contribute).toHaveBeenCalledOnce()
     expect(lifecycle.finalize).toHaveBeenCalledOnce()

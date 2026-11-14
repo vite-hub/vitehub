@@ -3,6 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
 import type { CloudflareSandboxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
+import type { ContainerSandboxCredential, ContainerSandboxEgress, ContainerSandboxOptions } from "./internal/container.ts";
 import type { CrabboxOptions } from "./internal/crabbox.ts";
 import type { TrustedHostOptions } from "./internal/trusted-host.ts";
 import type {
@@ -21,6 +22,9 @@ export type {
   CloudflareSandboxOptions,
   CloudflareDurableObjectNamespace,
   CloudflareSandboxStub,
+  ContainerSandboxCredential,
+  ContainerSandboxEgress,
+  ContainerSandboxOptions,
   CrabboxOptions,
   TrustedHostOptions,
   VercelSandboxNetworkPolicy,
@@ -147,6 +151,7 @@ export type BuiltInSandboxRuntime =
   | ({ kind: "crabbox" } & CrabboxOptions)
   | ({ kind: "trusted-host" } & TrustedHostOptions)
   | ({ kind: "cloudflare" } & CloudflareSandboxOptions)
+  | ({ kind: "container" } & ContainerSandboxOptions)
   | ({ kind: "vercel" } & VercelSandboxOptions);
 
 export type SandboxRuntimeDefinition = BuiltInSandboxRuntime | SandboxRuntime;
@@ -183,6 +188,7 @@ export interface SandboxSpawnOptions extends SandboxExecOptions {
   /**
    * Keep process input open and expose it as `SandboxProcess.stdin`.
    * The `vercel` and `cloudflare` runtimes forward input only when this is set, because a command that reads stdin then waits for the caller to close it.
+   * The `container` runtime also forwards input only when this is set.
    * `trusted-host` and `crabbox` always forward input.
    */
   stdin?: boolean;
@@ -356,6 +362,7 @@ export interface ResolveSandboxOptions {
 
 const reservedRuntimeNames = new Set([
   "cloudflare",
+  "container",
   "crabbox",
   "trusted-host",
   "vercel",
@@ -404,7 +411,11 @@ async function resolveSandboxRuntime(value: unknown): Promise<SandboxRuntime> {
     const { createVercelRuntime } = await import("./vercel.ts");
     return createVercelRuntime(options as VercelSandboxOptions);
   }
-  throw sandboxErrorDiagnostics.SANDBOX_R0033({ message: `[vitehub] Unknown Sandbox runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", or "vercel".` });
+  if (kind === "container") {
+    const { createContainerRuntime } = await import("./internal/container.ts");
+    return createContainerRuntime(options as unknown as ContainerSandboxOptions);
+  }
+  throw sandboxErrorDiagnostics.SANDBOX_R0033({ message: `[vitehub] Unknown Sandbox runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", "container", or "vercel".` });
 }
 
 function isSandboxRuntime(value: unknown): value is SandboxRuntime {

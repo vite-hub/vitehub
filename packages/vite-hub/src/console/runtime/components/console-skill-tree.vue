@@ -50,16 +50,7 @@ watch(() => props.selected, selected => {
 <style scoped>
 .skills-file-tree {
   --trees-padding-inline-override: 0.75rem;
-  --trees-font-family-override: var(--font-sans);
   --trees-font-size-override: 0.8125rem;
-  --trees-accent-override: var(--ui-primary);
-  --trees-fg-override: var(--ui-text-toned);
-  --trees-bg-override: var(--ui-bg);
-  --trees-bg-muted-override: var(--ui-bg-elevated);
-  --trees-border-color-override: var(--ui-border);
-  --trees-input-bg-override: var(--ui-bg-elevated);
-  --trees-selected-bg-override: var(--ui-bg-elevated);
-  --trees-selected-fg-override: var(--ui-text-highlighted);
   height: 100%;
   min-height: 0;
   border: 0;

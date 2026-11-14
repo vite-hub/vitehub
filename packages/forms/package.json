@@ -76,7 +76,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
-    "drizzle-orm": "catalog:database",
+    "birpc": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
@@ -84,6 +84,8 @@
     "@formisch/vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "publint": "catalog:tooling",
@@ -92,12 +94,14 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
     "@formisch/vue": "^1.2.0",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
   },
   "peerDependenciesMeta": {
     "@formisch/vue": {

@@ -1,8 +1,9 @@
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export const colocatedAgentSkillsSymbol: symbol = Symbol.for("vitehub.agent.colocatedSkills")
+export const discoveredSkillsUpdate: symbol = Symbol.for("vitehub.agent.discoveredSkillsUpdate")
 export const discoveredSkillsSetter: symbol = Symbol.for("vitehub.agent.discoveredSkillsSetter")
 
 export const colocatedAgentSkillsContextKey = "agent.colocatedSkills"
@@ -28,23 +29,46 @@ export function decodeColocatedAgentSkills(
   })) as ColocatedAgentSkills
 }
 
+function skillName(source: unknown): string | undefined {
+  return isRuntimeRecord(source) && typeof source.workspacePath === "string" ? source.workspacePath.split("/")[2] : undefined
+}
+
+/**
+ * Skills extend by name. A Skill folder of the Agent replaces the inherited folder with the same name, including its references.
+ * The generated Agent registry in `vite.ts` keeps a copy of this rule.
+ */
+function extendColocatedAgentSkills(inherited: unknown, skills: ColocatedAgentSkills): ColocatedAgentSkills {
+  const ownSkillNames = new Set(Object.values(skills).map(skillName))
+  const kept = isRuntimeRecord(inherited) ? Object.entries(inherited).filter(([, source]) => !ownSkillNames.has(skillName(source))) : []
+  // SAFETY: Inherited entries come from the colocated Skills of the parent Agent.
+  return { ...Object.fromEntries(kept) as ColocatedAgentSkills, ...skills }
+}
+
 export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedAgentSkills | undefined): Agent {
-  if (!agent || !hasRuntimeType(agent, "object")) return agent
+  if (!agent || typeof agent !== "object") return agent
   const setDiscoveredSkills: unknown = Reflect.get(agent, discoveredSkillsSetter)
-  if (hasRuntimeType(setDiscoveredSkills, "function")) {
+  if (typeof setDiscoveredSkills === "function") {
     setDiscoveredSkills(skills)
     return agent
   }
-  const existing = Object.getOwnPropertyDescriptor(agent, colocatedAgentSkillsSymbol)
-  if (skills && existing?.get) {
-    const previous = Reflect.get(agent, colocatedAgentSkillsSymbol)
+  const inheritedSkills = Object.getOwnPropertyDescriptor(agent, colocatedAgentSkillsSymbol)?.get
+  const update: unknown = inheritedSkills && Reflect.get(inheritedSkills, discoveredSkillsUpdate)
+  if (typeof update === "function") {
+    update(skills)
+    return agent
+  }
+  if (skills && Object.keys(skills).length && inheritedSkills) {
+    // Read the inherited Skills when the Agent runs, so the result follows later changes to the parent.
+    let local = skills
+    const get = () => extendColocatedAgentSkills(inheritedSkills.call(agent), local)
+    // Keep the inherited accessor once; later discovery replaces only the local set.
+    Object.defineProperty(get, discoveredSkillsUpdate, {
+      value: (sources: ColocatedAgentSkills | undefined) => { local = sources ?? {} },
+    })
     Object.defineProperty(agent, colocatedAgentSkillsSymbol, {
       configurable: true,
       enumerable: true,
-      value: {
-        ...(hasRuntimeType(previous, "object") ? previous : {}),
-        ...skills,
-      },
+      get,
     })
     return agent
   }
@@ -95,7 +119,7 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
     enumerable: true,
     get: () => {
       const inherited: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
-      return { ...(hasRuntimeType(inherited, "object") ? inherited : undefined), ...discovered, ...added }
+      return { ...(typeof inherited === "object" ? inherited : undefined), ...discovered, ...added }
     },
   })
   return resolved
@@ -119,10 +143,10 @@ export function inspectAgentSkillFiles(agent: object): { path: string, size: num
   const sources: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
   if (!isRuntimeRecord(sources)) return []
   return Object.values(sources).flatMap((source: unknown) => {
-    if (!isRuntimeRecord(source) || !hasRuntimeType(source.workspacePath, "string")) return []
+    if (!isRuntimeRecord(source) || typeof source.workspacePath !== "string") return []
     const path = source.workspacePath
     const content = source.content
-    if (hasRuntimeType(content, "string")) return [{ path, size: utf8ByteLength(content), read: () => new TextEncoder().encode(content) }]
+    if (typeof content === "string") return [{ path, size: utf8ByteLength(content), read: () => new TextEncoder().encode(content) }]
     return content instanceof Uint8Array ? [{ path, size: content.byteLength, read: () => content.slice() }] : []
   }).sort((left, right) => left.path.localeCompare(right.path))
 }

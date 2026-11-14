@@ -26,36 +26,36 @@ export function blobUpload(route: string): MarkdownEditorUpload {
 
 const toolbar: EditorToolbarItem[][] = [
   [
-    { kind: "mark", mark: "bold", icon: "i-ph-text-b", "aria-label": "Bold" },
-    { kind: "mark", mark: "italic", icon: "i-ph-text-italic", "aria-label": "Italic" },
-    { kind: "mark", mark: "strike", icon: "i-ph-text-strikethrough", "aria-label": "Strikethrough" },
-    { kind: "mark", mark: "code", icon: "i-ph-code", "aria-label": "Code" },
+    { kind: "mark", mark: "bold", icon: "i-lucide-bold", "aria-label": "Bold" },
+    { kind: "mark", mark: "italic", icon: "i-lucide-italic", "aria-label": "Italic" },
+    { kind: "mark", mark: "strike", icon: "i-lucide-strikethrough", "aria-label": "Strikethrough" },
+    { kind: "mark", mark: "code", icon: "i-lucide-code", "aria-label": "Code" },
   ],
   [
-    { kind: "heading", level: 1, icon: "i-ph-text-h-one", "aria-label": "Heading 1" },
-    { kind: "heading", level: 2, icon: "i-ph-text-h-two", "aria-label": "Heading 2" },
-    { kind: "heading", level: 3, icon: "i-ph-text-h-three", "aria-label": "Heading 3" },
+    { kind: "heading", level: 1, icon: "i-lucide-heading-1", "aria-label": "Heading 1" },
+    { kind: "heading", level: 2, icon: "i-lucide-heading-2", "aria-label": "Heading 2" },
+    { kind: "heading", level: 3, icon: "i-lucide-heading-3", "aria-label": "Heading 3" },
   ],
   [
-    { kind: "bulletList", icon: "i-ph-list-bullets", "aria-label": "Bulleted list" },
-    { kind: "orderedList", icon: "i-ph-list-numbers", "aria-label": "Numbered list" },
-    { kind: "blockquote", icon: "i-ph-quotes", "aria-label": "Quote" },
+    { kind: "bulletList", icon: "i-lucide-list", "aria-label": "Bulleted list" },
+    { kind: "orderedList", icon: "i-lucide-list-ordered", "aria-label": "Numbered list" },
+    { kind: "blockquote", icon: "i-lucide-quote", "aria-label": "Quote" },
   ],
 ];
 
 const blocks: EditorSuggestionMenuItem[] = [
   { type: "label", label: "Blocks" },
-  { kind: "paragraph", label: "Text", icon: "i-ph-text-t" },
-  { kind: "heading", level: 1, label: "Heading 1", icon: "i-ph-text-h-one" },
-  { kind: "heading", level: 2, label: "Heading 2", icon: "i-ph-text-h-two" },
-  { kind: "heading", level: 3, label: "Heading 3", icon: "i-ph-text-h-three" },
-  { kind: "bulletList", label: "Bulleted list", icon: "i-ph-list-bullets" },
-  { kind: "orderedList", label: "Numbered list", icon: "i-ph-list-numbers" },
-  { kind: "blockquote", label: "Quote", icon: "i-ph-quotes" },
-  { kind: "codeBlock", label: "Code block", icon: "i-ph-code-block" },
-  { kind: "horizontalRule", label: "Divider", icon: "i-ph-minus" },
+  { kind: "paragraph", label: "Text", icon: "i-lucide-type" },
+  { kind: "heading", level: 1, label: "Heading 1", icon: "i-lucide-heading-1" },
+  { kind: "heading", level: 2, label: "Heading 2", icon: "i-lucide-heading-2" },
+  { kind: "heading", level: 3, label: "Heading 3", icon: "i-lucide-heading-3" },
+  { kind: "bulletList", label: "Bulleted list", icon: "i-lucide-list" },
+  { kind: "orderedList", label: "Numbered list", icon: "i-lucide-list-ordered" },
+  { kind: "blockquote", label: "Quote", icon: "i-lucide-quote" },
+  { kind: "codeBlock", label: "Code block", icon: "i-lucide-square-code" },
+  { kind: "horizontalRule", label: "Divider", icon: "i-lucide-minus" },
 ];
-const image: EditorSuggestionMenuItem = { kind: "image", label: "Image", description: "Upload an image, video, or audio file", icon: "i-ph-image" };
+const image: EditorSuggestionMenuItem = { kind: "image", label: "Image", description: "Upload an image, video, or audio file", icon: "i-lucide-image" };
 
 /**
  * A Markdown editor on comark-ui's editor, with Nuxt UI's bubble toolbar, "/" menu, and drag handle. Bind Markdown with

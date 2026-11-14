@@ -44,7 +44,7 @@ describe("guests of the Comments overlay", () => {
   it("rejoins the room with the guest's name once they give it", async () => {
     const { bar, shadow } = await join(null)
     const room = vi.mocked(connectRealtimeRoom).mock.results[0]!.value
-    tool(bar, "Comment (C)")!.click()
+    tool(bar, "Comment on the page (C)")!.click()
     await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
     const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
     // An empty name keeps the card open.
@@ -63,7 +63,7 @@ describe("guests of the Comments overlay", () => {
     const guest = saveGuest("Ana García")
     const { bar, shadow } = await join(null)
     expect(identity(0)).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
-    tool(bar, "Comment (C)")!.click()
+    tool(bar, "Comment on the page (C)")!.click()
     await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
     expect(shadow.querySelector('input[aria-label="Your name"]')).toBeNull()
   })
@@ -74,7 +74,7 @@ describe("guests of the Comments overlay", () => {
   ])("keeps the identity that the server gave: %j", async (user) => {
     const { bar, shadow } = await join(user)
     expect(identity(0)).toEqual(user)
-    tool(bar, "Comment (C)")!.click()
+    tool(bar, "Comment on the page (C)")!.click()
     await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
     expect(shadow.querySelector('input[aria-label="Your name"]')).toBeNull()
     expect(readGuest()).toBeUndefined()

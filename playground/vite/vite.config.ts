@@ -22,36 +22,6 @@ function isViteHubMode(mode: string | undefined): mode is ViteHubMode {
   return mode !== undefined && Object.values<string>(VITEHUB_MODES).includes(mode)
 }
 
-function isViteCli(argv: string[]): boolean {
-  return argv.some(arg => /(?:^|[/\\])vite(?:\.[cm]?js)?$/.test(arg) || arg === "vite")
-}
-
-function getViteCliMode(argv: string[] = process.argv): ViteHubMode | undefined {
-  if (!isViteCli(argv)) {
-    return undefined
-  }
-
-  const modes = new Set<string>(Object.values(VITEHUB_MODES))
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    const mode = arg === "--mode" || arg === "-m"
-      ? argv[index + 1]
-      : arg.startsWith("--mode=")
-        ? arg.slice("--mode=".length)
-        : undefined
-    if (modes.has(mode ?? "") && isViteHubMode(mode)) return mode
-  }
-}
-
-function getViteMode(): ViteHubMode | undefined {
-  const mode = process.env.VITEHUB_VITE_MODE
-  return isViteHubMode(mode)
-    ? mode
-    : getViteCliMode()
-}
-
-const buildMode: ViteHubMode = getViteMode() || VITEHUB_MODES.queue
-
 const inputByMode: Record<ViteHubMode, string> = {
   e2e: "src/server.e2e.ts",
   blob: "src/server.blob.ts",
@@ -65,10 +35,18 @@ const inputByMode: Record<ViteHubMode, string> = {
   workspace: "src/server-workspace.ts",
   workflow: "src/server-workflow.ts",
 }
-const input = inputByMode[buildMode]
 
-export default defineConfig(async () => {
-  const hosting = process.env.VITEHUB_HOSTING || ""
+// `VITEHUB_VITE_MODE` picks the mode for CI and the `vitehub` CLI, which load this config without `--mode`.
+function resolveBuildMode(viteMode: string): ViteHubMode {
+  const mode = process.env.VITEHUB_VITE_MODE
+  if (isViteHubMode(mode)) return mode
+  return isViteHubMode(viteMode) ? viteMode : VITEHUB_MODES.queue
+}
+
+export default defineConfig(async ({ mode }) => {
+  const buildMode = resolveBuildMode(mode)
+  const input = inputByMode[buildMode]
+  const hosting = process.env.VITEHUB_HOST || ""
   const baseConfig = {
     appType: "custom" as const,
     build: {
@@ -81,7 +59,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.e2e) {
-    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
+    const [{ hubBlob }, { hubDatabase }, { hubKV }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vite-hub/blob/vite"),
       import("@vite-hub/database/vite"),
       import("@vite-hub/kv/vite"),
@@ -91,7 +69,7 @@ export default defineConfig(async () => {
       import("@vite-hub/workspace/vite"),
       import("@vite-hub/workflow/vite"),
     ])
-    const { createViteE2EComposer, resolveViteE2EModuleOptions, resolveViteE2EOptions } = await import("./build/vite-e2e")
+    const { createViteE2EComposer, resolveViteE2EModuleOptions, resolveViteE2EOptions, withoutProviderOutput } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
     const moduleOptions = resolveViteE2EModuleOptions(hosting)
 
@@ -113,14 +91,14 @@ export default defineConfig(async () => {
         ssr: true,
       },
       plugins: [
-        hubQueue(moduleOptions.queue),
-        hubSchedule(),
-        hubKv(moduleOptions.kv ?? {}),
-        hubWorkflow(moduleOptions.workflow),
+        withoutProviderOutput(hubQueue(moduleOptions.queue)),
+        withoutProviderOutput(hubSchedule()),
+        withoutProviderOutput(hubKV(moduleOptions.kv ?? {})),
+        withoutProviderOutput(hubWorkflow(moduleOptions.workflow)),
         hubBlob(composerOptions.hosting.includes("vercel") ? { access: "private", driver: "vercel-blob" } : {}),
-        hubDb(),
+        withoutProviderOutput(hubDatabase()),
         hubSandboxTask(composerOptions.sandbox),
-        hubWorkspace({ store: { provider: "memory" } }),
+        withoutProviderOutput(hubWorkspace({ store: { provider: "memory" } })),
         createViteE2EComposer({
           ...composerOptions,
           clientOutDir: "dist/client",
@@ -166,12 +144,13 @@ export default defineConfig(async () => {
     const { hubWorkflow } = await import("@vite-hub/workflow/vite")
     return {
       ...baseConfig,
-      plugins: [hubWorkflow({})],
+      // The Workflow output serves this mode's app, not the default `src/server.ts`.
+      plugins: [hubWorkflow({}, { includeUserAppEntry: "server-workflow.ts" })],
     }
   }
 
   if (buildMode === VITEHUB_MODES.schedule) {
-    const [{ hubKv }, { hubSchedule }] = await Promise.all([
+    const [{ hubKV }, { hubSchedule }] = await Promise.all([
       import("@vite-hub/kv/vite"),
       import("@vite-hub/schedule/vite"),
     ])
@@ -181,7 +160,7 @@ export default defineConfig(async () => {
         ...baseConfig.build,
         ssr: true,
       },
-      plugins: [hubSchedule(), hubKv({})],
+      plugins: [hubSchedule(), hubKV({})],
     }
   }
 
@@ -194,10 +173,10 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.db) {
-    const { hubDb } = await import("@vite-hub/database/vite")
+    const { hubDatabase } = await import("@vite-hub/database/vite")
     return {
       ...baseConfig,
-      plugins: [hubDb()],
+      plugins: [hubDatabase()],
     }
   }
 
@@ -210,13 +189,13 @@ export default defineConfig(async () => {
     }
   }
 
-  const [{ hubKv }, { hubQueue }] = await Promise.all([
+  const [{ hubKV }, { hubQueue }] = await Promise.all([
     import("@vite-hub/kv/vite"),
     import("@vite-hub/queue/vite"),
   ])
 
   return {
     ...baseConfig,
-    plugins: [hubQueue({}), hubKv({})],
+    plugins: [hubQueue({}), hubKV({})],
   }
 })

@@ -1,6 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 
 import type { AgentInvocationSummary } from "@vite-hub/agent"
+import type { Client, ResultSet } from "@libsql/client"
 import type { AgentInvocationsDatabase } from "../src/invocations/drizzle.ts"
 
 it("requires D1 derived insert columns and preserves nullable libSQL reads", () => {
@@ -26,4 +27,29 @@ it("requires D1 derived insert columns and preserves nullable libSQL reads", () 
 
   expectTypeOf<Libsql["schema"]["invocations"]["$inferSelect"]["search"]>().toEqualTypeOf<string | null>()
   expectTypeOf<Libsql["schema"]["invocations"]["$inferSelect"]["summary"]>().toEqualTypeOf<Omit<AgentInvocationSummary, "cursor"> | null>()
+})
+
+it("queries the journal of either driver without narrowing", () => {
+  // SAFETY: This type-only fixture is never evaluated; inputCommands() handlers receive this shape.
+  const { db, schema } = {} as AgentInvocationsDatabase
+  const latest = db
+    .select({ agentName: schema.invocations.agentName, id: schema.invocations.id })
+    .from(schema.invocations)
+    .limit(1)
+  expectTypeOf(latest).resolves.toEqualTypeOf<{ agentName: string, id: string }[]>()
+  expectTypeOf(db.batch([latest])).resolves.toEqualTypeOf<[{ agentName: string, id: string }[]]>()
+})
+
+it("preserves driver-specific query results after narrowing", () => {
+  // SAFETY: This type-only fixture is never evaluated; callers receive this discriminated union.
+  const database = {} as AgentInvocationsDatabase
+  if (database.driver === "libsql") {
+    expectTypeOf(database.db.$client).toEqualTypeOf<Client>()
+    const result = database.db.select().from(database.schema.invocations).run()
+    expectTypeOf(result).resolves.toEqualTypeOf<ResultSet>()
+  }
+  else {
+    const result = database.db.select().from(database.schema.invocations).run()
+    expectTypeOf(result).resolves.toEqualTypeOf<{ rows: unknown[] }>()
+  }
 })

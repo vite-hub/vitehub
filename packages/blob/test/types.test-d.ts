@@ -3,7 +3,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
-import { blob, file, image, type BlobOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, file, image, type BlobOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobPutOptions, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -43,6 +43,7 @@ describe("types", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
+        access: "public",
       },
     } satisfies BlobOptions
 
@@ -50,6 +51,25 @@ describe("types", () => {
       "Cache-Control": string
       "X-Content-Type-Options": string
     }>()
+  })
+
+  it("requires the serve route to say who may read the files", () => {
+    // @ts-expect-error `serve: true` made every object public. Choose `access: "public"` or `authorize: true`.
+    const shorthand: BlobOptions = { driver: "fs", serve: true }
+    // @ts-expect-error A serve route without `access` or `authorize` would be public.
+    const implicit: BlobOptions = { driver: "fs", serve: { route: "/files" } }
+    // @ts-expect-error A route is public or authorized, not both.
+    const both: BlobOptions = { driver: "fs", serve: { authorize: true, access: "public" } }
+    // @ts-expect-error `anonymous` applies to an authorized route only.
+    const anonymousPublic: BlobOptions = { driver: "fs", serve: { anonymous: true, access: "public" } }
+    // @ts-expect-error `authorize: false` reads as "deny". Set `access: "public"` for a public route.
+    const authorizeFalse: BlobOptions = { driver: "fs", serve: { authorize: false } }
+    // @ts-expect-error A serve route is public or authorized. Use `authorize: true` for private files.
+    const privateRoute: BlobOptions = { driver: "fs", serve: { access: "private" } }
+    expectTypeOf([shorthand, implicit, both, anonymousPublic, authorizeFalse, privateRoute]).toMatchTypeOf<BlobOptions[]>()
+    // @ts-expect-error One object cannot be private on its own.
+    const putOptions: BlobPutOptions = { access: "private" }
+    expectTypeOf(putOptions).toMatchTypeOf<BlobPutOptions>()
   })
 
   it("accepts a boolean serve authorization and types the server module callback", () => {
@@ -180,8 +200,8 @@ describe("types", () => {
 
     // @ts-expect-error A read-only handle has no put().
     void reader.put("report.pdf", "text")
-    // @ts-expect-error A read-only handle has no del().
-    void reader.del("report.pdf")
+    // @ts-expect-error A read-only handle has no delete().
+    void reader.delete("report.pdf")
     // @ts-expect-error A read-only handle has no handleUpload().
     void reader.handleUpload
     // @ts-expect-error A read-only handle has no createMultipartUpload().

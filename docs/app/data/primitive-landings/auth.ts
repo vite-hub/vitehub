@@ -4,9 +4,11 @@ const authDefinition: PrimitiveProjectFile = {
   path: "server/auth.ts",
   language: "typescript",
   content: `import { defineAuth } from "vite-hub/auth"
+import { authDatabase } from "vite-hub/auth/database"
 
 export default defineAuth({
   appName: "Acme",
+  database: authDatabase(),
   emailAndPassword: { enabled: true },
 })`,
 };
@@ -33,7 +35,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node", auth: true })],
+  plugins: [vitehub({ host: "node", auth: true })],
 })`,
         },
         authDefinition,
@@ -53,7 +55,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "node", auth: true }),
+    vitehub({ host: "node", auth: true }),
     nitro(),
   ],
 })`,
@@ -74,7 +76,7 @@ import { defineNuxtConfig } from "nuxt/config"
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node", auth: true }]],
+  modules: [[viteHubNuxt, { host: "node", auth: true }]],
 })`,
         },
         authDefinition,

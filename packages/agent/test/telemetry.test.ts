@@ -6,7 +6,6 @@ import { defineAgent, defineCapability, type AgentTelemetry } from "../src/index
 import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -982,7 +981,7 @@ describe("Agent telemetry", () => {
     const traces = exports.filter(exported => exported.signal === "traces")
     const sequences = logs.flatMap(exported => exported.records)
       .map(record => record.attributes?.["vitehub.event.sequence"])
-      .filter(sequence => hasRuntimeType(sequence, "number"))
+      .filter(sequence => typeof sequence === "number")
     expect(new Set(sequences).size).toBe(sequences.length)
     expect(logs[1]?.records).toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.second" })]))
     expect(logs[1]?.records).not.toEqual(expect.arrayContaining([expect.objectContaining({ eventName: "application.progress.first" })]))

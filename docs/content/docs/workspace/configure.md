@@ -72,13 +72,19 @@ Vercel Blob keeps file bytes and JSON attributes in separate objects. In one pro
 This adapter has no distributed transactions. When processes or hosts share a Workspace, coordinate their access yourself. For atomic publication across replicas, use the Blob + Database Store.
 ::
 
-A [GitHub Store](#github-store) reads its token from `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
+A [GitHub Store](#github-store) signs in with a GitHub App when `VITEHUB_GITHUB_APP_ID` is set, else with the token in `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN`. Only `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` set its location.
 
 In one isolate, GitHub Stores and history views cache blob bytes by sha, across repositories:
 
 - Parallel reads with the same repository and credentials share one request. A failed request does not affect readers of another repository or token.
 - The cache holds up to 32 MiB, removes the oldest entries first, and skips blobs over 4 MiB.
 - New isolates, and reads after removal, fetch the blob from GitHub again. You can retry failed reads.
+
+GitHub Stores also keep other answers, so a read asks GitHub only for what changed:
+
+- A branch head is one request. The Store keeps it for 5 seconds, then asks again with its ETag. GitHub answers `304 Not Modified` when the branch did not move, and a `304` does not count against the GitHub rate limit.
+- History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
+- `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
 
 Without a `store`, development uses Local. In production:
 
@@ -96,27 +102,29 @@ Workspace paths cannot use `.git` at any depth or `.vitehub` at the root, in any
 
 This Store keeps fixed versions of a folder on any host that [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts) support. Add its schema to a Database Definition, then generate and apply migrations with the Database integration.
 
-```ts [server/databases/history/config.ts]
-import { defineDatabase } from '@vite-hub/database'
-import { workspaceHistorySchema } from '@vite-hub/workspace/blob-database'
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
 ```ts [server/workspaces/drop.ts]
-import { blob } from '@vite-hub/blob'
-import { defineWorkspace } from '@vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from '@vite-hub/workspace/blob-database'
-import historyDatabase from '../databases/history/config'
+import { blob } from 'vite-hub/blob'
+import { useDatabase } from 'vite-hub/database'
+import { defineWorkspace } from 'vite-hub/workspace'
+import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
-  database: historyDatabase,
+  database: () => useDatabase('history').db,
   workspace: 'drop-123',
 })
 
 export default defineWorkspace({ store: dropStore })
 ```
+
+`database` takes a function that returns the Drizzle database. The Store calls it on first use, because the build loads the Workspace Definition without your Databases. Do not pass the Database Definition: it holds options only. `useDatabase('history').db` has the migrations and relations of the build. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
 
 `vite-hub/workspace/blob-database` also exports the constructor and schema. This subpath needs `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.
 
@@ -187,9 +195,11 @@ export default defineWorkspace({
 | `repository`, `repo` | `string` | `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` | The repository, as `owner/name`. |
 | `branch` | `string` | `VITEHUB_WORKSPACE_GITHUB_BRANCH`, else `main` | The branch of the Workspace files. |
 | `root` | `string` | `VITEHUB_WORKSPACE_GITHUB_ROOT`, else `.vitehub/workspaces/<workspace>` | The folder in the repository. An empty string is the repository root. |
-| `token` | `string` | `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
+| `token` | `string` | A GitHub App from `VITEHUB_GITHUB_APP_ID`, then `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
 | `refs` | `{ published?: string, draft?: string }` | none | Branches for the history refs `published` and `draft`. |
 | `database` | `unknown` | none | A value the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store ignores it. |
+
+A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` with `VITEHUB_GITHUB_APP_OWNER` saves the lookup of the installation ([Installations](/docs/forge/configure#installations)). The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
 
 The Store reads the repository and token at the first request, not at creation. A missing one throws `WORKSPACE_R0072` then, so a build that loads the Workspace Definition needs no token.
 
@@ -231,10 +241,16 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |
 | `bindings` | `Record<string, WorkspaceInstructionBinding>` | Values that Agent instructions can read: `string`, `number`, `boolean`, `null`, or a file as `{ path: string }`. |
 | `sources` | `Record<string, WorkspaceSourceInput>` | Source Bindings (where each Source appears). |
-| `rules` | `WorkspaceRules` | Read, write, media type, max size, commit, and validation rules by path pattern. |
+| `rules` | `WorkspaceRules` | Write, media type, max size, commit, and validation rules by path pattern. Rules do not limit reads. |
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Packaged rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
+
+Every rule whose pattern matches a path applies, from the least to the most specific. A more specific rule changes only the fields that it sets. With `{ '**': { write: false }, 'docs/**': { maxBytes: '1mb' } }`, writes in `docs/` stay denied. Set `write: true` in the `docs/**` rule to allow them. The validators of all matching rules run. Plugin rules and your rules on the same pattern combine in the same way.
+
+`mediaType` checks the media type that the write passes. When the write passes none, it checks the type of the file extension, or `application/octet-stream` when the extension has no type.
+
+Rules limit writes only. A rule with `read` fails with `WORKSPACE_R0075`. To keep a file from readers, do not put it in the Workspace.
 
 Instructions read value bindings with `{{ data.workspace.<name> }}` and file bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys in `bindings` are available. Other Workspace files stay hidden from instructions. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 
@@ -318,6 +334,28 @@ other binding helpers still work. Standalone Source loaders use
 `defineSource()` for custom retrieval. Workspace's `custom()` helper adds
 binding behavior.
 
+### Default mount
+
+Without a `mount` path, ViteHub picks the mount from the Source kind. The
+import does not change it:
+
+- A file Source puts its one file at its own key. This applies to `file()` and
+  `markdown()` from `vite-hub/workspace` or `vite-hub/source`, and to the
+  `'README.md'` and `{ path }` shorthands. `readme: file('README.md')` appears
+  at `README.md`.
+- `fetch()` also puts its one file at its own path.
+- Every other Source mounts under its binding key. `docs: glob({ ... })` puts
+  the key `intro.md` at `docs/intro.md`.
+
+Set `mount` to move a file Source, for example
+`readme: { source: file('README.md'), mount: 'docs' }` puts it at
+`docs/README.md`. A file Source in `vite-hub/source` has a `key` property, so
+you can check the path in code.
+
+For MCP Resources, install `@modelcontextprotocol/sdk` in your app. This applies
+to both `mcpResources()` and inferred MCP Source Bindings. Agent apps already
+have it. See [Source configuration](/docs/source/configure) for the loader options.
+
 | Option | Type | Description |
 | --- | --- | --- |
 | `source` | `Source` | The Source definition to bind. Required in this form. |
@@ -326,6 +364,7 @@ binding behavior.
 | `cache` | `false or WorkspaceCacheOptions` | `false` turns caching off. `{ maxAge }` sets a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation for API-backed Sources: `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Turns on explicit Source Sync: `true`, `false`, or a sync policy. |
+| `skills` | `false` | Keeps the Skills in this Source out of a Provider Agent's skill roots. See [Give the provider its Skills](/docs/agents/agent-drivers#give-the-provider-its-skills). |
 | `probeKeys` | `string[]` | Known item keys. ViteHub uses them to check that a bundled Source is complete and to match path-scoped access without listing the whole Source. File helpers infer them when possible. |
 
 ### Prepare startup Sources
@@ -333,7 +372,7 @@ binding behavior.
 Use `createWorkspacePreparation()` when a process must copy in required Sources before it reports ready:
 
 ```ts
-import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+import { createWorkspacePreparation } from 'vite-hub/workspace/runtime'
 
 export const preparation = createWorkspacePreparation({
   retryDelayMs: 10_000,
@@ -384,7 +423,7 @@ Use `custom({ files })` when a Custom Source knows its paths before it loads con
 Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `fetch(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
 
 ```ts [server/workspaces/support.ts]
-import { custom, defineWorkspace } from '@vite-hub/workspace'
+import { custom, defineWorkspace } from 'vite-hub/workspace'
 
 const guideSlugs = ['getting-started', 'inventory-planning']
 
@@ -413,24 +452,29 @@ A Custom Source can read files already in the Workspace through `ctx.workspaceFi
 
 A Source can pick its origin and mount per invocation from trusted runtime context. Use this when one Source key needs a narrower origin after Access selects a Workspace Scope.
 
-```ts
+```ts [server/workspaces/support/config.ts]
+import { defineWorkspace, github } from 'vite-hub/workspace'
+
 declare global {
   interface ViteHubWorkspaceSourceResolutionContextMap {
-    channel: { meta?: { customer?: string } }
+    'support.customerScope': { customers: string[] }
   }
 }
 
-github(({ channel, invocation }) => {
-  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-  const customer = channel?.meta?.customer ?? scope?.customers[0]
-  if (!customer)
-    return false
+export default defineWorkspace({
+  sources: {
+    ingestion: github(({ invocation }) => {
+      const customer = invocation.context.get('support.customerScope')?.customers[0]
+      if (!customer)
+        return false
 
-  return {
-    repo: 'quiverdk/ingestion',
-    root: `dbt/${customer}`,
-    mount: `ingestion/${customer}`,
-  }
+      return {
+        repo: 'quiverdk/ingestion',
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+      }
+    }),
+  },
 })
 ```
 

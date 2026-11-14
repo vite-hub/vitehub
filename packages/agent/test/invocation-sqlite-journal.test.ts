@@ -5,7 +5,6 @@ import { createClient } from "@libsql/client"
 import type { Client, InStatement, Transaction, TransactionMode } from "@libsql/client"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { createMemoryAgentInvocationStore, observationLimits } from "../src/invocations.ts"
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationStoreUpdateInput } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -31,8 +30,8 @@ const step = (sequence: number, attributes: Record<string, unknown> = {}) => ({
 })
 
 function statementSql(statement: unknown): string {
-  if (hasRuntimeType(statement, "string")) return statement
-  return statement !== null && hasRuntimeType(statement, "object") && "sql" in statement && hasRuntimeType(statement.sql, "string") ? statement.sql : ""
+  if (typeof statement === "string") return statement
+  return statement !== null && typeof statement === "object" && "sql" in statement && typeof statement.sql === "string" ? statement.sql : ""
 }
 
 /** Records the SQL and arguments that the store sends through the client and its transactions. */
@@ -44,7 +43,7 @@ function recordingClient(client: Client, protocol = client.protocol) {
   const wrapTransaction = (transaction: Transaction) => new Proxy(transaction, {
     get(target, property) {
       const value = Reflect.get(target, property)
-      if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+      if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
       return async (statement: InStatement) => {
         record(statement)
         return await target.execute(statement)
@@ -77,7 +76,7 @@ function recordingClient(client: Client, protocol = client.protocol) {
       if (property === "transaction") {
         return async (mode?: TransactionMode) => wrapTransaction(await target.transaction(mode))
       }
-      return hasRuntimeType(value, "function") ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   }) as Client
   return { client: proxy, statements }
@@ -117,7 +116,7 @@ describe("SQLite invocation journal", () => {
     const readerClient = new Proxy(client, {
       get(target, property) {
         const value = Reflect.get(target, property)
-        if (property !== "execute") return hasRuntimeType(value, "function") ? value.bind(target) : value
+        if (property !== "execute") return typeof value === "function" ? value.bind(target) : value
         return async (statement: InStatement) => {
           const result = await target.execute(statement)
           const sql = statementSql(statement)
@@ -225,7 +224,7 @@ describe("SQLite invocation journal", () => {
           })
         }
         const value = Reflect.get(target, property)
-        return hasRuntimeType(value, "function") ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     const store = createLibsqlAgentInvocationStore({ client: pooled, maxAge: false, maxRecords: false })
@@ -340,7 +339,7 @@ describe("SQLite invocation journal", () => {
     const query = recording.statements.map(statementSql).find(sql => sql.startsWith("SELECT position, observation FROM"))
     if (!query) throw new Error("Expected an observation read")
     const plan = await client.execute({ args: ["run", JSON.stringify(["agent.invocation.finish"])], sql: `EXPLAIN QUERY PLAN ${query}` })
-    expect(plan.rows.some(row => hasRuntimeType(row.detail, "string") && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
+    expect(plan.rows.some(row => typeof row.detail === "string" && row.detail.includes("invocation_sequence=? AND <expr>=?"))).toBe(true)
     expect((await store.get("run"))?.observations.map(entry => entry.sequence)).toEqual([1, 2, 3])
   })
 

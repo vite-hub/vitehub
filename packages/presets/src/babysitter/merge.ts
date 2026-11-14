@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../github/index.ts";
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { newestCheckRun } from "./inbox/ci-evidence.ts";
+import { isBabysitterCheckRun } from "./check-run.ts";
+import { hasGitHubLogin } from "./pull-request-filter.ts";
+import { reviewerLabeledSevere } from "../github/index.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -21,18 +26,45 @@ export type BabysitterMergeReady = (input: BabysitterMergeReadinessInput) => tru
 /**
  * - `false`: never merge.
  * - `"auto"`: the worker may request GitHub native auto-merge.
- * - `"direct"`: the host merges a ready PR before any model pass.
+ * - `"direct"`: the host merges a ready PR before any model pass, with the `"approved-if-outside"` gate.
+ * - `{ strategy: "direct", ready }`: a direct merge with another gate. `ready` is a
+ *   {@link BabysitterMergeReady} callback or `"approved-if-outside"`, the default: a PR whose author
+ *   is not an owner, member or collaborator of the repository merges only after a reviewer with write
+ *   access approves its current head, and while no such reviewer's latest review requests changes.
+ *   A push after the approval needs a new one. `ready: () => true` merges every ready PR.
  */
 export type BabysitterMerge =
   | false
   | "auto"
   | "direct"
-  | { strategy: "direct"; method?: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | {
+    strategy: "direct";
+    method?: BabysitterMergeMethod;
+    ready?: BabysitterMergeReady | "approved-if-outside";
+    /**
+     * Required checks, by repository (`owner/name`), that the host may merge past when they fail only
+     * because the same check fails the same way on the base branch tip. The merge bypasses branch
+     * rules, so the GitHub App must be allowed to bypass them, and every other rule must be satisfied.
+     */
+    bypassInheritedChecks?: Record<string, readonly string[]>;
+    /**
+     * Logins whose reviewed drafts the host marks ready for review. Only drafts whose head
+     * branch is in the repository itself qualify, so a fork's draft stays a draft.
+     */
+    markDraftsReady?: readonly string[];
+  };
 
 export type ResolvedBabysitterMerge =
   | { mode: "off" }
   | { mode: "auto" }
-  | { mode: "direct"; method: BabysitterMergeMethod; ready?: BabysitterMergeReady };
+  | {
+    mode: "direct";
+    method: BabysitterMergeMethod;
+    ready?: BabysitterMergeReady;
+    markDraftsReady?: ReadonlySet<string>;
+    /** Lowercase check names by lowercase repository. */
+    bypassInheritedChecks?: ReadonlyMap<string, ReadonlySet<string>>;
+  };
 
 export type MergeDecision = { ready: true; head: string } | { ready: false; reason: string };
 
@@ -54,13 +86,27 @@ export interface BabysitterMergeEvidence {
   /** Host-recorded evidence from an explicit assessment of this exact head and feedback. */
   reviewedEvidenceKey?: string;
   /**
-   * The PR spent its review push budget. Bot feedback, bot-only review threads and failed
+   * The PR spent its review push budget. Bot feedback, bot-only review threads and running or failed
    * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
    */
   automatedReviewSettled?: boolean;
+  /**
+   * The PR spent twice its review push budget. Until then, bot findings that their reviewer labeled P0
+   * or P1 still need an assessment after `automatedReviewSettled`.
+   */
+  severeReviewSettled?: boolean;
+  /**
+   * Review threads a worker declined while their reviewer labeled them P0 or P1. While one is
+   * unresolved, the PR waits for a person.
+   */
+  heldThreads?: ReadonlySet<string>;
+  /** Current-head checks that fail the same way on the base tip. They are the base's failures, not this PR's. */
+  inheritedCheckIds?: ReadonlySet<number>;
+  /** Unresolved review threads with only bot comments do not block once their comments are assessed. */
+  ignoreAssessedBotThreads?: boolean;
 }
 
-type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
+type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled" | "severeReviewSettled">;
 
 function feedbackAuthor(value: GitHubEvidence): string {
   return String(value.user?.login ?? value.author?.login ?? "").toLowerCase();
@@ -76,7 +122,7 @@ const botAuthor = isAutomatedFeedback;
 /** A review thread with a comment from a person. Comments from the worker and from bots do not count. */
 export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: ReadonlySet<string> = new Set()): boolean {
   const comments = Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [];
-  return comments.some(comment => !comment.deleted && !isAutomatedFeedback(comment) && !workerAuthors.has(feedbackAuthor(comment)));
+  return comments.some(comment => !comment.deleted && !isAutomatedFeedback(comment) && !hasGitHubLogin(workerAuthors, feedbackAuthor(comment)));
 }
 
 /**
@@ -85,10 +131,10 @@ export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: Reado
  */
 function ignoredFeedback(value: GitHubEvidence, policy: FeedbackPolicy): boolean {
   if (value.deleted) return true;
-  if (policy.automatedReviewSettled && botAuthor(value)) return true;
+  if (policy.automatedReviewSettled && botAuthor(value) && (policy.severeReviewSettled || !reviewerLabeledSevere(value.body))) return true;
   if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
   const author = feedbackAuthor(value);
-  if (policy.workerAuthors?.has(author) || policy.ignoreFeedbackAuthors?.has(author)) return true;
+  if (hasGitHubLogin(policy.workerAuthors, author) || hasGitHubLogin(policy.ignoreFeedbackAuthors, author)) return true;
   const body = String(value.body ?? "").trim();
   return !body || (policy.noFindingsReviews ?? []).some(prefix => body.startsWith(prefix));
 }
@@ -120,7 +166,7 @@ function mergeTarget(snapshot: Snapshot, legacy = false) {
 export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string {
   const head = snapshot.pr?.head?.sha;
   const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)]
-    .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head
+    .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head && !isBabysitterCheckRun(value)
       && failing.has(String(value.conclusion ?? value.state).toLowerCase()))
     .map(value => ({ id: value.id ?? value.context, name: value.name ?? value.context,
       state: value.conclusion ?? value.state, app: value.app, description: value.description, output: value.output }))
@@ -157,21 +203,60 @@ export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy 
     createHash("sha256").update(JSON.stringify([target, kind, value.id, value.body, value.state])).digest("hex").slice(0, 32)));
 }
 
+/** Author and reviewer associations that GitHub gives to people with write access to the repository. */
+const writeAccess = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+const hasWriteAccess = (association: unknown) => writeAccess.has(String(association ?? "").toUpperCase());
+
+/**
+ * The `"approved-if-outside"` merge gate. Each write-access reviewer's latest APPROVED or
+ * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing.
+ */
+export function approvedIfOutside({ head, snapshot }: BabysitterMergeReadinessInput): true | string {
+  const pr = snapshot.pr;
+  if (hasWriteAccess(pr?.author_association ?? pr?.authorAssociation)) return true;
+  const latest = new Map<string, GitHubEvidence>();
+  const decisive = Object.values(snapshot.reviews)
+    .filter(review => !review.deleted && hasWriteAccess(review.author_association ?? review.authorAssociation)
+      && ["APPROVED", "CHANGES_REQUESTED"].includes(String(review.state ?? "").toUpperCase()))
+    .sort((a, b) => String(a.submitted_at ?? a.submittedAt ?? "").localeCompare(String(b.submitted_at ?? b.submittedAt ?? "")));
+  for (const review of decisive) {
+    const reviewer = feedbackAuthor(review);
+    if (reviewer) latest.set(reviewer, review);
+  }
+  const short = head.slice(0, 7);
+  const blocking = [...latest].filter(([, review]) => String(review.state).toUpperCase() === "CHANGES_REQUESTED").map(([reviewer]) => reviewer);
+  if (blocking.length) return `a maintainer's approval of ${short}: ${blocking.join(", ")} requested changes`;
+  const approved = [...latest.values()].some(review => (review.commit_id ?? review.commit?.oid) === head);
+  return approved || `a maintainer's approval of ${short}`;
+}
+
 export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {
   if (merge === false) return { mode: "off" };
   if (merge === "auto") return { mode: "auto" };
-  if (merge === "direct") return { mode: "direct", method: "squash" };
+  if (merge === "direct") return { mode: "direct", method: "squash", ready: approvedIfOutside };
   if (isRuntimeRecord(merge) && merge.strategy === "direct") {
     const method = merge.method ?? "squash";
     if (method !== "squash" && method !== "merge" && method !== "rebase") {
       throw new TypeError('[vitehub] Babysitter merge.method must be "squash", "merge", or "rebase".');
     }
-    if (merge.ready !== undefined && !hasRuntimeType(merge.ready, "function")) {
-      throw new TypeError("[vitehub] Babysitter merge.ready must be a function.");
+    if (merge.ready !== undefined && merge.ready !== "approved-if-outside" && !hasRuntimeType(merge.ready, "function")) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.ready", expected: 'a function or "approved-if-outside"' });
     }
-    // SAFETY: the guard above proves ready is either undefined or a function with the documented contract.
-    const ready = merge.ready as BabysitterMergeReady | undefined;
-    return ready ? { mode: "direct", method, ready } : { mode: "direct", method };
+    const drafts = merge.markDraftsReady;
+    if (drafts !== undefined && (!Array.isArray(drafts) || !drafts.every(login => hasRuntimeType(login, "string") && login.trim()))) {
+      throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
+    }
+    // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
+    const ready = merge.ready === undefined || merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
+    const bypassInheritedChecks = new Map<string, ReadonlySet<string>>();
+    if (merge.bypassInheritedChecks !== undefined) {
+      if (!isRuntimeRecord(merge.bypassInheritedChecks)) throw presetsErrorDiagnostics.PRESETS_MERGE_BYPASS_CHECKS_INVALID();
+      for (const [repository, checks] of Object.entries(merge.bypassInheritedChecks)) {
+        if (!Array.isArray(checks) || !checks.every(check => hasRuntimeType(check, "string") && check.trim())) throw presetsErrorDiagnostics.PRESETS_MERGE_BYPASS_CHECKS_INVALID();
+        if (checks.length) bypassInheritedChecks.set(repository.toLowerCase(), new Set(checks.map((check: string) => check.toLowerCase())));
+      }
+    }
+    return { mode: "direct", method, ...ready ? { ready } : {}, ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {} };
   }
   throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
 }
@@ -180,7 +265,7 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
 export function snapshotCheckEvidence(snapshot: Snapshot): GitHubCheckEvidence {
   const head = snapshot.pr?.head?.sha ?? "";
   const checkRuns = Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || !hasRuntimeType(check.id, "number") || !hasRuntimeType(check.name, "string")) return [];
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !hasRuntimeType(check.id, "number") || !hasRuntimeType(check.name, "string")) return [];
     return [{ id: check.id, head_sha: head, name: check.name, app: hasRuntimeType(check.app?.id, "number") ? { id: check.app.id } : null,
       status: String(check.status ?? ""), conclusion: check.conclusion === undefined || check.conclusion === null ? null : String(check.conclusion) }];
   });
@@ -188,8 +273,7 @@ export function snapshotCheckEvidence(snapshot: Snapshot): GitHubCheckEvidence {
   const newest = new Map<string, (typeof checkRuns)[number]>();
   for (const check of checkRuns) {
     const key = `${check.name}\0${check.app?.id ?? ""}`;
-    const previous = newest.get(key);
-    if (!previous || check.id > previous.id) newest.set(key, check);
+    newest.set(key, newestCheckRun(newest.get(key), check));
   }
   const statuses = Object.values(snapshot.statuses).flatMap((status, index) => {
     if (status.deleted || status.sha !== head || !hasRuntimeType(status.context, "string")) return [];
@@ -209,22 +293,34 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   if (pr.draft) return no("draft");
   if (requiredChecks !== "passed") return no(`required checks ${requiredChecks}`);
   const evidence = snapshotCheckEvidence(snapshot);
+  evidence.checkRuns = evidence.checkRuns.filter(check => !assessment.inheritedCheckIds?.has(check.id));
   const reviewChecks = assessment.pendingReviewChecks ?? new Set<string>();
-  if (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
-    || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) {
+  const settled = assessment.automatedReviewSettled === true;
+  if (!settled && (evidence.checkRuns.some(check => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase()))
+    || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase())))) {
     return no("a current-head review is still running");
   }
-  const settled = assessment.automatedReviewSettled === true;
   const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase())))
     || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
   const assessed = assessment.assessedFeedback ?? new Set<string>();
   const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
   const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
-  if ((failedChecks || unassessed) && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) {
+  // A pass that assessed this head with every feedback item covered also judged the review checks, whose
+  // verdict comes from the same reviews. The exact evidence key still drifted after such passes: #2156
+  // took three passes on one head. So the key gates only other failures.
+  const otherFailure = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !reviewChecks.has(check.name.toLowerCase()))
+    || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !reviewChecks.has(status.context.toLowerCase()));
+  const reviewChecksAssessed = failedChecks && !otherFailure && !unassessed && hasRuntimeType(assessment.reviewedEvidenceKey, "string");
+  if ((failedChecks || unassessed) && !reviewChecksAssessed && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) {
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
-  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!settled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  const held = (thread: GitHubReviewThread) => assessment.heldThreads?.has(String(thread.node_id ?? thread.id)) === true;
+  const botThreadsSettled = settled || assessment.ignoreAssessedBotThreads === true;
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && !held(thread) && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  // Checked last, so a pass still runs for any other open work.
+  const waiting = snapshot.threads.filter(thread => thread.isResolved !== true && held(thread)).length;
+  if (waiting) return no(`a person to resolve ${waiting === 1 ? "a review thread" : `${waiting} review threads`} the worker declined although the reviewer labeled ${waiting === 1 ? "it" : "them"} P0 or P1`);
   return { ready: true, head };
 }
 

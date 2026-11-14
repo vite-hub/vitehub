@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -54,7 +54,6 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
-          expect.objectContaining({ name: "codex-home" }),
         ],
         name: "agent",
       }, {
@@ -78,7 +77,6 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "info" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
-          expect.objectContaining({ name: "codex-home" }),
         ],
         name: "agent",
       }, {
@@ -583,7 +581,7 @@ describe("agent CLI", () => {
       expect(results.sort()).toEqual([0, 1])
       await expect(readdir(rootDir)).resolves.toEqual(["export"])
       const published: unknown = JSON.parse(await readFile(join(rootDir, "export/history.json"), "utf8"))
-      if (!isRuntimeRecord(published) || !hasRuntimeType(published.marker, "string")) throw new TypeError("Expected exported history metadata.")
+      if (!isRuntimeRecord(published) || typeof published.marker !== "string") throw new TypeError("Expected exported history metadata.")
       expect(["first", "second"]).toContain(published.marker)
     }
     finally {
@@ -884,7 +882,7 @@ describe("agent CLI", () => {
     const requests: Array<{ body?: string, method?: string, url: string }> = []
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
-      requests.push({ body: hasRuntimeType(init?.body, "string") ? init.body : undefined, method: init?.method, url })
+      requests.push({ body: typeof init?.body === "string" ? init.body : undefined, method: init?.method, url })
       if (init?.method === "HEAD") {
         return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
       }
@@ -1775,9 +1773,12 @@ describe("agent CLI", () => {
         { id: "invocation-1", outcome: "terminal", status: "completed" },
         { delivery: "journal", id: "invocation-1", outcome: "requested", status: "running" },
       ]
-      const fetchCancel = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => init?.method === "POST"
-        ? Response.json(results.shift())
-        : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
+      // This dev server has no Console, so `--url` falls back to the dev endpoint for one minor version.
+      const fetchCancel = vi.fn(async (url: string | URL | Request, init?: RequestInit) => String(url).endsWith("/_vitehub/rpc")
+        ? new Response("Not found", { status: 404 })
+        : init?.method === "POST"
+          ? Response.json(results.shift())
+          : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
       const run = async (args: string[]) => {
         const stdout = stream()
         const stderr = stream()
@@ -1796,6 +1797,8 @@ describe("agent CLI", () => {
       const json = await run(["cancel", "invocation-1", "--json", "--url", "http://127.0.0.1:5174"])
       expect(json.exitCode).toBe(0)
       expect(JSON.parse(json.stdout)).toEqual({ id: "invocation-1", outcome: "terminal", status: "cancelled" })
+      expect(json.stderr).toContain("AGENT_R1053")
+      expect(fetchCancel.mock.calls[2]?.[0]).toBe("http://127.0.0.1:5174/_vitehub/rpc")
       expect(fetchCancel.mock.calls[3]?.[0]).toBe("http://127.0.0.1:5174/__vitehub/agent/invocations/dev")
 
       expect(await run(["cancel", "invocation-1"])).toEqual({ exitCode: 1, stderr: "", stdout: "invocation-1 already completed\n" })

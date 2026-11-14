@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { createAgentCliContributor } from "../src/cli.ts"
 import { runConversationsExportCli } from "../src/internal/conversations-cli.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const photo = Buffer.from([1, 2, 3]).toString("base64")
 const exported = {
@@ -23,7 +24,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, { force: true, recursive: true })
 })
 
-function run(args: string[], answer: () => Response = () => Response.json({ ok: true, value: exported })) {
+function run(args: string[], answer: (body: unknown) => Response = body => operationRpcResponse(body, { ok: true, value: exported })) {
   const calls: Array<{ body: unknown, url: string }> = []
   const stdout: string[] = []
   const stderr: string[] = []
@@ -33,8 +34,8 @@ function run(args: string[], answer: () => Response = () => Response.json({ ok: 
       cwd,
       env: {},
       fetch: async (url, init) => {
-        calls.push({ body: JSON.parse(String(init?.body)), url: String(url) })
-        return answer()
+        calls.push({ body: operationRpcRequest(init?.body), url: String(url) })
+        return answer(init?.body)
       },
       rootDir: cwd,
       stderr: { write: chunk => stderr.push(String(chunk)) },
@@ -52,7 +53,7 @@ describe("vitehub conversations export", () => {
     expect(result.stdout).toBe(exported.text)
     expect(result.calls).toEqual([{
       body: { input: { agent: "support", channel: "telegram", format: "markdown", media: false, thread: "telegram:456" }, operation: "conversations.export" },
-      url: "https://app.example.com/_vitehub/rpc/__call",
+      url: "https://app.example.com/_vitehub/rpc",
     }])
     // The retention warning goes to stderr, so the redirected file stays clean.
     expect(result.stderr).toContain("Transcripts are not durable")
@@ -60,7 +61,7 @@ describe("vitehub conversations export", () => {
 
   it("asks for the JSON archive and writes the files and the attachments to a directory", async () => {
     const json = { ...exported, filename: "history.json", format: "json", mimeType: "application/json", text: "{\"schemaVersion\":1}\n" }
-    const result = await run(["--agent", "support", "--channel", "telegram", "--thread", "telegram:456", "--format", "json", "--output", "chat", "--url", "https://app.example.com"], () => Response.json({ ok: true, value: json }))
+    const result = await run(["--agent", "support", "--channel", "telegram", "--thread", "telegram:456", "--format", "json", "--output", "chat", "--url", "https://app.example.com"], body => operationRpcResponse(body, { ok: true, value: json }))
     expect(result.code).toBe(0)
     expect(result.calls[0]!.body).toMatchObject({ input: { format: "json", media: true } })
     expect(result.stdout).toBe(`Wrote 2 messages and 1 attachments to ${join(result.cwd, "chat")}\n`)
@@ -70,7 +71,7 @@ describe("vitehub conversations export", () => {
     const again = await runConversationsExportCli(["support", "telegram", "t", "--output", join(result.cwd, "chat"), "--url", "https://app.example.com"], {
       cwd: result.cwd,
       env: {},
-      fetch: async () => Response.json({ ok: true, value: json }),
+      fetch: async (_url, init) => operationRpcResponse(init?.body, { ok: true, value: json }),
       rootDir: result.cwd,
       stderr: { write: () => true },
       stdout: { write: () => true },
@@ -80,7 +81,7 @@ describe("vitehub conversations export", () => {
 
   it("refuses a file name or a media path that leaves the output directory, and writes nothing", async () => {
     for (const bad of [{ filename: "../escape.md" }, { filename: "/tmp/absolute.md" }, { media: [{ base64: photo, path: "media/../../escape.png" }] }, { media: [{ base64: photo, path: "../escape.png" }] }, { filename: "" }]) {
-      const result = await run(["support", "telegram", "t", "--output", "out", "--url", "https://app.example.com"], () => Response.json({ ok: true, value: { ...exported, ...bad } }))
+      const result = await run(["support", "telegram", "t", "--output", "out", "--url", "https://app.example.com"], body => operationRpcResponse(body, { ok: true, value: { ...exported, ...bad } }))
       expect(result.code, JSON.stringify(bad)).toBe(1)
       expect(result.stderr).toContain("outside the output directory")
       await expect(readFile(join(result.cwd, "out", "telegram-456.md"))).rejects.toThrow()
@@ -90,7 +91,7 @@ describe("vitehub conversations export", () => {
   })
 
   it("reports a coded failure with its fix, and refuses attachments without a directory", async () => {
-    const failed = await run(["support", "telegram", "t", "--url", "https://app.example.com"], () => Response.json({ code: "CHANNELS_NOT_FOUND", fix: "Run `vitehub channels list`.", message: "No such Channel.", ok: false, status: 404 }, { status: 404 }))
+    const failed = await run(["support", "telegram", "t", "--url", "https://app.example.com"], body => operationRpcResponse(body, { code: "CHANNELS_NOT_FOUND", fix: "Run `vitehub channels list`.", message: "No such Channel.", ok: false, status: 404 }))
     expect(failed.code).toBe(1)
     expect(failed.stderr).toBe("CHANNELS_NOT_FOUND: No such Channel.\nFix: Run `vitehub channels list`.\n")
     const usage = await run(["support", "telegram", "t", "--media", "--url", "https://app.example.com"])

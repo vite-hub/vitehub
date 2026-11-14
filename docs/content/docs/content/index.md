@@ -8,76 +8,78 @@ icon: i-lucide-file-text
 ---
 
 ::product-hero{tagline="Turn Markdown files into pages you can read, list, and search, and let people edit and publish them." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-tree
-  ```ts [server/content.ts]
-  import sqlite from 'comark-content/database/sqlite-node'
-  import sqliteFullTextSearch
-    from 'comark-content/plugins/sqlite-full-text-search'
-  import { defineContent } from 'vite-hub/content'
-  import { glob } from 'vite-hub/source'
+  :hero-figure{name="content"}
+::
 
-  export const content = defineContent({
-    // Keep a search index in SQLite
-    plugins: [
-      sqliteFullTextSearch({ database: sqlite() }),
-    ],
-    // Every Markdown file in your docs folder
-    sources: {
-      docs: glob({ cwd: 'docs', include: '**/*.md' }),
-    },
-  })
-  ```
+::code-tree
+```ts [server/content.ts]
+import sqlite from 'comark-content/database/sqlite-node'
+import sqliteFullTextSearch
+  from 'comark-content/plugins/sqlite-full-text-search'
+import { defineContent } from 'vite-hub/content'
+import { glob } from 'vite-hub/source'
 
-  ```md [docs/intro.md]
-  # Hello from Content
+export default defineContent({
+  // Keep a search index in SQLite
+  plugins: [
+    sqliteFullTextSearch({ database: sqlite() }),
+  ],
+  // Every Markdown file in your docs folder
+  sources: {
+    docs: glob({ cwd: 'docs', include: '**/*.md' }),
+  },
+})
+```
 
-  This file is in your project.
-  Content reads it as the page /intro.
-  ```
+```md [docs/intro.md]
+# Hello from Content
 
-  ```ts [server/api/intro.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { content } from '../content'
+This file is in your project.
+Content reads it as the page /intro.
+```
 
-  // One page, and a menu of every page
-  export default defineEventHandler(async () => {
-    return {
-      page: await content.get('/intro'),
-      menu: await content.navigation(['docs']),
-    }
-  })
-  ```
+```ts [server/api/intro.get.ts]
+import { defineEventHandler } from 'h3'
+import content from '../content'
 
-  ```bash [CLI]
-  pnpm vitehub content status
-  pnpm vitehub content diff posts hello
-  pnpm vitehub content publish --collection posts --id hello
-  ```
+// One page, and a menu of every page
+export default defineEventHandler(async () => {
+  return {
+    page: await content.get('/intro'),
+    menu: await content.navigation(['docs']),
+  }
+})
+```
 
-  ```ts [server/api/search.get.ts]
-  import { defineEventHandler, getQuery } from 'h3'
-  import { content } from '../content'
+```bash [CLI]
+pnpm vitehub content status
+pnpm vitehub content diff posts hello
+pnpm vitehub content publish --collection posts --id hello
+```
 
-  // Search every page: /api/search?q=hello
-  export default defineEventHandler(async (event) => {
-    const { q } = getQuery(event)
-    return content.search(['docs'], String(q ?? ''))
-  })
-  ```
+```ts [server/api/search.get.ts]
+import { defineEventHandler, getQuery } from 'h3'
+import content from '../content'
 
-  ```ts [app/utils/content.ts]
-  import {
-    createContentClient,
-  } from 'vite-hub/content/client'
+// Search every page: /api/search?q=hello
+export default defineEventHandler(async (event) => {
+  const { q } = getQuery(event)
+  return content.search(['docs'], String(q ?? ''))
+})
+```
 
-  // Read pages from the browser.
-  // It calls the /api/content route for you.
-  export const content = createContentClient()
+```ts [app/utils/content.ts]
+import {
+  createContentClient,
+} from 'vite-hub/content/client'
 
-  // await content.get('/intro')
-  // await content.navigation()
-  ```
-  :::
+// Read pages from the browser.
+// It calls the /api/content route for you.
+export const content = createContentClient()
+
+// await content.get('/intro')
+// await content.navigation()
+```
 ::
 
 Search uses optional `comark-content` plugins. [Search configuration](/docs/content/configure#providers) shows how to install them and where they store data. You need no Comark setup to read and render Markdown.

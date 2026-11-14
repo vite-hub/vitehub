@@ -44,7 +44,7 @@ function lastUserText({ messages }: AgentRunContext): string {
 }
 
 const [channelsList, channelsThreads, channelsConversation, conversationsExport] = agentChannelOperations
-const consoleContext = { access: { mode: "open", sections: "all" }, request: new Request("http://vitehub.local/_vitehub/rpc/__call"), surface: "console", user: null } as const
+const consoleContext = { access: { mode: "open", sections: "all" }, request: new Request("http://vitehub.local/_vitehub/rpc"), surface: "console", user: null } as const
 
 /** Runs `channels.list` for one Agent named `support`, the way the Console and `vitehub channels list` call it. */
 async function listChannels(channels: Parameters<typeof defineAgent>[0]["channels"]) {
@@ -283,7 +283,7 @@ describe("simulated chat Channels", () => {
     const polling = telegram({ mode: "polling" })
     expect(inspectMessageChannelInstructions({ telegram: polling }).join("\n")).toContain("Telegram")
     expect(polling.listener).toBeUndefined()
-    expect(polling.webhooks).toBe(true)
+    expect(polling.webhooks).toEqual({ secretToken: false })
     expect(telegram().webhooks).toMatchObject({ secretToken: false })
   })
 

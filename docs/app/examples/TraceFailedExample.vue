@@ -41,7 +41,7 @@ const run: TraceRunView = {
       <div class="flex items-center justify-between gap-3 text-sm">
         <span class="flex items-center gap-2">
           <UIcon
-            :name="step.status === 'failed' ? 'i-ph-x-circle-light' : 'i-ph-check-circle-light'"
+            :name="step.status === 'failed' ? 'i-lucide-circle-x' : 'i-lucide-circle-check'"
             class="size-4 text-muted"
             aria-hidden="true"
           />

@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { build } from "esbuild"
 import { describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -19,7 +19,7 @@ describe("Nuxt production Node Database runtime", () => {
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
       await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
-      await hubDb()(undefined, {
+      await hubDatabase()(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -47,7 +47,7 @@ describe("Nuxt production Node Database runtime", () => {
 
   it.each(["default", "orders"])("queries the configured %s SQLite database through the generated host alias", async (name) => {
     const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-node-"))
-    const definition = join(root, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+    const definition = join(root, "server/databases", name, "index.ts")
     const databaseUrl = `file:${join(root, "data", `${name}.sqlite`)}`
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     try {
@@ -62,7 +62,7 @@ describe("Nuxt production Node Database runtime", () => {
         '  schema: { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) },',
         "})",
       ].join("\n"))
-      await hubDb({
+      await hubDatabase({
         connection: { url: name === "default" ? databaseUrl : "file:unused.sqlite" },
         ...(name === "orders" ? { driver: "d1", databaseId: "content-id", databaseName: "content-db" } as const : {}),
       })(undefined, {
@@ -74,14 +74,14 @@ describe("Nuxt production Node Database runtime", () => {
       const config = { alias: {} as Record<string, string>, exportConditions: ["node"] }
       for (const hook of hooks) await hook(config)
       expect(config.exportConditions).toEqual(["node"])
-      const runtime = config.alias["@vite-hub/database/drizzle"]
+      const runtime = config.alias["@vite-hub/database/runtime/registry"]
       // Nuxt CLI clears buildDir after ready() and nitro:config, before compiling.
       await rm(join(root, ".nuxt"), { recursive: true, force: true })
-      await expect(readFile(runtime!, "utf8")).resolves.toContain("export function useDatabase")
+      await expect(readFile(runtime!, "utf8")).resolves.toContain("return createUseDatabase(databases, Object.keys(configured()))(name)")
 
       const entry = join(root, "server.mjs")
       await writeFile(entry, [
-        'import { useDatabase } from "@vite-hub/database/drizzle"',
+        'import { useDatabase } from "@vite-hub/database"',
         `const { db, schema } = useDatabase(${JSON.stringify(name)})`,
         'if (process.argv[2] === "seed") {',
         '  await db.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")',

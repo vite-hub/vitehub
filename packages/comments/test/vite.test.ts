@@ -66,7 +66,7 @@ describe("hubComments", () => {
   })
 
   it("does nothing without server/comments.ts", async () => {
-    const root = await project({ "server/content.ts": "export const content = {}" })
+    const root = await project({ "server/content.ts": "export default {}" })
     const plugin = hubComments()
     expect(await configure(plugin, root)).toBeUndefined()
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
@@ -94,7 +94,7 @@ describe("hubComments", () => {
   })
 
   it("serves the API, installs the runtime, and serves the overlay with the page tools routes", async () => {
-    const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export default {}" })
     const nitro = await configure(hubComments({ auth: true }), root)
     expect(nitro?.handlers).toEqual([
       { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true },
@@ -110,7 +110,7 @@ describe("hubComments", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession,")
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
-    expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
+    expect(handler).toContain("content: contentModule.default ? { runtime: contentModule.default, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession")
   })
@@ -341,8 +341,6 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
     ['const other = defineComments({ database: "wrong" }); export const comments = defineComments({ database: "content" })', "content"],
     ['export const comments = defineComments({ database: "wrong", database: "content" })', "content"],
-    ['export const comments = defineComments({ database: "wrong", database: chooseDatabase() })', undefined],
-    ['export const comments = defineComments({ database: "wrong", ...options })', undefined],
     ['export const comments = defineComments({ ...options, ["database"]: `content` } as const)', "content"],
     ['const definition = defineComments({ database: "content" }); export { definition as comments }', "content"],
     ['const helper = { database: "wrong" }; export const comments = defineComments()', undefined],
@@ -356,6 +354,25 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
     else expect(contributions[0]).toHaveProperty("database", database)
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`.databases${database ? `, ${JSON.stringify(database)}` : ""})`)
+  })
+
+  it.each([
+    'export const comments = defineComments({ database: "wrong", database: chooseDatabase() })',
+    "export const comments = defineComments({ database: process.env.COMMENTS_DATABASE })",
+    "const name = \"content\"; export const comments = defineComments({ database: name })",
+    'export const comments = defineComments({ database: `content-${stage}` })',
+    "export const comments = defineComments({ database: 1 })",
+    'export const comments = defineComments({ database: "content", ...options })',
+    'export default defineComments({ database: "content", [key]: "other" })',
+  ])("fails the build when the Database option is not a string literal: %s", async (source) => {
+    const root = await project({ "server/comments.ts": source })
+    await expect(readCommentsDatabase(join(root, "server/comments.ts"))).rejects.toMatchObject({ code: "COMMENTS_B0004", fix: expect.stringContaining("string literal") })
+    await expect(configure(hubComments(), root)).rejects.toMatchObject({ code: "COMMENTS_B0004" })
+  })
+
+  it("reads `database: undefined` as the default Database", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ database: undefined })" })
+    expect(await readCommentsDatabase(join(root, "server/comments.ts"))).toBeUndefined()
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {

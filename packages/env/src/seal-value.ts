@@ -87,12 +87,10 @@ function argumentError(problem: string): never {
 }
 
 function checkPurpose(purpose: unknown): asserts purpose is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can pass any value.
   if (typeof purpose !== "string" || !purpose) argumentError("`purpose` must be a non-empty string.")
 }
 
 // Validate the input before JSON.stringify can omit members or change them to null.
-// doctor-disable typescript/strict/no-runtime-typeof -- This boundary accepts unknown values from JavaScript callers.
 function checkJsonValue(value: unknown, ancestors = new Set<object>()): void {
   if (value === null || typeof value === "string" || typeof value === "boolean") return
   if (typeof value === "number" && Number.isFinite(value)) return
@@ -117,12 +115,10 @@ function checkJsonValue(value: unknown, ancestors = new Set<object>()): void {
   }
   ancestors.delete(value)
 }
-// doctor-enable typescript/strict/no-runtime-typeof
 
 function rootSecret(secret: UnsealOptions["secret"]): string | undefined {
   if (secret === undefined) return undefined
   const value = secret instanceof SecretEnv ? secret.unseal() : secret
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can pass any value.
   if (typeof value !== "string" || value.length < viteHubSecretMinimumLength) {
     argumentError(`\`secret\` must be a string of at least ${viteHubSecretMinimumLength} characters.`)
   }
@@ -163,7 +159,6 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
     async seal(purpose, value, options = {}) {
       checkPurpose(purpose)
       const { ttl } = options
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can pass any value.
       if (ttl !== undefined && (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0)) {
         argumentError("`ttl` must be a positive number of seconds.")
       }
@@ -198,7 +193,6 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
       checkPurpose(purpose)
       // Derive first, so that a missing root secret throws for every input.
       const key = await purposeKey(derive, purpose, options, "decrypt")
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The sealed string comes from a request.
       const bytes = typeof sealed === "string" ? fromBase64Url(sealed) : undefined
       if (!bytes || bytes.length < headerLength + ivLength + tagLength || bytes[0] !== version) {
         return [sealErrors.ENV_SEAL_INVALID(), undefined]
@@ -231,7 +225,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
   }
 }
 
-const sealing = createSealing((purpose, event, root) => deriveSecret(purpose, event, root))
+const sealing = createSealing((purpose, event, root) => deriveSecret(purpose, { event, root }))
 
 /**
  * Encrypts and signs a JSON value for one purpose, with a key that ViteHub derives from `VITEHUB_SECRET`.

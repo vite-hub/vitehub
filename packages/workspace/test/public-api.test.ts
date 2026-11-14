@@ -13,7 +13,6 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
 const tempDirs: string[] = []
@@ -189,7 +188,7 @@ describe("workspace public API", () => {
 
     // The server helpers return Fetchable routes and do not import h3.
     expect(packageJson.dependencies?.h3).toBeUndefined()
-    expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.ofetch).toBeUndefined()
     expect(packageJson.dependencies?.vite).toBeUndefined()
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
     expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
@@ -570,7 +569,7 @@ describe("workspace public API", () => {
         "/docs/**/*.md": {
           mediaType: "text/markdown",
           validate(input) {
-            if (hasRuntimeType(input.content, "string") && input.content.includes("<script")) return false
+            if (typeof input.content === "string" && input.content.includes("<script")) return false
           },
           write: true,
         },
@@ -719,6 +718,21 @@ describe("workspace public API", () => {
       expect.objectContaining({ path: "repo", type: "directory" }),
       expect.objectContaining({ path: "repo/README.md", type: "file" }),
     ])
+  })
+
+  it("loads the Workspace Definition again on the next read after a failed load", async () => {
+    const definition = defineWorkspace({
+      store: { provider: "memory" },
+      sources: { repo: file({ content: "# Repo\n", workspacePath: "README.md" }) },
+    })
+    const load = vi.fn()
+      .mockRejectedValueOnce(new Error("transient definition load failure"))
+      .mockResolvedValue({ default: definition })
+    setWorkspaceRegistry({ docs: load })
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.readFile("README.md")).rejects.toThrow("transient definition load failure")
+    await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Repo\n")
   })
 
   it("caps merged read-only search results", async () => {

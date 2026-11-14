@@ -1,13 +1,17 @@
 import { resolveViteHubProjectRoot } from "./build/vite.ts"
 import { findViteHubDevServerUrl } from "./cli.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
-import { standardJsonSchema } from "./standard-schema.ts"
-import { withValibotJsonSchema } from "./valibot.ts"
+import { isRecordOrFunction as isObject } from "./object.ts"
+import { callOperationRpc, operationRpcPath, readOperationRpcError } from "./operation-rpc.ts"
+import { readConsoleSigningKey, signConsoleRequest } from "./console-signature.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import { invalidDefinition, isOperation, isSectionId, reservedOperationNamespaces } from "./operation-definition.ts"
+import type { AnyOperation, OperationAccess, OperationActor, OperationContext, OperationFailure, OperationKind, OperationResult, OperationUser } from "./operation-definition.ts"
 
-/** Path of the operation RPC under the app. Dev servers and deployed apps serve it the same way. */
-export const operationRpcPath = "/_vitehub/rpc/__call"
+export * from "./operation-definition.ts"
+
+export { operationRpcPath }
 /** Header that proves the caller is not a browser page. A foreign page cannot send it without a CORS preflight. */
 export const operationRpcHeader = "x-vitehub-console"
 /** Response header of the local dev RPC. Its value is {@link projectRootHash} of the project that the server runs. */
@@ -31,243 +35,6 @@ export function projectRootHash(root: string): string {
 export const operationSurfaceHeader = "x-vitehub-surface"
 /** Generated CLI commands ask the server to check confirmation after it parses the input. */
 export const operationConfirmationHeader = "x-vitehub-confirmation"
-
-/** `read` never changes state. `write` changes state. `destructive` deletes or publishes. */
-export type OperationKind = "read" | "write" | "destructive"
-
-/** The signed-in user of a call. */
-export interface OperationUser {
-  id: string
-  name?: string
-  email?: string
-  image?: string
-  [key: string]: unknown
-}
-
-/** The Agent Actor when an agent calls through a capability or MCP on behalf of a user. */
-export interface OperationActor {
-  id: string
-  kind?: string
-  label?: string
-  meta?: object
-}
-
-/** The checked Console access of a call. `vite-hub` issues it. `ConsoleAccess` has this shape. */
-export interface OperationAccess {
-  readonly mode: string
-  /**
-   * The sections that the call may use. `"all"` when no section filter applies. An entry is a section id (`"kv"`, every
-   * operation of the section), `"<section>:read"` (only the operations that read), or `"<section>:<scope>"` (only the
-   * calls of a scoped operation for that scope, such as `"blob:media"` for one Blob store). `"<section>:<scope>:read"`
-   * allows only the reads of that scope.
-   */
-  readonly sections: "all" | readonly string[]
-  readonly user?: OperationUser
-}
-
-export interface OperationContext {
-  /** The checked Console access of the call. */
-  access: OperationAccess
-  /** The signed-in user, or null. */
-  user: OperationUser | null
-  /** The Agent Actor when an agent calls on behalf of `user`. */
-  actor?: OperationActor
-  surface: "console" | "cli" | "mcp" | "agent"
-  /** Set by the host from generated build identity, never from request input or runtime NODE_ENV. */
-  development?: boolean
-  env?: Record<string, unknown>
-  waitUntil?: (task: Promise<unknown>) => void
-  request?: Request
-  /**
-   * The request event of the HTTP request that carries the call, when there is one: the Request of the Console route,
-   * with its Standard Context. Operations hand it to app hooks that read the request's own session, such as `identify`
-   * of Comments.
-   */
-  event?: unknown
-  /** Operations set a success status here, such as 202 for an accepted call. */
-  response?: { status?: number }
-  /**
-   * An agent or an MCP client may pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`
-   * only when the developer allowed it. Defaults to false, so a model cannot take over a document that a person is editing.
-   */
-  overrideLeases?: boolean
-  /**
-   * What an Agent may read of the Channel conversations, set by `operations({ conversations })`. `participant`: only the
-   * threads that the Actor takes part in. `all`: every thread. Unset: none.
-   */
-  conversations?: "all" | "participant"
-}
-
-export interface OperationDefinition<Input, Output> {
-  /** `<section>.<verb>`, such as `content.publish`. Unique per app. */
-  name: string
-  /** One sentence. Becomes the CLI help line and the MCP tool description. */
-  description: string
-  /**
-   * Console section that grants access, such as `content`. `false`: any Console user. A function reads the section
-   * from the input, for operations that serve several sections. Section ids cannot contain `:`; it is reserved for
-   * scope and read-only grants. A function that returns an invalid id denies the call.
-   */
-  section: string | false | ((input: Input) => string | undefined)
-  /**
-   * The part of a string `section` that one call uses, such as the Blob store that the input names. The call then needs
-   * the section (every scope) or `"<section>:<scope>"` (only this scope). A scope that is empty, is `read`, or has a
-   * `:` needs the whole section.
-   */
-  scope?: (input: Input) => string | undefined
-  /** `read` never changes state. `write` changes state. `destructive` deletes or publishes; the CLI asks for `--yes`, MCP marks `destructiveHint`, agents require approval by default. */
-  kind: OperationKind
-  /** Standard Schema (valibot in this repo). Its Standard JSON Schema builds CLI flags and the MCP input schema. */
-  input: StandardSchemaV1<unknown, Input>
-  output?: StandardSchemaV1<unknown, Output>
-  cli?: {
-    /** Defaults: namespace = section, command = verb. */
-    namespace?: string
-    /** A space groups commands: `jobs list` and `jobs show` run as `vitehub <namespace> jobs list` and `jobs show`. */
-    command?: string
-    /** Input keys read from positional arguments, in order. */
-    positional?: string[]
-    /** Human output, written verbatim. Without it the CLI prints JSON. `--json` always prints JSON. */
-    format?: (output: Output) => string
-    /** `vitehub <namespace>` runs this command when no command is named. */
-    default?: boolean
-    /**
-     * Route of the app that takes a signed dispatch of this operation, such as `/_vitehub/schedules/run`. With `--url`
-     * and a dispatch key in the environment (`VITEHUB_DISPATCH_KEY`), the command signs the input and posts it there, so
-     * a CI job needs no Console credentials. Without a key it calls the RPC.
-     */
-    dispatch?: string
-  }
-  /** Largest request body in bytes. It can raise the 64 KiB default but not lower it. */
-  maxRequestBytes?: number
-  /**
-   * Returns true when this call only reads, such as a dry run of a `destructive` operation. The CLI then skips the
-   * confirmation, and agents run it without approval. Without it, every call of a `destructive` operation asks.
-   */
-  readOnlyWhen?: (input: Input) => boolean
-  /** `false`: MCP does not offer the operation as a tool, such as an editor transport that only the Console uses. */
-  mcp?: false
-  /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
-  user?: false
-  /**
-   * The operation runs code of the app, such as a workflow, a job, a task, or a schedule. The Console registers it only
-   * when `console.invoke` is on, which is the default in development and off in a production build.
-   */
-  invoke?: true
-  run: (input: Input, context: OperationContext) => Output | Promise<Output>
-}
-
-/** An operation of any input and output, as a registry holds it. */
-export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
-  readOnlyWhen?: (input: never) => boolean
-  cli?: { namespace?: string, command?: string, default?: boolean, dispatch?: string, positional?: string[], format?: (output: never) => string }
-  input: StandardSchemaV1
-  output?: StandardSchemaV1
-  run: (input: never, context: OperationContext) => unknown
-  scope?: (input: never) => string | undefined
-  section: string | false | ((input: never) => string | undefined)
-}
-
-/** The fields every surface reports for a failed call. */
-export interface OperationFailure {
-  code: string
-  message: string
-  fix?: string
-  docs?: string
-  details?: Record<string, unknown>
-  status: number
-}
-
-export type OperationResult<Output = unknown> =
-  | { ok: true, value: Output }
-  | ({ ok: false } & OperationFailure)
-
-const nameFormat = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
-const kinds: ReadonlySet<string> = new Set<OperationKind>(["read", "write", "destructive"])
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
-}
-
-function invalidDefinition(name: unknown, reason: string): Error {
-  return internalErrorDiagnostics.INTERNAL_R0020({ message: `[vitehub] Operation ${JSON.stringify(name)} is invalid: ${reason}` })
-}
-
-function checkDefinition(definition: unknown): void {
-  if (!isObject(definition)) throw invalidDefinition(undefined, "defineOperation() takes an object.")
-  const { name } = definition
-  if (String(name) !== name || !nameFormat.test(name)) throw invalidDefinition(name, "the name must look like `section.verb`, in lower case.")
-  if (String(definition.description) !== definition.description || !definition.description) throw invalidDefinition(name, "add a one sentence description.")
-  const { section } = definition
-  if (section !== false && !(section instanceof Function) && !isSectionId(section)) throw invalidDefinition(name, "section must be a Console section id, a function, or false; section ids cannot contain ':'.")
-  if (definition.scope !== undefined && (!(definition.scope instanceof Function) || String(section) !== section)) throw invalidDefinition(name, "scope must be a function, and it needs a section id.")
-  if (!kinds.has(String(definition.kind))) throw invalidDefinition(name, 'kind must be "read", "write", or "destructive".')
-  const input = definition.input
-  if (!isObject(input) || !isObject(input["~standard"]) || !(input["~standard"].validate instanceof Function)) throw invalidDefinition(name, "input must be a Standard Schema, such as a valibot object.")
-  if (!(definition.run instanceof Function)) throw invalidDefinition(name, "run must be a function.")
-  const { maxRequestBytes } = definition
-  if (maxRequestBytes !== undefined && (!Number.isInteger(maxRequestBytes) || Number(maxRequestBytes) < defaultRequestBytes)) {
-    throw invalidDefinition(name, `maxRequestBytes can only raise the limit above ${defaultRequestBytes} bytes (64 KiB).`)
-  }
-  if (definition.readOnlyWhen !== undefined && !(definition.readOnlyWhen instanceof Function)) throw invalidDefinition(name, "readOnlyWhen must be a function.")
-}
-
-/** The default limit of a call, in bytes. */
-export const defaultRequestBytes: number = 64 * 1_024
-/** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
-export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]
-
-/** CLI namespaces owned by built-in commands. */
-export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
-
-/** Input keys that the generated CLI commands read themselves. */
-export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
-
-/**
- * Define one operation. The Console, the CLI, MCP, and agent tools call the same definition. Contribute it with
- * `vitehub: { operations: [{ module, export }] }` on a Vite plugin.
- */
-export function defineOperation<Input, Output>(definition: OperationDefinition<Input, Output>): OperationDefinition<Input, Output> {
-  checkDefinition(definition)
-  // Valibot schemas carry no JSON Schema. Add it here, so the CLI and MCP read the fields of any definer's input.
-  const defined = { ...definition, input: withValibotJsonSchema(definition.input) }
-  const properties = operationInputJsonSchema(defined as unknown as AnyOperation).properties
-  const clashes = isObject(properties) ? Object.keys(properties).filter(key => reservedOperationFlags.includes(key)) : []
-  if (clashes.length) {
-    throw invalidDefinition(definition.name, `the input key ${clashes.map(key => JSON.stringify(key)).join(", ")} is a CLI flag of every command (${reservedOperationFlags.join(", ")}). Rename it.`)
-  }
-  return defined
-}
-
-export function isOperation(value: unknown): value is AnyOperation {
-  try {
-    checkDefinition(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-/** The contribution of one plugin: operations, or a module that exports them. */
-export interface OperationContributionEntry {
-  /** The absolute path of the module that generated code imports, such as `ownModule(import.meta.url, "operations")`. */
-  module: string
-  /** Named export that holds an operation or an array of operations. Defaults to `default`. */
-  export?: string
-  /** Loads the export in the tool process, for a module that the tool cannot resolve by name. */
-  load?: () => Promise<unknown>
-  /** `false`: the app already has these operations at runtime. Only tools such as the CLI and `vitehub inspect` read the entry. */
-  runtime?: false
-}
-
-/** The contribution of a plugin: a list, or a function that returns it, for a plugin that reads the project first. */
-export type OperationContributions = readonly OperationContributionEntry[] | (() => readonly OperationContributionEntry[] | Promise<readonly OperationContributionEntry[]>)
-
-export interface OperationContributingPlugin {
-  name?: string
-  vitehub?: { operations?: OperationContributions }
-}
 
 /** A validated contribution with the plugin that added it. */
 export interface CollectedOperationContribution {
@@ -396,11 +163,6 @@ export type OperationSectionResolver = (call: { actor?: OperationActor, user: Op
 
 export { installOperationRegistry, installOperationRegistryLoader, installOperationSectionResolver, installedOperationRegistry, installedOperationSectionResolver } from "./operation-registry.ts"
 
-/** JSON Schema of the input, for CLI flags and MCP tool schemas. Falls back to an open object. */
-export function operationInputJsonSchema(operation: AnyOperation): Record<string, unknown> {
-  return standardJsonSchema(operation.input, "input") ?? { type: "object" }
-}
-
 /** Issues of a failed Standard Schema check as one short line per issue. */
 export function describeInputIssues(issues: readonly StandardSchemaV1.Issue[]): string {
   return issues.slice(0, 5).map((issue) => {
@@ -439,9 +201,6 @@ export function operationSection(operation: Pick<AnyOperation, "scope" | "sectio
 /** The suffix of a section grant that allows only reads, such as `"kv:read"`. */
 export const readOnlySectionSuffix = ":read"
 
-function isSectionId(section: unknown): section is string {
-  return typeof section === "string" && section !== "" && !section.includes(":")
-}
 
 function isSectionScope(scope: unknown): scope is string {
   return isSectionId(scope) && scope !== "read"
@@ -599,15 +358,30 @@ export interface OperationTarget {
   roots?: readonly string[]
 }
 
-export const operationCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
+export const operationCredentialHint = "Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key that `vitehub secret console-key` printed, and its public key in VITEHUB_CONSOLE_KEY_<NAME> on the app."
 
-/** Headers of an operation call. The credentials are the ones the Agent Invocations CLI reads. */
-export function operationHeaders(env: Record<string, string | undefined>): Headers {
-  const headers = new Headers({ "accept": "application/json", "content-type": "application/json", [operationRpcHeader]: "1", [operationSurfaceHeader]: "cli" })
-  if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
-  if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
-  if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
-  if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
+/** Headers of an operation call, without a signature. */
+export function operationHeaders(): Headers {
+  const headers = new Headers()
+  headers.set("accept", "application/json")
+  headers.set("content-type", "application/json")
+  headers.set(operationRpcHeader, "1")
+  headers.set(operationSurfaceHeader, "cli")
+  return headers
+}
+
+/**
+ * The headers of one operation call to a deployed app: {@link operationHeaders}, and the signature of `body` when the
+ * env has a `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. The CLI signs as itself, `via: "cli"`. Throws a `TypeError` for a
+ * malformed private key.
+ */
+export async function signedOperationHeaders(env: Record<string, string | undefined>, url: string | URL, body: string): Promise<Headers> {
+  const headers = operationHeaders()
+  const key = readConsoleSigningKey(env)
+  if (key) {
+    const signed = await signConsoleRequest({ body, caller: { via: "cli" }, key, method: "POST", url })
+    for (const [name, value] of Object.entries(signed)) headers.set(name, value)
+  }
   return headers
 }
 
@@ -617,7 +391,7 @@ function unreachable(message: string, status = 503): OperationResult {
 }
 
 function hasCredentials(env: Record<string, string | undefined>): boolean {
-  return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
+  return Object.keys(env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && Boolean(env[name]))
 }
 
 /** Refuse a stale local discovery target before dispatching any operation. */
@@ -628,10 +402,18 @@ export function assertOperationProject(request: Request, root: string | undefine
   throw Object.assign(internalErrorDiagnostics.INTERNAL_R0025({ message: "The server runs another project than the command expects." }), { status: 409 })
 }
 
-/** Check a generated CLI command against the same classification that the server will execute. */
+/**
+ * Check a call that asks for confirmation against the same classification that the server will execute. Generated CLI
+ * commands and the Console MCP send `x-vitehub-confirmation: required` until a person confirms.
+ */
 export function assertOperationConfirmation(request: Request, call: OperationCallKind): void {
-  if (request.headers.get(operationSurfaceHeader) !== "cli" || request.headers.get(operationConfirmationHeader) !== "required") return
-  if (call.kind !== "destructive" || call.readOnly) return
+  if (request.headers.get(operationConfirmationHeader) !== "required") return
+  assertOperationConfirmed(call, false)
+}
+
+/** Refuse a destructive call that the caller did not confirm with `409` `INTERNAL_R0026`. Reads and writes pass. */
+export function assertOperationConfirmed(call: OperationCallKind, confirmed: boolean): void {
+  if (confirmed || call.kind !== "destructive" || call.readOnly) return
   throw Object.assign(internalErrorDiagnostics.INTERNAL_R0026(), { status: 409 })
 }
 
@@ -645,39 +427,49 @@ export async function callOperation(target: OperationTarget, name: string, input
     origin = url.origin
     // A stale discovery file can point to another local service before its identity is checked.
     const env = target.roots?.length ? {} : target.env
-    const headers = operationHeaders(env)
-    if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
-    if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
-    const response = await (target.fetch ?? fetch)(url.href, {
-      // The operation comes first so the server can find large calls within the first bytes.
-      body: JSON.stringify({ operation: name, input: input ?? {} }),
-      headers,
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(target.timeout ?? 30_000),
+    try {
+      readConsoleSigningKey(env)
+    }
+    catch (error) {
+      return { ok: false, code: "INTERNAL_R0024", fix: "Run `vitehub secret console-key` for a new key pair. Set its private key here and its public key on the app.", message: error instanceof Error ? error.message : String(error), status: 401 }
+    }
+    const outcome = await callOperationRpc(name, input ?? {}, async (body) => {
+      // The signature covers the exact body, so the headers are made for each request.
+      const headers = await signedOperationHeaders(env, url, body)
+      if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
+      if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
+      const response = await (target.fetch ?? fetch)(url.href, {
+        body,
+        headers,
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(target.timeout ?? 30_000),
+      })
+      const text = await response.text()
+      let json: unknown
+      try {
+        json = text ? JSON.parse(text) : undefined
+      }
+      catch {
+        json = undefined
+      }
+      return { body: json, response }
     })
+    const { response } = outcome.answer
     const served = response.headers.get(operationRootHeader)
     if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
       const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
       const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
       return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
     }
-    const body = await response.text()
-    let json: unknown
-    try {
-      json = body ? JSON.parse(body) : undefined
-    }
-    catch {
-      json = undefined
-    }
-    if (isObject(json) && json.ok === true) return { ok: true, value: json.value }
-    if (isObject(json) && String(json.code) === json.code && String(json.message) === json.message) {
-      const failure: OperationResult = { ok: false, code: json.code, message: json.message, status: Number.isInteger(json.status) ? Number(json.status) : response.status }
-      if (text(json.fix)) failure.fix = text(json.fix)
-      if (text(json.docs)) failure.docs = text(json.docs)
-      if (isObject(json.details)) failure.details = json.details
+    if (outcome.ok) return { ok: true, value: outcome.value }
+    // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
+    const failure = outcome.error ?? readOperationRpcError(isObject(outcome.answer.body) ? { status: response.status, ...outcome.answer.body } : undefined)
+    if (failure) {
+      // A found dev server gets no credentials, so the fix that it sends for a 401 works only with --url.
+      if (target.roots?.length && failure.status === 401) failure.fix = `Pass --url ${base.href.slice(0, -1)} to send credentials. A command sends none to the dev server that it finds. ${failure.fix ?? operationCredentialHint}`
       if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
-      return failure
+      return { ok: false, ...failure }
     }
     if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
       return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)
@@ -720,4 +512,10 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
   if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
   return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
+}
+
+/** Align rows of text cells in columns for CLI output. The last column is not padded. */
+export function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
 }

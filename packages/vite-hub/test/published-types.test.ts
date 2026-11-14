@@ -77,18 +77,11 @@ it("keeps installed Console sections independent of optional Auth packages", asy
       await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
     }
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { createConsoleAppAuthPages, installConsoleSections } from "vite-hub/console/sections"
+      import { consoleRealtimeAccess, installConsoleSections } from "./node_modules/vite-hub/dist/console/runtime/server/sections.js"
+      import { defineConsoleAuthorize } from "./node_modules/vite-hub/dist/console/auth.js"
       installConsoleSections("/consumer", [])
-      createConsoleAppAuthPages(async () => ({
-        api: { getSession: async () => null },
-        handler: async () => new Response(),
-        $context: Promise.resolve({
-          baseURL: "https://example.com/api/auth",
-          options: {},
-          socialProviders: [],
-          isTrustedOrigin: () => true,
-        }),
-      }))
+      consoleRealtimeAccess("content")
+      defineConsoleAuthorize(({ user }) => Boolean(user))
     `)
     await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
     await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({
@@ -173,7 +166,10 @@ it.each(["evlog", "ai"])("keeps installed framework declarations independent of 
       const source: LogSource | undefined = getLogSource()
       if (source) installLogSource("/consumer", source)
       parseLogQuery({ level: "error" })
-      vitehub({ preset: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
+      vitehub({ host: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
+      vitehub({ host: "node", agent: { providers: { state: { driver: "memory" } }, invocations: { retention: { maxRecords: 10 } } } })
+      // @ts-expect-error Agent backends use driver.
+      vitehub({ agent: { providers: { state: { provider: "memory" } } } })
       const valid: ObservabilityEvlogOptions = { dev: { prettyError: { detail: "full" } }, redact: { builtins: ["email"], patterns: [/secret/], replacement: (matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => context.path }, sampling: { keep: [{ status: 400 }] } }
       void valid
       // @ts-expect-error Unsupported terminal preset.

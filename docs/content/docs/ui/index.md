@@ -4,7 +4,7 @@ description: "Console-ready Vue components for chat, sessions, Agent runs, and c
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start
-icon: i-ph-squares-four-light
+icon: i-lucide-layout-grid
 ---
 
 `@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. Start with a full Console block, then connect your data.
@@ -24,10 +24,10 @@ Select a session to read and reply. This example uses the default styles and lay
 
 ::page-list{exclude="Start"}
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
-- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)
-- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Markdown Editor](/docs/ui/markdown-editor), [Prompt input](/docs/ui/prompt-input), [Filter search](/docs/ui/filter-search), [Chat session](/docs/ui/chat-session)
+- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block), [Copy button](/docs/ui/copy-button), [Status](/docs/ui/status)
+- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Markdown Editor](/docs/ui/markdown-editor), [Prompt input](/docs/ui/prompt-input), [Filter search](/docs/ui/filter-search), [Chat session](/docs/ui/chat-session), [Agent session](/docs/ui/agent-session)
 - **Collaboration:** [Comments](/docs/ui/comments), [Avatar stack](/docs/ui/avatar-stack), [Connection status](/docs/ui/connection-status), [Sync status](/docs/ui/sync-status), [Carets](/docs/ui/carets)
-- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
+- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree), [Device frame](/docs/ui/device-frame), [Playground render](/docs/ui/playground-render)
 - **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
 ::
 
@@ -48,8 +48,10 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or from `
 | Import                    | Use it for                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------ |
 | `@vite-hub/ui`            | Styled components, composables, and display and Pierre diff helpers. |
-| `@vite-hub/ui/<name>`     | One component family, such as `@vite-hub/ui/chat`. |
 | `@vite-hub/ui/headless`   | Message scroller and Choices input parts, without styles or Nuxt UI. |
-| `@vite-hub/ui/choices-input` | The headless Choices input parts of `FilterSearch`. |
+| `@vite-hub/ui/markdown-editor` | `MarkdownEditor`. It has its own entry, so pages without it never load Tiptap. |
+| `@vite-hub/ui/workspace` | The live app parts and `PlaygroundContainer` for tutorials and playgrounds. It has its own entry, so pages without it never load CodeMirror or xterm. |
+| `@vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
+| `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens. Import the theme from `nuxt.config`. |
 | `@vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Nuxt UI and Comark. |
 | `@vite-hub/ui/styles.css` | Stylesheet. Load it after Tailwind CSS and Nuxt UI. |

@@ -1114,7 +1114,7 @@ describe("schedule provider output", () => {
     const generate = async (cron?: Record<string, string>) => await generateProviderOutputs({ clientOutDir: "dist/client", cron, rootDir })
     const vercelCrons = async () => JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons
 
-    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'America/New_York' })")
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'America/New_York', handler: () => 'ok' })")
     await generate()
     expect(await vercelCrons()).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 12,13 * * *" }])
 

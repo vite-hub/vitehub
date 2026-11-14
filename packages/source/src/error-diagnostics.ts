@@ -41,6 +41,10 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_R0031: dynamicError,
     SOURCE_R0032: dynamicError,
     SOURCE_R0033: dynamicError,
+    SOURCE_R0034: {
+      why: ({ endpoint, status }: { endpoint: string; status: number }) => `[vitehub] Collection request to ${endpoint} failed with status ${status}.`,
+      fix: "Check the Collection route and server logs for this HTTP status, correct the request or server error, then refresh the Collection.",
+    },
     SOURCE_B0001: dynamicError,
     SOURCE_B0002: dynamicError,
     SOURCE_B0003: dynamicError,
@@ -49,5 +53,13 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_B0006: dynamicError,
     SOURCE_B0007: dynamicError,
     SOURCE_B0008: dynamicError,
+    SOURCE_B0009: {
+      ...dynamicError,
+      fix: "Write `export default defineContent({ ... })` in server/content.ts. Run `npx @vite-hub/codemods define-forms` to move the export and the imports of it.",
+    },
+    SOURCE_B0010: {
+      why: ({ route, other }: { route: string, other: string }) => `[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at ${JSON.stringify(route)}, and ${other} answers there too.`,
+      fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
+    },
   },
 })

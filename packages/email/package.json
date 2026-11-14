@@ -59,11 +59,6 @@
       "import": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "default": "./dist/server.js"
-    },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js",
@@ -88,8 +83,8 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "birpc": "catalog:runtime",
     "esbuild": "catalog:tooling",
-    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

@@ -5,6 +5,7 @@ import { nextPromptFiles } from "../internal/prompt-files.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
 
 export interface PromptInputSubmit {
   files: readonly FileUIPart[];
@@ -18,11 +19,11 @@ const submitLabels: Record<ChatStatus, string> = {
   submitted: "Stop response",
 };
 
-const submitIcons: Record<ChatStatus, string> = {
-  error: "i-ph-arrow-clockwise",
-  ready: "i-ph-arrow-up",
-  streaming: "i-ph-stop-fill",
-  submitted: "i-ph-stop-fill",
+const submitIcons: Record<ChatStatus, "arrowUp" | "reload" | "stop"> = {
+  error: "reload",
+  ready: "arrowUp",
+  streaming: "stop",
+  submitted: "stop",
 };
 
 /** Whether the device has only coarse pointers, such as a phone. A tablet with a trackpad or a mouse is not touch only. */
@@ -37,6 +38,9 @@ export const PromptInput = defineComponent({
   props: {
     accept: { type: String },
     attachments: { default: true, type: Boolean },
+    /** The attach button's look: `outline`, or `ghost` for a muted icon in a box that has its own frame. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    attachVariant: { default: "outline", type: String as PropType<"outline" | "ghost"> },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
     /** Prevent adding and removing files while a consumer submits them. Text stays editable. */
     filesDisabled: { default: false, type: Boolean },
@@ -72,6 +76,7 @@ export const PromptInput = defineComponent({
     });
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
+    const icons = useViteHubUIIcons();
     const remove = (index: number) => {
       if (!props.filesDisabled) emit("update:files", props.files.filter((_, current) => current !== index));
     };
@@ -125,11 +130,11 @@ export const PromptInput = defineComponent({
           const image = file.mediaType.startsWith("image/");
           return h(Attachment, { key: `${file.filename}-${index}`, size: "xs" }, () => [
             h(AttachmentMedia, { variant: image ? "image" : "icon" }, () =>
-              image ? h(ImagePreview, { alt: label, compact: true, src: file.url }) : h(UIcon, { name: "i-ph-file-light" }),
+              image ? h(ImagePreview, { alt: label, compact: true, src: file.url }) : h(UIcon, { name: icons.value.file }),
             ),
             h(AttachmentContent, () => h(AttachmentTitle, () => label)),
             h(AttachmentActions, () =>
-              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: "i-ph-x-light", onClick: () => remove(index) }),
+              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: icons.value.close, onClick: () => remove(index) }),
             ),
           ]);
         }),
@@ -137,7 +142,8 @@ export const PromptInput = defineComponent({
 
     return () =>
       h("form", { ...attrs, "data-slot": "prompt-input", onSubmit: submit, ref: form }, [
-        h("div", { "data-slot": "prompt-input-group" }, [
+        // The group is the frame of the field, so the theme marks it when the field has focus.
+        h("div", { "data-focus-frame": "", "data-slot": "prompt-input-group" }, [
           props.files.length > 0 || slots.files ? (slots.files?.({ files: props.files, remove }) ?? attachments()) : null,
           h("textarea", {
             "aria-label": attrs["aria-label"] ?? "Message",
@@ -162,7 +168,7 @@ export const PromptInput = defineComponent({
             props.attachments && h("input", {
               accept: props.accept,
               "aria-label": "Add attachment",
-              class: "vh-visually-hidden",
+              "data-slot": "visually-hidden",
               disabled: props.filesDisabled,
               multiple: props.multiple,
               onChange: async (event: Event) => {
@@ -178,15 +184,15 @@ export const PromptInput = defineComponent({
             slots.actions?.() ??
               (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
-                class: "rounded-full",
+                class: props.attachVariant === "ghost" ? "rounded-full text-muted hover:text-default" : "rounded-full",
                 color: "neutral",
                 disabled: props.filesDisabled,
-                icon: "i-ph-plus",
+                icon: icons.value.plus,
                 onClick: () => input.value?.click(),
                 size: "sm",
                 square: true,
                 type: "button",
-                variant: "outline",
+                variant: props.attachVariant,
               })),
             slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
@@ -196,14 +202,15 @@ export const PromptInput = defineComponent({
                 class: "rounded-full",
                 color: "neutral",
                 disabled: props.status === "ready" && !canSubmit.value,
-                icon: submitIcons[props.status],
+                icon: icons.value[submitIcons[props.status]],
                 // Stop and Retry stay pressable while attachments convert; only Send waits for them.
                 loading: props.status === "ready" && preparingFiles.value,
                 onClick: pressSubmit,
                 size: "sm",
                 square: true,
                 type: "button",
-                variant: "solid",
+                // Solid once there is something to send, so an empty box doesn't end in a dark button.
+                variant: props.status === "ready" && !canSubmit.value ? "soft" : "solid",
               }),
           ]),
         ]),

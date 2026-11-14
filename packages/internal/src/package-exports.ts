@@ -30,3 +30,14 @@ export function normalizePackageExports(
     }),
   );
 }
+
+/** Pack options that every published package shares. Spread them first, so the package's own options win. */
+export const packDefaults = {
+  tsconfig: "tsconfig.build.json",
+  exports: {
+    customExports: normalizePackageExports,
+    inlinedDependencies: false,
+  },
+  outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
+  publint: "ci-only",
+} as const;

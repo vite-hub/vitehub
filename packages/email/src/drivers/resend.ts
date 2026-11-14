@@ -1,7 +1,6 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts";
 import {
   addresses,
-  applyPersonalization,
   applyUnsubscribe,
   bytesToBase64,
   formatAddress,
@@ -10,6 +9,7 @@ import {
   validateAddresses,
   validateAttachments,
 } from "./shared.ts";
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object";
 
 import type {
   EmailAttachment,
@@ -33,10 +33,6 @@ function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
     isRecord(cause)
     && cause.name === "AbortError"
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string {
@@ -270,79 +266,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       let body: string;
       let idempotencyKey: string | undefined;
       try {
-        if (message.stream !== undefined || context.stream !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support stream selection.",
-            ),
-          };
-        }
-        const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale"] as const).find(
-          (option) => message[option] !== undefined,
-        );
-        if (unsupportedOption) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              `Resend does not support the ${unsupportedOption} option.`,
-            ),
-          };
-        }
-        if (message.sandbox === true) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support sandbox delivery.",
-            ),
-          };
-        }
-        if (message.raw !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support raw message payloads.",
-            ),
-          };
-        }
-        if (message.template !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support template payloads.",
-            ),
-          };
-        }
-        if (
-          message.react !== undefined ||
-          message.jsx !== undefined ||
-          message.mjml !== undefined ||
-          message.handlebars !== undefined ||
-          message.handlebarsVars !== undefined ||
-          message.liquid !== undefined ||
-          message.liquidVars !== undefined
-        ) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support renderer payloads.",
-            ),
-          };
-        }
         message = applyUnsubscribe(message, "resend");
-        message = applyPersonalization("resend", message);
         validateAttachments("resend", message);
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey);
         if (

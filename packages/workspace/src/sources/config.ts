@@ -32,6 +32,7 @@ import type {
   WorkspaceValidateMode,
 } from "../core/types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
+import { isRecord as isPlainRecord } from "@vite-hub/internal/object"
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
@@ -125,7 +126,10 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
   const mount = normalizeSourceMount(source)
   const cache = ownSourceOption(mount, "cache") ?? normalizeSourceCache(source) ?? false
   const sync = normalizeSourceSync(ownSourceOption(source, "sync"))
-  const mountPath = typeof ownSourceOption(mount, "path") === "string" ? ownSourceOption(mount, "path") : defaultSourceMountPath(key, source)
+  const fileKey = fileSourceKey(source)
+  const declaredMountPath = ownSourceOption(mount, "path")
+  const mountPath = typeof declaredMountPath === "string" ? declaredMountPath : fileKey === undefined ? defaultSourceMountPath(key, source) : ""
+  const probeKeys = ownSourceOption(source, "probeKeys")?.length ? ownSourceOption(source, "probeKeys") : fileKey === undefined ? undefined : [fileKey]
   const requestDescriptor = getWorkspaceSourceRequestDescriptor(source)
   if (requestDescriptor) assertWorkspaceSourceRequestDescriptorKey(key)
   return {
@@ -137,7 +141,7 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     sync,
     validate: ownSourceOption(mount, "validate") ?? ownSourceOption(source, "validate") ?? false,
     livePaths: getLiveWorkspaceSourcePaths(source),
-    ...(ownSourceOption(source, "probeKeys")?.length ? { probeKeys: ownSourceOption(source, "probeKeys") } : {}),
+    ...(probeKeys ? { probeKeys } : {}),
     readonly: true,
     requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),
@@ -291,7 +295,11 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
   const livePaths = inferredLivePaths(family, input)
 
   async function loadSource() {
-    sourcePromise ||= loadInferredWorkspaceSource(family, input)
+    // A failed load lets the next call try again.
+    sourcePromise ||= loadInferredWorkspaceSource(family, input).catch((error: unknown) => {
+      sourcePromise = undefined
+      throw error
+    })
     return await sourcePromise
   }
 
@@ -368,18 +376,11 @@ async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input:
 
 function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {
   if (!isPlainRecord(input)) {
-    return family === "file" ? { mount: "", probeKeys: [inferredFileSourceKey(input)] } : {}
+    return family === "file" ? { key: inferredFileSourceKey(input) } : {}
   }
 
   if (family === "file") {
-    const declaredMount = ownSourceOption(input, "mount") as WorkspaceSource["mount"]
-    const mount = typeof declaredMount === "object" && declaredMount && !Object.hasOwn(declaredMount, "path")
-      ? { ...declaredMount, path: "" }
-      : declaredMount ?? ""
-    return copySourceRuntimeOptions(input, {
-      mount,
-      probeKeys: [inferredFileSourceKey(input)],
-    })
+    return copySourceRuntimeOptions(input, { key: inferredFileSourceKey(input) })
   }
 
   if (family === "fetch") {
@@ -458,6 +459,15 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
   return path
 }
 
+/**
+ * A file Source holds one item. Every file helper and the inferred `"README.md"` or `{ path }` forms set its key, so the
+ * default mount is the same for all of them: the Workspace root, which puts the item at its own path.
+ */
+function fileSourceKey(source: WorkspaceSource): string | undefined {
+  const key = ownSourceOption(source, "key")
+  return source.name === "file" && typeof key === "string" ? normalizeSafeWorkspacePath(key) : undefined
+}
+
 function inferRepositoryMount(repo: unknown) {
   return typeof repo === "string" ? repo.split("/").filter(Boolean).at(-1) : undefined
 }
@@ -493,12 +503,13 @@ function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceIn
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
   copyDefinedWorkspaceBindingOption(next, input, "probeKeys")
+  copyDefinedWorkspaceBindingOption(next, input, "skills")
   copyDefinedWorkspaceBindingOption(next, input, "sync")
   copyDefinedWorkspaceBindingOption(next, input, "validate")
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "probeKeys" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "probeKeys" | "skills" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,
@@ -514,10 +525,6 @@ function isExplicitSourceBinding(input: WorkspaceSourceInput): input is Workspac
 
 function hasSourceMethods(input: Record<string, unknown>) {
   return typeof input.getKeys === "function" && typeof input.getItem === "function"
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function hasOwn(input: Record<string, unknown>, key: string) {

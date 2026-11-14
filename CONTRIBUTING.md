@@ -14,6 +14,7 @@ Use this guide to turn a requested behavior into a tested change. [AGENTS.md](AG
 | Other `packages/*/src/` | Each Server Primitive or integration |
 | `playground/console/` | Real Console UI with synthetic API data |
 | `fixtures/`, `test/consumer/`, `test/output/` | Consumer applications and generated output proof |
+| `test/multi-instance/` | One app on three Node instances against Postgres and Redis |
 | `docs/` | User documentation and the first-party website |
 
 Use these names consistently: Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Runtime policy belongs in its owner package.
@@ -88,21 +89,28 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Root contracts or development tooling | `corepack pnpm exec vp test --config vitest.config.ts test/<file>.test.ts` after required builds |
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
+| A primitive on several Node instances | `corepack pnpm exec vp run e2e:multi-instance` (needs Docker, see [its README](test/multi-instance/README.md)) |
+| Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
+
+A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 
-A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke deployments also require successful CI for the exact `main` commit. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
+A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke runs test the newest `main` commit with successful CI from the last 48 hours, and fail when there is none. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
 
 The [Console playground](playground/console/README.md) exercises the real UI with synthetic data. It cannot prove invocation execution, persistence, or provider behavior. For a Console runtime change, also exercise the real route and runtime with a local consumer.
 
 Report the observed user result, exact commands, failures, and unverified parts. Separate setup and infrastructure failures from product failures. Stop when the requested outcome and relevant checks pass; do not broaden testing without a new concern.
 
 ## Load relevant guidance
+
+Use the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md) for every change to this repository. It holds the judgment behind these rules: when to add a primitive, how to keep the public API small, when to break a contract, and what proof a pull request needs. Agents find it in `.agents/skills/`, Claude Code through the `.claude/skills` link, and every agent through `AGENTS.md`. Add repository skills to `.agents/skills/` only.
 
 Use the [ViteHub skill](docs/skills/vitehub/SKILL.md) when building or debugging a consuming application. Its reference table selects guidance for Agent Definitions, Workspaces, Channels, providers, and other features. Load only the matching references. For repository changes, current source and local user docs are the contract; use the skill's installed-package checks when reproducing a consumer problem.
 
@@ -134,9 +142,9 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
 2. Definition and config errors throw, at build time, at define time, or when an operation starts.
-3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
-5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
 
 ### Documentation structure
 
@@ -161,7 +169,7 @@ corepack pnpm exec vp run build
 corepack pnpm exec vp run --filter vitehub-docs test:snippets
 ```
 
-Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
+Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. When a page shows a file several times, an import gets the last full version of it above the importing block. If no full version appears above the importer, it uses the first full version on the page so the blocks can still be copied together as one project. The check also writes the `.vitehub` types that ViteHub generates for the Definitions that a page shows, such as `[server/queues/welcome-email.ts]` or `[server/databases/default.ts]`, the Auth plugins of `[server/auth.ts]`, and the Env values that `[vite.config.ts]` or `[nuxt.config.ts]` declares. A page that calls a Definition by name, such as `runQueue('welcome-email')` or `useDatabase('default')`, must show that Definition. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. A block that shows a type error on purpose, such as the invalid example of a Doctor rule, names the errors it must fail with: ```` ```ts [server/auth.ts] fails=TS2769 ````. The check fails when such a block passes or fails with other errors. The site does not show either marker. `docs/scripts/check-snippets.baseline.json` lists blocks that are correct but fail because a package type is wrong. Fix the type and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
 
 Run `corepack pnpm --dir docs run test:snippets --update-baseline` to remove fixed entries. The command leaves the baseline unchanged and fails if it finds a new or changed failure.
 
@@ -180,6 +188,42 @@ The site renders nothing for `::agent-only`. Use it only for content that helps 
 A block with `skill="<name>"` is also the source of `docs/skills/vitehub/references/primitives/<name>.md`. Edit the block, not the generated file, then run `corepack pnpm --dir docs exec vp test test/agent-resources.test.ts -u`.
 
 Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/nuxt.config.ts`, which prints them at the top of llms.txt. To measure whether agent-only content helps, run the [agent docs eval](docs/evals/agent-docs/README.md).
+
+### Site parity
+
+When a change can alter what vitehub.dev serves without a content edit, such as how `@vite-hub/docs` loads pages, prove that no page changed. `docs/scripts/parity.mjs` fetches every URL the site serves: each page as HTML, as negotiated Markdown, as its `.md` twin, at `/raw`, and as page JSON, and through the MCP `get-page` tool. It also fetches the sitemaps, llms.txt, llms-full.txt, `search.json`, the skills, and the links it finds in them. It removes build hashes and timestamps, and it keeps text, headings, links, and head tags. Record the base, then the change, from the same kind of build:
+
+```sh
+# On the base commit, then again on your branch
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+cd docs && ../node_modules/.bin/wrangler dev --config .output/server/wrangler.json --port 4791 &
+node docs/scripts/parity.mjs crawl http://127.0.0.1:4791 /tmp/parity/base --site https://vitehub.dev
+node docs/scripts/parity.mjs compare /tmp/parity/base /tmp/parity/branch
+```
+
+`compare` lists added, removed, and changed URLs with the changed lines, and exits with 1 when there is a difference. The snapshots are large (about 150 MB of bodies), so keep them out of the repository. `crawl https://vitehub.dev` records the live site in the same format.
+
+`crawl` and `compare` also exit with 1 when requests fail after retries or the request limit skips URLs. These snapshots have `complete: false` and are only for diagnosis. Fix the request failure or increase `--limit` (default: 20000), then crawl again. HTTP responses such as 404s remain comparable. Record both snapshots again if they predate completeness tracking.
+
+### Worker bench
+
+When a change can make the docs Worker bigger or slower, such as how `@vite-hub/docs` loads pages, measure the built Worker before and after. `docs/scripts/bench-worker.mjs` reports:
+
+- Worker bytes from `wrangler deploy --dry-run --outdir`, and aggregate gzip bytes from Wrangler's rounded upload report. Per-module gzip sizes are separate diagnostics.
+- Start time: how long a fresh `workerd` takes to emit its control-pipe `listen` event after module compilation and top-level initialization, minus the same for an empty Worker. No request is sent.
+- Cold latency: a fresh `wrangler dev` per sample, and the first request for each of 20 fixed pages.
+- Warm latency: one `wrangler dev`, two warmup rounds, then ten measured rounds.
+- Memory: the RSS that the loaded Worker adds to `workerd`, and the peak RSS of the `wrangler dev` `workerd`. These are process numbers, not the isolate heap that the 128 MB limit counts.
+
+```sh
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm exec vp run docs:build
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/base.json
+# Build your branch the same way, then
+node docs/scripts/bench-worker.mjs run --out /tmp/bench/branch.json
+node docs/scripts/bench-worker.mjs compare /tmp/bench/base.json /tmp/bench/branch.json
+```
+
+A run takes about two minutes and uses port 4813 (`--port` changes it). `compare` prints ratios and exits with 1 when cold p95 is more than 1.5 times the base. On a busy machine, two runs of the same build gave cold p95 values 1.8 times apart, so run each side twice and compare the per-page cold p50 values, which stayed within 15% for pages above 10 ms. Start time and bytes are stable.
 
 ## Downstream patch loop
 
@@ -229,5 +273,9 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 - Force-push only when the task grants it, only to your own task branch, and only with `--force-with-lease`.
 
 Pull request work belongs in a dedicated worktree. Reuse an isolated task worktree, or create one from the refreshed target base. Inspect collisions and preserve other agents' work.
+
+Before you open a pull request that removes public API, commit the change and run `vp run consumers:check`. It finds the package subpaths and exported names that the branch removes compared with `origin/main`, and searches your own projects for them, in the working tree and on the default branch. Add `--name <text>` for what the diff cannot find, such as a config key, a CLI flag, an env var, or a diagnostic code. The list of projects stays on your machine: put one path per line in `~/.config/vitehub/consumer-roots`, or set `VITEHUB_CONSUMER_ROOTS`. The check fails with the project, file, and line of each use. A hit inside `patches/` does not fail, but read the patch: a patch that edits the removed feature is a use. CI does not run this check, because it has no consumer checkouts.
+
+When an entry loses its default export, the check searches its module specifier, since default imports can use any local name. Missing roots or failed searches exit 2. Fix the setup and run the check again.
 
 Do not commit temporary plans, raw thread exports, or scratch files. Keep durable, cited research in the issue or pull request that supports a project decision. Remove task-created temporary files and worktrees after their remote state is safe; never remove pre-existing work without authorization.

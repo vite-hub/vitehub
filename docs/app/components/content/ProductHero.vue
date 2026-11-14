@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
 // section manifest. The default slot renders in the right column: a `::code-tree` file tree, a
-// `::product-screenshot` of the Console, or an animated component such as `::cms-console-demo`.
+// `::product-screenshot` of the Console, or the animated `:hero-figure` of the primitive.
 // The only action is Get started. The sidebar lists the other product pages.
 
 const props = defineProps<{
@@ -86,14 +86,7 @@ const channelPath = computed(() =>
       <p class="vh-hero-tagline">{{ tagline || page?.description }}</p>
 
       <div class="vh-hero-actions">
-        <NuxtLink v-if="getStarted" :to="getStarted.path" class="vh-hero-cta group">
-          {{ getStarted.title }}
-          <UIcon
-            name="i-lucide-arrow-right"
-            class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none"
-            aria-hidden="true"
-          />
-        </NuxtLink>
+        <UButton v-if="getStarted" :to="getStarted.path" :label="getStarted.title" trailing-icon="i-lucide-arrow-right" />
       </div>
 
       <div v-if="channelItems.length" class="vh-hero-hosts">
@@ -204,27 +197,6 @@ const channelPath = computed(() =>
   margin-top: 2rem;
 }
 
-.vh-hero-cta {
-  display: inline-flex;
-  min-height: 2.5rem;
-  align-items: center;
-  gap: 0.375rem;
-  background: var(--ui-text-highlighted);
-  padding: 0 1rem;
-  color: var(--ui-bg);
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: transform 120ms ease;
-}
-
-.vh-hero-cta:active {
-  transform: scale(0.96);
-}
-
-.vh-hero-cta:hover .landing-cta-arrow {
-  transform: translateX(0.25rem);
-}
-
 /* A host picker in the example lists the same hosts, so the copy drops its own list. Copy page keeps it. */
 .vh-hero:has(.vh-files-hosts) .vh-hero-hosts {
   display: none;
@@ -289,14 +261,4 @@ const channelPath = computed(() =>
   margin: 0;
 }
 
-.vh-agent-demo :deep(.playground-stage) {
-  border-radius: var(--ui-radius);
-  box-shadow: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-hero-cta {
-    transition: none;
-  }
-}
 </style>

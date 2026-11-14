@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,6 +13,32 @@ describe("defineDatabase name validation", () => {
       code: "DATABASE_INVALID_NAME",
       message: "`defineDatabase().name` must be a normalized path of letters, numbers, dots, underscores, or dashes.",
     }))
+  })
+})
+
+describe("defineDatabase drizzle option", () => {
+  it("rejects `drizzle`, because Drizzle 1.0 has no database casing", () => {
+    expect(() => defineDatabase({ drizzle: { casing: "snake_case" }, schema: {} } as never)).toThrow(expect.objectContaining({
+      code: "DATABASE_DRIZZLE_OPTION_REMOVED",
+      fix: expect.stringContaining("snakeCase.table()"),
+    }))
+  })
+})
+
+describe("defineDatabase result", () => {
+  it("returns only the Definition, not a Drizzle database", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-definition-plain-"))
+    try {
+      const definition = defineDatabase({ connection: { url: `file:${join(root, "data/app.sqlite")}` }, schema: {} })
+      expect(Object.keys(definition).toSorted()).toEqual(["connection", "name", "relations", "schema"])
+      // Queries go through `useDatabase(name).db`, which has the merged relations and the build's migrations.
+      for (const key of ["select", "run", "query", "batch", "$client", "then"]) expect(Reflect.get(definition, key)).toBeUndefined()
+      await expect(Promise.resolve(definition)).resolves.toBe(definition)
+      expect(existsSync(join(root, "data"))).toBe(false)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })
 
@@ -45,7 +72,7 @@ describe("remote inspection", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-remote-"))
     try {
       await mkdir(join(rootDir, "server", "databases"), { recursive: true })
-      await writeFile(join(rootDir, "server", "databases", "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ ${options}, schema: {} })\n`)
+      await writeFile(join(rootDir, "server", "databases", "default.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ ${options}, schema: {} })\n`)
       const [definition] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
       const field = definition?.fields.find(item => item.label === "Development")
       expect(field?.value.startsWith("Remote.") ?? false).toBe(remote)

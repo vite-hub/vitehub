@@ -3,7 +3,7 @@ title: Chat Message
 description: Render one AI SDK UI message as a Message with a user Bubble and customizable part slots.
 navigation.order: 21
 navigation.group: Chat
-icon: i-ph-chat-text-light
+icon: i-lucide-message-square-text
 ---
 
 `ChatMessage` renders one `UIMessage` with the [Message](/docs/ui/message) parts. User text sits at the end in a secondary [Bubble](/docs/ui/bubble). Other roles reply at the start without a frame. `MessageParts` renders the content. Use it alone, or let `Chat` render one per message.
@@ -13,7 +13,7 @@ icon: i-ph-chat-text-light
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat-message`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
 import { ChatMessage } from "@vite-hub/ui";

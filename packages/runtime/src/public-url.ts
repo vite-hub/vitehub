@@ -39,38 +39,27 @@ function configuredAgentUrl(config: PublicUrlConfig, name: string): string | und
   return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
 }
 
-function isInternalRequestHost(hostname: string): boolean {
-  const host = hostname.toLowerCase()
-  if (host === "internal") return true
-  if (host.endsWith(".internal") || host.endsWith(".svc")) return true
-  const octets = host.split(".").map(Number)
-  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false
-  return octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168)
-}
-
 /**
  * Resolve the public origin of this deployment.
  *
- * Order: the Agent's origin from `vitehub({ publicUrl })`, the single configured
- * origin, the configured origin with the same host as the request, the configured
- * origin for an internal request host, and then the request origin.
+ * A configured origin always wins over the request: the single `vitehub({ publicUrl })` origin, then the origin of
+ * the Agent, then, for a request, the configured origin with the same host as the request or the only configured origin. When
+ * `publicUrl` configures several origins and none of them fits, the result is `undefined`: the request Host cannot
+ * name a new origin. Only when nothing is configured, such as in `vite dev`, the request origin is the result.
+ * Set `configuredOnly` when the request must not supply it in that case either.
  */
-export function resolvePublicUrl(options: { agentName?: string, request: Pick<Request, "url"> }): string
-export function resolvePublicUrl(options?: { agentName?: string, request?: Pick<Request, "url"> }): string | undefined
-export function resolvePublicUrl(options: { agentName?: string, request?: Pick<Request, "url"> } = {}): string | undefined {
+export function resolvePublicUrl(options: { agentName?: string, request?: Pick<Request, "url">, configuredOnly?: boolean } = {}): string | undefined {
   const config = publicUrlConfig()
+  if (config.url) return config.url
   const discoveredName = options.agentName ? publicUrlAgentNames.get(options.agentName) : undefined
   const agentUrl = options.agentName
     ? configuredAgentUrl(config, options.agentName) ?? (discoveredName ? configuredAgentUrl(config, discoveredName) : undefined)
     : undefined
-  if (config.url) return config.url
-  if (!options.request) return agentUrl
+  if (agentUrl || !options.request) return agentUrl
   const request = new URL(options.request.url)
-  const configuredAgents = Object.values(config.agents ?? {})
-  const requestHostUrl = configuredAgents.find(url => new URL(url).host === request.host)
-  if (requestHostUrl) return requestHostUrl
-  if (isInternalRequestHost(request.hostname)) return agentUrl ?? (configuredAgents.length === 1 ? configuredAgents[0] : request.origin)
-  return request.origin
+  const configured = [...new Set(Object.values(config.agents ?? {}))]
+  if (configured.length) return configured.find(url => new URL(url).host === request.host) ?? (configured.length === 1 ? configured[0] : undefined)
+  return options.configuredOnly ? undefined : request.origin
 }
 
 /**

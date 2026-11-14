@@ -67,12 +67,10 @@ export default defineWorkspace({
     vitehubDocs: github({
       repo: "vite-hub/vitehub",
       root: "docs/content/docs",
-      instructions: "Use this source for public ViteHub documentation.",
     }),
     guide: file({
       workspacePath: "guide.md",
       content: "# Guide\n",
-      instructions: "Use this source for local guide notes.",
     }),
   },
 })
@@ -149,6 +147,35 @@ Definition, apply its migrations, and pass
 `createBlobDatabaseWorkspaceStore({ blob, database, workspace })` as the
 Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
+
+`database` is a Drizzle database, or a function that returns one. In a
+Workspace Definition, pass `() => useDatabase("history").db`. The Store calls
+the function on first use, because the build loads the Workspace Definition
+without the app's Databases. Do not pass the Database Definition: it holds
+options only, and `useDatabase()` gives the database with the migrations and
+relations of the build.
+
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from "@vite-hub/database"
+import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+
+export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
+```
+
+```ts [server/workspaces/drop.ts]
+import { blob } from "@vite-hub/blob"
+import { useDatabase } from "@vite-hub/database"
+import { defineWorkspace } from "@vite-hub/workspace"
+import { createBlobDatabaseWorkspaceStore } from "@vite-hub/workspace/blob-database"
+
+export default defineWorkspace({
+  store: createBlobDatabaseWorkspaceStore({
+    blob: blob.store("workspace-history"),
+    database: () => useDatabase("history").db,
+    workspace: "drop-123",
+  }),
+})
+```
 
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
@@ -314,6 +341,14 @@ export default defineWorkspace({
 
 The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
 placement, materialization, sync, and access rules. Source owns retrieval.
+
+Without a `mount` path, the Source kind picks the mount, not the import. A file
+Source (`file()` or `markdown()` from either package, or the `"README.md"` and
+`{ path }` shorthands) puts its one file at its own key, so
+`readme: file("README.md")` appears at `README.md`. `fetch()` also puts its one
+file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
+`readme: { source: file("README.md"), mount: "docs" }` appears at
+`docs/README.md`.
 Content also accepts the definition with `defineContent({ source: docs })` and
 opens a new reader for each refresh.
 
@@ -338,7 +373,7 @@ navigation, query, cache, and ranked full-text search.
 
 Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
-GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
+GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API. A hosted Session exposes that initial retained revision as `session.revision` when its Store provides one. Stores with retained history but no revision materializer, such as Blob Database, expose the retained head only when its file manifest matches the files copied to the host. Draft changes or unavailable history leave the revision unset and do not prevent the Session from opening.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
 
@@ -421,7 +456,7 @@ export default defineConfig({
 })
 ```
 
-The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
+The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. It reads a definition's `store` by loading the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`; set the store in the `workspace` config then. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
@@ -455,7 +490,7 @@ export default defineWorkspace({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, and `history.open(id).preload(paths)` reads many files from one archive. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
 GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 

@@ -1,5 +1,6 @@
 import { isStandardSchema, standardIssuePath, standardJsonSchema } from "@vite-hub/internal/standard-schema"
 import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -54,10 +55,6 @@ const urlPattern = /^(?:https?:\/\/[^\s/?#]+[^\s]*|\/(?!\/)[^\s]*)$/i
 
 function isString(value: unknown): value is string {
   return String(value) === value
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 /** Whether a value is an absolute http(s) URL or a root-relative path. */

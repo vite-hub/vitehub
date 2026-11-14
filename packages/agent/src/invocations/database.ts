@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm"
-import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
-import type { SQLiteRaw } from "drizzle-orm/sqlite-core/query-builders/raw"
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { SQLiteDialect } from "drizzle-orm/sqlite-core"
+import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
+import { useDatabase } from "@vite-hub/database"
 import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "./d1.ts"
 
@@ -14,12 +14,12 @@ export interface DatabaseAgentInvocationStoreOptions extends Omit<D1AgentInvocat
 }
 
 interface RuntimeConnection {
-  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- SQLiteRaw supplies the typed projection to this driver boundary.
-  all<T extends Record<string, unknown> = Record<string, unknown>>(query: SQL): SQLiteRaw<T[]>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- SQLiteAsyncRaw supplies the typed projection to this driver boundary.
+  all<T extends Record<string, unknown> = Record<string, unknown>>(query: SQL): SQLiteAsyncRaw<T[]>
 }
 
 type RuntimeDatabase = RuntimeConnection & {
-  batch(queries: readonly [SQLiteRaw<Record<string, unknown>[]>, ...Array<SQLiteRaw<Record<string, unknown>[]>>]): Promise<unknown[]>
+  batch(queries: readonly [SQLiteAsyncRaw<Record<string, unknown>[]>, ...Array<SQLiteAsyncRaw<Record<string, unknown>[]>>]): Promise<unknown[]>
   $client?: unknown
 }
 
@@ -54,7 +54,7 @@ interface InvocationDatabase extends AgentInvocationD1Database {
 
 const writeStatement = /^\s*(?:INSERT|UPDATE|DELETE)\b/i
 const returningClause = /\bRETURNING\b/i
-const sqliteDialect = new SQLiteAsyncDialect()
+const sqliteDialect = new SQLiteDialect()
 
 function statementSql(query: string, values: readonly unknown[]): SQL {
   const parts = query.split("?")
@@ -143,10 +143,8 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
   return createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
-      // SAFETY: Generated registry types restrict database names; runtime lookup accepts any name and returns undefined when absent.
-      const entry = (useDatabase as (database: string) => { db: RuntimeDatabase } | undefined)(name)
-      if (!entry) throw new TypeError(`[vitehub] Database "${name}" is not configured.`)
-      const runtime = entry.db
+      // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
+      const runtime = (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
       // Runtime proxies can change drivers between requests; validate each operation before any writes.
       for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
       const client = runtime.$client

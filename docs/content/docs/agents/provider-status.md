@@ -30,6 +30,6 @@ Readiness holds at `checkedAt` only, not for later requests. A clear incompatibl
 - A failed refresh keeps the previous evidence with `stale: true` and `readiness: "unknown"`.
 - The built-in Drivers also keep each result for 30 seconds per Agent Definition. They group results by credential source when `driver.credentials` is set, else by host account. A preflight in that window reuses it.
 
-A check uses the same Driver credentials, credential profile, environment, and launcher as an invocation. Provider resolvers get `purpose: "inspection"` and no actor, invoker, or mounted Workspace. Resolvers that need those fields must handle their absence. A custom launcher gets a temporary working directory and no tool environment requirements. The probe releases credential and launcher files after the probe exits.
+A check uses the same Driver credentials, credential profile, environment, and launcher as an invocation. Provider resolvers get `purpose: "inspection"` and no invoker or mounted Workspace. Resolvers that need those fields must handle their absence. A custom launcher gets a temporary working directory and no tool environment requirements. The probe releases credential and launcher files after the probe exits.
 
 Console status responses never include raw provider diagnostics, account emails, or credentials. Liveness endpoints belong to your app.

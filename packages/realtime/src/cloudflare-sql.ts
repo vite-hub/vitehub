@@ -7,7 +7,6 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
   try {
     const ownExec = Object.getOwnPropertyDescriptor(sql, "exec")
     if (ownExec) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SQL adapters must provide a callable own data property without invoking accessors.
       return allowOwnExec && "value" in ownExec && typeof ownExec.value === "function"
     }
 

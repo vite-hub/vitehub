@@ -35,7 +35,7 @@ async function historyWorkspace(): Promise<string> {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `seo-${++workspaces}`
@@ -135,7 +135,7 @@ describe("document urls", () => {
     expect((await content.collection("posts").list({ ref: "draft" })).items.map(item => item.url)).toEqual(["/blog/news/2026/hello%20world", null])
     expect(content.collections().map(collection => [collection.name, collection.routable])).toEqual([["posts", true], ["pages", true], ["home", true], ["notes", false]])
     // The Console editor gets the URL for canonical placeholders and previews.
-    const actions = createContentConsoleActions({ content: { ...content, can: async () => true } })
+    const actions = createContentConsoleActions({ default: { ...content, can: async () => true } })
     expect(await actions.get({ collection: "home", id: "home" }, { user: null })).toMatchObject({ url: "/" })
     expect(await actions.get({ collection: "notes", id: "a" }, { user: null })).not.toHaveProperty("url")
   })
@@ -221,6 +221,18 @@ describe("contentHead()", () => {
     expect(contentHead({ data: { social: { title: "Social" } } }, { collection, field: "social" }).title).toBe("Social")
   })
 
+  it("links the Markdown copy of a document with a URL", () => {
+    const post = { url: "/blog/hello", data: { title: "Hello" } }
+    const markdown = { rel: "alternate", type: "text/markdown", href: "https://vitehub.dev/blog/hello.md" }
+    expect(contentHead(post, { site, markdown: true }).link).toContainEqual(markdown)
+    expect(contentHead({ url: "/", data: {} }, { site, markdown: true }).link).toContainEqual({ ...markdown, href: "https://vitehub.dev/index.md" })
+    expect(contentHead(post, { site, markdown: { prefix: "/raw" } }).link).toContainEqual({ ...markdown, href: "https://vitehub.dev/raw/blog/hello.md" })
+    expect(contentHead(post, { markdown: true }).link).toContainEqual({ ...markdown, href: "/blog/hello.md" })
+    // A document without a URL has no copy, and the link is opt-in.
+    expect(contentHead({ data: { title: "Hello" } }, { site, markdown: true }).link).not.toContainEqual(expect.objectContaining({ type: "text/markdown" }))
+    expect(contentHead(post, { site }).link).not.toContainEqual(expect.objectContaining({ type: "text/markdown" }))
+  })
+
   it("is available from the client entry without the server runtime", () => {
     expect(clientContentHead).toBe(contentHead)
   })
@@ -270,6 +282,7 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
   it("lists the documents of read-only Sources with a url", async () => {
     const reader = (items: Array<{ path: string, content: string }>) => ({ async items() { return items.map(item => ({ key: item.path, ...item })) } })
     const content = defineContent({
+      access: "public",
       route: false,
       logger: false,
       sources: {
@@ -432,7 +445,7 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect((await app.request("/robots.txt")).status).toBe(404)
     const markdown = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
     expect(await (await markdown.request("/blog/hello.md")).text()).toBe("page")
-    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true or false/)
+    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true, false, or \{ prefix/)
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { site: "example.com" } })).toThrow(/absolute http\(s\) URL/)
     // Disallowed paths start with /.
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { robots: { disallow: ["admin"] } } })).toThrow(/disallow/)

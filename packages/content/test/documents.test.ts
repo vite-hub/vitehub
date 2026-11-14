@@ -38,7 +38,7 @@ async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizz
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle({ client: client })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `site-${++workspaces}`
@@ -686,23 +686,23 @@ describe("document collections", { timeout: 30_000 }, () => {
     const { content: guarded } = await setup({ authorize: policy })
     expect(await guarded.can({ user: { role: "editor" }, collection: "posts", action: "write", id: "hello" })).toBe(true)
     expect(await guarded.can({ user: { role: "editor" }, collection: "posts", action: "publish" })).toBe(false)
-    expect(await guarded.can({ user: null, collection: "posts", action: "read" })).toBe(false)
+    expect(await guarded.can({ user: null, collection: "posts", action: "read-draft" })).toBe(false)
     expect(policy).toHaveBeenCalledWith({ user: { role: "editor" }, collection: "posts", action: "write", id: "hello" })
     // @ts-expect-error unknown collection
-    await expect(guarded.can({ user: null, collection: "pages", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(guarded.can({ user: null, collection: "pages", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
   })
 
   it("passes the Auth user and the Agent Actor to authorize", async () => {
-    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read" && actor?.kind === "agent"))
+    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read-draft" && actor?.kind === "agent"))
     const { content } = await setup({ authorize: policy })
     const actor = { id: "agent:writer", kind: "agent", meta: { authUserId: "u1" } }
-    expect(await content.can({ actor, collection: "posts", action: "read" })).toBe(true)
-    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read" })
+    expect(await content.can({ actor, collection: "posts", action: "read-draft" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read-draft" })
     expect(await content.can({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })).toBe(true)
     expect(policy).toHaveBeenLastCalledWith({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })
     expect(await content.can({ actor, collection: "posts", action: "write" })).toBe(false)
-    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
   })
 
   it("keeps read-only sources next to collections and rejects bad definitions", async () => {

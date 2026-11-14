@@ -84,6 +84,19 @@ describe("generated Nitro plugin", () => {
     }
   })
 
+  it("finds Photon in node_modules when the Nuxt Nitro build replays the hook without a resolver", async () => {
+    const replay = async () => {
+      const plugin = hubBlob({ driver: "cloudflare-r2", images: { transformer: "photon" } })
+      const config = await resolveConfig({ configFile: false, logLevel: "silent", root }, "build")
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, createResolver: undefined })
+      return await readFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "utf8")
+    }
+    await expect(replay()).rejects.toMatchObject({ code: "BLOB_B0007" })
+    await mkdir(join(root, "node_modules/@cf-wasm/photon"), { recursive: true })
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
+    expect(await replay()).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+  })
+
   it("uses the active resolver when Photon is available outside node_modules", async () => {
     const entry = join(root, ".yarn/cache/photon/index.js")
     await mkdir(join(root, ".yarn/cache/photon"), { recursive: true })
@@ -115,7 +128,7 @@ describe("generated Nitro plugin", () => {
   })
 
   it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
-    await generatePlugin({ driver: "fs", serve: true })
+    await generatePlugin({ driver: "fs", serve: { access: "public" } })
     const route = await readFile(join(root, ".vitehub/blob/serve-route.ts"), "utf8")
     expect(route).toContain("import { blob, parseImageVariant } from '@vite-hub/blob'")
     expect(route).toContain("const variant = parseImageVariant(url.searchParams)")

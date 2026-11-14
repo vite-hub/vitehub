@@ -6,6 +6,7 @@ import { createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
+import type { QueueEnqueueOptions } from "../src/types.ts"
 
 afterEach(() => {
   setQueueRuntimeConfig(undefined)
@@ -42,7 +43,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     { payload: "event", region: "business-region", id: "business-id", kind: "audit" },
   ]
   for (const payload of payloads) {
-    expect((await dynamicQueue.send("audit", payload, { delaySeconds: 5, id: "dispatch-id" }))[0]).toBeUndefined()
+    expect((await dynamicQueue.send("audit", payload, { delaySeconds: 5 }))[0]).toBeUndefined()
   }
   expect(sent.map(call => call.payload)).toEqual(payloads)
   for (const call of sent) {
@@ -50,7 +51,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     expect(call.options).not.toMatchObject({ region: "business-region" })
   }
   if (provider === "vercel") {
-    expect(sent[0]?.options).toMatchObject({ idempotencyKey: "dispatch-id" })
+    expect(sent[0]?.options).toMatchObject({ idempotencyKey: expect.any(String) })
     await expect(client.send(payloads[0], { contentType: "json" })).resolves.toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   }
   else {
@@ -58,66 +59,32 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
   }
 })
 
-it.each(["cloudflare", "vercel"] as const)("uses only own enqueue ids through %s", async (provider) => {
-  const sent: { options: unknown }[] = []
+it.each(["cloudflare", "vercel"] as const)("rejects a caller message id through %s before the provider call", async (provider) => {
+  const send = vi.fn(async () => ({ messageId: "provider-id" }))
   const client = provider === "cloudflare"
-    ? createCloudflareQueueClient({
-        provider,
-        binding: {
-          send: async (_payload, options) => { sent.push({ options }) },
-          sendBatch: vi.fn(async () => {}),
-        },
-      })
-    : await createVercelQueueClient({
-        provider,
-        topic: "audit",
-        client: {
-          send: async (_topic, _payload, options) => {
-            sent.push({ options })
-            return { messageId: "provider-id" }
-          },
-          handleCallback: vi.fn(),
-        },
-      })
+    ? createCloudflareQueueClient({ provider, binding: { send, sendBatch: vi.fn(async () => {}) } })
+    : await createVercelQueueClient({ provider, topic: "audit", client: { send, handleCallback: vi.fn() } })
 
-  const inherited = Object.create({ id: "inherited-id" }) as { id?: string }
-  const cases = [
-    { label: "absent", options: undefined, expectedId: undefined },
-    { label: "own", options: { id: "own-id" }, expectedId: "own-id" },
-    { label: "inherited", options: inherited, expectedId: undefined },
-  ] as const
-
-  for (const { label, options, expectedId } of cases) {
-    const [error, result] = await client.send("event", options)
-
-    expect(error, label).toBeUndefined()
-    if (provider === "cloudflare") {
-      if (expectedId) expect(result?.messageId, label).toBe(expectedId)
-      else expect(result?.messageId, label).toEqual(expect.any(String))
-    }
-    else {
-      expect(result?.messageId, label).toBe("provider-id")
-    }
-    if (!expectedId) expect(result?.messageId, label).not.toBe("inherited-id")
-
-    const providerOptions = sent.at(-1)?.options
-    expect(providerOptions, label).not.toHaveProperty("id", "inherited-id")
-    if (provider === "vercel") {
-      expect(providerOptions, label).toMatchObject({ idempotencyKey: expectedId || expect.any(String) })
-      expect(providerOptions, label).not.toMatchObject({ idempotencyKey: "inherited-id" })
-    }
-  }
+  // SAFETY: A JavaScript caller can still pass the removed `id` option.
+  const [error, result] = await client.send("event", { id: "own-id" } as QueueEnqueueOptions)
+  expect(result).toBeUndefined()
+  expect(error).toMatchObject({
+    code: "QUEUE_UNSUPPORTED_OPTION",
+    fix: "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it.",
+  })
+  expect(send).not.toHaveBeenCalled()
 })
 
+it("returns no message id from Cloudflare, which assigns the id that the handler gets", async () => {
+  const client = createCloudflareQueueClient({ provider: "cloudflare", binding: { send: vi.fn(async () => {}), sendBatch: vi.fn(async () => {}) } })
 
-it.each([true, false])("reads an own enqueue id getter once when enumerable is %s", (enumerable) => {
-  const readId = vi.fn(() => "own-id")
-  const options = Object.defineProperty({ delaySeconds: 5 }, "id", { enumerable, get: readId })
+  expect(await client.send("event")).toEqual([undefined, { status: "queued" }])
+})
 
-  expect(normalizeQueueEnqueueInput("event", options)).toEqual({
-    id: "own-id",
-    options: { delaySeconds: 5 },
-    payload: "event",
-  })
-  expect(readId).toHaveBeenCalledOnce()
+it("generates the message id and ignores an inherited id", () => {
+  const inherited = Object.create({ id: "inherited-id" }) as QueueEnqueueOptions
+  const input = normalizeQueueEnqueueInput("event", inherited)
+
+  expect(input.id).toMatch(/^queue_/)
+  expect(input.options).toEqual({})
 })

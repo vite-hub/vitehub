@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
 
@@ -247,7 +246,7 @@ function createMonitor(options: {
 export function diagnostics(
   options: DiagnosticsCapabilityOptions = {},
 ): AgentCapabilityDefinition {
-  if (!options || !hasRuntimeType(options, "object")) throw agentDiagnostics.AGENT_R0029({ message: "[vitehub] diagnostics() requires an options object when provided." })
+  if (!options || typeof options !== "object") throw agentDiagnostics.AGENT_R0029({ message: "[vitehub] diagnostics() requires an options object when provided." })
   const heartbeat = positiveDuration(options.heartbeat, 60_000, "heartbeat")
   const interval = positiveDuration(options.interval, 10_000, "interval")
   const peakStepBytes = positiveBytes(options.peakStepBytes, 64 * 1024 * 1024)

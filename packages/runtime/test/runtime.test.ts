@@ -18,7 +18,6 @@ import {
   traceEventsToOpenTelemetrySpans,
   type ApprovalDecision,
   type ApprovalRequest,
-  type LeaseStore,
   type RuntimeCapabilities,
   type RuntimeHostContext,
   type RunLifecycleHooks,
@@ -642,19 +641,6 @@ describe("@vite-hub/runtime", () => {
       capability: "refund",
       input: { amount: 100 },
     })).resolves.toBe("require-approval")
-  })
-
-  it("models lease acquisition and release", async () => {
-    const release = vi.fn()
-    const store: LeaseStore = {
-      acquire: async key => ({ id: "lease-1", key, release }),
-    }
-
-    const lease = await store.acquire("thread:1")
-    await lease.release()
-
-    expect(lease).toMatchObject({ id: "lease-1", key: "thread:1" })
-    expect(release).toHaveBeenCalled()
   })
 
   it("exposes trace and lifecycle hook contracts", async () => {

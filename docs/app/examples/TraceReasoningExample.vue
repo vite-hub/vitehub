@@ -41,13 +41,13 @@ onBeforeUnmount(() => clearInterval(timer));
       <MessageContent class="gap-4">
         <Trace>
           <TraceLine v-if="!text" status="running">
-            <TraceIcon><UIcon name="i-ph-brain-light" /></TraceIcon>
+            <TraceIcon><UIcon name="i-lucide-brain" /></TraceIcon>
             <TraceTitle>Thinking</TraceTitle>
           </TraceLine>
           <TraceCollapsible v-else :open="open ?? running" @update:open="open = $event">
             <TraceCollapsibleTrigger>
               <TraceLine :status="running ? 'running' : undefined">
-                <TraceIcon><UIcon name="i-ph-brain-light" /></TraceIcon>
+                <TraceIcon><UIcon name="i-lucide-brain" /></TraceIcon>
                 <TraceTitle>{{ running ? "Thinking" : "Thought" }}</TraceTitle>
               </TraceLine>
             </TraceCollapsibleTrigger>

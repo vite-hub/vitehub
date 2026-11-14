@@ -34,7 +34,8 @@ export interface ConnectionsCliOptions {
 
 interface ParsedArgs {
   confirm?: string
-  cookie?: string
+  /** The app session cookie of `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. */
+  credentials: Headers
   flags: Map<string, string | true>
   json: boolean
   positionals: string[]
@@ -42,6 +43,8 @@ interface ParsedArgs {
 }
 
 class CliError extends Error {}
+
+const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })
 
 const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
@@ -68,14 +71,18 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     if (inline === undefined) index += 1
     flags.set(flag, value)
   }
-  const url = flags.get("--url")
+  const url = stringFlag(flags.get("--url")) ?? (env.VITEHUB_CONNECTIONS_URL || undefined)
+  // The management API is the app's own API: its actor module reads the app session in this cookie.
+  const credentials = new Headers()
+  const cookie = stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE
+  if (cookie) credentials.set("cookie", cookie)
   return {
     confirm: stringFlag(flags.get("--confirm")),
-    cookie: stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE,
+    credentials,
     flags,
     json: flags.has("--json"),
     positionals,
-    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || devServerUrl(context)),
+    url: url ?? devServerUrl(context),
   }
 }
 
@@ -123,6 +130,7 @@ const inspectionSchema = v.object({
   connectedAt: v.optional(v.string()),
   refreshedAt: v.optional(v.string()),
   mcp: v.optional(v.string()),
+  docs: v.optional(v.string()),
   expiresAt: v.optional(v.string()),
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
@@ -146,7 +154,7 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
   operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
 })) })
 
-async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
+async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect: RequestInit["redirect"] = "manual"): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
   // Completion consumes one-use state before exchanging the token (up to 30 seconds), verifying identity,
@@ -158,14 +166,15 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     const init: RequestInit = {
       body: JSON.stringify(body),
       headers: {
+        ...Object.fromEntries(parsed.credentials),
         "content-type": "application/json",
         origin: base.origin,
-        ...(parsed.cookie ? { cookie: parsed.cookie } : {}),
       },
       method: "POST",
+      // Keep the session cookie and management actions on the selected app origin.
+      redirect,
       signal: AbortSignal.timeout(seconds * 1_000),
     }
-    if (redirect) init.redirect = redirect
     response = await (options.fetch ?? fetch)(endpoint, init)
     text = await response.text()
   }
@@ -184,9 +193,12 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     throw new CliError(`${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.`)
   }
   if (!response.ok) {
-    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
-    const error = parsedError.success ? parsedError.output.error : undefined
-    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${error?.fix ? `\n${error.fix}` : ""}`)
+    const parsedError = v.safeParse(v.object({ error: errorBody }), value)
+    // An actor module can answer with the error fields at the top level.
+    const topLevel = v.safeParse(errorBody, value)
+    const error = parsedError.success ? parsedError.output.error : topLevel.success ? topLevel.output : undefined
+    const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts." : undefined)
+    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${fix ? `\n${fix}` : ""}`)
   }
   const result = v.safeParse(schema, value)
   if (!result.success) throw new CliError(`${endpoint.href} returned an invalid Connections response.`)
@@ -343,7 +355,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     },
   },
   inspect: {
-    description: "Show one Connection: account, scopes, and actions.",
+    description: "Show one Connection: account, scopes, actions, and its docs.",
     usage: "vitehub connections inspect <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
       const { connection } = await request(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") }, connectionResponse)
@@ -352,6 +364,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         describeConnection(connection),
         `  granted scopes: ${connection.scopes.granted.join(" ") || "none"}`,
         ...connection.actions.map(action => `  ${action.write ? "write" : "read "}  ${action.id}${action.highRisk ? "  high risk" : ""}`),
+        ...(connection.docs ? ["", connection.docs.trim()] : []),
       ].join("\n"))
     },
   },
@@ -363,7 +376,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       const base = appUrl(parsed)
       if (!isLoopback(base)) {
         const url = managementUrl(base, `/connect/${encodeURIComponent(name)}`)
-        write(context, parsed, { url: url.href }, () => `Open this URL while signed in to the Console:\n\n  ${url.href}`)
+        write(context, parsed, { url: url.href }, () => `Open this URL while signed in to the app:\n\n  ${url.href}`)
         return
       }
       const connection = await connectLoopback(name, parsed, context, options)
@@ -502,7 +515,7 @@ function usage(): string {
     "",
     "Options:",
     "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
-    "  --cookie <value>  Console session cookie (or VITEHUB_CONNECTIONS_COOKIE) for protected apps.",
+    "  --cookie <value>  App session cookie (or VITEHUB_CONNECTIONS_COOKIE) that the app's Connections actor accepts.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
     "",

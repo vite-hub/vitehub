@@ -17,7 +17,7 @@ Set `i18n.locales` in the ViteHub options. The first locale is the source locale
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } },
+  vitehub: { host: "node", i18n: { locales: ["en", "es", "pt-BR"] } },
 })
 ```
 :::
@@ -32,7 +32,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
     nitro(),
   ],
 })
@@ -48,7 +48,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
   ],
 })
 ```
@@ -102,9 +102,9 @@ const { locale, locales, setLocale } = useLocale()
 
 ## Use i18n in Nuxt 5
 
-Select the Nuxt tab in [Choose the locales](#choose-the-locales) and add `i18n` to the options of the `vite-hub/nuxt` module.
+Set the locales as in [Choose the locales](#choose-the-locales).
 
-The module installs the Vue plugin for you, so you do not call `createI18n()`. The server renders each page in the locale of the request. The page then loads in the browser in the same locale, so the HTML does not change after load. The module also sets `<html lang>` and auto-imports `useLocale()`.
+The `vite-hub/nuxt` module installs the Vue plugin for you, so you do not call `createI18n()`. The server renders each page in the locale of the request. The page then loads in the browser in the same locale, so the HTML does not change after load. The module also sets `<html lang>` and auto-imports `useLocale()`.
 
 ```vue [app/pages/index.vue]
 <script setup lang="ts">
@@ -280,7 +280,7 @@ By default, translations are files in your repository, and a new translation nee
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
+  vitehub: { host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
 })
 ```
 :::
@@ -295,7 +295,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
     nitro(),
   ],
 })
@@ -311,12 +311,14 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
   ],
 })
 ```
 :::
 ::
+
+`i18n.workspace` must name a Workspace that the app defines. Otherwise `vite dev` and `vite build` stop with [`I18N_UNKNOWN_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_unknown_workspace).
 
 The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments/<hh>/<hash>.json`. It has two refs:
 
@@ -326,6 +328,18 @@ The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments
 The server reads the head of `published` at most once every 5 seconds, and compiles each revision once. A request after a publish gets the new translations. The browser gets them from `/_vitehub/i18n/<locale>.json`, which sends only the messages of browser code. Its ETag is the revision, so the browser downloads a catalog again only after a publish.
 
 The build still reads `locales/` and embeds those translations. Published records override them; messages without a published record keep their build translation. When a Workspace read fails, the server keeps its last working catalogs, or the build snapshot before the first successful read. `vitehub i18n status`, `export`, `import`, and `prune` work on `locales/`, not on the Workspace.
+
+### Bring Workspace translations into `locales/`
+
+The Workspace has the same layout as `locales/`, so `locales/` can be a checkout of its `published` ref. A pull merges what an Agent or a translator published into your files, and a push sends your edits back:
+
+```bash [Terminal]
+pnpm vitehub pull translations --dir locales --ref published --url https://example.com
+pnpm vitehub i18n status
+pnpm vitehub push --message "Fix the Spanish checkout labels"
+```
+
+Check out `published`, not `draft`. The build embeds `locales/`, so a draft in `locales/` would reach the site with the next deploy before anyone published it. Commit `vitehub.lock` with the records. After the first pull, `vitehub pull` with no arguments brings the translations published since then, and `vitehub i18n status` reminds you of it. When `vitehub.lock` checks out another ref, such as `draft`, `vitehub i18n status` warns you and prints the command that checks out `published`. See [Work on a ref in a local folder](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
 ## What the build does
 

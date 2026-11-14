@@ -1,5 +1,6 @@
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { isRecord } from "@vite-hub/internal/object"
 
 interface BetterAuthGetSessionInput {
   headers: Headers
@@ -92,6 +93,3 @@ function readProperty(value: Record<string, unknown>, property: string): unknown
   return value[property]
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}

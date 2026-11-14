@@ -1,25 +1,28 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
-import { console } from "../../server.ts"
+import { agentConsole } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { isConsoleCrossOriginCall, withConsoleCors } from "./cors.ts"
-import { consoleRequestJSON, consoleRequestURL, consoleRoute, setConsoleResponseHeaders } from "./request.ts"
+import { consoleAccessInvoker, readConsoleAccessUser, type ConsoleAccess } from "./access.ts"
+import { consoleRequestError } from "./request.ts"
 
-import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
+import type { OperationContext } from "@vite-hub/internal/operations"
 
-/** Items per request. The CLI continues with the returned cursor. */
+/** Items per call. The CLI continues with the returned cursor. */
 const maximumReplayItemsPerRequest = 100
 
-function replayError(message: string, status: number): Response {
-  return Response.json({ message }, { headers: { "cache-control": "no-store" }, status })
-}
-
-function header(event: ConsoleRequestEvent, name: string): string | undefined {
-  return getStandardContext(event).req.headers.get(name) ?? undefined
+/** The input of `channels.replay`: the Agent, then the replay fields of `handleChannelReplayRequest()`. */
+export interface ConsoleChannelReplayInput {
+  agent: string
+  channel: string
+  cursor?: string
+  describe?: boolean
+  dryRun?: boolean
+  force?: boolean
+  label?: string
+  limit?: number
+  query?: Record<string, string | string[]>
 }
 
 function memo() {
@@ -32,55 +35,33 @@ function memo() {
 }
 
 /**
- * Replays Channel history for `vitehub channels replay --url`.
- * The default export checks Console access first. This handler also needs Console invocation to be enabled.
+ * Replays Channel history for `vitehub channels replay --url`, or describes its history query with `describe: true`.
+ * The Agent must allow Console invocation, as the Console's own Agent invocations do.
  */
-async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
-  setConsoleResponseHeaders(event)
-  if (getStandardContext(event).req.method !== "POST") return replayError("Method not allowed.", 405)
-  // A JSON content type and a same-origin check keep browsers from sending cross-site replay requests.
-  if (!header(event, "content-type")?.toLowerCase().startsWith("application/json")) return replayError("Channel replay requires application/json.", 415)
-  const url = consoleRequestURL(event)
-  const origin = header(event, "origin")
-  if (origin && origin !== url.origin && !isConsoleCrossOriginCall(consoleRequest(event), access)) return replayError("Channel replay origin is not allowed.", 403)
-  let body: unknown
-  try {
-    body = await consoleRequestJSON(event)
-  }
-  catch (error) {
-    if (error instanceof Error && "statusCode" in error && error.statusCode === 413) {
-      return replayError("Channel replay request body is too large.", 413)
-    }
-    return replayError("Malformed Channel replay payload.", 400)
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body) || !("agent" in body)) {
-    return replayError("Channel replay requires an Agent name.", 400)
-  }
-  // SAFETY: the object guard above establishes a string-keyed JSON object.
-  const replayBody = body as Record<string, unknown>
-  const agentName = replayBody.agent
-  if (typeof agentName !== "string" || !agentName.trim()) return replayError("Channel replay requires an Agent name.", 400)
-  const name = agentName
-  const { agent: _, ...replay } = replayBody
+export async function replayConsoleChannel(
+  { agent: name, ...replay }: ConsoleChannelReplayInput,
+  context: Omit<OperationContext, "access"> & { access: ConsoleAccess },
+): Promise<unknown> {
   const agent = getConsoleAgentDefinition(name)
-  if (!agent) return replayError("Channel replay is not available. Enable Console invocation for this Agent.", 404)
-  const actor = consoleAccessActor(access.user)
-  const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
-  const context = createExecutionContext<AgentRuntimeContext>({
+  if (!agent) throw consoleRequestError(404, "Channel replay is not available. Enable Console invocation for this Agent.")
+  const invoker = consoleAccessInvoker(readConsoleAccessUser(context.access))
+  const tasks = createRuntimeWaitUntilController({ forward: context.waitUntil })
+  const runtime = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
-    ...(actor ? { actor } : {}),
-    capabilities: { ...await getConsoleAgentCapabilities(), console },
+    ...(invoker ? { invoker } : {}),
+    capabilities: { ...await getConsoleAgentCapabilities(), console: agentConsole },
     memo: memo(),
-    request: consoleRequest(event),
+    ...(context.request ? { request: context.request } : {}),
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
+  const response = await handleChannelReplayRequest(agent, replay, { ...(invoker ? { invoker } : {}), maxLimit: maximumReplayItemsPerRequest, runtime })
+  const body: unknown = await response.json()
+  if (response.ok) return body
+  const message = Reflect.get(Object(body), "message")
+  const code = Reflect.get(Object(body), "code")
+  const error = consoleRequestError(response.status, typeof message === "string" ? message : "Channel replay failed.")
+  // Agent failures keep their code, such as AGENT_R0931 for a Channel without history.
+  throw typeof code === "string" ? Object.assign(error, { consoleCode: code }) : error
 }
-
-const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true })
-
-/** `POST <base>/_vitehub/channels/replay` */
-const consoleChannelReplayRoute: ConsoleRoute = consoleRoute(withConsoleCors(guardedHandler))
-export default consoleChannelReplayRoute

@@ -1,5 +1,3 @@
-import { isRuntimeNumber } from "../../src/internal/runtime-value.ts"
-
 import type { Lock } from "chat"
 import type { ViteHubAgentStateDurableObjectNamespace, ViteHubAgentStateDurableObjectStub } from "../../src/state/providers/cloudflare.ts"
 
@@ -69,7 +67,7 @@ export function createFakeCloudflareStateNamespace(): ViteHubAgentStateDurableOb
     },
     listAppend(key, value, maxLength) {
       const next = [...(lists.get(key) || []), value]
-      lists.set(key, isRuntimeNumber(maxLength) ? next.slice(-maxLength) : next)
+      lists.set(key, typeof maxLength === "number" ? next.slice(-maxLength) : next)
     },
     listGet(key) {
       return lists.get(key) || []

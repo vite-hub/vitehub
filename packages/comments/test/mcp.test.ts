@@ -1,11 +1,9 @@
-import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
 import { defineCommentSubject } from "../src/index.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
-import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { ada, anchor, createComments } from "./harness.ts"
 
 import type { CommentsIdentifyContext, DefineCommentsOptions } from "../src/types.ts"
@@ -17,12 +15,6 @@ function event(headers: Record<string, string> = {}): H3Event {
   // The Console sets Standard Context before it passes the event to a tool, as the ViteHub Nitro plugin does.
   installStandardContext(event)
   return event as unknown as H3Event
-}
-
-/** An H3 1 event of Nuxt 4, with the Standard Context that the Console sets before it calls a tool. */
-function withStandardContext<T extends object>(event: T) {
-  installStandardContext(event)
-  return event
 }
 
 async function setup(options: DefineCommentsOptions = {}) {
@@ -106,20 +98,6 @@ describe("Comments MCP tools", () => {
     expect(after?.status).toBe("resolved")
   })
 
-  it("registers MCP tools that trust the Console user, as the ViteHub MCP server checks Console access", async () => {
-    const comments = await createComments({ identify: undefined, authorize: undefined })
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      defineCommentsPlugin({ comments, database: () => undefined, overlay: "/api/_vitehub/comments/assets/overlay.js" })(null)
-      const tool = getViteHubMcpTools().find(tool => tool.name === "comments_list_threads")!
-      expect((await tool.call({}, { user: ada, event: event() })).isError).toBeUndefined()
-      expect((await tool.call({}, { user: null, event: event() })).isError).toBe(true)
-    }
-    finally {
-      warn.mockRestore()
-    }
-  })
-
   it("keeps anonymous callers anonymous for every action", async () => {
     const { comments, call } = await setup({ authorize: ({ user }) => user !== null })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
@@ -177,7 +155,7 @@ describe("Comments MCP tools", () => {
     expect(identify).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])("keeps the Console user as author, and names permitted anonymous guests, with H3 1: %s", async (nodeEvent) => {
+  it("keeps the Console user as author, and names permitted anonymous guests", async () => {
     const seen: unknown[] = []
     const comments = await createComments({ authorize: ({ user }) => { seen.push(user); return user === null || user?.email === "ada@site.test" } })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
@@ -191,7 +169,7 @@ describe("Comments MCP tools", () => {
 
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
+    const request = event(headers)
     expect((await tools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: null, event: request })).isError).toBeUndefined()
     expect((await tools[3]!.call({ id: thread!.id }, { user: null, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)
@@ -222,13 +200,19 @@ describe("Comments MCP tools", () => {
     })
 
     const list = await call("comments_list_threads", {})
-    expect(list.text).toBe(`- ${thread!.id} /pricing: The price is cut off (Ada, 0 replies, in PricingCard)`)
+    expect(list.text).toBe(`- #${thread!.n} ${thread!.id} /pricing: The price is cut off (Ada, 0 replies, in PricingCard)`)
     expect(list.structured).toMatchObject({ threads: [{ id: thread!.id, components: ["PricingCard"] }] })
     expect((await call("comments_list_threads", { search: "nothing" })).text).toBe("No open threads.")
 
     const read = await call("comments_get_thread", { id: thread!.id })
     expect(read.text).toContain("Files: app/components/PricingCard.vue")
     expect(read.text).toContain("Ada, ")
+
+    // An agent learns which part of the element an area marks, and which files a message carries.
+    const [, area] = await comments.create({ page: "/pricing", anchor: { kind: "area", selector: "iframe", x: 5, y: 4, width: 973, height: 977 }, body: "Too busy", attachments: ["comments/shot.png"], author: ada })
+    const areaText = (await call("comments_get_thread", { id: area!.id })).text
+    expect(areaText).toContain("Anchor: an area of iframe, 97.3% wide and 97.7% high, from 0.5% left and 0.4% top of its box")
+    expect(areaText).toContain("Attachments: comments/shot.png")
 
     const replied = await call("comments_reply", { id: thread!.id, body: "Fixed the width" })
     expect(replied.isError).toBeUndefined()

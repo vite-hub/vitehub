@@ -7,7 +7,7 @@ import {
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"
@@ -21,23 +21,9 @@ import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
 let runtimeConfigSnapshot: string | undefined
-const functionIds = new WeakMap<Function, number>()
-let nextFunctionId = 0
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorages = new Map<string, BlobStorage>()
 let pendingStorages = new Map<string, Promise<BlobStorage>>()
-
-function isCallable(value: unknown): value is Function {
-  if (value === null || value === undefined) return false
-  try {
-    // SAFETY: bind.call checks callability across realms and callable proxies.
-    Function.prototype.bind.call(value as Function, undefined)
-    return true
-  }
-  catch {
-    return false
-  }
-}
 
 export {
   clearActiveCloudflareEnv,
@@ -46,6 +32,17 @@ export {
   installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
+}
+
+/**
+ * The env that holds the store credentials at runtime: the text values of the active Cloudflare Worker env, then
+ * `process.env`. A Worker does not always copy its secrets into `process.env`.
+ */
+export function blobRuntimeEnv(): Record<string, string | undefined> {
+  const processEnv = typeof process === "undefined" ? {} : process.env
+  const worker = getActiveCloudflareEnv()
+  if (!worker) return processEnv
+  return { ...processEnv, ...Object.fromEntries(Object.entries(worker).filter((entry): entry is [string, string] => typeof entry[1] === "string")) }
 }
 
 /** The Cloudflare bindings in the Standard Context of a request event, when the host provides them. */
@@ -71,7 +68,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
       const env = typeof process !== "undefined" ? process.env : {}
       const hosting = getActiveCloudflareEnv()
         ? "cloudflare"
-        : readEnv(env, "VITEHUB_HOSTING")
+        : readEnv(env, "VITEHUB_HOST")
           || (readEnv(env, "NETLIFY") || readEnv(env, "NETLIFY_DEV") || readEnv(env, "NETLIFY_LOCAL") ? "netlify" : undefined)
           || (readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
       return normalizeBlobOptions(undefined, { env, hosting }) || false
@@ -95,15 +92,7 @@ export function getNamedBlobRuntimeStorage(name: string): BlobStorage | undefine
 }
 
 export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions | undefined): void {
-  const snapshot = config === undefined ? undefined : JSON.stringify(config, (_key, value: unknown) => {
-    if (!isCallable(value)) return value
-    let id = functionIds.get(value)
-    if (id === undefined) {
-      id = ++nextFunctionId
-      functionIds.set(value, id)
-    }
-    return { __viteHubFunctionId: id }
-  })
+  const snapshot = config === undefined ? undefined : JSON.stringify(config)
   if (config !== undefined && config === runtimeConfig && snapshot === runtimeConfigSnapshot) return
   runtimeConfig = config
   runtimeConfigSnapshot = snapshot

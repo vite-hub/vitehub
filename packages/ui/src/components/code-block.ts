@@ -1,6 +1,6 @@
-import { defineComponent, Fragment, h, onBeforeUnmount, type PropType, ref, Text, type VNode } from "vue";
+import { defineComponent, Fragment, h, type PropType, Text, type VNode } from "vue";
 import { slotPart } from "../internal/slot-part.ts";
-import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { CopyButton } from "./copy-button.ts";
 
 export type CodeBlockVariant = "default" | "destructive";
 export type CodeBlockSize = "default" | "sm";
@@ -23,6 +23,7 @@ export const CodeBlockTitle = slotPart("CodeBlockTitle", "code-block-title");
 export const CodeBlockActions = slotPart("CodeBlockActions", "code-block-actions");
 export const CodeBlockFooter = slotPart("CodeBlockFooter", "code-block-footer");
 
+/** The copy button of a code block: an extra-small `CopyButton` for the block's actions. */
 export const CodeBlockCopyButton = defineComponent({
   name: "CodeBlockCopyButton",
   inheritAttrs: false,
@@ -30,42 +31,7 @@ export const CodeBlockCopyButton = defineComponent({
     value: { required: true, type: String },
   },
   setup(props, { attrs }) {
-    const UButton = useUIComponent("UButton");
-    const copied = ref(false);
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    onBeforeUnmount(() => clearTimeout(timeout));
-    const copy = () => {
-      try {
-        const clipboard = navigator.clipboard;
-        if (!clipboard || typeof clipboard.writeText !== "function") return;
-        void clipboard.writeText(props.value).then(() => {
-          copied.value = true;
-          clearTimeout(timeout);
-          timeout = setTimeout(() => (copied.value = false), 2_000);
-        }).catch(() => {});
-      } catch { return; }
-    };
-    return () => [
-      h(UButton, {
-        "aria-label": copied.value ? "Copied" : "Copy",
-        color: "neutral",
-        icon: copied.value ? "i-ph-check-light" : "i-ph-copy-light",
-        size: "xs",
-        square: true,
-        variant: "ghost",
-        ...attrs,
-        "data-copied": copied.value ? "" : undefined,
-        "data-slot": "code-block-copy-button",
-        onClick: (event: MouseEvent) => {
-          const listener = attrs.onClick;
-          if (Array.isArray(listener)) {
-            for (const handler of listener) if (typeof handler === "function") handler(event);
-          } else if (typeof listener === "function") listener(event);
-          void copy();
-        },
-      }),
-      h("span", { "aria-live": "polite", "data-slot": "code-block-copy-status" }, copied.value ? "Copied" : ""),
-    ];
+    return () => h(CopyButton, { size: "xs", ...attrs, "data-slot": "code-block-copy-button", value: props.value });
   },
 });
 
@@ -121,6 +87,8 @@ export const CodeBlockContent = defineComponent({
       return h(
         "pre",
         {
+          // The block clips its content, so the ring of the scrollable code sits inside it.
+          "data-focus-inset": "",
           "data-numbered": props.lineNumbers ? "" : undefined,
           "data-slot": "code-block-content",
           "data-wrap": props.wrap ? "" : undefined,

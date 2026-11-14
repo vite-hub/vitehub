@@ -1,8 +1,6 @@
 import { Buffer } from "node:buffer"
 import { posix } from "node:path"
 
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-
 import type {
   BufferEncoding,
   CpOptions,
@@ -53,7 +51,7 @@ function createReadonlyError() {
 }
 
 function toShellContent(content: ShellContent, encoding?: BufferEncoding): Uint8Array {
-  if (!hasRuntimeType(content, "string")) return content
+  if (typeof content !== "string") return content
   // Match Just Bash's filesystem conversion, including malformed input behavior.
   if (encoding === "base64") {
     const decoded = atob(content)
@@ -152,7 +150,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
 
   async writeFile(path: string, content: FileContent, options?: WriteFileOptions | BufferEncoding): Promise<void> {
     const workspace = this.#requireWritable()
-    const encoding = hasRuntimeType(options, "string") ? options : options?.encoding
+    const encoding = typeof options === "string" ? options : options?.encoding
     await workspace.writeFile(this.#toRelativePath(path), encoding ? toShellContent(content, encoding) : content)
     await this.#refreshPaths()
   }
@@ -165,7 +163,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
       return new Uint8Array()
     })
     const current = toShellContent(existing)
-    const next = toShellContent(content, hasRuntimeType(options, "string") ? options : options?.encoding)
+    const next = toShellContent(content, typeof options === "string" ? options : options?.encoding)
     const merged = new Uint8Array(current.byteLength + next.byteLength)
     merged.set(current, 0)
     merged.set(next, current.byteLength)

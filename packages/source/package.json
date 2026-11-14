@@ -70,10 +70,9 @@
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "mlly": "catalog:unjs",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ofetch": "catalog:unjs"
+    "ocache": "catalog:unjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
@@ -83,7 +82,6 @@
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
-    "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",
     "publint": "catalog:tooling",
     "tinyglobby": "catalog:workspace",
@@ -95,12 +93,16 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "drizzle-orm": "catalog:database",
+    "@modelcontextprotocol/sdk": "catalog:ai",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "drizzle-orm": {
       "optional": true
     },

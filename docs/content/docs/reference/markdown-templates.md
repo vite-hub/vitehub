@@ -74,7 +74,7 @@ To share a section, render its template in TypeScript and pass the result as a M
 `renderMarkdownTemplate()` returns Markdown. Pass values in `data`. The template reads them with Comark bindings such as `{{ data.title }}`.
 
 ```ts
-import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
+import { renderMarkdownTemplate } from 'vite-hub/markdown-template'
 
 const template = `# Review {{ data.number }}
 
@@ -115,7 +115,7 @@ Build the full URL in TypeScript. ViteHub encodes characters that could break th
 
 ## Select conditional content
 
-Use `condition` for a truthy check, or `value` with comparison props. A `:` prefix binds a data path or parses a JSON literal. Props without it are plain strings.
+Use `:condition` for a truthy check, or `:value` with comparison props. A `:` prefix binds a data path or parses a JSON literal. Comparison props without it are plain strings. `condition` and `value` must have the `:` prefix: `::if{condition="data.trial"}` throws `MARKDOWN_TEMPLATE_R0024`.
 
 ```md
 ::if{:condition="data.enabled" :value="data.count" :gte="2" :lt="5"}

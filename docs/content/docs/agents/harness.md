@@ -104,7 +104,7 @@ An [Agent Driver](/docs/agents/agent-drivers) decides who runs the loop for one 
 | `{ run }` | Your function | Work that does not need a model loop. |
 | `{ ask }` | TypeSafe Jev | A few typed answers, such as a label or a score. |
 
-Use Codex or Claude Code for work on a repository, because they already handle file edits, shell commands, approvals, and context. Use a model Driver for small tasks where ViteHub should run every tool call. The model loop stops after 20 steps by default. An [AI gateway](/docs/agents/ai-gateways) sends Codex and Claude Code model requests through your own proxy.
+Use Codex or Claude Code for work on a repository, because they already handle file edits, shell commands, approvals, and context. Use a model Driver for small tasks where ViteHub should run every tool call. The model loop stops after 20 steps by default. An [AI gateway](/docs/gateways) sends Codex and Claude Code model requests through your own proxy.
 
 ### Capabilities
 
@@ -139,7 +139,7 @@ The built-in HTTP chat route stores pending approvals and accepts each response 
 
 Server code can call `runAgent()` directly. A [Trigger](/docs/agents/triggers) turns a product event, such as a chat message, into Invocation input. A [Channel](/docs/agents/channels) connects an outside service and sends the reply back there. Built-in Channels include web chat, HTTP, Slack, Discord, Teams, Telegram, GitHub, GitLab, Forgejo, and Gmail.
 
-A Channel tells where a message came from, not who sent it. [Agent Actors](/docs/agents/actors) carry the trusted identity.
+A Channel tells the Agent where a message came from. It does not prove who sent it. [Trusted Invokers](/docs/agents/trusted-invokers) carry the trusted identity.
 
 ### Invocations and traces
 

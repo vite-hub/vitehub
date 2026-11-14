@@ -1,13 +1,20 @@
 <script setup lang="ts">
+import { consoleInitials, consoleTimeOfDay } from "../client/format";
+import { Status } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
-import { consoleMcpAccount, consoleMcpAuthLabels, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, requestConsoleMcp } from "../client/mcp-client";
+import { consoleMcpAccount, consoleMcpAuthLabels, consoleMcpEndpoint, consoleMcpStatus, requestConsoleMcp } from "../client/mcp-client";
 import { useConsoleToast } from "../client/toast";
 import ConsoleMcpItems from "./console-mcp-items.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMcpConnection } from "../mcp-client";
+import ConsoleConfirm from "./console-confirm.vue";
+import type { ConsoleProperty } from "./console-facts";
+import ConsolePropertyList from "./console-property-list.vue";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 /**
  * One MCP connection: who it is signed in as, its server and grant, and its tools, resources, prompts, and server
@@ -57,9 +64,8 @@ const needsSignIn = computed(() => props.connection.auth === "oauth" && props.co
 const expires = computed(() => {
   const value = props.connection.grant?.expiresAt;
   if (!value) return undefined;
-  const date = new Date(value);
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  return date.getTime() < Date.now() ? `Expired at ${time}` : `Expires at ${time}`;
+  const time = consoleTimeOfDay(value);
+  return Date.parse(value) < Date.now() ? `Expired at ${time}` : `Expires at ${time}`;
 });
 const facts = computed(() => {
   const server = props.connection.server;
@@ -84,7 +90,7 @@ const serverRows = computed(() => {
     { label: "Scopes", mono: true, value: grant?.scopes.join(" ") || undefined },
     { label: "Account id", mono: true, value: identity?.subject },
   ];
-  return rows.filter(row => row.value);
+  return rows.filter((row): row is ConsoleProperty => Boolean(row.value));
 });
 
 async function reconnect(prompt?: "login"): Promise<void> {
@@ -134,19 +140,16 @@ async function disconnect(): Promise<void> {
       <template #right>
         <UButton
           v-if="needsSignIn"
-          color="neutral"
           icon="i-lucide-log-in"
           label="Sign in again"
-          size="sm"
-          variant="soft"
           :loading="busy === 'reconnect'"
           @click="reconnect()"
         />
         <UTooltip v-else text="Start a new MCP session">
-          <UButton aria-label="Start a new MCP session" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="busy === 'reconnect'" @click="reconnect()" />
+          <UButton aria-label="Start a new MCP session" icon="i-lucide-refresh-cw" variant="ghost" :loading="busy === 'reconnect'" @click="reconnect()" />
         </UTooltip>
         <UTooltip text="Disconnect">
-          <UButton aria-label="Disconnect" color="neutral" icon="i-lucide-unplug" size="sm" variant="ghost" :disabled="Boolean(busy)" @click="confirmOpen = true" />
+          <UButton aria-label="Disconnect" icon="i-lucide-unplug" variant="ghost" :disabled="Boolean(busy)" @click="confirmOpen = true" />
         </UTooltip>
       </template>
     </ConsolePageHeader>
@@ -154,21 +157,18 @@ async function disconnect(): Promise<void> {
     <section class="shrink-0 border-b border-default" aria-label="Connection">
       <div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 px-4 py-4 sm:px-6">
         <div class="flex min-w-0 items-center gap-3">
-          <UAvatar :src="connection.identity?.picture" :alt="account.primary" :text="consoleMcpInitials(account.primary)" size="lg" />
+          <UAvatar :src="connection.identity?.picture" :alt="account.primary" :text="consoleInitials(account.primary)" size="lg" />
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold text-highlighted">{{ account.primary }}</p>
             <p v-if="account.secondary" class="truncate text-xs text-muted">{{ account.secondary }}</p>
           </div>
-          <UBadge :color="status.color" variant="subtle" size="sm" class="shrink-0">
-            <span class="size-1.5 rounded-full bg-current" aria-hidden="true" />{{ status.label }}
+          <UBadge :color="status.color" size="sm" class="shrink-0">
+            <Status :tone="status.color" :label="status.label" />
           </UBadge>
         </div>
-        <dl class="flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
-          <div v-for="fact in facts" :key="fact.label" class="flex min-w-0 max-w-full gap-2">
-            <dt class="shrink-0 text-dimmed">{{ fact.label }}</dt>
-            <dd class="truncate text-default" :class="fact.mono ? 'font-mono' : ''" :title="fact.value">{{ fact.value }}</dd>
-          </div>
-        </dl>
+        <ConsoleStatGrid :items="facts" :columns="4" label="Connection facts">
+          <template #value="{ item }"><span :class="item.mono ? 'font-mono text-xs' : ''">{{ item.value }}</span></template>
+        </ConsoleStatGrid>
         <ConsoleState v-if="actionError" compact :error="actionError" title="That didn't work" />
         <div v-else-if="connection.error && connection.status !== 'connected'" role="status" class="flex flex-wrap items-center gap-2 rounded-md bg-elevated/50 px-3 py-2 text-[13px]">
           <UIcon name="i-lucide-circle-alert" class="size-4 shrink-0 text-warning" aria-hidden="true" />
@@ -177,17 +177,14 @@ async function disconnect(): Promise<void> {
       </div>
     </section>
 
+    <!-- On a narrow screen the tab list scrolls sideways. The tab list draws its line 1px below itself, so the
+         scroller makes room for it and overlaps the bottom border: the two are one line. -->
     <div class="shrink-0 border-b border-default">
-      <UTabs
-        v-model="activeTab"
-        :items="tabs"
-        :content="false"
-        aria-label="Connection views"
-        color="neutral"
-        size="sm"
-        variant="link"
-        :ui="{ root: 'mx-auto w-full max-w-6xl px-2 sm:px-4', list: 'overflow-x-auto border-0', trigger: 'shrink-0', leadingIcon: 'hidden sm:inline-flex' }"
-      />
+      <div class="-mb-px overflow-x-auto pb-px">
+        <div class="mx-auto max-w-6xl px-2 sm:px-4">
+          <UTabs v-model="activeTab" :items="tabs" :content="false" aria-label="Connection views" class="w-max min-w-full" />
+        </div>
+      </div>
     </div>
 
     <ConsoleMcpItems
@@ -202,37 +199,20 @@ async function disconnect(): Promise<void> {
     />
     <div v-else class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-4 py-5 sm:px-6 [&>*]:max-w-3xl">
-        <section v-if="connection.server?.instructions" class="grid gap-2" aria-labelledby="vitehub-mcp-instructions">
-          <h3 id="vitehub-mcp-instructions" class="text-xs font-medium text-muted">Instructions</h3>
+        <ConsoleSection v-if="connection.server?.instructions" :level="3" title="Instructions">
           <p class="vitehub-mcp-text max-w-[75ch]">{{ connection.server.instructions }}</p>
-        </section>
-        <section class="grid gap-2" aria-labelledby="vitehub-mcp-server">
-          <h3 id="vitehub-mcp-server" class="text-xs font-medium text-muted">Server</h3>
-          <dl class="divide-y divide-default border-y border-default text-[13px]">
-            <div v-for="row in serverRows" :key="row.label" class="grid gap-1 py-2.5 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)] sm:gap-4">
-              <dt class="text-muted">{{ row.label }}</dt>
-              <dd class="min-w-0 break-all text-highlighted" :class="row.mono ? 'font-mono text-xs leading-5' : ''">{{ row.value }}</dd>
-            </div>
-          </dl>
-        </section>
+        </ConsoleSection>
+        <ConsolePropertyList title="Server" :items="serverRows" />
         <p class="max-w-[68ch] text-pretty text-xs text-dimmed">
           The Console keeps this connection in server memory. Its tokens never reach the browser, and it ends when the server restarts.
         </p>
       </div>
     </div>
 
-    <UModal v-model:open="confirmOpen" :title="`Disconnect ${account.primary}?`" :ui="{ content: 'sm:max-w-[440px]' }">
-      <template #body>
-        <p class="text-pretty text-[13px] text-muted">
-          The Console ends the MCP session<template v-if="connection.auth === 'oauth'"> and asks the authorization server to revoke the tokens</template>. To use this server as {{ account.primary }} again, connect again.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" label="Cancel" variant="ghost" @click="confirmOpen = false" />
-          <UButton color="error" label="Disconnect" :loading="busy === 'disconnect'" @click="disconnect" />
-        </div>
-      </template>
-    </UModal>
+    <ConsoleConfirm v-model:open="confirmOpen" :title="`Disconnect ${account.primary}?`" confirm-label="Disconnect" destructive :loading="busy === 'disconnect'" @confirm="disconnect">
+      <p>
+        The Console ends the MCP session<template v-if="connection.auth === 'oauth'"> and asks the authorization server to revoke the tokens</template>. To use this server as {{ account.primary }} again, connect again.
+      </p>
+    </ConsoleConfirm>
   </div>
 </template>

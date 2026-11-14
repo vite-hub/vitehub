@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises"
 import { posix } from "node:path"
 
-import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/node"
+import { resolveLinuxCgroupV2Path } from "@vite-hub/runtime/internal/node"
 
 import { shareAgentCapacityOptions } from "../internal/agent-capacity.ts"
 
@@ -348,11 +348,11 @@ export function createAgentProcessHosts(options: {
   const startHost = async (agentName: string, attempt: number): Promise<void> => {
     retries.delete(agentName)
     if (closed) return
-    const { getAgentFromRegistry } = await import("../index.ts")
+    const { loadAgent } = await import("../index.ts")
     const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
     try {
-      const agent = await getAgentFromRegistry(agentName, options.registry)
+      const agent = await loadAgent(agentName, options.registry)
       const contribution = getAgentProcessHostContribution(agent)
       if (!contribution) {
         failures.set(agentName, "The Agent has no process host contribution.")

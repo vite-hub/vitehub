@@ -118,7 +118,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     await shot(page, "desktop-booting");
 
@@ -218,17 +218,17 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await page.getByRole("button", { name: "Open playground" }).click();
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     await page.close();
   });
 
   await t.test("phone: a card, never a WebContainer", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, acceptDownloads: true });
     await page.goto(playground);
-    await page.getByText("The playground runs a ViteHub app in a desktop browser.").waitFor();
+    await page.getByText("The live playground runs in a desktop browser.").waitFor();
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
-    assert.equal(await page.locator(".vh-playground-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "mobile");
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download files" }).click();
@@ -253,7 +253,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.goto(playground);
     await page.getByText("The live workspace does not run in Safari").waitFor();
     await page.getByRole("button", { name: "Download files" }).waitFor();
-    assert.equal(await page.locator(".vh-playground-workspace").count(), 0);
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
     await shot(page, "safari");
     await context.close();
   });
@@ -268,7 +268,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(home?.headers()["cross-origin-opener-policy"], undefined);
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Playground" }).click();
     await page.waitForURL(/\/playground$/);
-    await page.locator(".vh-playground-workspace").waitFor();
+    await page.locator(".vh-ws-shell").waitFor();
     assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the playground loaded as a new isolated document");
     // Playground to docs, through the header.
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Docs" }).click();
@@ -276,4 +276,104 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(await page.evaluate(() => crossOriginIsolated), false, "the docs page loaded as a new document");
     await page.close();
   });
+});
+
+/** Waits until the address bar of the preview shows `path`. */
+async function addressIs(page, path) {
+  let value = "";
+  for (let attempt = 0; attempt < 40 && value !== path; attempt++) {
+    value = await page.getByLabel("Preview path").inputValue();
+    if (value !== path) await page.waitForTimeout(250);
+  }
+  assert.equal(value, path);
+}
+
+/** The frame of the ViteHub UI app, inside the frames of the preview origin. */
+async function uiFrame(page) {
+  for (let attempt = 0; attempt < 240; attempt++) {
+    for (const frame of page.frames().filter(candidate => candidate.url().includes("webcontainer-api.io"))) {
+      const found = frame.evaluate(() => !!document.querySelector("[data-slot='tabs']")).catch(() => false);
+      if (await Promise.race([found, new Promise(done => setTimeout(done, 1000, false))])) return frame;
+    }
+    await page.waitForTimeout(500);
+  }
+  assert.fail("the preview shows the ViteHub UI app");
+}
+
+// Run alone with `--test-name-pattern="ViteHub UI"`.
+test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }, async (t) => {
+  const browser = await chromium.launch({ args: ["--headless=new"] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.on("pageerror", error => console.log("[page error]", error.message));
+  const started = performance.now();
+  await page.goto(`${playground}?template=ui`);
+  await page.getByRole("treeitem", { name: "App.vue" }).waitFor();
+  await page.getByRole("button", { name: "Template: ViteHub UI" }).waitFor();
+  await waitForApp(page);
+  let app = await uiFrame(page);
+  await app.getByRole("heading", { name: "Launch plan" }).waitFor();
+  console.log(`ViteHub UI: preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
+  await shot(page, "ui-ready");
+
+  // The parts of @ui-sdk/vue work in the frame: a dialog with a form, a toast, tabs, a menu, and a tooltip.
+  await app.getByRole("button", { name: "Invite a member" }).click();
+  await app.getByRole("dialog", { name: "Invite a member" }).waitFor();
+  await app.getByLabel("Name").fill("Linus Torvalds");
+  // Let the dialog finish its open transition.
+  await page.waitForTimeout(400);
+  await shot(page, "ui-dialog");
+  await app.getByRole("button", { name: "Invite", exact: true }).click();
+  await app.locator("[data-slot=toast-title]", { hasText: "Invitation sent" }).waitFor();
+  await app.getByRole("dialog").waitFor({ state: "detached" });
+  await app.getByRole("tab", { name: "Members" }).click();
+  await app.getByRole("tabpanel").getByText("Linus Torvalds", { exact: true }).waitFor();
+  assert.equal(await app.getByRole("tab", { name: "Members" }).getAttribute("aria-selected"), "true");
+  await app.getByRole("button", { name: "Actions" }).click();
+  await app.getByRole("menuitem", { name: "Duplicate" }).click();
+  await app.locator("[data-slot=toast-title]", { hasText: "Duplicated the project" }).waitFor();
+  await app.getByRole("button", { name: "Copy the project link" }).hover();
+  await app.getByRole("tooltip").waitFor();
+  await shot(page, "ui-parts");
+
+  // An edit reaches the app through hot module replacement: the component starts again, and the page does not reload.
+  await app.evaluate(() => { window.vitehubMark = true; });
+  await replaceWord(page, "Ada", "Ida");
+  await page.getByText("hmr update /src/App.vue").waitFor({ timeout: 60_000 });
+  await app.getByRole("tab", { name: "Members" }).click();
+  await app.getByRole("tabpanel").getByText("Ida Lovelace", { exact: true }).waitFor();
+  await shot(page, "ui-edited");
+  assert.equal(await app.evaluate(() => window.vitehubMark), true, "the edit did not reload the page");
+
+  // The address bar follows the app, and Back and Forward move through its history.
+  await app.evaluate(() => history.pushState({}, "", "/members?from=test"));
+  await addressIs(page, "/members?from=test");
+  assert.match(await page.getByRole("link", { name: "Open preview in a new tab" }).getAttribute("href"), /\/members\?from=test$/);
+  await page.getByRole("button", { name: "Go back" }).click();
+  await addressIs(page, "/");
+  assert.equal(await app.evaluate(() => location.pathname), "/");
+  await page.getByRole("button", { name: "Go forward" }).click();
+  await addressIs(page, "/members?from=test");
+
+  // The width switch shows the page at a device width, and the app keeps running.
+  await page.getByRole("button", { name: "Phone", exact: true }).click();
+  await page.waitForTimeout(400);
+  app = await uiFrame(page);
+  assert.equal(await app.evaluate(() => innerWidth), 390);
+  await shot(page, "ui-phone");
+  await page.getByRole("button", { name: "Tablet", exact: true }).click();
+  await page.waitForTimeout(400);
+  assert.equal(await app.evaluate(() => innerWidth), 768);
+  await shot(page, "ui-tablet");
+  await page.getByRole("button", { name: "Desktop", exact: true }).click();
+  await page.waitForTimeout(400);
+  assert.ok(await app.evaluate(() => innerWidth) > 390);
+  assert.equal(await app.evaluate(() => window.vitehubMark), true, "the width switch kept the same page");
+
+  await page.getByRole("button", { name: /^Template:/ }).click();
+  await page.getByRole("menuitem", { name: /^ViteHub UI/ }).waitFor();
+  await page.waitForTimeout(500);
+  await shot(page, "ui-templates");
+  await page.keyboard.press("Escape");
+  await page.close();
 });

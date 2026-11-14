@@ -8,142 +8,146 @@ icon: i-lucide-radio
 ---
 
 ::product-hero{tagline="Let several people edit one document at the same time, with live changes and automatic saves to a file." hosts="Cloudflare, Node, Docker"}
-  :::code-tree{feature="realtime"}
-  ```ts [server/realtime/docs.ts]
-  import { defineRealtime } from 'vite-hub/realtime'
+  :hero-figure{name="realtime"}
+::
 
-  // This file defines the docs room.
-  export default defineRealtime({
-    // Save each document to the docs Workspace
-    document: { workspace: 'docs' },
-    // Let the editor save a version on request
-    history: {
-      checkpoint: { message: 'Save document' },
-    },
-  })
-  ```
+::code-tree{feature="realtime"}
+```ts [server/realtime/docs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
 
-  ```vue [src/App.vue]
-  <script setup lang="ts">
-  import { EditorContent, useEditor } from '@tiptap/vue-3'
-  import {
-    useRealtimeTiptap,
-  } from 'vite-hub/realtime/vue'
-  import PeopleList from './components/PeopleList.vue'
+// This file defines the docs room.
+export default defineRealtime({
+  // Only signed-in users can read and edit
+  auth: true,
+  // Save each document to the docs Workspace
+  document: { workspace: 'docs' },
+  // Let the editor save a version on request
+  history: {
+    checkpoint: { message: 'Save document' },
+  },
+})
+```
 
-  // Everyone on this page edits the same file
-  const realtime = useRealtimeTiptap('docs', 'welcome.md')
-  const { people, history } = realtime
-  const editor = useEditor({
-    extensions: realtime.extensions.value,
-  })
-  </script>
+```vue [src/App.vue]
+<script setup lang="ts">
+import { EditorContent, useEditor } from '@tiptap/vue-3'
+import {
+  useRealtimeTiptap,
+} from 'vite-hub/realtime/vue'
+import PeopleList from './components/PeopleList.vue'
 
-  <template>
-    <PeopleList :people="people" />
-    <EditorContent :editor="editor" />
-    <button @click="history.checkpoint()">
-      Save version
-    </button>
-  </template>
-  ```
+// Everyone on this page edits the same file
+const realtime = useRealtimeTiptap('docs', 'welcome.md')
+const { people, history } = realtime
+const editor = useEditor({
+  extensions: realtime.extensions.value,
+})
+</script>
 
-  ```vue [src/components/PeopleList.vue]
-  <script setup lang="ts">
-  import type { RealtimePerson } from 'vite-hub/realtime'
+<template>
+  <PeopleList :people="people" />
+  <EditorContent :editor="editor" />
+  <button @click="history.checkpoint()">
+    Save version
+  </button>
+</template>
+```
 
-  // Each person has a name and a color
-  defineProps<{ people: RealtimePerson[] }>()
-  </script>
+```vue [src/components/PeopleList.vue]
+<script setup lang="ts">
+import type { RealtimePerson } from 'vite-hub/realtime'
 
-  <template>
-    <ul>
-      <li
-        v-for="person in people"
-        :key="person.clientId"
-        :style="{ color: person.color }"
-      >
-        {{ person.name }}
-      </li>
-    </ul>
-  </template>
-  ```
+// Each person has a name and a color
+defineProps<{ people: RealtimePerson[] }>()
+</script>
 
-  ```ts [server/workspaces/docs.ts]
-  import { defineWorkspace } from 'vite-hub/workspace'
+<template>
+  <ul>
+    <li
+      v-for="person in people"
+      :key="person.clientId"
+      :style="{ color: person.color }"
+    >
+      {{ person.name }}
+    </li>
+  </ul>
+</template>
+```
 
-  // The files that the docs room saves to.
-  // Memory is for development only.
-  export default defineWorkspace({
-    store: { provider: 'memory' },
-    rules: {
-      '/**': { write: true, mediaType: 'text/markdown' },
-    },
-  })
-  ```
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace } from 'vite-hub/workspace'
 
-  ::::framework{name="Nuxt"}
-  ```ts [nuxt.config.ts]
-  export default defineNuxtConfig({
-    modules: ['vite-hub/nuxt'],
-    vitehub: {
-      preset: 'node',
-      // Keep rooms in this server process
-      realtime: { authority: 'memory' },
+// The files that the docs room saves to.
+// Memory is for development only.
+export default defineWorkspace({
+  store: { provider: 'memory' },
+  rules: {
+    '/**': { write: true, mediaType: 'text/markdown' },
+  },
+})
+```
+
+:::framework{name="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    // Share rooms through Redis (REDIS_URL) or a Postgres Default Database
+    realtime: true,
+    workspace: true,
+  },
+})
+```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    nitro(),
+    vitehub({
+      host: 'node',
+      // Share rooms through Redis (REDIS_URL) or a Postgres Default Database
+      realtime: true,
       workspace: true,
-    },
-  })
-  ```
-  ::::
-  ::::framework{name="Nitro"}
-  ```ts [vite.config.ts]
-  import vue from '@vitejs/plugin-vue'
-  import { nitro } from 'nitro/vite'
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+    }),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
 
-  export default defineConfig({
-    plugins: [
-      vue(),
-      nitro(),
-      vitehub({
-        preset: 'node',
-        // Keep rooms in this server process
-        realtime: { authority: 'memory' },
-        workspace: true,
-      }),
-    ],
-  })
-  ```
-  ::::
-  ::::framework{name="Vite"}
-  ```ts [vite.config.ts]
-  import vue from '@vitejs/plugin-vue'
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({
+      host: 'node',
+      // Share rooms through Redis (REDIS_URL) or a Postgres Default Database
+      realtime: true,
+      workspace: true,
+    }),
+  ],
+})
+```
+:::
 
-  export default defineConfig({
-    plugins: [
-      vue(),
-      vitehub({
-        preset: 'node',
-        // Keep rooms in this server process
-        realtime: { authority: 'memory' },
-        workspace: true,
-      }),
-    ],
-  })
-  ```
-  ::::
+```ts [Checkpoint] fragment
+const [error, checkpoint] = await realtime.history.checkpoint()
+if (error) throw error
 
-  ```ts [Checkpoint] fragment
-  const [error, checkpoint] = await realtime.history.checkpoint()
-  if (error) throw error
-
-  checkpoint.document.body
-  checkpoint.snapshot
-  ```
-  :::
+checkpoint.document.body
+checkpoint.snapshot
+```
 ::
 
 ::product-features
@@ -172,7 +176,7 @@ icon: i-lucide-radio
   :::
 
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
-  On Node, one server process holds every room. On Cloudflare, each document gets its own Durable Object.
+  On Node, instances share rooms through Postgres or Redis. On Cloudflare, each document gets its own Durable Object.
   :::
 
   :::product-feature-item{title="Content documents edit live" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
@@ -185,9 +189,9 @@ Use Realtime for collaborative state that changes while clients are connected. R
 
 The Configure page describes host authority and persistence.
 
-Choose Cloudflare authority for multi-instance production. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
+On Cloudflare, rooms use Durable Objects. On Node, `auto` shares rooms across instances through Redis (`REDIS_URL`) or Postgres (the client of a Postgres Default Database, or `REALTIME_POSTGRES_URL`) when the server starts, else keeps them in one process. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
 
-Rooms save through a document adapter: `document: { workspace }` writes Markdown files, or pass `{ load, save }` for your own storage and throw `RealtimeDocumentConflict` on a stale `ifDigest`. The Yjs state is the source of truth while a room is open; an external write re-seeds the room and resets clients. Use `editor` for a custom schema and async Markdown codec, `fields` for structured values, `identify()` and `authorize()` for identity and access. Inspect definitions with `vitehub inspect definitions`.
+Rooms save through a document adapter: `document: { workspace }` writes Markdown files, or pass `{ load, save }` for your own storage and throw `RealtimeDocumentConflict` on a stale `ifDigest`. A presence-only definition sets `document: false` and clients join with `connectRealtimeRoom()`. The Yjs state is the source of truth while a room is open; an external write re-seeds the room and resets clients. Use `editor` for a custom schema and async Markdown codec, `fields` for structured values, `identify()` and `authorize()` for identity and access. Inspect definitions with `vitehub inspect definitions`.
 
 Realtime is the collaboration layer for the supported document and editor
 models. It does not replace Auth, Workspace persistence, or a general WebSocket

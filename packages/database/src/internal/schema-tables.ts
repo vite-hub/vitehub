@@ -1,4 +1,7 @@
-import { isPlainObject } from "@vite-hub/internal/object"
+import { Worker } from "node:worker_threads"
+
+import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { describeDatabaseContribution } from "../contributions.ts"
 import { isImplicitDefaultDatabase, readStaticDatabaseSchema } from "../config.ts"
@@ -15,6 +18,11 @@ export interface DatabaseTableNameOptions {
    * `schema: { ... }` object. Without it, a Definition that cannot load throws.
    */
   onFallback?: (message: string) => void
+  /**
+   * Load the Definition in a worker thread, so the calling thread stays free. `vite dev` uses it: loading a Definition
+   * and Drizzle takes hundreds of milliseconds, and the dev server starts meanwhile.
+   */
+  worker?: boolean
 }
 
 /** The keys of an evaluated schema object. */
@@ -50,10 +58,6 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return isPlainObject(value)
-}
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
@@ -76,8 +80,12 @@ async function importDrizzleSchemaTools() {
 
 let drizzleSchemaTools: Promise<DrizzleSchemaTools> | undefined
 
+// A failed load lets the next schema try again.
 function loadDrizzleSchemaTools() {
-  drizzleSchemaTools ??= importDrizzleSchemaTools()
+  drizzleSchemaTools ??= importDrizzleSchemaTools().catch((error: unknown) => {
+    drizzleSchemaTools = undefined
+    throw error
+  })
   return drizzleSchemaTools
 }
 
@@ -103,6 +111,7 @@ async function createLoader(parent: string, alias: Record<string, string> | unde
  * namespace schemas list every table.
  */
 export async function loadDatabaseSchema(handler: string, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
+  if (options.worker) return await loadDatabaseSchemaInWorker(handler, options)
   let failure: Error
   try {
     const module = await (await createLoader(import.meta.url, options.alias)).import<{ default?: unknown }>(handler)
@@ -118,6 +127,25 @@ export async function loadDatabaseSchema(handler: string, options: DatabaseTable
   options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub database generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
+}
+
+/** The message that `internal/schema-worker` posts back. */
+export type DatabaseSchemaWorkerMessage
+  = | { error: string }
+    | { fallbacks: string[], schema: Omit<LoadedDatabaseSchema, "sqlNames"> & { sqlNames: [string, string][] } }
+
+async function loadDatabaseSchemaInWorker(handler: string, options: DatabaseTableNameOptions): Promise<LoadedDatabaseSchema> {
+  const worker = new Worker(resolveRuntimeModule(computePackageDir(import.meta.url), "internal/schema-worker"), {
+    workerData: { alias: options.alias, fallback: !!options.onFallback, handler },
+  })
+  const message = await new Promise<DatabaseSchemaWorkerMessage>((resolve, reject) => {
+    worker.once("message", resolve)
+    worker.once("error", reject)
+    worker.once("exit", code => reject(new Error(`[vitehub] The Database schema worker for "${handler}" exited with code ${code}.`)))
+  }).finally(() => worker.terminate())
+  if ("error" in message) throw databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ problem: message.error, source: `The Database Definition "${handler}"` })
+  for (const fallback of message.fallbacks) options.onFallback?.(fallback)
+  return { ...message.schema, sqlNames: new Map(message.schema.sqlNames) }
 }
 
 /**

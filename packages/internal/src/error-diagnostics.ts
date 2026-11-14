@@ -28,7 +28,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0024: {
-      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app with credentials in VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app and set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key whose public key the app has in VITEHUB_CONSOLE_KEY_<NAME>.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0023: {
@@ -84,6 +84,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0051: {
       why: ({ field, generated, name, path, project, scope }: { field: string, generated: string, name: string, path: string, project: string, scope: string }) => `The Cloudflare ${path} entry "${name}"${scope} is written by ViteHub and by the project's Wrangler config with a different ${field}: ${generated} and ${project}.`,
       fix: "Remove the entry from the project's Wrangler config, since ViteHub writes it, or give one of them another name.",
+    },
+    INTERNAL_B0052: {
+      why: ({ column, section }: { column: string, section: string }) => `The column "${column}" of the Console section "${section}" needs both \`format: "switch"\` and a \`switch\` operation name such as "skills.set".`,
+      fix: "Give a switch column `format: \"switch\"` and `switch: { operation, input }` with a registered operation name, or remove both.",
     },
     INTERNAL_R0025: {
       fix: "Start `vite dev` in the project that you run the command from, or pass `--url` of that server.",

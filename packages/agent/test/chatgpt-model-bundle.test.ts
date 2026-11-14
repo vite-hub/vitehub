@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { build, type Plugin } from "vite"
 import { afterAll, expect, it } from "vitest"
 
-import type { AgentModuleOptions } from "../src/types.ts"
+import type { AgentOptions } from "../src/types.ts"
 import { hubAgent } from "../src/vite.ts"
 
 const dist = resolve(import.meta.dirname, "../dist")
@@ -22,7 +22,7 @@ const chatgptAgent = [
 ]
 
 // Bundles one server entry with the Agent plugin and returns the emitted server code.
-async function bundle(source: string[], plugins: Plugin[] = [], agentOptions?: AgentModuleOptions): Promise<string> {
+async function bundle(source: string[], plugins: Plugin[] = [], agentOptions?: AgentOptions): Promise<string> {
   // Inside the package, so the generated runtime capability imports resolve as they do in an application.
   const cache = resolve(import.meta.dirname, "../node_modules/.cache")
   await mkdir(cache, { recursive: true })
@@ -32,8 +32,6 @@ async function bundle(source: string[], plugins: Plugin[] = [], agentOptions?: A
   await writeFile(entry, source.join("\n"))
   const outDir = join(root, "dist")
   await build({
-    // The entry defines its Agent directly, so Agent discovery stays off.
-    agent: false,
     configFile: false,
     logLevel: "silent",
     root,
@@ -63,7 +61,7 @@ it("bundles @ai-sdk/openai for the ChatGPT model only when the application enabl
   expect(withConnections).toContain("ai-sdk-openai/")
 
   // vitehub() without Connections gives Agents `connections: false`.
-  const disabledConnections = await bundle(chatgptAgent, [], { runtimeCapabilityImports: { connections: false } } as AgentModuleOptions)
+  const disabledConnections = await bundle(chatgptAgent, [], { runtimeCapabilityImports: { connections: false } } as AgentOptions)
   expect(disabledConnections).not.toContain("ai-sdk-openai/")
 }, 120_000)
 

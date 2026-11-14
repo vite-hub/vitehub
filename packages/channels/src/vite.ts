@@ -6,7 +6,7 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { discoverChannelDefinitions, receivesChannelWebhooks } from "./discovery.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
-export { discoverChannelDefinitions } from "./discovery.ts"
+export { discoverChannelDefinitions, isOutboundChannelSource } from "./discovery.ts"
 
 const agentVitePluginName = "@vite-hub/agent/vite"
 
@@ -61,20 +61,11 @@ async function configureNitroChannels(
   await writeFileIfChanged(registryFile, renderRegistry(definitions))
   const nitro = config.nitro && typeof config.nitro === "object" ? config.nitro as Record<string, unknown> : {}
   const alias = nitro.alias && typeof nitro.alias === "object" ? nitro.alias as Record<string, unknown> : {}
-  const externals = nitro.externals && typeof nitro.externals === "object" ? nitro.externals as Record<string, unknown> : {}
-  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
-  const inline = externals.inline === true
-    ? true
-    : [...new Set([...existingInline, "vite-hub", "@vite-hub/channels"])]
   return {
     ...nitro,
     alias: {
       ...alias,
       [CHANNELS_REGISTRY_ID]: registryFile,
-    },
-    externals: {
-      ...externals,
-      inline,
     },
   }
 }

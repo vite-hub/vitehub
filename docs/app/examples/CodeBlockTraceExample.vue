@@ -13,7 +13,7 @@ Error: listen EADDRINUSE: address already in use :::3000
       <TraceCollapsible default-open>
         <TraceCollapsibleTrigger>
           <TraceLine>
-            <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+            <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
             <TraceTitle>Ran node --version</TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
@@ -26,7 +26,7 @@ Error: listen EADDRINUSE: address already in use :::3000
       <TraceCollapsible default-open>
         <TraceCollapsibleTrigger>
           <TraceLine status="error">
-            <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+            <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
             <TraceTitle>Failed to run pnpm dev</TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>

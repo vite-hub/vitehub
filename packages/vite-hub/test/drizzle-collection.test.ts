@@ -23,7 +23,7 @@ let runtimeDatabase: object = {}
 
 // SAFETY: Vitest supports the virtual-module option at runtime before its public type includes it.
 ;(vi.mock as any)(
-  "@vite-hub/database/drizzle",
+  "@vite-hub/database/runtime/registry",
   () => ({
     databases: {},
     schema: collectionSchema,
@@ -45,7 +45,7 @@ async function createTestDatabase() {
   tempDir = await mkdtemp(join(tmpdir(), "vitehub-drizzle-collection-"))
   const client = createClient({ url: `file:${join(tempDir, "collection.sqlite")}` })
   closeDatabase = () => client.close()
-  const db = drizzle({ client, schema: collectionSchema })
+  const db = drizzle({ client })
   runtimeDatabase = { db, schema: collectionSchema }
   return { db, schema: collectionSchema }
 }

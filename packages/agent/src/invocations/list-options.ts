@@ -1,5 +1,4 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type { AgentInvocationListOptions } from "../invocations.ts"
 
@@ -24,7 +23,7 @@ function normalizeLimit(limit: number | undefined, diagnostics: typeof defaultLi
 
 function normalizeSearch(search: string | undefined, diagnostics: typeof defaultListDiagnostics): string | undefined {
   if (search === undefined) return
-  if (!hasRuntimeType(search, "string")) {
+  if (typeof search !== "string") {
     throw diagnostics.searchType({ message: "[vitehub] Agent Invocation search must be a string." })
   }
   const value = search.trim()

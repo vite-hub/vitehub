@@ -188,6 +188,14 @@ describe("Babysitter check waits", () => {
     expect(wakeReasons(snapshot, "pending", ignoring)).toEqual(["feedback-changed"]);
   });
 
+  it("matches configured feedback authors in either bot spelling", async () => {
+    const ignoring = { ...policy, ignoreFeedbackAuthors: new Set(["preview[bot]"]) };
+    const snapshot = await parked();
+    snapshot.wait = { headSha: head, ...createCheckWait(snapshot, ignoring) };
+    snapshot.comments["15"] = { id: 15, body: "Preview deployed", author: { login: "Preview", __typename: "Bot" } };
+    expect(wakeReasons(snapshot, "pending", ignoring)).toEqual([]);
+  });
+
   it("holds an external dependency through an unrelated green PR check", async () => {
     expect(wakeReasons(await parked(s => { s.wait!.wake = { kind: "checks", repository, headSha: "b".repeat(40) }; s.wait!.reason = "base CI"; }), "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
   });
@@ -220,12 +228,48 @@ describe("Babysitter review push budget", () => {
     expect(wakeReasons(await spent(), "passed", { ...budget, wakeWhenReady: true })).toEqual(["ready-to-merge"]);
   });
 
+  it("keeps waking for a bot finding its reviewer labeled P0 or P1 until twice the budget", async () => {
+    const codex = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Keep the MAIL_KEY**";
+    const pullfrog = "**P0 · Class: admin role before ownership is verified.**";
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: codex, user: bot } }), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.reviewComments["21"] = { id: 21, body: pullfrog, user: bot } }), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: "**P2 · Class: alias call sites.**", user: bot } }), "pending", budget)).toEqual([]);
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: codex, user: bot } }, 4), "pending", budget)).toEqual([]);
+  });
+
   it("ends a check deferral without a review-check failure counting as new", async () => {
     const deferred = await spent(s => {
       s.wait = { ...s.wait!, defer: "checks" };
       s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } };
     });
     expect(wakeReasons(deferred, "pending", budget)).toEqual(["gates-settled"]);
+  });
+
+  it("stops holding a pass or a deferral for a running review once the budget is spent", async () => {
+    const now = Date.now();
+    const review = { id: 3, name: "review-bot", head_sha: head, status: "queued", started_at: new Date(now - 5 * 60_000).toISOString(), app: { id: 6 } };
+    const running = (count: number) => spent(s => { s.checks = { "check_run:3": review }; s.wait = { ...s.wait!, defer: "checks", knownFailures: [] } }, count);
+    expect(reviewCheckRunning(await running(1), budget)).toBe(true);
+    expect(reviewCheckRunning(await running(2), budget)).toBe(false);
+    expect(checksStillRunning(await running(1), now, budget)).toBe(true);
+    expect(checksStillRunning(await running(2), now, budget)).toBe(false);
+    expect(checksStillRunning(await running(2), now)).toBe(true);
+    expect(wakeReasons(await running(1), "passed", budget)).toEqual([]);
+    expect(wakeReasons(await running(2), "passed", budget)).toEqual(["gates-settled"]);
+    // CI that still runs keeps holding the deferral.
+    const ci = await spent(s => { s.checks = { "check_run:3": review, "check_run:4": { ...review, id: 4, name: "ci" } }; s.wait = { ...s.wait!, defer: "checks", knownFailures: [] } });
+    expect(checksStillRunning(ci, now, budget)).toBe(true);
+  });
+
+  it("stops waking for an assessed bot-only thread with ignoreAssessedBotThreads", async () => {
+    const thread = { id: "T2", isResolved: false, comments: [{ id: 22, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] };
+    const open = await parked(s => { s.checks = {}; s.threads = [thread]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
+    expect(wakeReasons(open, "pending", policy)).toEqual(["unresolved-thread"]);
+    expect(wakeReasons(open, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual([]);
+    // A held P0 or P1 decline waits for a person.
+    expect(wakeReasons(open, "pending", { ...policy, heldThreads: new Set(["T2"]) })).toEqual([]);
+    const person = await parked(s => { s.checks = {}; s.threads = [{ ...thread, comments: [...thread.comments, { id: 23, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
+    expect(wakeReasons(person, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual(["unresolved-thread"]);
   });
 
   it("counts a push as review-driven only without a conflict or a failure outside the review checks", async () => {
@@ -243,6 +287,8 @@ describe("Babysitter review push budget", () => {
     const human = await clean(s => { s.comments["23"] = { id: 23, body: "Please rename it.", user: { login: "maintainer", type: "User" } } });
     expect(reviewPushBudgetWork(human, budget, new Set())).toEqual(["feedback"]);
     expect(reviewPushBudgetWork(await clean(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), budget, new Set())).toEqual(["unresolved-thread"]);
+    expect(reviewPushBudgetWork(await clean(s => { s.comments["20"] = { id: 20, body: "**P1 · Class: lost MAIL_KEY.**", user: bot } }), budget, new Set())).toEqual(["feedback"]);
+    expect(reviewPushBudgetWork(await clean(s => { s.comments["20"] = { id: 20, body: "**P1 · Class: lost MAIL_KEY.**", user: bot }; s.reviewPushBudget = { count: 4, heads: [head] } }), budget, new Set())).toEqual([]);
     // Someone else moved the head after the budget ran out.
     expect(reviewPushBudgetWork(await clean(s => { s.reviewPushBudget = { count: 2, heads: ["b".repeat(40)] } }), budget, new Set())).toEqual(["new-head"]);
   });
@@ -251,17 +297,32 @@ describe("Babysitter review push budget", () => {
 describe("Babysitter daily pass budget", () => {
   it("exempts a person's feedback, the first required failure on a head, and a conflict on an otherwise ready PR", async () => {
     const clean = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => { s.checks = {}; update(s) });
-    expect(dailyPassExemption(await clean(), "passed", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(), "pending", undefined)).toBeUndefined();
     expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 2, exemptions: [] })).toBe("human-feedback");
-    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "pending", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
     expect(dailyPassExemption(await clean(), "failed", undefined)).toBe(`required-failure:${head}`);
     expect(dailyPassExemption(await clean(), "failed", { passes: [], exemptions: [`required-failure:${head}`] })).toBeUndefined();
     const conflict = await clean(s => { s.pr!.mergeable_state = "dirty"; s.pr!.base!.sha = "c".repeat(40) });
     expect(dailyPassExemption(conflict, "passed", undefined)).toBe(`conflict:${head}:${"c".repeat(40)}`);
     expect(dailyPassExemption(conflict, "passed", { passes: [], exemptions: [`conflict:${head}:${"c".repeat(40)}`] })).toBeUndefined();
-    // A conflict beside a failing check or an open thread is not an otherwise ready PR.
-    expect(dailyPassExemption(await parked(s => { s.pr!.mergeable_state = "dirty" }), "pending", undefined)).toBeUndefined();
-    expect(dailyPassExemption(await clean(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] }), "passed", undefined)).toBeUndefined();
+  });
+
+  it("exempts any conflict and one assessment of a green head once per head", async () => {
+    // A conflict beside a failing optional check or an open thread cannot clear without a pass either.
+    const conflicted = await parked(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] });
+    expect(dailyPassExemption(conflicted, "pending", undefined)).toBe(`conflict:${head}`);
+    expect(dailyPassExemption(conflicted, "pending", { passes: [], exemptions: [`conflict:${head}`] })).toBeUndefined();
+    // A green head with only an optional check failing needs one pass to assess it before it merges.
+    const green = await parked();
+    expect(dailyPassExemption(green, "passed", undefined)).toBe(`assessment:${head}`);
+    expect(dailyPassExemption(green, "passed", { passes: [], exemptions: [`assessment:${head}`] })).toBeUndefined();
+  });
+
+  it("exempts one pass per open push window on a failing head", async () => {
+    const failedOnce = { passes: [], exemptions: [`required-failure:${head}`] };
+    expect(dailyPassExemption(await parked(), "failed", failedOnce)).toBeUndefined();
+    expect(dailyPassExemption(await parked(), "failed", failedOnce, 123)).toBe(`ci-repair:${head}:123`);
+    expect(dailyPassExemption(await parked(), "failed", { ...failedOnce, exemptions: [...failedOnce.exemptions, `ci-repair:${head}:123`] }, 123)).toBeUndefined();
   });
 });
 

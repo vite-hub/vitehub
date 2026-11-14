@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
-import { consoleMcpAccount, consoleMcpInitials, consoleMcpPromptSchema, consoleMcpToolHints, requestConsoleMcp } from "../client/mcp-client";
+import { consoleMcpAccount, consoleMcpPromptSchema, consoleMcpToolHints, requestConsoleMcp } from "../client/mcp-client";
 import ConsoleMcpContent from "./console-mcp-content.vue";
 import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleState from "./console-state.vue";
@@ -37,6 +38,9 @@ const templates = ref<Item[]>([]);
 const loading = ref(false);
 const error = ref<unknown>();
 const filter = ref("");
+function clearFilter(): void {
+  filter.value = "";
+}
 const values = ref<Record<string, unknown>>({});
 const templateUri = ref("");
 const runAs = ref<string[]>([props.connection.id]);
@@ -193,12 +197,11 @@ onBeforeUnmount(() => request?.abort());
           v-model="filter"
           class="min-w-0 flex-1"
           icon="i-lucide-search"
-          size="sm"
           :placeholder="`Filter ${nouns[kind]}…`"
           :aria-label="`Filter ${nouns[kind]}`"
         />
         <UTooltip :text="`Reload ${nouns[kind]}`">
-          <UButton :aria-label="`Reload ${nouns[kind]}`" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="load" />
+          <UButton :aria-label="`Reload ${nouns[kind]}`" icon="i-lucide-refresh-cw" variant="ghost" :loading="loading" @click="load" />
         </UTooltip>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-2" :aria-busy="loading">
@@ -206,9 +209,17 @@ onBeforeUnmount(() => request?.abort());
         <template v-else-if="loading && !items.length && !templates.length">
           <USkeleton v-for="index in 6" :key="index" class="mb-1 h-11 w-full rounded-md" />
         </template>
-        <p v-else-if="!items.length && !templates.length" class="px-2 py-1.5 text-[13px] text-muted">This server has no {{ nouns[kind] }}.</p>
+        <UEmpty v-else-if="!items.length && !templates.length" variant="naked" size="xs" icon="i-lucide-inbox" :title="`No ${nouns[kind]}`" :description="`This server lists no ${nouns[kind]}.`" />
         <template v-else>
-          <p v-if="!visibleItems.length && !visibleTemplates.length" class="px-2 py-1.5 text-[13px] text-muted">No {{ nouns[kind] }} match “{{ filter }}”.</p>
+          <UEmpty
+            v-if="!visibleItems.length && !visibleTemplates.length"
+            variant="naked"
+            size="xs"
+            icon="i-lucide-search"
+            :title="`No ${nouns[kind]} match “${filter}”`"
+            description="Try another name."
+            :actions="[{ label: 'Clear filter', variant: 'ghost', onClick: clearFilter }]"
+          />
           <ul class="grid gap-px">
             <li v-for="item in visibleItems" :key="keyOf(item)">
               <button
@@ -247,10 +258,10 @@ onBeforeUnmount(() => request?.abort());
     >
       <div class="mx-auto grid w-full max-w-4xl gap-6 px-4 py-5 sm:px-6">
         <header class="grid gap-2">
-          <UButton class="-ms-2 w-fit lg:hidden" color="neutral" icon="i-lucide-arrow-left" size="xs" variant="ghost" :label="`All ${nouns[kind]}`" @click="selected = undefined" />
+          <UButton class="-ms-2 w-fit lg:hidden" icon="i-lucide-arrow-left" size="xs" variant="ghost" :label="`All ${nouns[kind]}`" @click="selected = undefined" />
           <div class="flex flex-wrap items-center gap-2">
             <h3 class="min-w-0 break-all font-mono text-sm font-semibold text-highlighted">{{ text(current.name) || text(current.uriTemplate) }}</h3>
-            <UBadge v-for="hint in consoleMcpToolHints(current)" :key="hint.label" :color="hint.tone" variant="outline" size="sm" :label="hint.label" />
+            <UBadge v-for="hint in consoleMcpToolHints(current)" :key="hint.label" :color="hint.tone" size="sm" :label="hint.label" />
             <span v-if="text(current.mimeType)" class="font-mono text-xs text-dimmed">{{ text(current.mimeType) }}</span>
           </div>
           <p v-if="text(current.title) && text(current.title) !== text(current.name)" class="text-[13px] font-medium text-default">{{ text(current.title) }}</p>
@@ -264,7 +275,7 @@ onBeforeUnmount(() => request?.abort());
           <p v-else class="text-[13px] text-dimmed">This {{ kind === "tools" ? "tool" : "prompt" }} takes no arguments.</p>
         </section>
         <UFormField v-else-if="isTemplate" label="URI" description="Fill in the variables of the template." class="grid gap-1">
-          <UInput v-model="templateUri" class="w-full font-mono" size="sm" spellcheck="false" autocomplete="off" />
+          <UInput v-model="templateUri" class="w-full font-mono" spellcheck="false" autocomplete="off" />
         </UFormField>
 
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -276,13 +287,12 @@ onBeforeUnmount(() => request?.abort());
               v-for="peer in peers"
               :key="peer.id"
               size="xs"
-              color="neutral"
-              :variant="runAs.includes(peer.id) ? 'soft' : 'ghost'"
-              :class="runAs.includes(peer.id) ? 'text-highlighted' : 'text-muted'"
+              variant="ghost"
+              :class="runAs.includes(peer.id) ? 'bg-elevated text-highlighted' : 'text-muted'"
               :aria-pressed="runAs.includes(peer.id)"
               @click="toggleRunAs(peer.id)"
             >
-              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleMcpInitials(consoleMcpAccount(peer).primary)" size="3xs" />
+              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleInitials(consoleMcpAccount(peer).primary)" size="3xs" />
               <span class="max-w-32 truncate">{{ consoleMcpAccount(peer).primary }}</span>
             </UButton>
           </div>
@@ -291,7 +301,7 @@ onBeforeUnmount(() => request?.abort());
         <div v-if="shownResults.length" class="grid gap-3" :class="shownResults.length > 1 ? '@3xl:grid-cols-2' : ''" aria-live="polite">
           <article v-for="{ connection: peer, result } in shownResults" :key="peer.id" class="grid min-w-0 content-start gap-3 rounded-lg border border-default p-3">
             <header v-if="shownResults.length > 1" class="flex min-w-0 items-center gap-2">
-              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleMcpInitials(consoleMcpAccount(peer).primary)" size="2xs" />
+              <UAvatar :src="peer.identity?.picture" :alt="consoleMcpAccount(peer).primary" :text="consoleInitials(consoleMcpAccount(peer).primary)" size="2xs" />
               <span class="truncate text-[13px] font-medium text-highlighted">{{ consoleMcpAccount(peer).primary }}</span>
               <span v-if="consoleMcpAccount(peer).secondary" class="truncate text-xs text-dimmed">{{ consoleMcpAccount(peer).secondary }}</span>
             </header>
@@ -316,7 +326,7 @@ onBeforeUnmount(() => request?.abort());
 <style>
 /* One row of the item list: the name and one quiet line under it, like the detailed rows of the section sidebar. */
 .vitehub-mcp-item {
-  border-radius: 0.375rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   display: grid;
   gap: 0.125rem;
   min-height: 2.75rem;
@@ -331,10 +341,5 @@ onBeforeUnmount(() => request?.abort());
 
 .vitehub-mcp-item[aria-current="true"] {
   background: var(--ui-bg-accented);
-}
-
-.vitehub-mcp-item:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
 }
 </style>

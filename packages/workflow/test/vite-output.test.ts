@@ -10,7 +10,7 @@ import { promisify } from "node:util"
 
 import { build, buildSync } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
+import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
@@ -70,6 +70,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+// The playground's `workflow` mode serves `src/server-workflow.ts`, not the default `src/server.ts`.
+const playgroundWorkflowPlugin = (options = "{}") => `hubWorkflow(${options}, { includeUserAppEntry: "server-workflow.ts" })`
 // Spawn the workspace Vite+ binary, not a global `vp` with another core version.
 const vp = resolve(import.meta.dirname, "../../../node_modules/.bin/vp")
 const buildOutputTestTimeout = 60_000
@@ -186,6 +188,24 @@ it("keeps suffix Workflow discovery relative to a nested Vite root", async () =>
   expect(artifacts.definitions.map(definition => definition.name)).toEqual(["cleanup"])
 })
 
+it("serves the named app entry in place of src/server.ts", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-app-entry-")
+  await mkdir(join(rootDir, "src"), { recursive: true })
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await writeFile(join(rootDir, "src", "server.ts"), "export default { fetch: () => new Response('default') }\n")
+  await writeFile(join(rootDir, "src", "server-workflow.ts"), "export default { fetch: () => new Response('workflow') }\n")
+  await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), "export default async function welcome() {}\n")
+
+  const defaultEntry = await writeProviderEntries(rootDir, false)
+  await expect(readFile(defaultEntry.cloudflareWorkerFile, "utf8")).resolves.toMatch(/import workflowApp from ".*\/src\/server\.ts"/)
+
+  const namedEntry = await writeProviderEntries(rootDir, false, {}, undefined, "server-workflow.ts")
+  const cloudflareWorker = await readFile(namedEntry.cloudflareWorkerFile, "utf8")
+  expect(cloudflareWorker).toMatch(/import workflowApp from ".*\/src\/server-workflow\.ts"/)
+  expect(cloudflareWorker).not.toContain("/src/server.ts")
+  await expect(readFile(namedEntry.vercelServerFile, "utf8")).resolves.toMatch(/import workflowApp from ".*\/src\/server-workflow\.ts"/)
+})
+
 it("seeds provider source retention with Workflow Definition handlers and steps", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-provider-sources-")
   const handler = join(rootDir, "server", "workflows", "welcome.ts")
@@ -216,7 +236,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await writeFile(mixedStep, "export default async function mixed() {}\n")
   await writeFile(join(mixedDependencyRoot, ".git"), "gitdir: /tmp/mixed-dependency.git\n")
   await writeFile(mixedDependency, 'export const value = "retained"\n')
-  await writeFile(agentHandler, "export default defineAgent({ runtime: workflow() })\n")
+  await writeFile(agentHandler, "export default defineAgent({ runtime: agentWorkflow() })\n")
   await writeFile(join(skillsRoot, "review", "SKILL.md"), "# Review\n")
   await writeFile(join(skillsRoot, "review", ".git"), "gitdir: /tmp/review-skill.git\n")
   await writeFile(join(workspaceRoot, ".git"), "gitdir: /tmp/review-workspace.git\n")
@@ -257,7 +277,7 @@ it("preserves literal parent Agent Workflow references without retaining their t
     mkdir(dirname(policy), { recursive: true }),
   ])
   await Promise.all([
-    writeFile(handler, "export default defineAgent({ runtime: workflow() })\n"),
+    writeFile(handler, "export default defineAgent({ runtime: agentWorkflow() })\n"),
     writeFile(join(agentRoot, "instructions.md"), `@${relative(agentRoot, policy)}\nReview the change.\n`),
     writeFile(policy, "Follow the shared Workflow policy.\n"),
   ])
@@ -927,14 +947,15 @@ it("removes only a prior Workflow-owned Vercel function when the active host cha
   })
 })
 
-it("writes no Vercel function for an inferred Vercel provider on a Node host", async () => {
+it("writes no Vercel function for inline Workflow on a Node host", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-node-host-")
   const workflowFunction = join(rootDir, ".vercel", "output", "functions", "__server.func")
 
   await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
   expect(existsSync(workflowFunction)).toBe(true)
 
-  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", rootDir, workflow: {} })
+  await expect(generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", rootDir, workflow: {} })).rejects.toMatchObject({ code: "WORKFLOW_C0020" })
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", inline: true, rootDir, workflow: {} })
 
   expect(existsSync(workflowFunction)).toBe(false)
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
@@ -1056,7 +1077,7 @@ it("preserves the active Vercel function after ownership state bookkeeping fails
 
   const functionContents = await readFile(functionFile)
   const ownership: unknown = JSON.parse(await readFile(markerFile, "utf8"))
-  if (!isRuntimeRecord(ownership) || !hasRuntimeType(ownership.digest, "string")) throw new TypeError("Expected a Workflow ownership digest.")
+  if (!isRuntimeRecord(ownership) || typeof ownership.digest !== "string") throw new TypeError("Expected a Workflow ownership digest.")
   expect(ownership.digest).toBe(createHash("sha256").update(functionContents).digest("hex"))
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
 })
@@ -1347,6 +1368,8 @@ describe("Vite workflow provider outputs", () => {
     expect(cloudflareWorkerContents).not.toContain('runViteHubWorkflowDefinition("inline"')
     const cloudflareWorkerBundleContents = await readFile(cloudflareWorkerBundle, "utf8")
     expect(cloudflareWorkerBundleContents).toContain("runViteHubWorkflowDefinition")
+    expect(cloudflareWorkerBundleContents).toContain("/api/workflows/welcome")
+    expect(cloudflareWorkerBundleContents).not.toContain("/api/queues/welcome")
     expect(cloudflareWorkerBundleContents).toContain("NonRetryableError")
     expect(cloudflareWorkerBundleContents).toContain("cloudflare:workflows")
     expect(cloudflareWorkerBundleContents).toContain("Repository host context loaded through Vite raw semantics.")
@@ -1399,13 +1422,13 @@ describe("Vite workflow provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace("      plugins: [hubWorkflow({})],", `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, hubWorkflow({}), { name: "nitro:main", config() {} }],`)
-      .replaceAll("hubWorkflow({})", "hubWorkflow({ provider: \"vercel\" })"))
+      .replace(`      plugins: [${playgroundWorkflowPlugin()}],`, `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, ${playgroundWorkflowPlugin()}, { name: "nitro:main", config() {} }],`)
+      .replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ provider: "vercel" }')))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })
     await writeFile(join(rootDir, "server", "email.ts"), "export const outboxRuntimeId = \"disabled\"\nexport default { driver: () => ({ send: async () => ({}) }) }\n")
     await writeFile(join(generatedWorkflowDir, "01-collect.ts"), "export default async function collect(input) { return { ...input, collected: true } }\n")
-    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email/server'\nexport default async function send(input) { await email.send(input); return input }\n")
+    await writeFile(join(generatedWorkflowDir, "02-send.ts"), "import { email } from '@vite-hub/email'\nexport default async function send(input) { await email.send(input); return input }\n")
     await writeFile(join(rootDir, "server", "workflows", "durable.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,
@@ -1420,7 +1443,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync(vp, ["build"], {
       cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
@@ -1444,7 +1467,7 @@ describe("Vite workflow provider outputs", () => {
     await rm(generatedWorkflowDir, { recursive: true })
     await execFileAsync(vp, ["build"], {
       cwd: rootDir,
-      env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
+      env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
     expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
@@ -1461,7 +1484,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("hubWorkflow({})", "hubWorkflow({ provider: \"vercel\" })"))
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ provider: "vercel" }')))
     await mkdir(join(rootDir, "server", "durable"), { recursive: true })
     await writeFile(join(rootDir, "server", "durable", "welcome.ts"), [
       `export async function durable() {`,
@@ -1487,8 +1510,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
-        "hubWorkflow({})",
-        "hubWorkflow({ provider: \"openworkflow\", postgres: { url: \"postgres://example\" } })",
+        playgroundWorkflowPlugin(),
+        playgroundWorkflowPlugin('{ provider: "openworkflow", postgres: { url: "postgres://example" } }'),
       ),
     )
 
@@ -1521,8 +1544,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
-        "hubWorkflow({})",
-        "hubWorkflow({ provider: \"openworkflow\", postgres: { url: \"postgres://example\" } })",
+        playgroundWorkflowPlugin(),
+        playgroundWorkflowPlugin('{ provider: "openworkflow", postgres: { url: "postgres://example" } }'),
       ),
     )
 
@@ -1559,8 +1582,8 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(
       viteConfig,
       (await readFile(viteConfig, "utf8")).replaceAll(
-        "hubWorkflow({})",
-        "hubWorkflow({ provider: \"openworkflow\", postgres: { url: \"postgres://example\" } })",
+        playgroundWorkflowPlugin(),
+        playgroundWorkflowPlugin('{ provider: "openworkflow", postgres: { url: "postgres://example" } }'),
       ),
     )
 

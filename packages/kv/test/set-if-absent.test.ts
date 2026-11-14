@@ -22,11 +22,11 @@ describe("fs-lite", () => {
 
     expect(results.filter(Boolean)).toHaveLength(1)
     expect(await storage.getItem("uploads:ticket")).toEqual({ at: 1 })
-    expect(await readFile(join(base, "uploads", "ticket"), "utf8")).toBe("{\"at\":1}")
+    expect(await readFile(join(base, "key-uploads%3Aticket"), "utf8")).toBe("{\"at\":1}")
     await storage.dispose()
   })
 
-  it("keeps a value that set() wrote and writes again after del()", async () => {
+  it("keeps a value that set() wrote and writes again after delete()", async () => {
     const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
     await storage.setItem("invite", "first")
 
@@ -43,12 +43,12 @@ describe("fs-lite", () => {
     const value = "x".repeat(8 * 1024 * 1024)
     const reads = await claims(4, async () => {
       if (await storage.setIfAbsentItem!("big", value)) return true
-      expect(await readFile(join(base, "big"), "utf8")).toHaveLength(value.length)
+      expect(await readFile(join(base, "key-big"), "utf8")).toHaveLength(value.length)
       return false
     })
 
     expect(reads.filter(Boolean)).toHaveLength(1)
-    expect(await readdir(base)).toEqual(["big"])
+    expect((await readdir(base)).filter(name => !name.startsWith(".unstorage-tmp-vitehub-")).sort()).toEqual(["key-big"])
     await storage.dispose()
   })
 
@@ -70,11 +70,13 @@ describe("fs-lite", () => {
     await storage.dispose()
   })
 
-  it("rejects a key that names a directory instead of claiming it", async () => {
+  it("claims a key that is also the prefix of another key", async () => {
     const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
     await storage.setItem("nonce:child", 1)
 
-    await expect(storage.setIfAbsentItem!("nonce", 1)).rejects.toMatchObject({ code: "EEXIST" })
+    await expect(storage.setIfAbsentItem!("nonce", 1)).resolves.toBe(true)
+    await expect(storage.setIfAbsentItem!("nonce", 2)).resolves.toBe(false)
+    await expect(storage.getItem("nonce:child")).resolves.toBe(1)
     await storage.dispose()
   })
 })
@@ -130,6 +132,7 @@ describe("upstash", () => {
   function createDriver() {
     // unstorage loads this Redis class instead of `@upstash/redis`, so the test stays offline.
     const options = {
+      base: "app",
       driver: "upstash" as const,
       token: "test",
       url: "https://example.com",
@@ -140,11 +143,11 @@ describe("upstash", () => {
 
   it("sends one SET NX command and reports whether Redis wrote the key", async () => {
     await expect(createDriver().setIfAbsentItem!("uploads:ticket", "1", 59.2)).resolves.toBe(true)
-    expect(set).toHaveBeenCalledWith("uploads:ticket", "1", { ex: 60, nx: true })
+    expect(set).toHaveBeenCalledWith("app:uploads:ticket", "1", { ex: 60, nx: true })
 
     set.mockResolvedValueOnce(null)
     await expect(createDriver().setIfAbsentItem!("uploads:ticket", "1")).resolves.toBe(false)
-    expect(set).toHaveBeenLastCalledWith("uploads:ticket", "1", { nx: true })
+    expect(set).toHaveBeenLastCalledWith("app:uploads:ticket", "1", { nx: true })
   })
 })
 

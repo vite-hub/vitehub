@@ -18,10 +18,11 @@ ViteHub finds each Definition (a file that declares one feature, such as a queue
 | Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Relative path. |
 | Comments | `server/comments.ts` | None | `comments`. A named `comments` export picks the live-site API. A default export picks [Comment operations](/docs/comments/operations/get-started). Both use `defineComments()`. |
 | Connection | `server/connections/<path>.ts` | None | Normalized relative path. |
-| Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named ones | `src/database.ts` for the default, or `<path>.database.ts` for a named one | `default` or the relative path. Do not mix default and named modes. Nuxt layer Definitions with the same name merge their tables. |
-| Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Relative path. |
+| Content | `server/content.ts` | None | `content`. The file default-exports `defineContent()`. Only one Content Definition is allowed. |
+| Database | `server/databases/<name>.ts`, or `server/databases/<name>/index.ts` when the Database has other files. `default` is the default database | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | The normalized relative path. `src/database.ts` cannot be mixed with named databases. Nuxt layer Definitions with the same name merge their tables. |
+| Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Realtime | `server/realtime/<path>.ts` | None | Normalized relative path. |
-| Workflow | `server/workflows/<path>.ts`, or a folder with `index.ts` or numbered step files | `<path>.workflow.ts` | Relative file or folder path. Agent Definitions use their Agent name by default. `workflow(...)` overrides it, and `runtime: false` opts out. |
+| Workflow | `server/workflows/<path>.ts`, or a folder with `index.ts` or numbered step files | `<path>.workflow.ts` | Relative file or folder path. Agent Definitions use their Agent name by default. `agentWorkflow(...)` overrides it, and `runtime: false` opts out. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Relative path. |
 | Task | `server/tasks/<path>.ts` | None | Nitro task name: the relative path with `/` changed to `:`, so `server/tasks/db/seed.ts` is `db:seed`. An `index` file uses its folder name. Only `vitehub()` on a Vite + Nitro host registers these files. |
 | Sandbox Task | `server/sandbox-tasks/<path>/{package.json,index.ts}` | `<path>.sandbox-task.ts` outside `server/sandbox-tasks/` | Folder or suffix path, without the trailing `.sandbox-task`. |
@@ -45,14 +46,30 @@ Sandbox Task folders are the exception. `server/sandbox-tasks/<path>/index.ts` d
 A `<path>.sandbox-task.ts` file still default-exports `defineSandboxTask(...)`.
 
 ```ts [server/queues/welcome-email.ts] fragment
-import { defineQueue } from '@vite-hub/queue'
+import { defineQueue } from 'vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   await sendWelcomeEmail(job.payload.email)
 })
 ```
 
-Do not export several Definitions from one file. The Runtime Registry expects one per file.
+## Define forms
+
+A define function takes one handler, or one object with `handler` and the options. The file default-exports the result:
+
+| Definition | Form |
+| --- | --- |
+| Queue | `defineQueue(handler, options)` |
+| Schedule | `defineSchedule({ cron, handler, manual, timeZone })` |
+| Sandbox Task | `defineSandboxTask({ handler, timeout, env, project })` |
+| Content | `export default defineContent({ ... })` |
+| Database | `export default defineDatabase({ schema })` in `server/databases/<name>.ts` |
+
+`defineWorkflow()` is the one exception. Its typed-steps form, `defineWorkflow(name, handler)`, repeats the Workflow name so that the build can type the steps of the Workflow. Do not copy this form to other primitives.
+
+The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. The [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) rewrites all four.
+
+Avoid aggregate named exports for discovered Definitions. The generated Runtime Registry expects one discovered boundary per file convention.
 
 ## Colocated Workspace files
 
@@ -71,7 +88,7 @@ server/
 
 ## Colocated Agent Skills
 
-Put Agent Skills in a `skills/` folder next to the Agent. ViteHub embeds every file and writes the folder to `.agents/skills/` in the Provider Workspace. Existing files stay. Files under `scripts/` become executable.
+Put Agent Skills in a `skills/` folder next to the Agent. ViteHub embeds every file. A model Driver reads the folder at `.agents/skills/` in the Agent Workspace. A Provider Driver reads it from a private folder outside its working directory, or from the Sandbox Home. Files under `scripts/` become executable.
 
 ```txt [File tree]
 server/

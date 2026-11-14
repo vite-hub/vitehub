@@ -1,3 +1,5 @@
+import { isRecordOrFunction as isRecord } from "./object.ts"
+
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 
 export type StandardJsonSchemaTarget = StandardJSONSchemaV1.Target
@@ -12,10 +14,6 @@ function readOwn(value: unknown, key: string): unknown {
   catch {
     return undefined
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
 /** Whether a value carries a Standard Schema `~standard.validate` function. */

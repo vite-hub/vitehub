@@ -8,9 +8,13 @@ vi.mock("@vite-hub/auth/server", () => {
   return {
     createAuthForRequest: () => { throw new Error("GitHub sign-in is not configured in this test.") },
     getAuth: () => ({ $context: Promise.resolve({ internalAdapter: { listUsers: async () => [user] } }) }),
-    getAuthForRequest: () => ({ api: { getSession: async () => ({ user }) } }),
+    useAuth: () => ({ api: { getSession: async () => ({ user }) } }),
   }
 })
+
+vi.mock("@vite-hub/auth/internal/server", () => ({
+  createAuthForRequest: () => { throw new Error("GitHub sign-in is not configured in this test.") },
+}))
 
 it("loads ViteHub Auth on the first Comments request that needs a user, not at startup", async () => {
   // The generated Comments plugin and route import these modules when the server starts.

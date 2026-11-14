@@ -36,7 +36,7 @@ const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 function readScheduleDiscoveryMetadata(file: string, contribution?: string): Pick<DiscoveredScheduleDefinition, "manual" | "startable"> {
   const source = readFileSync(file, "utf8")
   const module = scanModule(source, file)
-  const definition = findDefaultExportCall(module, ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const definition = findDefaultExportCall(module, ["defineSchedule"])
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
     throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${file}:${line}: ${message}` })
@@ -44,6 +44,10 @@ function readScheduleDiscoveryMetadata(file: string, contribution?: string): Pic
   if (!definition) {
     const call = findCalls(module, ["defineSchedule"])[0]
     const message = "Schedule discovery requires a direct default export of defineSchedule() with literal options."
+    if (call && call.arguments.length > 1) {
+      const line = source.slice(0, call.start).split("\n").length
+      throw scheduleErrorDiagnostics.SCHEDULE_C0007({ message: `[vitehub] ${file}:${line}: \`defineSchedule(cron, handler)\` was removed. Write \`export default defineSchedule({ cron: "...", handler })\`.` })
+    }
     if (call) unsupported(call.start, message)
     // A syntax error can hide the definition call, so the file cannot prove that it has no Schedule.
     if (module.errors[0]) unsupported(0, `${message} The file has a syntax error: ${module.errors[0].message}`)
@@ -55,8 +59,7 @@ function readScheduleDiscoveryMetadata(file: string, contribution?: string): Pic
 
   const start = definition.call.start
   let manual = false
-  // The positional form `defineSchedule(cron, handler)` always has a cron.
-  let startable = definition.call.arguments.length < 2
+  let startable = true
   for (const property of definition.options ? objectProperties(definition.options) : []) {
     if (property.key === undefined || property.computed) {
       unsupported(start, "Schedule discovery cannot resolve spread, computed, or escaped option keys. Declare manual with an unescaped literal key and a literal true or false value.")

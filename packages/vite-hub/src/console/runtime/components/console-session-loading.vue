@@ -32,7 +32,6 @@ const emit = defineEmits<{
             <UButton
               class="session-inspector__icon-button"
               icon="i-lucide-plus"
-              color="neutral"
               variant="ghost"
               size="xs"
               disabled
@@ -45,7 +44,6 @@ const emit = defineEmits<{
             <UButton
               class="session-inspector__icon-button"
               :icon="props.maximized ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
-              color="neutral"
               variant="ghost"
               size="xs"
               :disabled="!props.maximizable"
@@ -53,11 +51,10 @@ const emit = defineEmits<{
               @click="emit('toggleMaximized')"
             />
           </UTooltip>
-          <UTooltip text="Close details">
+          <UTooltip v-if="props.maximized" text="Close details">
             <UButton
               class="session-inspector__icon-button"
               icon="i-lucide-panel-right-close"
-              color="neutral"
               variant="ghost"
               size="xs"
               aria-label="Close details"
@@ -76,19 +73,19 @@ const emit = defineEmits<{
       <div v-else class="grid gap-8 px-5 py-6">
         <section class="grid gap-3">
           <USkeleton class="h-6 w-28 rounded-md" />
-          <USkeleton class="h-4 w-3/4 rounded" />
-          <USkeleton class="h-4 w-32 rounded" />
+          <USkeleton class="h-4 w-3/4 rounded-md" />
+          <USkeleton class="h-4 w-32 rounded-md" />
         </section>
         <section class="grid gap-3">
-          <USkeleton class="h-3 w-24 rounded" />
+          <USkeleton class="h-3 w-24 rounded-md" />
           <div class="grid grid-cols-3 gap-2">
             <USkeleton v-for="index in 3" :key="index" class="h-20 rounded-lg" />
           </div>
         </section>
         <section class="grid gap-4">
-          <USkeleton class="h-3 w-28 rounded" />
+          <USkeleton class="h-3 w-28 rounded-md" />
           <div v-for="index in 5" :key="index" class="grid gap-2">
-            <USkeleton class="h-4 rounded" :class="index % 2 === 0 ? 'w-2/3' : 'w-1/2'" />
+            <USkeleton class="h-4 rounded-md" :class="index % 2 === 0 ? 'w-2/3' : 'w-1/2'" />
             <USkeleton class="h-1 w-full rounded-full" />
           </div>
         </section>
@@ -97,17 +94,17 @@ const emit = defineEmits<{
     <div v-else class="px-6 py-10 sm:px-10 lg:px-14">
       <div class="mx-auto grid w-full max-w-4xl gap-6">
         <USkeleton class="h-14 rounded-lg" />
-        <div class="mx-auto grid w-full max-w-3xl gap-4 rounded-3xl bg-elevated/60 p-7">
+        <div class="mx-auto grid w-full max-w-3xl gap-4 rounded-xl bg-elevated/60 p-7">
           <USkeleton class="h-8 w-44 rounded-md" />
-          <USkeleton class="mt-2 h-5 w-4/5 rounded" />
-          <USkeleton class="h-5 w-full rounded" />
-          <USkeleton class="h-5 w-2/3 rounded" />
+          <USkeleton class="mt-2 h-5 w-4/5 rounded-md" />
+          <USkeleton class="h-5 w-full rounded-md" />
+          <USkeleton class="h-5 w-2/3 rounded-md" />
         </div>
         <USkeleton class="h-12 rounded-lg" />
         <div class="grid gap-4 px-1">
           <div v-for="index in 4" :key="index" class="grid gap-2">
-            <USkeleton class="h-4 rounded" :class="index % 2 === 0 ? 'w-3/5' : 'w-4/5'" />
-            <USkeleton class="h-3 w-1/3 rounded" />
+            <USkeleton class="h-4 rounded-md" :class="index % 2 === 0 ? 'w-3/5' : 'w-4/5'" />
+            <USkeleton class="h-3 w-1/3 rounded-md" />
           </div>
         </div>
       </div>

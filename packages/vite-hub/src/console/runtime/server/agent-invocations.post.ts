@@ -1,13 +1,13 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { consoleAttachmentRequestBytes, consoleInputMessage, withConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
 
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
-import { console } from "../../server.ts"
+import { agentConsole } from "../../server.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
 import { consoleHttpError } from "./http-error.ts"
 
@@ -128,17 +128,17 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
   const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext({
     agentIdentity: { name },
-    capabilities: { ...await getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console: agentConsole },
     memo: memo(),
     request: consoleRequest(event),
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  const actor = consoleAccessActor(access.user)
+  const invoker = consoleAccessInvoker(access.user)
   const start = (inputMessages: Message[] | undefined, onInputHandoff?: () => void) => startAgentInvocation(agent, context, {
     context: {
-      ...(actor ? { actor } : {}),
+      ...(invoker ? { invoker } : {}),
       ...(profileId ? { invokerProfileId: profileId } : {}),
     },
     ...inputMessages ? { messages: inputMessages } : {},
@@ -165,5 +165,5 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
   }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", user: true, write: true })
+const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", write: true })
 export default guardedHandler

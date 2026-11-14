@@ -7,10 +7,12 @@ import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import { startBuiltServer } from "./content-preview-fixture.ts"
+import { freePort, startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli, serverBuild } from "./support/content-cms.ts"
 
 import type { CommentThread } from "@vite-hub/comments/client"
+import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
+import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Comments in a built Nitro 3 app", () => {
@@ -25,31 +27,27 @@ describe("Comments in a built Nitro 3 app", () => {
         "export default defineComments({ authorize: () => true })",
         "",
       ].join("\n"),
+      // The overlay API reads the app Auth session. The Console calls are signed instead.
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ database: 'memory', emailAndPassword: { enabled: true } })\n",
+      "server/console-authorize.ts": "export default () => true\n",
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
-      // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
-      "server/plugins/test-user.ts": [
-        "import { definePlugin } from 'nitro'",
-        "import { installConsoleAccess } from 'vite-hub/console/sections'",
-        "export default definePlugin(app => {",
-        "  app.hooks.hook('request', event => {",
-        "    installConsoleAccess(event.req.headers.get('x-test-user') === 'ana'",
-        "      ? { mode: 'auth', check: async () => undefined, user: async () => ({ id: 'ana', name: 'Ana' }) }",
-        "      : { mode: 'open' })",
-        "  })",
-        "})",
-      ].join("\n"),
     })
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // Production output must never invent a local identity, even with NODE_ENV=development.
-    const app = () => vitehub({ console: { auth: false }, preset: "node" })
+    // Signed calls on Node check the origin that `publicUrl` names, so the server starts on a known port.
+    const port = await freePort()
+    const publicUrl = `http://127.0.0.1:${port}`
+    const app = () => vitehub({ auth: true, console: { authorize: "./server/console-authorize.ts" }, host: "node", publicUrl })
+    const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, app(), ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
-    const migrations = join(root, "server/databases/migrations")
-    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    const migrations = join(root, "server/databases/default/migrations")
+    const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
+    const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `vitehub_comment_counters`", "CREATE TABLE `vitehub_comment_forge`", "CREATE TABLE `vitehub_comment_messages`", "CREATE TABLE `vitehub_comment_threads`"])
     const migrate = await runCli(root, app(), ["database", "migrate"])
     expect(migrate.stderr).toBe("")
@@ -65,22 +63,20 @@ describe("Comments in a built Nitro 3 app", () => {
     } as never)
     await builder.buildApp()
 
-    const server = await startBuiltServer(root, { NODE_ENV: "development" })
+    const server = await startBuiltServer(root, { ...ci.env, NODE_ENV: "development" }, { port })
     try {
-      const unsigned = await server.fetch("/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }, operation: "comments.create" }),
+      const unsigned = await server.fetch("/_vitehub/rpc", {
+        body: operationRpcBody("comments.create", { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       })
       expect(unsigned.status).toBe(401)
-      expect(await unsigned.json()).toMatchObject({ code: "COMMENTS_R0012" })
+      expect(await unsigned.json()).toMatchObject({ code: "CONSOLE_SIGNATURE_MISSING" })
+      // The Console signs each call for the person who uses it.
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
-        const response = await server.fetch("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ input, operation }),
-          headers: { "content-type": "application/json", "x-test-user": "ana", [consoleRpcHeader]: "1" },
-          method: "POST",
-        })
-        const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
+        const signed = await signedRpcRequest({ caller: { user: { id: "ana", name: "Ana" }, via: "console" }, input, key: ci.key, operation, url: `${publicUrl}/_vitehub/rpc` })
+        const response = await server.fetch("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
+        const body = await operationRpcResponseResult(response) as { code?: string, message?: string, ok: boolean, value: T }
         if (!body.ok) throw new Error(`${operation} failed: ${body.code} ${body.message}`)
         return body.value
       }
@@ -128,13 +124,13 @@ describe("Comments in a built Nitro 3 app", () => {
       "package.json": JSON.stringify({ name: "comments-no-database", private: true, type: "module" }),
       "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments()\n",
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ database: false, preset: "node" })), "build")).rejects.toMatchObject({
+    await expect(resolveConfig(serverBuild(root, vitehub({ database: false, host: "node" })), "build")).rejects.toMatchObject({
       code: "COMMENTS_B0001",
       fix: expect.stringContaining("database: false"),
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ preset: "node" })), "build")).resolves.toBeDefined()
+    await expect(resolveConfig(serverBuild(root, vitehub({ host: "node" })), "build")).resolves.toBeDefined()
 
     const plain = await createProject({ "package.json": JSON.stringify({ name: "no-comments", private: true, type: "module" }) })
-    await expect(resolveConfig(serverBuild(plain, vitehub({ database: false, preset: "node" })), "build")).resolves.toBeDefined()
+    await expect(resolveConfig(serverBuild(plain, vitehub({ database: false, host: "node" })), "build")).resolves.toBeDefined()
   }, 60_000)
 })

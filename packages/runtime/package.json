@@ -32,10 +32,10 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./h3": {
-      "types": "./dist/h3.d.ts",
-      "import": "./dist/h3.js",
-      "default": "./dist/h3.js"
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
     },
     "./internal/drain": {
       "types": "./dist/internal/drain.d.ts",
@@ -52,10 +52,30 @@
       "import": "./dist/internal/grant.js",
       "default": "./dist/internal/grant.js"
     },
+    "./internal/h3": {
+      "types": "./dist/internal/h3.d.ts",
+      "import": "./dist/internal/h3.js",
+      "default": "./dist/internal/h3.js"
+    },
+    "./internal/node": {
+      "types": "./dist/internal/node.d.ts",
+      "import": "./dist/internal/node.js",
+      "default": "./dist/internal/node.js"
+    },
+    "./internal/public-url": {
+      "types": "./dist/internal/public-url.d.ts",
+      "import": "./dist/internal/public-url.js",
+      "default": "./dist/internal/public-url.js"
+    },
     "./internal/runtime-type": {
       "types": "./dist/internal/runtime-type.d.ts",
       "import": "./dist/internal/runtime-type.js",
       "default": "./dist/internal/runtime-type.js"
+    },
+    "./internal/shutdown": {
+      "types": "./dist/internal/shutdown.d.ts",
+      "import": "./dist/internal/shutdown.js",
+      "default": "./dist/internal/shutdown.js"
     },
     "./internal/test-mode": {
       "types": "./dist/internal/test-mode.d.ts",
@@ -67,15 +87,10 @@
       "import": "./dist/internal/test-mode-setup.js",
       "default": "./dist/internal/test-mode-setup.js"
     },
-    "./node": {
-      "types": "./dist/node.d.ts",
-      "import": "./dist/node.js",
-      "default": "./dist/node.js"
-    },
-    "./shutdown": {
-      "types": "./dist/shutdown.d.ts",
-      "import": "./dist/shutdown.js",
-      "default": "./dist/shutdown.js"
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./package.json": "./package.json"
   },
@@ -86,13 +101,18 @@
     "test": "vp run --cache -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "standard-context": "catalog:runtime"
+    "standard-context": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

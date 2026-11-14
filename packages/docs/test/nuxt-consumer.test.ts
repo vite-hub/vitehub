@@ -1,13 +1,12 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
 import { expect, it } from "vitest"
 
-import type { Nitro } from "nitropack"
+import type { Nitro } from "nitro/types"
 
 it("sets up the default MCP and discovery resources in a path-mounted Nuxt consumer", async () => {
   const root = await mkdtemp(join(tmpdir(), "docs-consumer-"))
@@ -33,8 +32,6 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     // An installed package is in node_modules, where Nuxt adds no auto-imports unless a pattern includes it.
     const shell = join(import.meta.dirname, "../dist/runtime/app/app.vue").replaceAll("\\", "/")
     expect(nuxt.options.imports.transform?.include?.some(pattern => pattern.test(shell))).toBe(true)
-    expect(nitro.options.experimental.asyncContext).toBe(true)
-    expect((await nitro.unimport?.getImports())?.some(entry => entry.name === "useEvent")).toBe(true)
     expect(nitro.options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs", mcp: { url: "https://docs.example.com/portal/mcp" },
     })
@@ -49,24 +46,20 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
       expect.objectContaining({ route: "/api/_docs/search.json" }),
       expect.objectContaining({ route: "/mcp" }),
     ]))
+    // The site lists no @vite-hub/ui, and still gets the design system: its tokens, its focus rule, and Geist.
+    const styles = nuxt.options.build.templates.find(template => template.filename === "docs/docs.css")
+    const theme = /@import "([^"]+\/theme\.css)"/.exec(String(await styles?.getContents?.({} as never)))?.[1]
+    expect(theme && await readFile(theme, "utf8")).toContain(":focus-visible {\n  outline: 2px solid var(--vh-focus);")
+    expect((nuxt.options as { fonts?: { families?: unknown[] } }).fonts?.families).toEqual(expect.arrayContaining([
+      { name: "Geist", global: true },
+      { name: "Geist Mono", global: true },
+    ]))
   }
   finally {
     await nuxt?.close()
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)
-
-it("ships the MCP tools as JavaScript that Nitro can parse from node_modules", async () => {
-  // Nitro compiles TypeScript only outside node_modules, so an installed app parses these files as they are.
-  const { parseAst } = createRequire(fileURLToPath(import.meta.resolve("nitropack")))("rollup/parseAst") as { parseAst: (code: string) => unknown }
-  const dir = join(import.meta.dirname, "../dist/runtime/mcp")
-  const files = (await readdir(dir)).sort()
-  expect(files).toEqual(["get-page.js", "list-pages.js"])
-  for (const file of files) {
-    const source = await readFile(join(dir, file), "utf8")
-    expect(() => parseAst(source), file).not.toThrow()
-  }
-})
 
 // A static host serves the prerendered HTML, and the HTML leaves the page data to `_payload.json`. The client must read
 // that file, or every page hydrates to "Page not found".

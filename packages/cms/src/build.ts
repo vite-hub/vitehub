@@ -109,10 +109,11 @@ export function cmsRequirementError(file: string, projectRoot: string, message: 
  * literal options. Returns undefined when the file does not import the preset.
  */
 export function readCmsPresetUsage(source: string, file: string, projectRoot: string, parseAst: ParseAst): CmsPresetUsage | undefined {
-  return readCmsPresetUsageInternal(source, file, projectRoot, parseAst, new Set())
+  return readCmsPresetUsageInternal(source, file, projectRoot, parseAst, new Set(), "default")
 }
 
-function readCmsPresetUsageInternal(source: string, file: string, projectRoot: string, parseAst: ParseAst, seen: Set<string>): CmsPresetUsage | undefined {
+/** `exportName` is the export that holds the Content Definition: `default` in `server/content.ts`, or the name that it re-exports. */
+function readCmsPresetUsageInternal(source: string, file: string, projectRoot: string, parseAst: ParseAst, seen: Set<string>, exportName: string): CmsPresetUsage | undefined {
   const resolvedFile = resolve(file)
   if (seen.has(resolvedFile)) return
   seen.add(resolvedFile)
@@ -120,25 +121,28 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   const program = parseAst(source, { lang })
   if (!isNode(program)) return
   // Content discovery accepts relative re-exports. Follow one statically resolvable
-  // target so CMS selection is read from the module that defines `content`.
+  // target so CMS selection is read from the module that defines the Content Definition.
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isNode(statement) || statement.type !== "ExportNamedDeclaration" || !isNode(statement.source)) continue
-    const exported = Array.isArray(statement.specifiers) && statement.specifiers.some((specifier) => {
-      if (!isNode(specifier) || specifier.type !== "ExportSpecifier" || !isNode(specifier.exported)) return false
+    let targetExport: string | undefined
+    for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
+      if (!isNode(specifier) || specifier.type !== "ExportSpecifier" || !isNode(specifier.exported) || !isNode(specifier.local)) continue
       const name = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
-      return name === "content"
-    })
+      if (name === exportName) targetExport = String(specifier.local.type === "Identifier" ? specifier.local.name : specifier.local.value)
+    }
     const specifier = statement.source.value
-    if (!exported || typeof specifier !== "string" || !specifier.startsWith(".")) continue
+    if (!targetExport || typeof specifier !== "string" || !specifier.startsWith(".")) continue
     const base = resolve(file, "..", specifier)
     const candidates = [base, ...[".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].map(ext => `${base}${ext}`), ...["index.ts", "index.tsx", "index.js", "index.jsx", "index.mts", "index.cts", "index.mjs", "index.cjs"].map(name => join(base, name))]
     const target = candidates.find(candidate => existsSync(candidate))
     if (target) {
-      const usage = readCmsPresetUsageInternal(readFileSync(target, "utf8"), target, projectRoot, parseAst, seen)
+      const usage = readCmsPresetUsageInternal(readFileSync(target, "utf8"), target, projectRoot, parseAst, seen, targetExport)
       if (usage) return usage
     }
   }
   for (const statement of Array.isArray(program.body) ? program.body : []) {
+    // `export *` never re-exports `default`.
+    if (exportName === "default") break
     if (!isNode(statement) || statement.type !== "ExportAllDeclaration" || !isNode(statement.source)) continue
     const specifier = statement.source.value
     if (typeof specifier !== "string" || !specifier.startsWith(".")) continue
@@ -146,7 +150,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     const candidates = [base, ...[".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].map(ext => `${base}${ext}`), ...["index.ts", "index.tsx", "index.js", "index.jsx", "index.mts", "index.cts", "index.mjs", "index.cjs"].map(name => join(base, name))]
     const target = candidates.find(candidate => existsSync(candidate))
     if (target) {
-      const usage = readCmsPresetUsageInternal(readFileSync(target, "utf8"), target, projectRoot, parseAst, seen)
+      const usage = readCmsPresetUsageInternal(readFileSync(target, "utf8"), target, projectRoot, parseAst, seen, exportName)
       if (usage) return usage
     }
   }
@@ -191,17 +195,23 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
       && (value.property.name === "cms" || value.property.name === "default")
   }
 
-  // Only inspect the options object passed to the exported `content` Definition. Other
+  // Only inspect the options object passed to the exported Content Definition. Other
   // objects in this module may use an `extends` property for unrelated purposes. The
-  // source discovery accepts both `export const content = ...` and
-  // `const content = ...; export { content }`, so follow both forms here.
+  // source discovery accepts `export default defineContent(...)`, `export default content`,
+  // and `export { content as default }`, so follow each form here.
   const exportedContentBindings = new Set<string>()
   for (const statement of Array.isArray(program.body) ? program.body : []) {
-    if (!isNode(statement) || statement.type !== "ExportNamedDeclaration") continue
+    if (!isNode(statement)) continue
+    if (statement.type === "ExportDefaultDeclaration") {
+      const value = unwrap(statement.declaration)
+      if (exportName === "default" && isNode(value) && value.type === "Identifier") exportedContentBindings.add(String(value.name))
+      continue
+    }
+    if (statement.type !== "ExportNamedDeclaration" || isNode(statement.source)) continue
     const declaration = statement.declaration
     if (isNode(declaration) && declaration.type === "VariableDeclaration") {
       for (const declarator of Array.isArray(declaration.declarations) ? declaration.declarations : []) {
-        if (isNode(declarator) && isNode(declarator.id) && declarator.id.type === "Identifier" && declarator.id.name === "content") {
+        if (isNode(declarator) && isNode(declarator.id) && declarator.id.type === "Identifier" && declarator.id.name === exportName) {
           exportedContentBindings.add(String(declarator.id.name))
         }
       }
@@ -209,7 +219,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     for (const specifier of Array.isArray(statement.specifiers) ? statement.specifiers : []) {
       if (!isNode(specifier) || specifier.type !== "ExportSpecifier" || !isNode(specifier.local) || !isNode(specifier.exported)) continue
       const exported = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
-      if (exported === "content") exportedContentBindings.add(String(specifier.local.name))
+      if (exported === exportName) exportedContentBindings.add(String(specifier.local.name))
     }
   }
   let contentOptions: AstNode | undefined
@@ -217,7 +227,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     if (!isNode(statement)) continue
     if (statement.type === "ExportDefaultDeclaration") {
       const init = unwrap(statement.declaration)
-      if (isNode(init) && init.type === "CallExpression" && isNode(init.callee) && init.callee.type === "Identifier" && defineContentBindings.has(String(init.callee.name))) {
+      if (exportName === "default" && isNode(init) && init.type === "CallExpression" && isNode(init.callee) && init.callee.type === "Identifier" && defineContentBindings.has(String(init.callee.name))) {
         const argument = unwrap(Array.isArray(init.arguments) ? init.arguments[0] : undefined)
         if (isNode(argument) && argument.type === "ObjectExpression") contentOptions = argument
       }
@@ -385,7 +395,7 @@ export interface CmsWorkspaceImports {
   blobDatabase: string
   /** Exports `contentSessionsSchema`, the presence and edit lease table that the preset adds to its Database. */
   contentDatabase?: string
-  /** Exports `useDatabase`. */
+  /** Exports `databases`, the runtime Database registry. */
   database: string
   /** Exports `defineWorkspace`. */
   workspace: string
@@ -395,12 +405,30 @@ export interface CmsWorkspaceImports {
 export const cmsWorkspaceExport = "contentWorkspace"
 
 /**
+ * Reads the Database of the plan. The build loads the generated module without the app's Databases, and
+ * `useDatabase()` throws for a missing one, so the module keeps the error and throws it on first use.
+ */
+function renderDatabaseLookup(plan: CmsPresetPlan): string[] {
+  const missing = `[vitehub] The Content cms preset needs Database ${JSON.stringify(plan.database)}, but it is not configured at runtime. Enable database in vitehub() and keep its Database Definition.`
+  return [
+    "let database",
+    `try { database = useDatabase(${JSON.stringify(plan.database)}).db }`,
+    "catch (error) {",
+    "  database = new Proxy({}, {",
+    "    get() {",
+    `      throw new Error(${JSON.stringify(missing)}, { cause: error })`,
+    "    },",
+    "  })",
+    "}",
+  ]
+}
+
+/**
  * The generated Workspace Definition module. It only reads the Database registry and creates a lazy store when it
  * loads, so the build can load it to bundle Workspace assets. The GitHub store reads its token on first use.
  */
 export function renderCmsWorkspaceModule(plan: CmsPresetPlan, imports: CmsWorkspaceImports): string {
   if (plan.store === "github" && plan.github) return renderGitHubWorkspaceModule(plan, plan.github, imports)
-  const missing = `[vitehub] The Content cms preset needs Database ${JSON.stringify(plan.database)}, but it is not configured at runtime. Enable database in vitehub() and keep its Database Definition.`
   return [
     "// Generated by @vite-hub/cms for the cms preset in server/content.ts. Do not edit.",
     `import { blob } from ${JSON.stringify(imports.blob)}`,
@@ -408,11 +436,7 @@ export function renderCmsWorkspaceModule(plan: CmsPresetPlan, imports: CmsWorksp
     `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
     `import { createBlobDatabaseWorkspaceStore } from ${JSON.stringify(imports.blobDatabase)}`,
     "",
-    `const database = useDatabase(${JSON.stringify(plan.database)})?.db ?? new Proxy({}, {`,
-    "  get() {",
-    `    throw new Error(${JSON.stringify(missing)})`,
-    "  },",
-    "})",
+    ...renderDatabaseLookup(plan),
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: createBlobDatabaseWorkspaceStore({",
@@ -432,7 +456,7 @@ function renderGitHubWorkspaceModule(plan: CmsPresetPlan, github: CmsGitHubPlan,
     `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
     "",
     "// The Database holds editor sessions only. Documents and their history live in the repository.",
-    `const database = useDatabase(${JSON.stringify(plan.database)})?.db`,
+    ...renderDatabaseLookup(plan),
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: {",

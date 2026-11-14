@@ -21,7 +21,7 @@ const client = {
 }
 
 const factories = [
-  { name: "file", create: (options: object) => file(options as never), input: { content: "docs", workspacePath: "README.md" }, mount: "", materialize: undefined },
+  { name: "file", create: (options: object) => file(options as never), input: { content: "docs", workspacePath: "README.md" }, mount: undefined, materialize: undefined },
   { name: "markdown", create: (options: object) => markdown(options as never), input: { content: "docs", workspacePath: "README.md" }, mount: undefined, materialize: undefined },
   { name: "glob", create: (options: object) => glob(options as never), input: { include: "**/*.md" }, mount: undefined, materialize: undefined },
   { name: "github", create: (options: object) => github(options as never), input: { auth: false, repo: "acme/docs" }, mount: undefined, materialize: undefined },

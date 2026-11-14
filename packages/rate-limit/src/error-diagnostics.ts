@@ -50,6 +50,14 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_R0043: dynamicError,
     RATE_LIMIT_R0044: dynamicError,
     RATE_LIMIT_R0045: dynamicError,
+    RATE_LIMIT_R0046: {
+      ...dynamicError,
+      fix: "Pass `kv` or `kv.store(name)` from `@vite-hub/kv` as the `storage` option to `kvRateLimitDriver()`.",
+    },
+    RATE_LIMIT_R0047: {
+      ...dynamicError,
+      fix: "Enable KV in the app and build again. For a custom runtime, pass the KV driver, storage, and store name to `setRateLimitRuntimeConfig()`.",
+    },
     RATE_LIMIT_B0001: dynamicError,
     RATE_LIMIT_B0002: dynamicError,
     RATE_LIMIT_B0003: dynamicError,

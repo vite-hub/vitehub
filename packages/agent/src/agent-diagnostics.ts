@@ -5,8 +5,11 @@ import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const agentTypeDiagnosticCodes = new Set([
-  "AGENT_R1006",
-  "AGENT_R1008",
+  "AGENT_R1040",
+  "AGENT_R1041",
+  "AGENT_R1042",
+  "AGENT_R1043",
+  "AGENT_R1044",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -87,8 +90,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0102",
   "AGENT_R0105",
   "AGENT_R0106",
-  "AGENT_R0107",
-  "AGENT_R0108",
   "AGENT_R0114",
   "AGENT_R0115",
   "AGENT_R0116",
@@ -125,15 +126,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0244",
   "AGENT_R0245",
   "AGENT_R0246",
-  "AGENT_R0247",
-  "AGENT_R0248",
-  "AGENT_R0249",
-  "AGENT_R0250",
-  "AGENT_R0251",
-  "AGENT_R0252",
-  "AGENT_R0253",
-  "AGENT_R0254",
-  "AGENT_R0255",
   "AGENT_R0256",
   "AGENT_R0257",
   "AGENT_R0258",
@@ -203,11 +195,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0384",
   "AGENT_R0401",
   "AGENT_R0402",
-  "AGENT_R0413",
-  "AGENT_R0414",
-  "AGENT_R0416",
-  "AGENT_R0417",
-  "AGENT_R0420",
   "AGENT_R0425",
   "AGENT_R0426",
   "AGENT_R0430",
@@ -248,6 +235,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0483",
   "AGENT_R0484",
   "AGENT_R0485",
+  "AGENT_R1038",
   "AGENT_R0486",
   "AGENT_R0487",
   "AGENT_R0488",
@@ -446,6 +434,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0925",
   "AGENT_R0929",
   "AGENT_R0938",
+  "AGENT_R1039",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -593,13 +582,9 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0104: dynamicError,
     AGENT_R0105: dynamicError,
     AGENT_R0106: dynamicError,
-    AGENT_R0107: dynamicError,
-    AGENT_R0108: dynamicError,
+    // AGENT_R0107 and AGENT_R0108 are retired with llmGate() and llmRoute(). Do not reuse them.
     AGENT_R0109: dynamicError,
-    AGENT_R0110: dynamicError,
-    AGENT_R0111: dynamicError,
-    AGENT_R0112: dynamicError,
-    AGENT_R0113: dynamicError,
+    // AGENT_R0110 through AGENT_R0113 are retired with llmGate() and llmRoute(). Do not reuse them.
     AGENT_R0114: dynamicError,
     AGENT_R0115: dynamicError,
     AGENT_R0116: dynamicError,
@@ -703,15 +688,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0244: dynamicError,
     AGENT_R0245: dynamicError,
     AGENT_R0246: dynamicError,
-    AGENT_R0247: dynamicError,
-    AGENT_R0248: dynamicError,
-    AGENT_R0249: dynamicError,
-    AGENT_R0250: dynamicError,
-    AGENT_R0251: dynamicError,
-    AGENT_R0252: dynamicError,
-    AGENT_R0253: dynamicError,
-    AGENT_R0254: dynamicError,
-    AGENT_R0255: dynamicError,
+    // AGENT_R0247 through AGENT_R0255 are retired with openRouterTranscriptionModel(). Do not reuse them.
     AGENT_R0256: dynamicError,
     AGENT_R0257: dynamicError,
     AGENT_R0258: dynamicError,
@@ -869,14 +846,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0410: dynamicError,
     AGENT_R0411: dynamicError,
     AGENT_R0412: dynamicError,
-    AGENT_R0413: dynamicError,
-    AGENT_R0414: dynamicError,
-    AGENT_R0415: dynamicError,
-    AGENT_R0416: dynamicError,
-    AGENT_R0417: dynamicError,
-    AGENT_R0418: dynamicError,
-    AGENT_R0419: dynamicError,
-    AGENT_R0420: dynamicError,
+    // AGENT_R0413 through AGENT_R0420 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_R0421: dynamicError,
     AGENT_R0422: dynamicError,
     AGENT_R0423: dynamicError,
@@ -1307,18 +1277,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     // AGENT_B0003 and AGENT_B0004 are retired with Runtime Schedule targets. Do not reuse them.
     AGENT_B0005: dynamicError,
     AGENT_B0006: dynamicError,
-    AGENT_B0007: dynamicError,
-    AGENT_B0008: dynamicError,
-    AGENT_B0009: dynamicError,
-    AGENT_B0010: dynamicError,
-    AGENT_B0011: dynamicError,
-    AGENT_B0012: dynamicError,
-    AGENT_B0013: dynamicError,
-    AGENT_B0014: dynamicError,
-    AGENT_B0015: dynamicError,
+    // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_B0016: dynamicError,
     AGENT_B0017: dynamicError,
-    AGENT_B0018: dynamicError,
+    // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.
     AGENT_B0022: dynamicError,
     AGENT_B0023: dynamicError,
     AGENT_B0024: dynamicError,
@@ -1417,10 +1379,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] defineAgent({ capabilities }) must be an ordered array.",
       fix: "Pass an array of Capabilities in execution order.",
     },
-    AGENT_B0001: {
-      why: "[vitehub] Eve extensions must be compiled by the ViteHub Vite plugin.",
-      fix: "Load the Agent Definition through a Vite host with the ViteHub Agent plugin installed.",
-    },
+    // AGENT_B0001 is retired with the Eve extension adapter. Do not reuse it.
     AGENT_B0020: {
       why: ({ root }: { root: string }) => `[vitehub] Cannot identify the owning Agent build for ${JSON.stringify(root)} because its environment does not uniquely match a resolved configuration.`,
       fix: "Use a separate Agent plugin instance per build or preserve the resolved build options in each environment config.",
@@ -1462,9 +1421,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ trigger }: { trigger: string }) => `[vitehub] Channel trigger "${trigger}" declares durableState: true, but it ran without the Channel's State.`,
       fix: "Run the trigger through the Channel's webhook route, its webhook queue or context.dispatch(), and give the Agent a durable state provider.",
     },
-    AGENT_R1006: dynamicError,
     AGENT_R1007: dynamicError,
-    AGENT_R1008: dynamicError,
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
     AGENT_R1013: dynamicError,
@@ -1480,6 +1437,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1029: {
       why: "The default Agent Invocation journal cannot open a file: URL in a Cloudflare Worker.",
       fix: "Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL or agent.invocations.databaseUrl to a remote libSQL URL, or remove the file URL to use the host default journal.",
+    },
+    AGENT_R1036: {
+      why: "The default Agent Invocation journal selected SQLite or libSQL, but the server was built without the libSQL driver.",
+      fix: "Set agent.invocations.databaseUrl to the libSQL URL in the build, so a Cloudflare build includes the driver, or remove VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to use D1 or memory.",
     },
     AGENT_R1024: {
       why: "The ChatGPT access token expired during this Invocation.",
@@ -1549,9 +1510,85 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] operations() requires { include: string[], approve?, user? }.",
       fix: "List the operation names to expose, such as [\"content.*\"], and pass approve as \"destructive\", \"write\", \"all\", \"never\", a list of names, or a function.",
     },
+    AGENT_C0014: {
+      why: "[vitehub] i18n() requires { operations?: Array<\"read\" | \"write\" | \"publish\">, policy? }.",
+      fix: "Enable at least one operation, and pass policy as a decision or a function.",
+    },
     AGENT_R1014: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
+    },
+    AGENT_R1038: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+      fix: "Pass driver.workspaceWrite as { network?: boolean, packageCaches?: boolean }, or remove it.",
+    },
+    AGENT_R1037: {
+      why: ({ name }: { name: string }) => `[vitehub] Agent "${name}" owns a Workspace, but the defineAgent() options that its file exports have no workspace key. A Capability, Channel, preset, parent, or configure callback added the Workspace. Add workspace: {} to its defineAgent() options.`,
+      fix: "Add workspace: {} to the defineAgent() options in the Agent file. ViteHub reads the Workspace of a folder Agent only from this key, without running the module.",
+    },
+    AGENT_R1039: {
+      why: ({ value }: { value: unknown }) => `[vitehub] Agent Invocation afterSequence must be a non-negative safe integer, but it is ${typeof value === "string" ? JSON.stringify(value) : String(value)}.`,
+      fix: "Pass the sequence of the last observation that you read, or 0 to read all observations. Convert a value from a query string with Number() first.",
+    },
+    AGENT_R1040: {
+      why: ({ provider }: { provider: unknown }) => `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use "codex" or "claude-code".`,
+      fix: 'Pass "codex" or "claude-code" as the session provider.',
+    },
+    AGENT_R1041: {
+      why: "[vitehub] importAgentSession() needs agentName and runId.",
+      fix: "Pass non-empty agentName and runId strings in the import options.",
+    },
+    AGENT_R1042: {
+      why: "[vitehub] importAgentSession() replaces an earlier import, and this store cannot delete records.",
+      fix: "Use an Agent Invocation store that implements delete(), or choose a different runId for the import.",
+    },
+    AGENT_R1043: {
+      why: ({ id }: { id: string }) => `[vitehub] importAgentSession() cannot replace Invocation ${id}: it is still pending or running.`,
+      fix: "Wait for the existing Invocation to finish, or choose a different runId for the import.",
+    },
+    AGENT_R1044: {
+      why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" does not verify requests, and it does not opt out of verification.`,
+      fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
+    },
+    AGENT_R1045: {
+      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime room authority.",
+      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { authority: \"memory\" }` for one process, or Redis or Postgres for more.",
+    },
+    AGENT_R1046: {
+      why: "[vitehub] connectPage() has no `join`, so the page cannot join its Realtime room.",
+      fix: "Pass `join: connectRealtimeRoom` from `vite-hub/realtime/client`: `connectPage(createAgent, { join: connectRealtimeRoom })`.",
+    },
+    AGENT_R1047: {
+      why: ({ step }: { step: string }) => `[vitehub] The page refused ${step}: a deny rule of page() covers it. Nothing of this step changed.`,
+      fix: "Do not try this step another way. Tell the person what you wanted to change, so they can do it themselves.",
+    },
+    AGENT_R1048: {
+      why: ({ step }: { step: string }) => `[vitehub] ${step} needs the person's approval, and the page has no way to ask them. Nothing of this step changed.`,
+      fix: "Tell the person what this step does, so they can do it themselves. To let the page ask, pass `allow` to connectPage(), such as `allow: step => step.confirm ? confirm(step.confirm) : true`.",
+    },
+    AGENT_R1049: {
+      why: ({ step }: { step: string }) => `[vitehub] The person did not approve ${step}. Nothing of this step changed.`,
+      fix: "Do not run this step again. Ask the person what they want instead.",
+    },
+    AGENT_R1050: {
+      why: "[vitehub] The page answered page_act without applying the rules of page(), so nothing ran. Its client is older than the server.",
+      fix: "Reload the page. If it stays, build the app again, so the page and the server use the same vite-hub version.",
+    },
+    AGENT_R1051: {
+      why: "[vitehub] connectPage() needs ui-sdk's `createAgent` function, so it can decide each step with the server's rules, and got something else.",
+      fix: "Pass the function, not a bridge: `connectPage(createAgent, { join: connectRealtimeRoom })`. For more ui-sdk options, pass `options => createAgent({ ...options, timeout: 60_000 })`.",
+    },
+    AGENT_R1052: {
+      why: ({ problem }: { problem: string }) => `[vitehub] page() has an invalid rule: ${problem}`,
+      fix: "Give each rule in `deny` and `requireApproval` a non-empty `label`, a `component`, or `confirm: true`, such as `{ label: \"Project name\" }`.",
+    },
+    AGENT_R1053: {
+      why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
+      fix: ({ use }: { use: string }) => `Pass ${use}.`,
+    },
+    AGENT_R1054: {
+      why: "[vitehub] This page is closed. Its queued calls cannot run.",
+      fix: "Reload the page or call connectPage() again to create a new connection before sending more page calls.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

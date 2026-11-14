@@ -119,5 +119,4 @@ Delivery options match the Agent-level `messages` settings in [Channels](/docs/a
 - [Chat History and sessions](/docs/agents/chat-history-sessions)
 - [access()](/docs/agents/capabilities/access)
 - [title()](/docs/agents/capabilities/title)
-- [chatSummary()](/docs/agents/capabilities/chat-summary)
 - [Official Capabilities](/docs/agents/capabilities/official)

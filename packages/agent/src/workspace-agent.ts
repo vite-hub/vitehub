@@ -1,9 +1,9 @@
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
-import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
+import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { assertWorkspaceRules, listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -35,11 +35,10 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
-import { formatRetentionPercentage } from "./internal/retention-policy.ts"
-import type { NormalizedRetention } from "./internal/retention-policy.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { withSourceSkills } from "./internal/source-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -65,7 +64,6 @@ import type {
   AgentInvocationContextValues,
   AgentHostIdentity,
   AgentInvoker,
-  AgentInvokerProfile,
   AgentInput,
   AgentModelInput,
   AgentModelResolverContext,
@@ -133,7 +131,7 @@ export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   _Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, _Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -150,7 +148,7 @@ export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, Name, CALL_OPTIONS> | undefined,
   TOutput = unknown,
@@ -200,7 +198,7 @@ interface MetadataCapabilitySelection<
 
 export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
   if (isWorkspaceReference(workspace)) return { mode: normalizeMode(workspace.mode, "Workspace") }
-  if (hasRuntimeType(workspace, "string")) return { mode: "read" }
+  if (typeof workspace === "string") return { mode: "read" }
   return {
     ...workspace,
     mode: normalizeMode(workspace.mode, "Workspace"),
@@ -208,14 +206,14 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
 }
 
 export function workspaceDefinitionWithAutoCommitRules(definition: WorkspaceDefinition, commit: boolean | string | undefined): WorkspaceDefinition {
-  if (commit !== true && !hasRuntimeType(commit, "string")) return definition
+  if (commit !== true && typeof commit !== "string") return definition
   return { ...definition, rules: mergeWorkspaceCommitRules(definition.rules, commit) }
 }
 
 /** Reports whether an explicit Workspace `commit: false` leaves no commit to resolve. */
 export function workspaceAutoCommitDisabled(definition: WorkspaceDefinition, commit: boolean | string | undefined): boolean {
   if (commit !== false) return false
-  if (definition.commit === true || hasRuntimeType(definition.commit, "string")) return false
+  if (definition.commit === true || typeof definition.commit === "string") return false
   let rules: WorkspaceRules = {}
   for (const plugin of definition.plugins ?? []) rules = { ...rules, ...plugin?.rules }
   rules = { ...rules, ...definition.rules }
@@ -223,19 +221,19 @@ export function workspaceAutoCommitDisabled(definition: WorkspaceDefinition, com
 }
 
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
-  return hasRuntimeType(workspace, "object")
+  return typeof workspace === "object"
     && workspace !== null
     && Object.hasOwn(workspace, "name")
-    && hasRuntimeType(workspace.name, "string")
+    && typeof workspace.name === "string"
 }
 
 export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
-  const options = hasRuntimeType(agent, "object") && agent !== null
+  const options = typeof agent === "object" && agent !== null
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ? (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: unknown } }).__vitehubWorkspaceAgentOptions
     : undefined
   const workspace = options?.workspace
-  return hasRuntimeType(workspace, "object")
+  return typeof workspace === "object"
     && workspace !== null
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
@@ -246,7 +244,7 @@ type RegisteredWorkspaceAgent = {
 }
 
 export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: string): void {
-  if (!hasRuntimeType(agent, "object") || agent === null) return
+  if (typeof agent !== "object" || agent === null) return
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const registeredAgent = agent as RegisteredWorkspaceAgent
   const names = registeredAgent[registeredWorkspaceAgentNames] || new Set<string>()
@@ -256,6 +254,24 @@ export function markWorkspaceAgentDefinitionRegistered(agent: unknown, name: str
     configurable: true,
     value: names,
   })
+}
+
+/** Records whether the options of a `defineAgent()` call have a `workspace` value. A parent's value does not count. */
+export function rememberDeclaredAgentWorkspace(agent: object, options: unknown): void {
+  const workspace = isRuntimeRecord(options) ? options.workspace : undefined
+  Object.defineProperty(agent, declaredAgentWorkspace, { configurable: true, value: workspace !== undefined && workspace !== null })
+}
+
+/**
+ * Returns a discovered folder Agent that discovery found no `workspace` key for. The Agent fails here when it owns a
+ * Workspace that a Capability, Channel, preset, parent, or configure callback added. An Agent whose `defineAgent()`
+ * options have the key passes, also when discovery could not read the key.
+ */
+export function withDeclaredAgentWorkspace<Agent>(agent: Agent, name: string): Agent {
+  if (workspaceAgentOwnsWorkspaceDefinition(agent) && Reflect.get(Object(agent), declaredAgentWorkspace) !== true) {
+    throw agentDiagnostics.AGENT_R1037({ name })
+  }
+  return agent
 }
 
 export function markDiscoveredWorkspaceAgentDefinitionRegistered(
@@ -271,7 +287,7 @@ export function markDiscoveredWorkspaceAgentDefinitionRegistered(
 }
 
 export function workspaceAgentUsesRegisteredDefinition(agent: unknown, name: string): boolean {
-  return hasRuntimeType(agent, "object")
+  return typeof agent === "object"
     && agent !== null
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     && Boolean((agent as RegisteredWorkspaceAgent)[registeredWorkspaceAgentNames]?.has(name))
@@ -284,7 +300,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const workspaceAgent = agent as WorkspaceAgentDefinition
   const options = workspaceAgent.__vitehubWorkspaceAgentOptions
   const workspace = options.workspace
-  if (!hasRuntimeType(workspace, "object") || workspace === null || isWorkspaceReference(workspace)) return agent
+  if (typeof workspace !== "object" || workspace === null || isWorkspaceReference(workspace)) return agent
   // SAFETY: The string and named-reference variants returned above, leaving owned Workspace options.
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
@@ -350,7 +366,7 @@ export function workspaceNameFromOptions<
   defaults: WorkspaceAgentDefaults<Name> = {},
   identity?: AgentHostIdentity,
 ): Name | string {
-  if (hasRuntimeType(options.workspace, "string")) return options.workspace
+  if (typeof options.workspace === "string") return options.workspace
   if (isWorkspaceReference(options.workspace)) return options.workspace.name
   return options.name || identity?.workspace || identity?.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
@@ -361,7 +377,7 @@ export function workspaceDefinitionFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
-  if (hasRuntimeType(options.workspace, "string")) {
+  if (typeof options.workspace === "string") {
     return withCapabilityWorkspaceSources({ mode: "read" }, staticAgentCapabilities(options.capabilities))
   }
   if (isWorkspaceReference(options.workspace)) {
@@ -374,8 +390,11 @@ export function workspaceDefinitionFromOptions<
   const { commit: _commit, materialize, ...workspace } = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
+  const materialized = withDefaultMaterialize(workspace, materialize)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    withDefaultMaterialize(workspace, materialize),
+    materialized.sources && usesProviderDriver(options)
+      ? { ...materialized, sources: withSourceSkills(materialized.sources) }
+      : materialized,
     staticAgentCapabilities(options.capabilities),
   ), options)
 }
@@ -416,7 +435,7 @@ function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: bo
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
-  if (!definition || !hasRuntimeType(definition, "object")) {
+  if (!definition || typeof definition !== "object") {
     throw agentDiagnostics.AGENT_R0880({ message: "[vitehub] defineWorkspace requires a workspace definition." })
   }
   if ("name" in definition) {
@@ -426,6 +445,10 @@ function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   if (unsupported.length) {
     throw agentDiagnostics.AGENT_R0882({ message: `[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
+  // SAFETY: The key check above allows only Workspace Definition fields, and `rules` and `plugins` keep their declared types.
+  const { plugins, rules } = definition as Pick<WorkspaceDefinition, "plugins" | "rules">
+  assertWorkspaceRules(rules)
+  for (const plugin of plugins ?? []) assertWorkspaceRules(plugin?.rules)
 }
 
 function withCapabilityWorkspaceSources(
@@ -517,13 +540,13 @@ export function workspaceModeFromOptions<
 }
 
 export function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions {
-  return hasRuntimeType(value, "object")
+  return typeof value === "object"
     && value !== null
     && "workspace" in value
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-    && (hasRuntimeType((value as { workspace?: unknown }).workspace, "string")
+    && (typeof (value as { workspace?: unknown }).workspace === "string"
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-      || (hasRuntimeType((value as { workspace?: unknown }).workspace, "object")
+      || (typeof (value as { workspace?: unknown }).workspace === "object"
         // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
         && (value as { workspace?: unknown }).workspace !== null))
 }
@@ -536,7 +559,7 @@ function modelDriverInstructions<
 ): AgentAdapterInstructions<TRuntimeConfig, Name> | undefined {
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const driver = (asUnknownBoundary(options) as { driver?: unknown }).driver
-  if (hasRuntimeType(driver, "object") && driver !== null) {
+  if (typeof driver === "object" && driver !== null) {
     return "model" in driver
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
@@ -563,6 +586,14 @@ function providerDriverHasInstructions<
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const driver = normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>)
   return driver.kind === "provider" && driver.instructions !== undefined
+}
+
+function usesProviderDriver<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  // SAFETY: Only the presence of the driver option is read here; normalization validates it.
+  return (asUnknownBoundary(options) as { driver?: unknown }).driver !== undefined && workspaceAgentDriverKind(options) === "provider"
 }
 
 function workspaceAgentDriverKind<
@@ -648,7 +679,7 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
   }
   if (capability.id.startsWith("channel-delivery.")) {
     const tool = capability.metadata?.tool
-    const name = hasRuntimeType(tool, "string") ? tool : undefined
+    const name = typeof tool === "string" ? tool : undefined
     if (!name) return undefined
     return {
       category: "capability",
@@ -679,7 +710,7 @@ function capabilityMetadataTools(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && hasRuntimeType(value, "object") && !Array.isArray(value)
+  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function staticDriverExecutionAuthority(driver: { credentials?: unknown, gateway?: unknown, kind: AgentDriverKind }): ExecutionAuthority {
@@ -709,7 +740,7 @@ function resolvedDriverExecutionAuthority<
 function agentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>, unknown, CALL_OPTIONS, TInvokerProfile>): AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined {
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return (definition as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> }).__vitehubAgentSettings
@@ -718,7 +749,7 @@ function agentSettings<
 function stringField(record: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = record[key]
-    if (hasRuntimeType(value, "string") && value.trim()) return value.trim()
+    if (typeof value === "string" && value.trim()) return value.trim()
   }
 }
 
@@ -758,7 +789,7 @@ function modelMetadata(model: AgentModelInput | undefined, dynamic = false): Age
 }
 
 function configValue(value: unknown): AgentInspectionConfigValue | undefined {
-  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "number") || hasRuntimeType(value, "string")) {
+  if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
     return value
   }
 }
@@ -784,10 +815,10 @@ function callSettingsMetadata(value: unknown): Record<string, AgentInspectionCon
 function workspaceFallbackMetadata(
   value: AgentInspectionModelExecutionMetadata["workspaceFallback"] | boolean | undefined,
 ): AgentInspectionModelExecutionMetadata["workspaceFallback"] | undefined {
-  if (hasRuntimeType(value, "boolean")) return { enabled: value }
+  if (typeof value === "boolean") return { enabled: value }
   if (!isRecord(value)) return
-  const enabled = hasRuntimeType(value.enabled, "boolean") ? value.enabled : undefined
-  const maxToolResults = hasRuntimeType(value.maxToolResults, "number") ? value.maxToolResults : undefined
+  const enabled = typeof value.enabled === "boolean" ? value.enabled : undefined
+  const maxToolResults = typeof value.maxToolResults === "number" ? value.maxToolResults : undefined
   return enabled !== undefined || maxToolResults !== undefined
     ? {
         ...(enabled !== undefined ? { enabled } : {}),
@@ -800,7 +831,7 @@ function executionMetadata(value: AgentInspectionDriverMetadata["execution"] | u
   if (!value) return
   const callSettings = callSettingsMetadata(value.callSettings)
   const workspaceFallback = workspaceFallbackMetadata(value.workspaceFallback)
-  const stepLimit = hasRuntimeType(value.stepLimit, "number") ? value.stepLimit : undefined
+  const stepLimit = typeof value.stepLimit === "number" ? value.stepLimit : undefined
   return callSettings || workspaceFallback || stepLimit !== undefined
     ? {
         ...(callSettings ? { callSettings } : {}),
@@ -825,9 +856,9 @@ function inspectionMetadataValue(
   seen = new WeakSet<object>(),
 ): AgentInspectionValue | undefined {
   if (secretInspectionMetadataKey(key)) return "[redacted]"
-  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
-  if (!value || !hasRuntimeType(value, "object") || depth >= 8 || seen.has(value)) return
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined
+  if (!value || typeof value !== "object" || depth >= 8 || seen.has(value)) return
 
   seen.add(value)
   const resolved = Array.isArray(value)
@@ -870,20 +901,10 @@ function capabilityInspectionMetadataProjection(
 }
 
 function providerResolverKind(value: unknown): "dynamic" | "static" {
-  return hasRuntimeType(value, "function")
-    || isRuntimeRecord(value) && hasRuntimeType(value.resolve, "function")
+  return typeof value === "function"
+    || isRuntimeRecord(value) && typeof value.resolve === "function"
     ? "dynamic"
     : "static"
-}
-
-function retentionMetadata(retention: NormalizedRetention): NonNullable<AgentInspectionProviderMetadata["retention"]> {
-  return {
-    ...(retention.maxAgeMs === false ? {} : { maxAge: retention.maxAgeMs }),
-    ...(retention.maxRecords === false ? {} : { maxRecords: retention.maxRecords }),
-    ...(retention.maxSize === false
-      ? {}
-      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${formatRetentionPercentage(retention.maxSize.fraction)}%` }),
-  }
 }
 
 function providerMetadata(driver: {
@@ -900,7 +921,6 @@ function providerMetadata(driver: {
   providerSettings?: Record<string, unknown>
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
-  retention?: NormalizedRetention
   sessionStorePath?: string
   toolchain?: AgentInspectionProviderMetadata["toolchain"]
 }): AgentInspectionProviderMetadata {
@@ -922,7 +942,6 @@ function providerMetadata(driver: {
     ...(providerSettings.length ? { providerSettings } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
-    ...(driver.retention ? { retention: retentionMetadata(driver.retention) } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),
     ...(driver.toolchain !== undefined ? { toolchain: driver.toolchain } : {}),
   }
@@ -931,7 +950,7 @@ function providerMetadata(driver: {
 function staticDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentInspectionDriverMetadata | undefined {
   if (!settings) return { executionAuthority: unknownExecutionAuthority, kind: "unknown" }
   const driver = normalizeAgentDriver(settings)
@@ -944,7 +963,7 @@ function staticDriverMetadata<
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       model: driver.gateway
         ? chatgptModelMetadata(String(driver.model))
-        : modelMetadata(hasRuntimeType(driver.model, "function") ? undefined : driver.model as AgentModelInput, hasRuntimeType(driver.model, "function")),
+        : modelMetadata(typeof driver.model === "function" ? undefined : driver.model as AgentModelInput, typeof driver.model === "function"),
     }
   }
   if (driver.kind === "provider") {
@@ -962,7 +981,7 @@ async function resolvedDriverMetadata<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TInvokerProfile extends AgentInvoker = AgentInvoker,
 >(
   settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
   context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>,
@@ -979,7 +998,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "model") {
-    const dynamic = hasRuntimeType(driver.model, "function")
+    const dynamic = typeof driver.model === "function"
     const model = dynamic
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       ? await (driver.model as (context: AgentModelResolverContext<TRuntimeConfig, Name>) => AgentModelInput | Promise<AgentModelInput>)(context)
@@ -1011,7 +1030,7 @@ function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   const driver = staticDriverMetadata(settings)
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   const capacity = inspectAgentCapacity(definition as object)
-  const uiMessageStream = hasRuntimeType(settings?.uiMessageStream, "function")
+  const uiMessageStream = typeof settings?.uiMessageStream === "function"
     ? undefined
     : settings?.uiMessageStream
   return driver ? { driver: { ...driver, ...(capacity ? { capacity } : {}) }, ...(uiMessageStream ? { uiMessageStream } : {}) } : undefined
@@ -1025,7 +1044,7 @@ async function resolvedUiMessageStreamProjection<
   context: AgentModelResolverContext<TRuntimeConfig, Name> & AgentRunCallbackContext<TRuntimeConfig>,
 ): Promise<AgentUIMessageStreamProjection | undefined> {
   const uiMessageStream = agentSettings(definition)?.uiMessageStream
-  return hasRuntimeType(uiMessageStream, "function")
+  return typeof uiMessageStream === "function"
     ? await uiMessageStream(context)
     : uiMessageStream
 }
@@ -1162,11 +1181,11 @@ export async function resolveWorkspaceInstructionBindings(
     if (!/^[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*$/.test(key)) {
       throw agentDiagnostics.AGENT_R0886({ message: `[vitehub] Workspace instruction binding "${key}" must be addressable as workspace.${key}.` })
     }
-    if (binding === null || hasRuntimeType(binding, "string") || hasRuntimeType(binding, "number") || hasRuntimeType(binding, "boolean")) {
+    if (binding === null || typeof binding === "string" || typeof binding === "number" || typeof binding === "boolean") {
       resolved[key] = binding
       continue
     }
-    if (binding && hasRuntimeType(binding, "object") && hasRuntimeType(binding.path, "string")) {
+    if (binding && typeof binding === "object" && typeof binding.path === "string") {
       if (!workspace) throw agentDiagnostics.AGENT_R0887({ message: `[vitehub] Workspace instruction binding "${key}" requires Workspace access.` })
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
       resolved[key] = await workspace.fs.readFile(binding.path as never)
@@ -1406,13 +1425,13 @@ function workspaceMetadataInstructions<
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
     ? readColocatedAgentInstructionsRaw(options)
     : undefined
-  const instructionObject = configuredInstructions && hasRuntimeType(configuredInstructions, "object") && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions) && "template" in configuredInstructions
+  const instructionObject = configuredInstructions && typeof configuredInstructions === "object" && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions) && "template" in configuredInstructions
     ? configuredInstructions
     : undefined
   const parts = agentInstructionSources(configuredInstructions)
   const instructions = parts.flatMap((part) => {
-    if (hasRuntimeType(part, "string") && part.trim().length > 0) return [part]
-    if (hasRuntimeType(part, "function")) {
+    if (typeof part === "string" && part.trim().length > 0) return [part]
+    if (typeof part === "function") {
       const localInstructions = resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined
       if (localInstructions) return [localInstructions]
       return ["Dynamic system instructions resolver configured."]
@@ -1422,15 +1441,15 @@ function workspaceMetadataInstructions<
   const slotParts = Array.isArray(instructionObject?.content)
     ? instructionObject.content
     : [instructionObject?.content]
-  const slotIsDynamic = slotParts.some(part => hasRuntimeType(part, "function"))
+  const slotIsDynamic = slotParts.some(part => typeof part === "function")
   const slotContent = slotIsDynamic
     ? (resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined)
       ?? "Dynamic system instructions resolver configured."
-    : slotParts.filter((part): part is string => hasRuntimeType(part, "string") && part.trim().length > 0).map(part => part.trim()).join("\n\n")
+    : slotParts.filter((part): part is string => typeof part === "string" && part.trim().length > 0).map(part => part.trim()).join("\n\n")
   const templateParts = Array.isArray(instructionObject?.template) ? instructionObject.template : [instructionObject?.template]
   const composed = instructionObject
     && !slotIsDynamic
-    && templateParts.every((part): part is string => hasRuntimeType(part, "string"))
+    && templateParts.every((part): part is string => typeof part === "string")
     ? fillSynchronousInstructionSlot(templateParts.join("\n\n"), slotContent)
     : undefined
   const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed !== undefined ? [composed] : instructions)].join("\n\n").trim()
@@ -1542,7 +1561,7 @@ async function staticWorkspaceMetadataInstructions<
   const coverage = await collectStaticInstructionCoverage(instructions.join("\n\n"))
   const configuredInstructions = modelDriverInstructions(options)
   const hasDynamicInstructions = agentInstructionSources(configuredInstructions)
-    .some(instruction => hasRuntimeType(instruction, "function"))
+    .some(instruction => typeof instruction === "function")
   const visibleSources = new Set(workspaceMetadataFiles(options, context).map(file => file.source).filter(Boolean))
   const visibleDefinition = definition.sources
     ? {
@@ -1585,7 +1604,7 @@ function readColocatedAgentInstructionsRaw<
     source?: { content?: unknown }
   } | undefined
   const embeddedContent = embedded?.content ?? embedded?.source?.content
-  if (hasRuntimeType(embeddedContent, "string") && embeddedContent.trim()) return embeddedContent.trim()
+  if (typeof embeddedContent === "string" && embeddedContent.trim()) return embeddedContent.trim()
 
   const fs = getNodeBuiltin("node:fs")
   const path = getNodeBuiltin("node:path")
@@ -1701,7 +1720,7 @@ function capabilityCoverageWarnings(
 }
 
 function skillCoveragePath(value: unknown): string | undefined {
-  if (!hasRuntimeType(value, "string") || !value.trim()) return
+  if (typeof value !== "string" || !value.trim()) return
   return value.trim().replace(/\/+$/, "").replace(/\/SKILL\.md$/, "") || "."
 }
 
@@ -1762,7 +1781,7 @@ async function createInspectionMetadataWorkspace<
   },
 ) {
   const defaults = {
-    ...(hasRuntimeType(definition.name, "string") ? { name: definition.name } : {}),
+    ...(typeof definition.name === "string" ? { name: definition.name } : {}),
     ...defaultsOverride,
   }
   if (!definition.__vitehubWorkspaceAgentOptions) return
@@ -1851,7 +1870,6 @@ async function resolveMetadataCapabilitySelection<
     ...agentInvocationCallbackContextValues(invocationContext),
     ...callbackContext,
     abortSignal: input.abortSignal,
-    actor: invoker,
     context: invocationContext,
     driver: { kind: driverKind },
     input,
@@ -1906,7 +1924,6 @@ async function resolveWorkspaceMetadataCapabilityContext<
       ...agentInvocationCallbackContextValues(invocationContext),
       ...agentCallbackContext(runtime),
       abortSignal: input.abortSignal,
-      actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
       fs: metadataWorkspace.fs,
@@ -1996,7 +2013,6 @@ async function resolveNonWorkspaceAgentInspectionMetadata<
       ...agentInvocationCallbackContextValues(selection.invocationContext),
       ...agentCallbackContext(selection.runtime),
       abortSignal: selection.input.abortSignal,
-      actor: selection.invoker,
       context: selection.invocationContext,
       driver: { kind: selection.driverKind },
       input: selection.input,

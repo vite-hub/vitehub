@@ -1,6 +1,6 @@
 import type { AgentInvocationStore } from "../invocations.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 /**
  * Agent Driver that runs a journaled Invocation, and whether ViteHub can stop it.
@@ -120,18 +120,18 @@ export function isAgentInvocationAbortError(error: unknown, names: readonly stri
   if (!isRuntimeRecord(error)) return false
   try {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
-    let branded = hasRuntimeType(nativeIsError, "function")
+    let branded = typeof nativeIsError === "function"
       ? nativeIsError(error) === true
       : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
-    if (!branded && hasRuntimeType(globalThis.DOMException, "function")) {
+    if (!branded && typeof globalThis.DOMException === "function") {
       const nameGetter = Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, "name")?.get
       try {
-        branded = Boolean(nameGetter && hasRuntimeType(nameGetter.call(error), "string"))
+        branded = Boolean(nameGetter && typeof nameGetter.call(error) === "string")
       }
       catch {}
     }
     const name: unknown = Reflect.get(error, "name")
-    return branded && hasRuntimeType(name, "string") && names.includes(name)
+    return branded && typeof name === "string" && names.includes(name)
   }
   catch {
     return false

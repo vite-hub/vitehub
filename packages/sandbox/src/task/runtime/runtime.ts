@@ -20,11 +20,13 @@ import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeRegistry, type Sandbo
 import type {
   AgentSandboxTaskConfig,
   SandboxTaskExecutionOptions,
+  SandboxTaskRunArguments,
   SandboxTaskRunResult,
 } from '../module-types'
 import { getSandboxTaskFeatureProvider } from '../module-types'
 import type { ExecutionAuthority } from '@vite-hub/runtime'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
+import type { SandboxTaskDefinitionName, SandboxTaskPayload, SandboxTaskRegistryDefinition, SandboxTaskResult } from './registry-types'
 
 const cloudflareRunQueues = new Map<string, Promise<void>>()
 
@@ -99,9 +101,12 @@ export interface SandboxTaskRunner {
   readonly executionAuthority: ExecutionAuthority
   name: string
   run: <TPayload = unknown, TResult = unknown>(
-    payload?: TPayload,
-    options?: SandboxTaskExecutionOptions,
+    ...args: SandboxTaskRunArguments<TPayload>
   ) => Promise<TResult>
+}
+
+type ResolvedSandboxTaskRunner<TPayload, TResult> = Omit<SandboxTaskRunner, 'run'> & {
+  run: (...args: SandboxTaskRunArguments<TPayload>) => Promise<TResult>
 }
 
 async function loadSandboxTaskDefinition(name: string): Promise<SandboxTaskRegistryEntry | undefined> {
@@ -232,7 +237,12 @@ async function createSandboxTaskRunner(
   }
 }
 
-export async function resolveSandboxTaskRunner<TPayload = unknown, TResult = unknown>(name?: string) {
+export function resolveSandboxTaskRunner<const TName extends SandboxTaskDefinitionName>(name: TName): Promise<ResolvedSandboxTaskRunner<
+  SandboxTaskPayload<SandboxTaskRegistryDefinition<TName>>,
+  SandboxTaskResult<SandboxTaskRegistryDefinition<TName>>
+>>
+export function resolveSandboxTaskRunner<TPayload = unknown, TResult = unknown>(name?: string): Promise<ResolvedSandboxTaskRunner<TPayload, TResult>>
+export async function resolveSandboxTaskRunner(name?: string) {
   if (!name)
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0052({ message: '[vitehub] Sandbox name is required. An explicit name is required.' })
   const config = getSandboxTaskRuntimeConfig()
@@ -245,10 +255,7 @@ export async function resolveSandboxTaskRunner<TPayload = unknown, TResult = unk
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
 
   const provider = await resolveSandboxTaskProvider(config, definition)
-  // SAFETY: createSandboxTaskRunner returns the generic runner whose run method is narrowed to this invocation's payload and result types.
-  return await createSandboxTaskRunner(name, definition, provider) as SandboxTaskRunner & {
-    run: (payload?: TPayload, options?: SandboxTaskExecutionOptions) => Promise<TResult>
-  }
+  return await createSandboxTaskRunner(name, definition, provider)
 }
 
 export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknown>(
@@ -258,7 +265,7 @@ export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknow
 ): Promise<SandboxTaskRunResult> {
   try {
     options?.signal?.throwIfAborted()
-    const sandbox = await resolveSandboxTaskRunner<TPayload, TResult>(name)
+    const sandbox = await resolveSandboxTaskRunner<TPayload | undefined, TResult>(name)
     return await ok(await sandbox.run(payload, options))
   }
   catch (error) {

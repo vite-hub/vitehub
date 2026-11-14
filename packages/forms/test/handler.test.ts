@@ -77,7 +77,7 @@ describe("handleFormRequest", () => {
     const { store, email, all } = services()
     const response = await handleFormRequest("contact", form, post({ message: "Hi", _page: "/contact" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe("/contact?form=error")
+    expect(response.headers.get("location")).toBe("/contact?form=contact.error")
     expect(onSubmit).not.toHaveBeenCalled()
     expect(email).not.toHaveBeenCalled()
     expect(await store.list()).toEqual([])
@@ -94,6 +94,15 @@ describe("handleFormRequest", () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi", _anchor: { exact: "orphan" } }), all)
     expect((await store.list())[0]?.anchor).toBeNull()
+  })
+
+  it("does not keep the result of an earlier post in the page", async () => {
+    const { store, all } = services()
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/contact?plan=pro&form=contact.error` } }), all)
+    expect((await store.list())[0]?.page).toBe("/contact?plan=pro")
+    // A `form` query of the app itself stays.
+    await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/signup?form=newsletter` } }), all)
+    expect((await store.list())[0]?.page).toBe("/signup?form=newsletter")
   })
 
   it("does not keep a page of another origin", async () => {
@@ -213,7 +222,7 @@ describe("handleFormRequest", () => {
     expect(email).not.toHaveBeenCalled()
     const native = await handleFormRequest("contact", plain, post({ message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }))
     expect(native.status).toBe(303)
-    expect(native.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    expect(native.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
 
     const handled = defineForm({ schema, store: false, onSubmit })
     expect((await handleFormRequest("contact", handled, request())).status).toBe(201)
@@ -243,14 +252,14 @@ describe("handleFormRequest", () => {
     const { store, all } = services()
     const sent = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
     expect(sent.status).toBe(303)
-    expect(sent.headers.get("location")).toBe("/pricing?plan=pro&form=sent")
+    expect(sent.headers.get("location")).toBe("/pricing?plan=pro&form=contact.sent")
     expect(await store.list()).toHaveLength(1)
     const wrong = await handleFormRequest("contact", contact, post({ email: "x", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
-    expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
     // Every other failure also goes back to the page, such as the rate limit.
     const limited = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), { ...all, rateLimit: async () => ({ allowed: false }) })
     expect(limited.status).toBe(303)
-    expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=error")
+    expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
   })
 
   it.each(["urlencoded", "multipart"])("decodes supported Valibot fields in a native %s post", async (encoding) => {
@@ -274,7 +283,7 @@ describe("handleFormRequest", () => {
       body,
     }), all)
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe("/pricing?plan=pro&form=sent")
+    expect(response.headers.get("location")).toBe("/pricing?plan=pro&form=contact.sent")
     expect((await store.list()).map(row => row.data)).toStrictEqual([{ count: 3, size: 2, choice: 1, newsletter: false, terms: true }])
   })
 
@@ -300,7 +309,7 @@ describe("handleFormRequest", () => {
     // A path with two leading slashes would send the visitor to another site.
     const html = { type: "application/x-www-form-urlencoded", headers: { accept: "text/html", referer: `${origin}//x//evil.test` } }
     const sent = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, html), all)
-    expect(sent.headers.get("location")).toBe("/x//evil.test?form=sent")
+    expect(sent.headers.get("location")).toBe("/x//evil.test?form=contact.sent")
     const broken = post({}, { type: "multipart/form-data", raw: "not multipart" })
     expect((await handleFormRequest("contact", contact, broken, all)).status).toBe(400)
   })

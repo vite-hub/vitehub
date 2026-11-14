@@ -67,13 +67,14 @@ describe("Console inspector initialization", () => {
     }))
     app.component("UTooltip", defineComponent({ setup: (_props, { slots }) => () => slots.default?.() }))
     app.component("UKbd", defineComponent({ setup: (_props, { slots }) => () => h("kbd", slots.default?.()) }))
-    for (const name of ["UIcon", "UButton", "UEmpty"]) {
+    app.component("UEmpty", defineComponent({ props: { title: String }, setup: (props, { slots }) => () => h("div", [props.title, slots.body?.()]) }))
+    for (const name of ["UIcon", "UButton"]) {
       app.component(name, { render: () => null })
     }
     const html = await renderToString(app)
-    expect(html).toContain("Open a tab")
     expect(html).not.toContain("<kbd")
-    expect(menuItems.map(item => item.label)).toEqual(["Invocation", "Capabilities", "Trace"])
+    // A session without recorded capabilities has no Capabilities tab to offer.
+    expect(menuItems.map(item => item.label)).toEqual(["Details", "Trace"])
     expect(menuItems.filter(item => "kbds" in item)).toEqual([])
   })
 

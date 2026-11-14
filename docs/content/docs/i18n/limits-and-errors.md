@@ -17,6 +17,7 @@ icon: i-lucide-circle-alert
 - **A Workspace is read every 5 seconds.** Each server instance reads the head of `published` at most once every 5 seconds, so another instance can show the old translations for up to 5 seconds after a publish.
 - **The catalog route ignores the app base URL.** The browser reads `/_vitehub/i18n/<locale>.json` from the origin root.
 - **`publish()` publishes every changed draft.** It does not pin the drafts that a person reviewed. A save that comes in during a publish can go out with it.
+- **Rich-text validation.** `save()` accepts at most 256 distinct numeric tag sequences at each step of expanding ICU branches, in both the source and the translation. Equal tag sequences count once. A message that exceeds this limit returns `I18N_INVALID_TRANSLATION` before any draft is saved. Split it into smaller messages.
 - **Memory on the server.** The server loads the compiled messages of every locale when it starts.
 - **Locale matching.** A locale matches by its full tag, then by its language. The first configured locale with the same language wins. With `["en", "pt-BR", "pt-PT"]`, a request for `pt` gets `pt-BR`.
 - **Top-level messages.** A `t` call at the top level of a module runs before any request and before the page picks a locale. Use [`msg` and `translate()`](/docs/i18n/server-api#msg-and-translate) there.
@@ -33,9 +34,17 @@ A config error throws when the build starts. A runtime error comes back as `[err
 
 The app builds the server with an unsupported host. i18n needs Nitro 3, which runs each request in an async context. Use Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.
 
+### I18N_UNKNOWN_WORKSPACE
+
+The build stops because `i18n.workspace` names a Workspace that the app does not define, or because Workspace is not enabled. Set `i18n.workspace` to the name of a Workspace, or define it, such as `server/workspaces/translations/config.ts` for `"translations"`. The error lists the Workspaces that the app defines.
+
 ### I18N_MACRO_NOT_COMPILED
 
 `t`, `plural`, `select`, `selectOrdinal`, or `msg` from `vite-hub/i18n` ran without the ViteHub build, so it has no message ID. This happens when `i18n` is not enabled, or when a file that Vite does not build, such as a script that Node.js runs directly, imports the function. Enable `i18n` in `vitehub()` or `vite-hub/nuxt`, and import the function in a file that Vite builds.
+
+### I18N_INVALID_TRANSLATION
+
+`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text, or whose source or translation exceeds the rich-text validation limit above. Nothing was saved. Fix the translation or split the message and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
 
 ### I18N_NO_WORKSPACE
 

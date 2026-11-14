@@ -3,7 +3,6 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import { askAiGateway } from "@vite-hub/gateways/internal"
 import { getMessageText } from "../messages.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
-import { hasRuntimeType } from "./runtime-type.ts"
 
 import type { AiGateway, AskAnswers, AskQuestions } from "@vite-hub/gateways"
 import type { Message } from "../messages.ts"
@@ -43,7 +42,7 @@ export async function askJev<const Q extends AskQuestions>(context: AskRequestCo
 export function askState(input: AskStateInput, prompt: unknown, messages: readonly Message[]): unknown {
   // `data` is part of the Agent Run Input once `defineAgent({ data })` is available. Read it when a caller sets it.
   if ("data" in input && input.data !== undefined) return input.data
-  if (hasRuntimeType(prompt, "string") && prompt.trim()) return prompt.trim()
+  if (typeof prompt === "string" && prompt.trim()) return prompt.trim()
   const latest = [...messages].reverse().find(message => message.role === "user")
   return latest ? getMessageText(latest).trim() : null
 }

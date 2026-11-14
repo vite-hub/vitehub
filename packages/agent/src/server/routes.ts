@@ -1,3 +1,4 @@
+import { releaseReconcileRun } from "../internal/github-reconcile-branch.ts"
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
 import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
@@ -36,15 +37,15 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { agentInvocationClaimState, agentInvocationId, bindAgentInvocations, isAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { getAgentChannelStatusDefinition } from "../internal/channel-status.ts"
 import type { AgentChannelStatus } from "../internal/channel-status.ts"
-import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
@@ -90,16 +91,6 @@ import { portableWorkflowCapabilityMask } from "../internal/workflow-portability
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
-import {
-  isRuntimeBigInt,
-  isRuntimeBoolean,
-  isRuntimeFunction,
-  isRuntimeNumber,
-  isRuntimeObject,
-  isRuntimeString,
-  isRuntimeSymbol,
-  isRuntimeUndefined,
-} from "../internal/runtime-value.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
 import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
@@ -426,20 +417,20 @@ function createRouteBodyError(message: string): Error & { status?: number; statu
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => isRuntimeString(value) && value.length > 0)
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
 function isReadableStreamLike(value: unknown): value is ReadableStream<unknown> {
-  return isRecord(value) && isRuntimeFunction(value.getReader) && isRuntimeFunction(value.pipeThrough)
+  return isRecord(value) && typeof value.getReader === "function" && typeof value.pipeThrough === "function"
 }
 
 function isHeadersLike(value: unknown): value is Headers {
-  return isRecord(value) && isRuntimeFunction(value.entries) && isRuntimeFunction(value.get)
+  return isRecord(value) && typeof value.entries === "function" && typeof value.get === "function"
 }
 
 function isResponseLike(value: unknown): value is Response & { body: ReadableStream<unknown> } {
   return (
-    isRecord(value) && isReadableStreamLike(value.body) && isHeadersLike(value.headers) && isRuntimeNumber(value.status) && isRuntimeString(value.statusText)
+    isRecord(value) && isReadableStreamLike(value.body) && isHeadersLike(value.headers) && typeof value.status === "number" && typeof value.statusText === "string"
   )
 }
 
@@ -501,12 +492,12 @@ function serializeErrorForLog(
   },
   depth = 0,
 ): unknown {
-  if (isRuntimeString(value)) return serializeLogString(value, state)
-  if (value === null || isRuntimeNumber(value) || isRuntimeBoolean(value) || isRuntimeUndefined(value)) return value
-  if (isRuntimeBigInt(value) || isRuntimeSymbol(value) || isRuntimeFunction(value)) {
+  if (typeof value === "string") return serializeLogString(value, state)
+  if (value === null || typeof value === "number" || typeof value === "boolean" || value === undefined) return value
+  if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") {
     return serializeLogString(String(value), state)
   }
-  if (!isRuntimeObject(value)) return serializeLogString(String(value), state)
+  if (typeof value !== "object" || value === null) return serializeLogString(String(value), state)
   if (value instanceof ArrayBuffer) return `[ArrayBuffer ${value.byteLength} bytes]`
   if (ArrayBuffer.isView(value)) return `[${value.constructor.name} ${value.byteLength} bytes]`
   if (value instanceof Blob) return `[Blob ${value.size} bytes, ${value.type || "unknown type"}]`
@@ -544,7 +535,7 @@ function serializeErrorForLog(
   if (Object.keys(value).length > keys.length) {
     output["[truncated]"] = `${Object.keys(value).length - keys.length} properties omitted`
   }
-  if (value instanceof Error && "cause" in value && !isRuntimeUndefined(value.cause)) {
+  if (value instanceof Error && "cause" in value && value.cause !== undefined) {
     output.cause = serializeErrorForLog(value.cause, state, depth + 1)
   }
   return output
@@ -559,17 +550,17 @@ function createRuntimeRequest(request: Request, body?: string | Uint8Array): Req
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return isRuntimeObject(value) && value !== null
+  return typeof value === "object" && value !== null
 }
 
 function isResolvableObject<T, TContext extends AgentRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
 ): value is { resolve: (context: TContext) => T | Promise<T> } {
   if (!isRecord(value)) return false
-  if (Object.hasOwn(value, "resolve")) return isRuntimeFunction(value.resolve)
+  if (Object.hasOwn(value, "resolve")) return typeof value.resolve === "function"
   let prototype = Object.getPrototypeOf(value)
   while (prototype && prototype !== Object.prototype) {
-    if (Object.getOwnPropertyDescriptor(prototype, "resolve")) return isRuntimeFunction(value.resolve)
+    if (Object.getOwnPropertyDescriptor(prototype, "resolve")) return typeof value.resolve === "function"
     prototype = Object.getPrototypeOf(prototype)
   }
   return false
@@ -580,7 +571,7 @@ async function resolveMaybe<T, TContext extends AgentRuntimeContext>(
   context: TContext,
 ): Promise<T | undefined> {
   if (value === undefined) return undefined
-  if (isRuntimeFunction(value)) {
+  if (typeof value === "function") {
     // SAFETY: This value retains the generic type recorded when the owning runtime entry was created.
     return await (value as (context: TContext) => T | Promise<T>)(context)
   }
@@ -597,10 +588,10 @@ async function resolveWebhookSecret(
   context: AgentRuntimeContext,
 ): Promise<unknown> {
   if (value === undefined) return undefined
-  if (isRuntimeFunction(value)) {
+  if (typeof value === "function") {
     return await value(context)
   }
-  if (isRecord(value) && Object.hasOwn(value, "resolve") && isRuntimeFunction(value.resolve)) {
+  if (isRecord(value) && Object.hasOwn(value, "resolve") && typeof value.resolve === "function") {
     return await value.resolve(context)
   }
   return value
@@ -699,7 +690,9 @@ async function matchedWebhookRegistrationRequiresVerification(
   if (registration.secretToken !== undefined) return secret !== false
   // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
-  return requireConfiguredSecret && registration.secretHeader !== undefined
+  // A Chat SDK adapter verifies chat messages itself. Every other registration verifies unless it opts out with
+  // `secretToken: false`, so a registration that declares nothing answers 401 instead of running its trigger.
+  return requireConfiguredSecret
 }
 
 function parseWebhookPayload(body: string): unknown {
@@ -768,7 +761,7 @@ async function terminalChannelDeliveryResponse(
   type?: "completed" | "failed" | "rejected",
 ): Promise<Response> {
   const body: unknown = response.status >= 500 ? await response.clone().json().catch(() => undefined) : undefined
-  const error = isRecord(body) && isRuntimeString(body.message) ? body.message : undefined
+  const error = isRecord(body) && typeof body.message === "string" ? body.message : undefined
   await recordChannelDeliveryEvidence(delivery, { ...(error ? { error } : {}), type: type ?? (error ? "failed" : "rejected") })
   return response
 }
@@ -776,7 +769,7 @@ async function terminalChannelDeliveryResponse(
 /** The `reason` of a `retryLater()` or `rejected()` answer, when the body has one. */
 async function handledResponseReason(response: Response): Promise<string | undefined> {
   const body: unknown = await response.clone().json().catch(() => undefined)
-  return isRecord(body) && isRuntimeString(body.reason) ? body.reason : undefined
+  return isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
 }
 
 async function observeHandledChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker): Promise<Response> {
@@ -853,7 +846,7 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
         return async (...args: Parameters<Thread["reply"]>) => await observe(() => target.reply(...args))
       }
       const value = Reflect.get(target, property, target)
-      return isRuntimeFunction(value) ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   })
 }
@@ -925,13 +918,13 @@ async function observeChannelDeliveryResponse(response: Response, delivery: Agen
 }
 
 function githubInstallationId(payload: unknown): number | undefined {
-  if (!payload || !isRuntimeObject(payload)) return
+  if (!payload || typeof payload !== "object") return
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const installation = (payload as { installation?: unknown }).installation
-  if (!installation || !isRuntimeObject(installation)) return
+  if (!installation || typeof installation !== "object") return
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const id = (installation as { id?: unknown }).id
-  return isRuntimeNumber(id) ? id : undefined
+  return typeof id === "number" ? id : undefined
 }
 
 function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition, body = ""): Record<string, unknown> {
@@ -981,10 +974,10 @@ function resolveWebhookStateBackendId(state: StateAdapter): Promise<string> {
   const resolving = (async () => {
     const backendIdKey = "webhook:backend-id"
     const stored = await state.get(backendIdKey)
-    if (isRuntimeString(stored) && stored) return stored
+    if (typeof stored === "string" && stored) return stored
     await state.setIfNotExists(backendIdKey, globalThis.crypto.randomUUID())
     const backendId = await state.get(backendIdKey)
-    if (!isRuntimeString(backendId) || !backendId) {
+    if (typeof backendId !== "string" || !backendId) {
       throw agentDiagnostics.AGENT_R0772({ message: "[vitehub] Webhook Agent state returned an invalid backend identity." })
     }
     return backendId
@@ -1000,7 +993,7 @@ async function resolveAgentWebhookState(
   handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<{ keyPrefix: string; state: StateAdapter } | undefined> {
   const { stateScope: declaredScope } = registration
-  const stateScope = declaredScope === undefined ? undefined : isRuntimeString(declaredScope) ? declaredScope.replace(/:+$/, "") : ""
+  const stateScope = declaredScope === undefined ? undefined : typeof declaredScope === "string" ? declaredScope.replace(/:+$/, "") : ""
   if (stateScope !== undefined && !stateScope.trim()) {
     throw new TypeError(`[vitehub] Webhook registration "${registration.id || registration.provider}" stateScope must be a non-empty string.`)
   }
@@ -1046,7 +1039,7 @@ function webhookQueueExecutionTimeout(agent: unknown, input: unknown): number {
   const options = getAgentChatOptions(agent)
   const messages = isRecord(agent) && isRecord(agent.messages) ? agent.messages : undefined
   const requested = (isRecord(input) ? input.timeout : undefined) ?? options?.timeout ?? messages?.timeout
-  return isRuntimeNumber(requested) && Number.isFinite(requested) && requested > 0 && requested <= maxWebhookQueueExecutionMs
+  return typeof requested === "number" && Number.isFinite(requested) && requested > 0 && requested <= maxWebhookQueueExecutionMs
     ? requested
     : defaultWebhookQueueExecutionMs
 }
@@ -1122,9 +1115,9 @@ function persistedWebhookRequest(
 }
 
 function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
-  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return true
-  if (isRuntimeNumber(value)) return Number.isFinite(value)
-  if (!value || !isRuntimeObject(value) || seen.has(value)) return false
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true
+  if (typeof value === "number") return Number.isFinite(value)
+  if (!value || typeof value !== "object" || seen.has(value)) return false
   if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return false
   seen.add(value)
   // JSON omits undefined object properties. Optional translated fields must not
@@ -1188,7 +1181,7 @@ function queuedWebhookTaskKey(
 ): string | undefined {
   if (saved?.task !== undefined) return saved.task
   const savedRun: unknown = saved?.run
-  const origin = isRecord(savedRun) && isRuntimeString(savedRun.origin) ? savedRun.origin : run?.origin
+  const origin = isRecord(savedRun) && typeof savedRun.origin === "string" ? savedRun.origin : run?.origin
   return origin !== undefined && trigger.tasks && Object.hasOwn(trigger.tasks, origin) ? origin : undefined
 }
 
@@ -1392,7 +1385,7 @@ function webhookDebounce(ownership: { busy?: string, debounce?: unknown }): { de
   if (ownership.busy === "steer") {
     throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce is not available with busy: \"steer\"." })
   }
-  if (!isRecord(debounce) || !isRuntimeString(debounce.key) || !debounce.key.trim() || !isRuntimeNumber(debounce.delayMs) || !Number.isSafeInteger(debounce.delayMs) || debounce.delayMs < 0) {
+  if (!isRecord(debounce) || typeof debounce.key !== "string" || !debounce.key.trim() || typeof debounce.delayMs !== "number" || !Number.isSafeInteger(debounce.delayMs) || debounce.delayMs < 0) {
     throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce needs a non-empty key and a non-negative integer delayMs." })
   }
   return { delayMs: debounce.delayMs, key: debounce.key }
@@ -1534,7 +1527,7 @@ async function queuedWebhookInvocationCancelled(
 
 /** The name that identifies this Agent's Invocations. It matches the name of the Invocation journal. */
 function routeAgentInvocationName(agent: AgentInput<ViteAgentRouteRuntimeContext>, identity: AgentHostIdentity | undefined): string | undefined {
-  return (isRuntimeRecord(agent) && hasRuntimeType(agent.name, "string") && agent.name) || identity?.name
+  return (isRuntimeRecord(agent) && typeof agent.name === "string" && agent.name) || identity?.name
 }
 
 async function notifyQueuedWebhookFailure(
@@ -1553,7 +1546,7 @@ async function notifyQueuedWebhookFailure(
     const dispatched = delivery.invocation?.trigger
     // A queued dispatch item reports to the trigger that admitted it; ordinary
     // queued webhook rows use the registration trigger.
-    const trigger = match?.registration.channelId && isRuntimeString(dispatched)
+    const trigger = match?.registration.channelId && typeof dispatched === "string"
       // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
       ? (await runWithRuntimeCloudflareEnv(context, () => resolveAgentTriggers(agent as never, context as never)))[`${match.registration.channelId}.${dispatched}`] ?? match.trigger
       : match?.trigger
@@ -1575,8 +1568,8 @@ async function notifyQueuedWebhookFailure(
         taskFailed = undefined
       }
     }
-    const failed = isRuntimeFunction(taskFailed) ? taskFailed : trigger?.definition.failed
-    if (!isRuntimeFunction(failed)) return
+    const failed = typeof taskFailed === "function" ? taskFailed : trigger?.definition.failed
+    if (typeof failed !== "function") return
     // The Invocation of a task Agent belongs to that Agent.
     const reference = await runInvocationReference(delivery.invocation?.agentName || invocation?.agentName || routeAgentInvocationName(agent, identity), invocation?.run)
     await failed({
@@ -1631,7 +1624,7 @@ async function rollbackQueuedDispatchOrder(state: AgentWebhookQueueStateAdapter,
   const lock = await acquireChannelStateLock(state, `${queuedOrder.key}:transaction`)
   try {
     const current = await state.get<unknown>(queuedOrder.key)
-    if (!isRuntimeNumber(current) || current !== queuedOrder.version) return
+    if (typeof current !== "number" || current !== queuedOrder.version) return
     if (queuedOrder.previous === undefined) await state.delete(queuedOrder.key)
     else await state.set(queuedOrder.key, queuedOrder.previous)
   }
@@ -1681,7 +1674,7 @@ async function deliverQueuedWebhookFailure(
 /** The `reason` of a handled JSON answer such as `retryLater(reason)`. */
 async function handledWebhookResponseReason(response: Response): Promise<string | undefined> {
   const body: unknown = await response.clone().json().catch(() => undefined)
-  return isRecord(body) && isRuntimeString(body.reason) ? body.reason : undefined
+  return isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
 }
 
 /**
@@ -1699,7 +1692,7 @@ async function queuedWebhookTrigger(
   if (!match?.registration.channelId) return match?.trigger
   bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
   const dispatched = delivery.invocation?.trigger
-  if (isRuntimeString(dispatched)) {
+  if (typeof dispatched === "string") {
     // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
     const triggers = await resolveAgentTriggers(agent as never, context as never)
     return triggers[`${match.registration.channelId}.${dispatched}`] as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> | undefined
@@ -1803,6 +1796,7 @@ async function executeQueuedWebhookDelivery(
   })
   let webhookFence: Lock | undefined
   let stopWebhookFenceHeartbeat: (() => void) | undefined
+  let reconcileSignal: AbortSignal | undefined
   let retainWebhookFence = false
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
@@ -1927,7 +1921,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           replayMatch.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
+          { verifyWebhook: false, queuedInvocation: invocation && { ...invocation, acceptedAt: delivery.enqueuedAt }, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
@@ -1953,6 +1947,7 @@ async function executeQueuedWebhookDelivery(
         if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
           throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
         }
+        reconcileSignal = resolved.input.abortSignal
         invocation = { ...invocation, input: resolved.input, run: resolved.run }
         accepted = resolved
       }
@@ -2252,6 +2247,7 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
+    releaseReconcileRun(reconcileSignal)
     if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
@@ -2327,17 +2323,17 @@ async function collectAgentOutput(
         .clone()
         .json()
         .catch(() => undefined)
-      if (isRecord(body) && isRuntimeString(body.text)) {
+      if (isRecord(body) && typeof body.text === "string") {
         return body.text
       }
     }
     return await result.text()
   }
 
-  if (result && isRuntimeObject(result) && !isAsyncIterable(result) && !hasTraceableStreamResult(result)) {
+  if (result && typeof result === "object" && !isAsyncIterable(result) && !hasTraceableStreamResult(result)) {
     const descriptor = Object.getOwnPropertyDescriptor(result, "text")
     const text = descriptor && "value" in descriptor ? descriptor.value : undefined
-    if (isRuntimeString(text)) return text.trim()
+    if (typeof text === "string") return text.trim()
   }
 
   let explicitPhaseSeen = false
@@ -2377,7 +2373,7 @@ const manualDeliveryProgressDrainTimeoutMs = 100
 
 function progressSummaryFromEvent(event: unknown): string | undefined {
   if (!isRecord(event) || event.type !== "data-progress-summary") return
-  const summary = isRecord(event.data) && isRuntimeString(event.data.summary) ? event.data.summary.trim() : ""
+  const summary = isRecord(event.data) && typeof event.data.summary === "string" ? event.data.summary.trim() : ""
   return summary || undefined
 }
 
@@ -2400,7 +2396,7 @@ function createManualDeliveryProgressUpdater(
 
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
-      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || !isRuntimeString(event.text)) return
+      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || typeof event.text !== "string") return
       // Show the current step, not the whole run: a new commentary segment replaces the previous one.
       if (event.id !== undefined) {
         if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
@@ -2623,7 +2619,7 @@ function streamAgentOutputToChatText(result: Promise<unknown>, onToolResult?: (r
             .json()
             .catch(() => undefined)
           if (isRecord(body)) {
-            if (isRuntimeString(body.text)) {
+            if (typeof body.text === "string") {
               collected += body.text
               yield body.text
             }
@@ -2785,7 +2781,7 @@ function discordContentParts(content: string): string[] {
 }
 
 function hasChatFiles(postable: AdapterPostableMessage): boolean {
-  if (!isRuntimeObject(postable) || postable === null) return false
+  if (typeof postable !== "object" || postable === null || postable === null) return false
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const value = postable as { attachments?: unknown[]; files?: unknown[] }
   return (Array.isArray(value.attachments) && value.attachments.length > 0) || (Array.isArray(value.files) && value.files.length > 0)
@@ -2793,16 +2789,16 @@ function hasChatFiles(postable: AdapterPostableMessage): boolean {
 
 function renderDiscordPostable(adapter: Adapter, postable: AdapterPostableMessage): string | undefined {
   if (hasChatFiles(postable)) return undefined
-  if (isRuntimeObject(postable) && postable !== null && ("card" in postable || "type" in postable)) return undefined
+  if (typeof postable === "object" && postable !== null && ("card" in postable || "type" in postable)) return undefined
   const adapterBoundary: unknown = adapter
   // SAFETY: Chat SDK adapters may expose this optional converter extension; optional access preserves adapters without it.
   const converter = (adapterBoundary as Adapter & { formatConverter?: { renderPostable?: (message: AdapterPostableMessage) => string } }).formatConverter
   if (converter?.renderPostable) {
     return convertEmojiPlaceholders(converter.renderPostable(postable), "discord")
   }
-  if (isRuntimeString(postable)) return postable
-  if (isRuntimeObject(postable) && postable !== null && "raw" in postable && isRuntimeString(postable.raw)) return postable.raw
-  if (isRuntimeObject(postable) && postable !== null && "markdown" in postable && isRuntimeString(postable.markdown)) return postable.markdown
+  if (typeof postable === "string") return postable
+  if (typeof postable === "object" && postable !== null && "raw" in postable && typeof postable.raw === "string") return postable.raw
+  if (typeof postable === "object" && postable !== null && "markdown" in postable && typeof postable.markdown === "string") return postable.markdown
 }
 
 async function postDiscordSplitContent(thread: Thread, postable: AdapterPostableMessage, abortSignal?: AbortSignal): Promise<boolean> {
@@ -2827,7 +2823,7 @@ async function finishDiscordSplitStream(thread: Thread, sent: unknown, markdown:
   if (!rendered || rendered.length <= discordMaxContentLength) return
   const [first, ...rest] = discordContentParts(rendered)
   const sentMessages = sent ? [sent] : []
-  if (first && sent && isRuntimeObject(sent) && "edit" in sent && isRuntimeFunction(sent.edit)) {
+  if (first && sent && typeof sent === "object" && "edit" in sent && typeof sent.edit === "function") {
     await sent.edit({ attachments: [], raw: first })
   } else if (first) {
     sentMessages.push(await thread.post({ raw: first }))
@@ -2847,7 +2843,7 @@ async function finishDiscordSplitStream(thread: Thread, sent: unknown, markdown:
 }
 
 function sentMessageText(sent: unknown): string {
-  return sent && isRuntimeObject(sent) && "text" in sent && isRuntimeString(sent.text) ? sent.text : ""
+  return sent && typeof sent === "object" && "text" in sent && typeof sent.text === "string" ? sent.text : ""
 }
 
 async function removeAbortedChatDelivery(sent: unknown, abortSignal?: AbortSignal): Promise<void> {
@@ -2976,7 +2972,7 @@ async function postChatStream(
           }
         }
         const value = Reflect.get(target, property, target)
-        return isRuntimeFunction(value) ? value.bind(target) : value
+        return typeof value === "function" ? value.bind(target) : value
       },
     })
     chatThread._fallbackStreamingPlaceholderText = fallback
@@ -3030,7 +3026,7 @@ async function postChatStream(
         }
       }
       const value = Reflect.get(target, property, target)
-      return isRuntimeFunction(value) ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   })
   chatThread._fallbackStreamingPlaceholderText = fallback
@@ -3052,7 +3048,7 @@ function randomToken(): string {
 }
 
 function isExpired(expiresAt: number | null | undefined): boolean {
-  return isRuntimeNumber(expiresAt) && expiresAt <= Date.now()
+  return typeof expiresAt === "number" && expiresAt <= Date.now()
 }
 
 class ViteHubInMemoryChatStateAdapter implements StateAdapter {
@@ -3267,7 +3263,7 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
   }
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   const atomic = state as Partial<ReturnType<typeof requireAtomicAgentStateQueue>>
-  if (isRuntimeFunction(atomic.queuePeek) && isRuntimeFunction(atomic.queueReplaceHead)) {
+  if (typeof atomic.queuePeek === "function" && typeof atomic.queueReplaceHead === "function") {
     Object.assign(scoped, {
       queuePeek: (threadId: string) => atomic.queuePeek!.call(state, key(threadId)),
       queueReplaceHead: (threadId: string, expected: QueueEntry | null, replacement: QueueEntry[], maxSize: number) =>
@@ -3276,10 +3272,10 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
   }
   // SAFETY: State may implement these optional methods; each is checked before forwarding.
   const leaseState = state as Partial<AtomicAgentStateLockAdapter>
-  if (isRuntimeFunction(leaseState.mutateWithLock)) {
+  if (typeof leaseState.mutateWithLock === "function") {
     Object.assign(scoped, {
       mutateWithLock: (held: Lock, mutations: readonly AgentStateCacheMutation[]) => leaseState.mutateWithLock!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) }))),
-      ...(isRuntimeFunction(leaseState.forCacheLocks) ? {
+      ...(typeof leaseState.forCacheLocks === "function" ? {
         forCacheLocks: () => requireAtomicAgentStateLock(withChatStateScope(leaseState.forCacheLocks!.call(state), channelPrefix, agentPrefix)),
       } : {}),
     })
@@ -3288,16 +3284,16 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
 }
 
 function stateResolverOwnsScope(state: unknown): boolean {
-  if (isRuntimeFunction(state)) {
+  if (typeof state === "function") {
     // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
     return (state as typeof state & { ownsScope?: boolean }).ownsScope !== false
   }
-  return isRecord(state) && isRuntimeFunction(state.resolve)
+  return isRecord(state) && typeof state.resolve === "function"
 }
 
 function stateResolverSupportsWorkflowCustody(state: unknown): boolean {
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-  return (isRuntimeFunction(state) || isRecord(state)) && (state as { workflowCustody?: unknown }).workflowCustody === true
+  return (typeof state === "function" || isRecord(state)) && (state as { workflowCustody?: unknown }).workflowCustody === true
 }
 
 async function resolveChatState(
@@ -4068,7 +4064,7 @@ function durableSteerDeliveryIds(message: DurableSteerQueueMessage | undefined):
 
 function durableSteerPrimaryDeliveryId(input: AgentRunInput | undefined): string | undefined {
   const binding = input?.context?.[agentChannelDeliveryWorkflowContextKey]
-  return isRecord(binding) && isRuntimeString(binding.deliveryId) ? binding.deliveryId : undefined
+  return isRecord(binding) && typeof binding.deliveryId === "string" ? binding.deliveryId : undefined
 }
 
 function durableSteerMergedDeliveryIds(message: DurableSteerQueueMessage | undefined, primaryDeliveryId: unknown): string[] {
@@ -4388,7 +4384,7 @@ function createChatLockTracker(state: StateAdapter): ChatLockTracker {
         }
       }
       const value = Reflect.get(target, property)
-      return isRuntimeFunction(value) ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   })
 
@@ -4416,7 +4412,7 @@ function createChatLockTracker(state: StateAdapter): ChatLockTracker {
 async function chatSdkLockKey(adapter: Adapter, threadId: string, options: AgentChatOptions | undefined): Promise<string> {
   const channelId = adapter.channelIdFromThreadId(threadId)
   const configuredScope = chatSdkOption<ChatConfig["lockScope"]>(options, "lockScope")
-  const scope = isRuntimeFunction(configuredScope)
+  const scope = typeof configuredScope === "function"
     ? await configuredScope({
         adapter,
         channelId,
@@ -4431,7 +4427,7 @@ async function chatSdkLockKey(adapter: Adapter, threadId: string, options: Agent
 
 function createChatSdkConfig(adapterName: string, adapter: Adapter, state: StateAdapter, options: AgentChatOptions | undefined): ChatConfig {
   const configuredPlaceholderText = options?.loading?.text ?? options?.fallbackStreamingPlaceholderText
-  const fallbackStreamingPlaceholderText = isRuntimeString(configuredPlaceholderText)
+  const fallbackStreamingPlaceholderText = typeof configuredPlaceholderText === "string"
     ? formatChannelCitationText(configuredPlaceholderText)
     : configuredPlaceholderText === null
       ? null
@@ -4445,7 +4441,7 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
     // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
-    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs >= 0
+    concurrency: concurrency === "steer" && typeof debounceMs === "number" && Number.isFinite(debounceMs) && debounceMs >= 0
       ? { debounceMs, strategy: "burst" }
       : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
@@ -4503,7 +4499,7 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isAttachmentBlob(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
+  if (isAttachmentBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4512,7 +4508,7 @@ function imageAttachmentMediaType(attachment: Attachment): string | undefined {
 
 function isTextAttachment(attachment: Attachment): boolean {
   if (attachment.type !== "file") return false
-  const mimeType = isRuntimeString(attachment.mimeType) ? attachment.mimeType.split(";")[0]?.trim().toLowerCase() : undefined
+  const mimeType = typeof attachment.mimeType === "string" ? attachment.mimeType.split(";")[0]?.trim().toLowerCase() : undefined
   if (mimeType?.startsWith("text/") || (mimeType && textAttachmentMimeTypes.has(mimeType)) || mimeType?.endsWith("+json") || mimeType?.endsWith("+yaml")) {
     return true
   }
@@ -4532,30 +4528,30 @@ function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOpti
 
 function isTextAttachmentOversizeError(error: unknown): boolean {
   if (error instanceof Error) return error.message === chatTextAttachmentOversizeMessage
-  if (!isRuntimeObject(error)) return false
+  if (typeof error !== "object" || error === null) return false
   // SAFETY: Runtime object validation establishes the record shape before reading its optional diagnostic message.
   const message = (error as { message?: unknown }).message
-  return isRuntimeString(message) && message === chatTextAttachmentOversizeMessage
+  return typeof message === "string" && message === chatTextAttachmentOversizeMessage
 }
 
 async function textAttachmentBytes(attachment: Attachment, options: ChatMessagePartOptions = {}): Promise<Uint8Array | undefined> {
-  if (isRuntimeNumber(attachment.size) && attachment.size > chatTextAttachmentMaxBytes) {
+  if (typeof attachment.size === "number" && attachment.size > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
     throw agentDiagnostics.AGENT_R0815({ message: chatTextAttachmentOversizeMessage })
   }
-  if (isRuntimeFunction(attachment.fetchData)) {
+  if (typeof attachment.fetchData === "function") {
     let data: unknown
     try {
       data = await attachment.fetchData()
     } catch {
       return undefined
     }
-    if (isAttachmentBlob(data) && blobSize(data) > chatTextAttachmentMaxBytes) {
+    if (isAttachmentBlob(data) && data.size > chatTextAttachmentMaxBytes) {
       if (!options.rejectOversizedTextAttachments) return
       throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
     }
     try {
-      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(data)), options)
+      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await data.arrayBuffer()), options)
       return checkedTextAttachmentBytes(data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
@@ -4563,11 +4559,11 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     }
   }
   if (isAttachmentBlob(attachment.data)) {
-    if (blobSize(attachment.data) > chatTextAttachmentMaxBytes) {
+    if (attachment.data.size > chatTextAttachmentMaxBytes) {
       if (!options.rejectOversizedTextAttachments) return
       throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
     }
-    return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(attachment.data)), options)
+    return checkedTextAttachmentBytes(new Uint8Array(await attachment.data.arrayBuffer()), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -4589,7 +4585,7 @@ async function textPartFromAttachment(
 }
 
 function attachmentPartFromAttachment(attachment: Attachment, index: number): AttachmentPart | undefined {
-  const declaredMediaType = isRuntimeString(attachment.mimeType) && attachment.mimeType ? attachment.mimeType : undefined
+  const declaredMediaType = typeof attachment.mimeType === "string" && attachment.mimeType ? attachment.mimeType : undefined
   const type =
     declaredMediaType?.startsWith("audio/") || (attachment.type === "audio" && !declaredMediaType)
       ? "audio"
@@ -4598,7 +4594,7 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
         : "file"
   const mediaType = declaredMediaType ?? (type === "image" ? imageAttachmentMediaType(attachment) : undefined)
   const data = isAttachmentData(attachment.data) ? attachment.data : undefined
-  const fetchData = isRuntimeFunction(attachment.fetchData)
+  const fetchData = typeof attachment.fetchData === "function"
     ? async () => {
         try {
           const value = await attachment.fetchData?.()
@@ -4613,7 +4609,7 @@ function attachmentPartFromAttachment(attachment: Attachment, index: number): At
         }
       }
     : undefined
-  const url = isRuntimeString(attachment.url) && attachment.url ? attachment.url : undefined
+  const url = typeof attachment.url === "string" && attachment.url ? attachment.url : undefined
   if (!data && !fetchData && !url) return undefined
   const part = objectWithoutUndefined({
     data,
@@ -4647,8 +4643,8 @@ function replyAttachmentInputPart(part: AttachmentPart, index: number): Attachme
 }
 
 function attachmentFallbackLabel(attachment: Attachment): string {
-  if (isRuntimeString(attachment.type) && attachment.type) return attachment.type
-  if (isRuntimeString(attachment.mimeType) && attachment.mimeType) return attachment.mimeType
+  if (typeof attachment.type === "string" && attachment.type) return attachment.type
+  if (typeof attachment.mimeType === "string" && attachment.mimeType) return attachment.mimeType
   return "file"
 }
 
@@ -4799,10 +4795,10 @@ function chatHistoryPartOptions(thread: Thread, options: AgentChatOptions | unde
   // SAFETY: Chat SDK adapters may implement this optional method. The Adapter type does not declare it.
   const adapter = thread.adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }
   const rehydrate = adapter.rehydrateAttachment
-  if (!isRuntimeFunction(rehydrate)) return {}
+  if (typeof rehydrate !== "function") return {}
   return {
     rehydrateAttachment(attachment) {
-      const image = attachment.type === "image" || (isRuntimeString(attachment.mimeType) && attachment.mimeType.startsWith("image/"))
+      const image = attachment.type === "image" || (typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("image/"))
       if (!image || attachment.fetchData || attachment.data) return attachment
       try {
         return rehydrate.call(adapter, attachment)
@@ -4814,12 +4810,12 @@ function chatHistoryPartOptions(thread: Thread, options: AgentChatOptions | unde
 }
 
 function chatMessageTime(value: unknown): number | undefined {
-  const time = value instanceof Date ? value.getTime() : isRuntimeString(value) ? Date.parse(value) : Number.NaN
+  const time = value instanceof Date ? value.getTime() : typeof value === "string" ? Date.parse(value) : Number.NaN
   return Number.isFinite(time) ? time : undefined
 }
 
 function chatHeaderTimeZone(options: AgentChatOptions | undefined): string {
-  const timeZone = isRuntimeString(options?.timeZone) && options.timeZone ? options.timeZone : "UTC"
+  const timeZone = typeof options?.timeZone === "string" && options.timeZone ? options.timeZone : "UTC"
   try {
     new Intl.DateTimeFormat("en-US", { timeZone })
     return timeZone
@@ -4829,7 +4825,7 @@ function chatHeaderTimeZone(options: AgentChatOptions | undefined): string {
 }
 
 function chatHeaderMessageId(id: unknown): string | undefined {
-  return isRuntimeString(id) && id ? id.split(":").pop() : undefined
+  return typeof id === "string" && id ? id.split(":").pop() : undefined
 }
 
 function chatHeaderName(value: unknown): string {
@@ -4837,14 +4833,14 @@ function chatHeaderName(value: unknown): string {
 }
 
 function chatHeaderAttachmentLabel(attachment: Attachment): string {
-  const mediaType = isRuntimeString(attachment.mimeType) ? attachment.mimeType : ""
+  const mediaType = typeof attachment.mimeType === "string" ? attachment.mimeType : ""
   const label = attachment.type === "image" || mediaType.startsWith("image/")
     ? "photo"
     : attachment.type === "audio" || mediaType.startsWith("audio/")
       ? "voice"
       : attachment.type === "video" || mediaType.startsWith("video/") ? "video" : "file"
   const uniqueId = attachment.fetchMetadata?.fileUniqueId
-  return isRuntimeString(uniqueId) && uniqueId ? `${label} ${uniqueId}` : label
+  return typeof uniqueId === "string" && uniqueId ? `${label} ${uniqueId}` : label
 }
 
 function chatHeaderQuote(text: string): string {
@@ -4855,11 +4851,11 @@ function chatHeaderQuote(text: string): string {
 type UIMessageLikePart = NonNullable<UIMessageLike["parts"]>[number]
 
 function chatPartType(part: UIMessageLikePart): string | undefined {
-  return isRuntimeString(part.type) ? part.type : undefined
+  return typeof part.type === "string" ? part.type : undefined
 }
 
 function chatPartId(part: UIMessageLikePart): string | undefined {
-  return "id" in part && isRuntimeString(part.id) ? part.id : undefined
+  return "id" in part && typeof part.id === "string" ? part.id : undefined
 }
 
 function isChatReplyModelPart(part: UIMessageLikePart): boolean {
@@ -4902,7 +4898,7 @@ function decorateChatTriggerMessages(
   const isRecent = (time: number | undefined) => time !== undefined && currentTime - time <= maxAgeMs
   const retainedIds = new Set([message.id, ...(messageContext?.skipped ?? []).map(item => item.id)].filter(Boolean))
   const retainedMessages = new Set([message, ...(messageContext?.skipped ?? [])])
-  const shownIds = new Set(messages.filter(item => isRecent(chatMessageTime(item.createdAt))).map(item => item.id).filter(isRuntimeString))
+  const shownIds = new Set(messages.filter(item => isRecent(chatMessageTime(item.createdAt))).map(item => item.id).filter((id) => typeof id === "string"))
   let remainingImages = maxImages
   const decorated = messages.slice().reverse().map((uiMessage): UIMessageLike => {
     if (!Array.isArray(uiMessage.parts)) return uiMessage
@@ -4923,7 +4919,7 @@ function decorateChatTriggerMessages(
       remainingImages--
       return true
     })
-    const keptIds = new Set(kept.map(chatPartId).filter(isRuntimeString))
+    const keptIds = new Set(kept.map(chatPartId).filter((id) => typeof id === "string"))
     const media = source.attachments.map((attachment, index) => {
       const label = chatHeaderAttachmentLabel(attachment)
       return keptIds.has(`attachment-${index + 1}`) ? label : `${label} (not shown)`
@@ -4971,10 +4967,10 @@ interface ChatThreadHistoryCache {
 function chatThreadHistoryCache(thread: Thread): ChatThreadHistoryCache | undefined {
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const history = (thread as { _threadHistory?: unknown })._threadHistory
-  if (!history || !isRuntimeObject(history)) return
+  if (!history || typeof history !== "object") return
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const getMessages = (history as { getMessages?: unknown }).getMessages
-  if (!isRuntimeFunction(getMessages)) return
+  if (typeof getMessages !== "function") return
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return history as ChatThreadHistoryCache
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -5154,7 +5150,7 @@ function chatErrorHookArgs(
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
   const inputMessage = input?.messages.at(-1)
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-  const metadata = inputMessage?.metadata && isRuntimeObject(inputMessage.metadata) ? (inputMessage.metadata as Record<string, unknown>) : undefined
+  const metadata = inputMessage?.metadata && typeof inputMessage.metadata === "object" && inputMessage.metadata !== null ? (inputMessage.metadata as Record<string, unknown>) : undefined
   return {
     error,
     publicError: toAgentPublicError(error, "http"),
@@ -5172,7 +5168,7 @@ function chatErrorHookArgs(
         const consoleUrl = consoleLink ? invocation?.consoleUrl : undefined
         // SAFETY: The error hook accepts the same chat message payloads as postChatMessage.
         const posted = postedMessage as AgentChatMessage
-        const message = consoleUrl && isRuntimeString(postedMessage) && !postedMessage.includes(consoleUrl)
+        const message = consoleUrl && typeof postedMessage === "string" && !postedMessage.includes(consoleUrl)
           ? `${postedMessage}\n\nDetails: ${consoleUrl}`
           : consoleUrl && isTextChatMessage(posted) && !posted.text.includes(consoleUrl)
             ? { ...posted, text: `${posted.text}\n\nDetails: ${consoleUrl}` }
@@ -5187,7 +5183,7 @@ function chatErrorHookArgs(
 }
 
 function isTextChatMessage(message: AgentChatMessage): message is { text: string } {
-  return isRuntimeObject(message) && message !== null && "text" in message && isRuntimeString(message.text)
+  return typeof message === "object" && message !== null && "text" in message && typeof message.text === "string"
 }
 
 function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly PublishedAgentDeliveryArtifact[] {
@@ -5228,7 +5224,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
     await removeAbortedChatDelivery(sent, abortSignal)
     return
   }
-  if (!isRuntimeObject(message) || message === null) {
+  if (typeof message !== "object" || message === null) {
     if (await postDiscordSplitContent(thread, message, abortSignal)) return
     await removeAbortedChatDelivery(await postChatReply(thread, message), abortSignal)
     return
@@ -5268,7 +5264,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
 
 async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: AgentChatMessage): Promise<boolean> {
   message = formatChannelCitationMessage(message)
-  if (!placeholder || !isRuntimeObject(placeholder) || !("edit" in placeholder) || !isRuntimeFunction(placeholder.edit)) return false
+  if (!placeholder || typeof placeholder !== "object" || !("edit" in placeholder) || typeof placeholder.edit !== "function") return false
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const target = placeholder as { edit: (message: unknown) => Promise<unknown> }
   if (isAsyncIterable(message)) {
@@ -5277,7 +5273,7 @@ async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: A
     await target.edit({ markdown })
     return true
   }
-  if (!isRuntimeObject(message) || message === null) {
+  if (typeof message !== "object" || message === null) {
     await target.edit(message)
     return true
   }
@@ -5288,7 +5284,7 @@ async function replaceManualDeliveryPlaceholder(placeholder: unknown, message: A
 
 async function deleteManualDeliveryPlaceholder(placeholder: unknown): Promise<void> {
   const message = "Manual chat delivery could not remove its placeholder."
-  if (!placeholder || !isRuntimeObject(placeholder) || !("delete" in placeholder) || !isRuntimeFunction(placeholder.delete)) {
+  if (!placeholder || typeof placeholder !== "object" || !("delete" in placeholder) || typeof placeholder.delete !== "function") {
     throw agentDiagnostics.AGENT_R0818({ message: message })
   }
   try {
@@ -5357,7 +5353,7 @@ export async function postChatErrorFallback(
     () => callbackDelivered,
     (resolution) => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
   )
-  const fallback = isRuntimeFunction(options?.errorFallbackText)
+  const fallback = typeof options?.errorFallbackText === "function"
     ? await Promise.race([fallbackResolution, callbackDelivery.then(() => undefined)])
     : await fallbackResolution
   if (callbackDelivered) fallbackResolutionAbort?.abort()
@@ -5404,7 +5400,7 @@ export async function postChatErrorFallback(
     await transcript.recorder.outbound(
       transcript.thread.adapter,
       transcript.thread.id,
-      isRecord(fallbackPost) && isRuntimeString(fallbackPost.id) ? fallbackPost.id : undefined,
+      isRecord(fallbackPost) && typeof fallbackPost.id === "string" ? fallbackPost.id : undefined,
       fallback,
       transcript.userKey,
     )
@@ -5482,11 +5478,11 @@ async function collectAbortableChatMessage(message: AsyncIterable<string>, abort
 }
 
 function captureStaticChatFinishMessage(message: AgentChatMessage, capture: ChatFinishDeliveryCapture): void {
-  const content = isRuntimeString(message)
+  const content = typeof message === "string"
     ? message
     : isTextChatMessage(message)
       ? message.text
-      : isRuntimeObject(message) && "markdown" in message && isRuntimeString(message.markdown)
+      : typeof message === "object" && message !== null && "markdown" in message && typeof message.markdown === "string"
         ? message.markdown
         : undefined
   if (content === undefined) return
@@ -5741,7 +5737,6 @@ async function isChatMessageAuthorized(
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({
       ...context,
-      actor: invoker,
       invoker,
       input: accessChatInput(thread, message, messageContext),
       provider: chatRegistrationOrigin(registration),
@@ -5811,10 +5806,10 @@ function scheduleChatWrapUp(
 ): ChatWrapUpTimer | undefined {
   if (!runId || timeout === undefined || option === false) return
   if (!option && timeout < chatWrapUpMinimumTimeoutMs) return
-  const beforeMs = isRuntimeNumber(option?.beforeMs) ? option.beforeMs : chatWrapUpBeforeMs
+  const beforeMs = typeof option?.beforeMs === "number" ? option.beforeMs : chatWrapUpBeforeMs
   if (!(beforeMs > 0) || beforeMs >= timeout) return
   const minutes = Math.max(1, Math.round(beforeMs / 60_000))
-  const prompt = isRuntimeString(option?.prompt)
+  const prompt = typeof option?.prompt === "string"
     ? option.prompt
     : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -5900,7 +5895,7 @@ async function admitChatSdkMessage(
   // owner and thread namespaces stable so delivery retries retain their journal
   // identity even when several threads share the steering lock scope.
   if (inlineKey && input.run) input.run = { ...input.run, runId: JSON.stringify([inlineKey, thread.id, input.run.runId]) }
-  if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
+  if (typeof options?.timeout === "number" && Number.isFinite(options.timeout) && options.timeout > 0) {
     input.timeout = options.timeout
   }
   const authorizationInput = await withParsedAgentMessageMeta(
@@ -5918,7 +5913,7 @@ async function admitChatSdkMessage(
   input = withAgentInvokerRunAnnotation({
     ...input,
     context: authorizationInput.context,
-    ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+    ...(typeof parsedChannelContext === "object" && parsedChannelContext !== null && typeof parsedChannelContext.meta === "object" && parsedChannelContext.meta !== null ? { meta: parsedChannelContext.meta } : {}),
   }, invoker)
 
   const messages = scopeCurrentChatUiMessage(
@@ -6046,7 +6041,7 @@ async function updateInterruptedChatIndex(
 }
 
 function interruptedChatRetryAttempt(messageId: unknown): number {
-  return isRuntimeString(messageId) ? messageId.split(interruptedChatRetrySuffix).length - 1 : 0
+  return typeof messageId === "string" ? messageId.split(interruptedChatRetrySuffix).length - 1 : 0
 }
 
 function registerInlineChatInvocation(options: {
@@ -6073,7 +6068,7 @@ function registerInlineChatInvocation(options: {
     },
     setPlaceholder(placeholder) {
       const placeholderId = isRecord(placeholder) ? placeholder.id : undefined
-      if (!runId || !isRuntimeString(placeholderId)) return
+      if (!runId || typeof placeholderId !== "string") return
       entry.persisted = entry.persisted
         .then(() => updateInterruptedChatIndex(state, keyPrefix, (records) => {
           if (records[runId]) records[runId] = { ...records[runId], placeholderId }
@@ -6092,7 +6087,7 @@ function registerInlineChatInvocation(options: {
       })
     },
   }
-  if (runId && isRuntimeFunction(serialize)) {
+  if (runId && typeof serialize === "function") {
     entry.persisted = updateInterruptedChatIndex(state, keyPrefix, (records) => {
       // Once the retry is persisted, it owns recovery even if this process restarts again.
       if (interruptedChatRetryAttempt(message.id) > 0) {
@@ -6163,7 +6158,7 @@ async function resumeInterruptedChatInvocation(options: {
   waitUntil: ViteAgentRouteRuntimeContext["waitUntil"]
 }): Promise<boolean> {
   const { adapter, adapterName, agent, agentName, chat, chatOptions, persistNotice, record, waitUntil } = options
-  if (!isRecord(record) || !isRuntimeString(record.threadId) || !isRecord(record.message) || !isRuntimeString(record.message.id)) return false
+  if (!isRecord(record) || typeof record.threadId !== "string" || !isRecord(record.message) || typeof record.message.id !== "string") return false
   // SAFETY: Agent Definitions expose the invocation journal; only its optional summary reader is used.
   const invocations = isRecord(agent) && isRecord(agent.invocations) ? agent.invocations as { getSummary?: (id: string) => unknown } : undefined
   const summary = await Promise.resolve()
@@ -6187,7 +6182,7 @@ async function resumeInterruptedChatInvocation(options: {
       }
       catch { userKey = null }
     }
-    const editedId = isRuntimeString(record.placeholderId)
+    const editedId = typeof record.placeholderId === "string"
       ? await Promise.resolve(adapter.editMessage(record.threadId, record.placeholderId, notice)).then(() => record.placeholderId, () => undefined)
       : undefined
     const messageId = editedId ?? (await thread.post(notice)).id
@@ -6235,7 +6230,7 @@ async function resumeInterruptedChatInvocations(
     if (isRecord(current)) {
       for (const record of Object.values(current)) {
         if (!isRecord(record) || record.agentName !== agentName || record.channelId !== registration.channelId) continue
-        if (!isRuntimeString(record.startedAt) || !(Date.parse(record.startedAt) < recoveryBefore)) continue
+        if (!await isInterruptedChatRecord(agent.invocations, agentName, record, recoveryBefore)) continue
         records.push(record)
       }
     }
@@ -6277,6 +6272,29 @@ async function resumeInterruptedChatInvocations(
         else current[record.runId] = record
       })
     }))
+  }
+}
+
+/**
+ * A chat record is interrupted when it started before this process and no live run holds the journal claim of its
+ * Invocation. Processes can share one journal and one State, so a record from before this process can belong to a
+ * live run in another process. Without a journal record, only the start time is known.
+ */
+async function isInterruptedChatRecord(
+  invocations: unknown,
+  agentName: string,
+  record: InterruptedChatRecord,
+  recoveryBefore: number,
+): Promise<boolean> {
+  if (typeof record.startedAt !== "string" || !(Date.parse(record.startedAt) < recoveryBefore)) return false
+  if (!isAgentInvocations(invocations) || typeof record.runId !== "string") return true
+  try {
+    return await agentInvocationClaimState(invocations, await agentInvocationId(record.runId, agentName)) !== "held"
+  }
+  catch (error) {
+    // Keep the start time test, so a journal failure does not stop the recovery of the other records.
+    console.error("[vitehub] Interrupted chat invocation claim check failed. The start time decides.", error)
+    return true
   }
 }
 
@@ -7126,11 +7144,11 @@ async function handleChatSdkMessage(
     })
     const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const configuredThinkingFallback = invocation.metadata?.thinkingFallback
-    const thinkingFallback = isRuntimeString(configuredThinkingFallback) ? formatChannelCitationText(configuredThinkingFallback) : configuredThinkingFallback
+    const thinkingFallback = typeof configuredThinkingFallback === "string" ? formatChannelCitationText(configuredThinkingFallback) : configuredThinkingFallback
     // The footer stays on the loading message through every commentary update.
     const consoleUrl = bufferedDelivery && options?.consoleLink ? (await invocationReference)?.consoleUrl : undefined
     const loadingFooter = consoleUrl ? `\n\n[Details](<${consoleUrl}>)` : undefined
-    if (bufferedDelivery && isRuntimeString(thinkingFallback)) {
+    if (bufferedDelivery && typeof thinkingFallback === "string") {
       const placeholderDelivery = thread.post(loadingFooter ? { markdown: `${thinkingFallback}${loadingFooter}` } : thinkingFallback).then(async (placeholder) => {
         if (invocationDeadlineAbort?.signal.aborted) {
           await deleteManualDeliveryPlaceholder(placeholder)
@@ -7244,7 +7262,7 @@ async function handleChatSdkMessage(
                 await postChatStream(
                   thread,
                   streamAgentOutputToChatText(result, (toolResult) => toolResults.push(toolResult)),
-                  isRuntimeString(thinkingFallback) || thinkingFallback === null ? thinkingFallback : undefined,
+                  typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
                   context.waitUntil,
                   invocationDeadlineAbort?.signal,
                   maximumInvocationDeadline,
@@ -7273,7 +7291,7 @@ async function handleChatSdkMessage(
                   finalDelivery = postChatStream(
                     thread,
                     response,
-                    isRuntimeString(thinkingFallback) || thinkingFallback === null ? thinkingFallback : undefined,
+                    typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
                     context.waitUntil,
                     invocationDeadlineAbort?.signal,
                     maximumInvocationDeadline,
@@ -7380,7 +7398,7 @@ function createChatSdkMessageThread(
   options: AgentChatOptions | undefined,
 ): Thread {
   const configuredPlaceholderText = options?.loading?.text ?? options?.fallbackStreamingPlaceholderText
-  const fallbackStreamingPlaceholderText = isRuntimeString(configuredPlaceholderText)
+  const fallbackStreamingPlaceholderText = typeof configuredPlaceholderText === "string"
     ? formatChannelCitationText(configuredPlaceholderText)
     : configuredPlaceholderText === null
       ? null
@@ -7604,23 +7622,23 @@ const transcriptRecorders = new WeakMap<Chat, TranscriptRecorder>()
 const transcriptThreads = new WeakMap<Thread, { thread: Thread, recorder: TranscriptRecorder, userKey: string | null }>()
 
 function sentText(sent: unknown): string {
-  return isRecord(sent) && isRuntimeString(sent.text) ? sent.text : ""
+  return isRecord(sent) && typeof sent.text === "string" ? sent.text : ""
 }
 
 /** A message that the thread sent. Editing it records the new text under the same id. */
 function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string, recorder: TranscriptRecorder, userKey: string | null): T {
-  if (!isRecord(sent) || !isRuntimeFunction(sent.edit)) return sent
+  if (!isRecord(sent) || typeof sent.edit !== "function") return sent
   return new Proxy(sent as object, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
-      if (property === "edit" && isRuntimeFunction(value)) {
+      if (property === "edit" && typeof value === "function") {
         return async (content: unknown) => {
           const edited = await value.call(target, content)
-          await recorder.outbound(adapter, threadId, isRuntimeString(Reflect.get(target, "id")) ? String(Reflect.get(target, "id")) : undefined, postableText(content) || sentText(edited), userKey)
+          await recorder.outbound(adapter, threadId, typeof Reflect.get(target, "id") === "string" ? String(Reflect.get(target, "id")) : undefined, postableText(content) || sentText(edited), userKey)
           return edited
         }
       }
-      return isRuntimeFunction(value) ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   }) as T
 }
@@ -7636,13 +7654,13 @@ export function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRe
       if (property === "post" || property === "reply") {
         return async (...args: unknown[]) => {
           const sent = await (Reflect.get(target, property, target) as (...input: unknown[]) => Promise<unknown>).apply(target, args)
-          await recorder.outbound(target.adapter, target.id, isRecord(sent) && isRuntimeString(sent.id) ? sent.id : undefined, postableText(args.at(-1)) || sentText(sent), userKey)
+          await recorder.outbound(target.adapter, target.id, isRecord(sent) && typeof sent.id === "string" ? sent.id : undefined, postableText(args.at(-1)) || sentText(sent), userKey)
           return recordTranscriptsOfSent(sent, target.adapter, target.id, recorder, userKey)
         }
       }
       if (property === "adapter") return recordTranscriptsOfAdapter(target.adapter, target.id, recorder, userKey)
       const value = Reflect.get(target, property, target)
-      return isRuntimeFunction(value) ? value.bind(target) : value
+      return typeof value === "function" ? value.bind(target) : value
     },
   })
   transcriptThreads.set(recorded, { thread, recorder, userKey })
@@ -7650,9 +7668,9 @@ export function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRe
 }
 
 function postableText(message: unknown): string {
-  if (isRuntimeString(message)) return message
+  if (typeof message === "string") return message
   if (!isRecord(message)) return ""
-  for (const key of ["markdown", "raw"]) if (isRuntimeString(message[key])) return message[key]
+  for (const key of ["markdown", "raw"]) if (typeof message[key] === "string") return message[key]
   return ""
 }
 
@@ -7665,11 +7683,11 @@ function recordTranscriptsOfAdapter(adapter: Adapter, sourceThreadId: string, re
   return new Proxy(adapter, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
-      if (!isRuntimeFunction(value)) return value
+      if (typeof value !== "function") return value
       if (property === "postMessage") {
         return async (threadId: string, message: unknown) => {
           const sent = await target.postMessage(threadId, message as never)
-          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, postableText(message), threadId === sourceThreadId ? userKey : null)
+          await recorder.outbound(target, threadId, typeof sent?.id === "string" ? sent.id : undefined, postableText(message), threadId === sourceThreadId ? userKey : null)
           return sent
         }
       }
@@ -7685,14 +7703,14 @@ function recordTranscriptsOfAdapter(adapter: Adapter, sourceThreadId: string, re
           let streamed = ""
           const collected = (async function* () {
             for await (const chunk of textStream) {
-              if (isRuntimeString(chunk)) streamed += chunk
-              else if (isRecord(chunk) && chunk.type === "markdown_text" && isRuntimeString(chunk.text)) streamed += chunk.text
+              if (typeof chunk === "string") streamed += chunk
+              else if (isRecord(chunk) && chunk.type === "markdown_text" && typeof chunk.text === "string") streamed += chunk.text
               yield chunk
             }
           })()
           // SAFETY: The adapter declares `stream` for the same arguments that this wrapper forwards.
           const sent = await (target.stream as (...args: unknown[]) => Promise<{ id?: string }>)(threadId, collected, options)
-          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, streamed, threadId === sourceThreadId ? userKey : null)
+          await recorder.outbound(target, threadId, typeof sent?.id === "string" ? sent.id : undefined, streamed, threadId === sourceThreadId ? userKey : null)
           return sent
         }
       }
@@ -7994,19 +8012,19 @@ async function channelHistoryAttachment(
     return unavailable()
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
-  let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
+  let data: unknown = typeof resolved.size === "number" && resolved.size > maxBytes ? undefined : resolved.data
   if (isAttachmentBlob(data)) {
     const blob = isAttachmentBlob(data) ? data : undefined
-    if (blob && blobSize(blob) <= maxBytes) {
+    if (blob && blob.size <= maxBytes) {
       try {
         // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
     } else data = undefined
   }
-  const boundedLazySize = isRuntimeNumber(resolved.size) && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
+  const boundedLazySize = typeof resolved.size === "number" && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {
       data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
@@ -8014,10 +8032,10 @@ async function channelHistoryAttachment(
   }
   if (isAttachmentBlob(data)) {
     const blob = isAttachmentBlob(data) ? data : undefined
-    if (blob && blobSize(blob) <= maxBytes) {
+    if (blob && blob.size <= maxBytes) {
       try {
         // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -8025,7 +8043,7 @@ async function channelHistoryAttachment(
   }
   let bytes: Uint8Array | undefined
   try {
-    if (isRuntimeString(data)) {
+    if (typeof data === "string") {
       const mediaType = resolved.mimeType || "application/octet-stream"
       const byteLength = channelHistoryStringByteLength(data, mediaType)
       bytes = byteLength !== undefined && byteLength <= maxBytes ? attachmentStringBytes(data, mediaType) : undefined
@@ -8049,9 +8067,9 @@ async function channelHistoryAttachment(
 
 function boundedJsonByteLength(value: unknown, maxBytes: number, seen = new Set<object>()): number | undefined {
   if (value === null) return 4
-  if (isRuntimeBoolean(value)) return value ? 4 : 5
-  if (isRuntimeNumber(value)) return Number.isFinite(value) ? String(value).length : 4
-  if (isRuntimeString(value)) {
+  if (typeof value === "boolean") return value ? 4 : 5
+  if (typeof value === "number") return Number.isFinite(value) ? String(value).length : 4
+  if (typeof value === "string") {
     let bytes = 2
     for (let index = 0; index < value.length; ) {
       const codePoint = value.codePointAt(index)!
@@ -8074,7 +8092,7 @@ function boundedJsonByteLength(value: unknown, maxBytes: number, seen = new Set<
     }
     return bytes
   }
-  if (!isRuntimeObject(value) || seen.has(value)) return
+  if (typeof value !== "object" || value === null || seen.has(value)) return
   seen.add(value)
   let bytes = Array.isArray(value) ? 2 : 2
   const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item] as const) : Object.entries(value)
@@ -8136,14 +8154,14 @@ async function channelHistoryMessage(
 }
 
 function channelHistoryQuery(value: unknown): value is AgentChannelHistoryQuery {
-  return isRuntimeObject(value) && Object.values(value).every(entry => entry === undefined
-    || isRuntimeString(entry)
-    || (Array.isArray(entry) && entry.every(item => isRuntimeString(item))))
+  return typeof value === "object" && value !== null && Object.values(value).every(entry => entry === undefined
+    || typeof entry === "string"
+    || (Array.isArray(entry) && entry.every(item => typeof item === "string")))
 }
 
 function channelHistoryInvocationText(record: { observations: readonly { name: string, attributes?: Record<string, unknown> }[] }): string | undefined {
   const finish = record.observations.findLast(observation => observation.name === "agent.invocation.finish")
-  return isRuntimeString(finish?.attributes?.["result.text"]) ? finish.attributes["result.text"] : undefined
+  return typeof finish?.attributes?.["result.text"] === "string" ? finish.attributes["result.text"] : undefined
 }
 
 function channelHistoryInvocationDeliveries(
@@ -8152,8 +8170,8 @@ function channelHistoryInvocationDeliveries(
   return record.observations.flatMap(observation => {
     if (observation.name !== "agent.channel.delivery.effect" || observation.attributes?.["channel.effect.kind"] !== "reply") return []
     const text = observation.attributes?.["channel.effect.content"]
-    if (!isRuntimeString(text) || !text) return []
-    const channel = isRuntimeString(observation.attributes?.["channel.effect.channel"])
+    if (typeof text !== "string" || !text) return []
+    const channel = typeof observation.attributes?.["channel.effect.channel"] === "string"
       ? observation.attributes["channel.effect.channel"]
       : "unknown"
     return [{ channel, text }]
@@ -8181,7 +8199,7 @@ async function channelHistoryInvocations(
       if (summary.channelId !== channel) continue
       const annotatedKey = summary.annotations?.["vitehub.channel.key"]
       // A declared key remains authoritative. Only legacy records use the recovery hook.
-      if (annotatedKey !== undefined ? !isRuntimeString(annotatedKey) || !keys.has(annotatedKey) : !history.invocationItem) continue
+      if (annotatedKey !== undefined ? typeof annotatedKey !== "string" || !keys.has(annotatedKey) : !history.invocationItem) continue
       const record = await agent.invocations.get(summary.id)
       if (!record) continue
       let key = annotatedKey
@@ -8195,13 +8213,13 @@ async function channelHistoryInvocations(
         }
         catch { continue }
       }
-      if (!isRuntimeString(key) || !key.trim() || !keys.has(key)) continue
+      if (typeof key !== "string" || !key.trim() || !keys.has(key)) continue
       const start = record.observations.find(observation => observation.name === "agent.invocation.start")
       const dryRun = start?.attributes?.["input.hasDryRun"] === true
-      const label = isRuntimeString(record.annotations?.triggeredBy) && record.annotations.triggeredBy.trim() ? record.annotations.triggeredBy : null
+      const label = typeof record.annotations?.triggeredBy === "string" && record.annotations.triggeredBy.trim() ? record.annotations.triggeredBy : null
       const entries = result.get(key) || []
       entries.push({
-        ...(isRuntimeString(thread) && thread.trim() ? { thread } : {}),
+        ...(typeof thread === "string" && thread.trim() ? { thread } : {}),
         invocation: {
           id: record.id,
           status: record.status,
@@ -8228,7 +8246,7 @@ async function createCollectionChannelHistoryResponse(
   request: Request,
 ): Promise<Response> {
   const body: unknown = await request.json().catch(() => undefined)
-  if (!isRecord(body) || (body.cursor !== undefined && (!isRuntimeString(body.cursor) || !body.cursor)) || (body.threadId !== undefined && (!isRuntimeString(body.threadId) || !body.threadId.trim())) || (body.invocations !== undefined && !isRuntimeBoolean(body.invocations)) || (body.query !== undefined && !channelHistoryQuery(body.query))) {
+  if (!isRecord(body) || (body.cursor !== undefined && (typeof body.cursor !== "string" || !body.cursor)) || (body.threadId !== undefined && (typeof body.threadId !== "string" || !body.threadId.trim())) || (body.invocations !== undefined && typeof body.invocations !== "boolean") || (body.query !== undefined && !channelHistoryQuery(body.query))) {
     return createBadRequest("Channel history export request is invalid.")
   }
   const rawQuery = body.query || {}
@@ -8240,11 +8258,11 @@ async function createCollectionChannelHistoryResponse(
     return createJsonErrorResponse(400, error instanceof Error ? error.message : "Channel history query is invalid.")
   }
   if (body.threadId && !history.thread) return createJsonErrorResponse(400, "Channel history export does not support --thread for this Channel.")
-  const threadId = isRuntimeString(body.threadId) ? body.threadId.trim() : undefined
+  const threadId = typeof body.threadId === "string" ? body.threadId.trim() : undefined
   const items: Array<Record<string, unknown>> = []
   let page: { items: unknown[], nextCursor: string | null }
   try {
-    page = await history.collection.page({ ...(isRuntimeString(body.cursor) ? { cursor: body.cursor } : {}), query, signal: request.signal })
+    page = await history.collection.page({ ...(typeof body.cursor === "string" ? { cursor: body.cursor } : {}), query, signal: request.signal })
   }
   catch (error) {
     return createJsonErrorResponse(400, error instanceof Error ? error.message : "Channel history export failed.")
@@ -8254,13 +8272,13 @@ async function createCollectionChannelHistoryResponse(
     let thread: string | undefined
     try {
       const value = history.key(item)
-      if (isRuntimeString(value)) key = value
+      if (typeof value === "string") key = value
     }
     catch {}
     if (history.thread) {
       try {
         const value = history.thread(item)
-        if (isRuntimeString(value)) thread = value
+        if (typeof value === "string") thread = value
       }
       catch {}
     }
@@ -8268,10 +8286,10 @@ async function createCollectionChannelHistoryResponse(
     items.push({ key, ...(thread !== undefined ? { thread } : {}), item })
   }
   if (body.invocations === true) {
-    const keys = new Set(items.flatMap(item => isRuntimeString(item.key) && item.key ? [item.key] : []))
+    const keys = new Set(items.flatMap(item => typeof item.key === "string" && item.key ? [item.key] : []))
     const joined = await channelHistoryInvocations(agent, channelId, history, keys, routeAgentInvocationName(agent, context.agentIdentity))
     for (const item of items) {
-      item.invocations = (isRuntimeString(item.key) ? joined.get(item.key) || [] : [])
+      item.invocations = (typeof item.key === "string" ? joined.get(item.key) || [] : [])
         .filter(entry => entry.thread === undefined || item.thread === undefined || entry.thread === item.thread)
         .map(entry => entry.invocation)
     }
@@ -8349,9 +8367,9 @@ function channelRetention(chatOptions: AgentChatOptions | undefined, state: Stat
   const transcripts = effectiveTranscripts(chatOptions, state) !== undefined
   return {
     durable: transcripts && isDurableAgentState(state),
-    maxMessages: isRuntimeNumber(configuredHistory.maxMessages) ? configuredHistory.maxMessages : 100,
+    maxMessages: typeof configuredHistory.maxMessages === "number" ? configuredHistory.maxMessages : 100,
     transcripts,
-    ttlMs: isRuntimeNumber(configuredHistory.ttlMs) ? configuredHistory.ttlMs : 7 * 24 * 60 * 60 * 1000,
+    ttlMs: typeof configuredHistory.ttlMs === "number" ? configuredHistory.ttlMs : 7 * 24 * 60 * 60 * 1000,
   }
 }
 
@@ -8364,7 +8382,7 @@ function channelInvocationPrompt(record: JournalObservations): string | undefine
   if (!Array.isArray(messages)) return undefined
   const last = messages.findLast(message => isRecord(message) && message.role === "user")
   if (!isRecord(last) || !Array.isArray(last.parts)) return undefined
-  const body = last.parts.flatMap(part => isRecord(part) && part.type === "text" && isRuntimeString(part.text) ? [part.text] : []).join("\n")
+  const body = last.parts.flatMap(part => isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []).join("\n")
   return stripChannelModelHeader(body).trim() || undefined
 }
 
@@ -8416,10 +8434,10 @@ async function channelConversationInvocations(
       invocations.push({
         createdAt: record.createdAt,
         id: record.id,
-        ...(isRuntimeString(invoker) && invoker ? { invokerId: invoker } : {}),
+        ...(typeof invoker === "string" && invoker ? { invokerId: invoker } : {}),
         ...(prompt ? { prompt } : {}),
         replies,
-        ...(isRuntimeString(source) && source ? { sourceMessageId: source } : {}),
+        ...(typeof source === "string" && source ? { sourceMessageId: source } : {}),
         status: record.status,
         ...(record.title ? { title: record.title } : {}),
         updatedAt: record.updatedAt,
@@ -8446,7 +8464,7 @@ async function channelJournalThreads(
     thread.invocationCount += 1
     if (summary.updatedAt > thread.lastActivity) thread.lastActivity = summary.updatedAt
     const label = summary.annotations?.triggeredBy
-    if (isRuntimeString(label) && label.trim() && !thread.labels.includes(label.trim())) thread.labels.push(label.trim())
+    if (typeof label === "string" && label.trim() && !thread.labels.includes(label.trim())) thread.labels.push(label.trim())
     if (summary.title && (!thread.titleAt || summary.createdAt > thread.titleAt)) {
       thread.title = summary.title
       thread.titleAt = summary.createdAt
@@ -8454,7 +8472,7 @@ async function channelJournalThreads(
     if (withInvokers) {
       const record = await agent.invocations?.get(summary.id)
       const invoker = record?.observations.find(observation => observation.name === "agent.invocation.start")?.attributes?.["agent.invoker.id"]
-      if (isRuntimeString(invoker) && invoker && !thread.invokerIds.includes(invoker)) thread.invokerIds.push(invoker)
+      if (typeof invoker === "string" && invoker && !thread.invokerIds.includes(invoker)) thread.invokerIds.push(invoker)
     }
     threads.set(summary.threadId, thread)
   }
@@ -8462,17 +8480,17 @@ async function channelJournalThreads(
 }
 
 function channelTranscriptEntry(value: unknown): ChannelTranscriptEntry | undefined {
-  if (!isRecord(value) || !isRuntimeString(value.id) || !isRuntimeString(value.text) || !isRuntimeNumber(value.timestamp)) return undefined
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.text !== "string" || typeof value.timestamp !== "number") return undefined
   const role = value.role === "assistant" || value.role === "system" ? value.role : "user"
   return {
     id: value.id,
-    ...(isRuntimeString(value.platform) ? { platform: value.platform } : {}),
-    ...(isRuntimeString(value.platformMessageId) ? { platformMessageId: value.platformMessageId } : {}),
+    ...(typeof value.platform === "string" ? { platform: value.platform } : {}),
+    ...(typeof value.platformMessageId === "string" ? { platformMessageId: value.platformMessageId } : {}),
     role,
     text: value.text,
-    threadId: isRuntimeString(value.threadId) ? value.threadId : "",
+    threadId: typeof value.threadId === "string" ? value.threadId : "",
     timestamp: value.timestamp,
-    ...(isRuntimeString(value.userKey) ? { userKey: value.userKey } : {}),
+    ...(typeof value.userKey === "string" ? { userKey: value.userKey } : {}),
   }
 }
 
@@ -8521,7 +8539,7 @@ async function readChannelConversation(
   if (retention.transcripts) {
     try {
       const participants = await state.state.getList<unknown>(channelTranscriptParticipantsKey(state.titleKeyPrefix, input.threadId))
-      for (const key of participants) if (isRuntimeString(key) && key) keys.add(key)
+      for (const key of participants) if (typeof key === "string" && key) keys.add(key)
     }
     catch (error) {
       throw new ChannelStateUnavailableError(`The transcript participants could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
@@ -8579,7 +8597,7 @@ async function readChannelConversation(
     iterator = historyIterator
     while (true) {
       const next = await boundedChannelHistoryOperation(() => historyIterator.next(), input.signal)
-      if (!next || !isRuntimeObject(next) || !("done" in next)) throw agentDiagnostics.AGENT_R0837({ message: "Channel history provider returned an invalid result." })
+      if (!next || typeof next !== "object" || !("done" in next)) throw agentDiagnostics.AGENT_R0837({ message: "Channel history provider returned an invalid result." })
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
       const result = next as IteratorResult<ChatSdkMessage>
       if (result.done) {
@@ -8607,8 +8625,8 @@ async function readChannelConversation(
       const author: unknown = message.author
       if (!isRecord(author) || author.isBot === true || author.isMe === true) continue
       try {
-        const key = identity ? await identity({ adapter: adapterName!, author: author as never, message: message as never }) : isRuntimeString(author.userId) ? `${adapterName}:${author.userId}` : null
-        if (isRuntimeString(key) && key) keys.add(key)
+        const key = identity ? await identity({ adapter: adapterName!, author: author as never, message: message as never }) : typeof author.userId === "string" ? `${adapterName}:${author.userId}` : null
+        if (typeof key === "string" && key) keys.add(key)
       }
       catch {}
     }
@@ -8646,7 +8664,7 @@ async function createChannelHistoryResponse(
   if (channel?.history) return createCollectionChannelHistoryResponse(agent, context, channelId, channel.history, request)
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
   const body = (await request.json().catch(() => undefined)) as { threadId?: unknown } | undefined
-  if (!body || !isRuntimeString(body.threadId) || !body.threadId.trim()) {
+  if (!body || typeof body.threadId !== "string" || !body.threadId.trim()) {
     return createBadRequest("Channel history export requires threadId.")
   }
   let conversation: AgentChannelConversation
@@ -8756,7 +8774,7 @@ function optionalBodyRecord(value: unknown, label: string): Record<string, unkno
 
 function optionalBodyString(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined
-  if (!isRuntimeString(value)) throw createRouteBodyError(`${label} must be a string when provided.`)
+  if (typeof value !== "string") throw createRouteBodyError(`${label} must be a string when provided.`)
   const trimmed = value.trim()
   return trimmed || undefined
 }
@@ -8828,7 +8846,7 @@ function trustAgentChannelChatRouteInput(
     else if (field === "session" && body.session !== undefined)
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
       patch.session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"]
-    else if (field === "timeout" && isRuntimeNumber(body.timeout) && Number.isFinite(body.timeout) && body.timeout > 0) patch.timeout = body.timeout
+    else if (field === "timeout" && typeof body.timeout === "number" && Number.isFinite(body.timeout) && body.timeout > 0) patch.timeout = body.timeout
     else if (field === "user" && body.user !== undefined) patch.user = optionalBodyRecord(body.user, "user")
   }
   return Object.keys(patch).length ? patch : undefined
@@ -8853,7 +8871,7 @@ function mergeAgentChannelChatRouteInput(
 /** The `errorText` of an AI SDK UI message `error` part. */
 function uiMessageErrorText(part: unknown): string | undefined {
   if (!isRecord(part) || part.type !== "error") return
-  return isRuntimeString(part.errorText) ? part.errorText : "Agent stream failed."
+  return typeof part.errorText === "string" ? part.errorText : "Agent stream failed."
 }
 
 async function toAgentChatFetchResponse(result: unknown, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
@@ -9036,7 +9054,7 @@ export function createChannelChatRouteHandler(
         ...triggerInput,
         context: invokerInput.context,
         invoker,
-        ...(isRuntimeObject(invokerInput.context?.channel) && isRuntimeObject(invokerInput.context.channel.meta)
+        ...(typeof invokerInput.context?.channel === "object" && invokerInput.context?.channel !== null && typeof invokerInput.context.channel.meta === "object" && invokerInput.context.channel.meta !== null
           ? { meta: invokerInput.context.channel.meta }
           : {}),
       } as never, invoker) as AgentChatMessageTriggerInput, invoker)
@@ -9181,7 +9199,7 @@ async function recoverInterruptedWebhookAgentInvocations(
       if (!owns(scope)) continue
       for (const delivery of await state.webhookDeliveries(scope)) {
         const run = delivery.invocation?.run
-        if (isRecord(run) && isRuntimeString(run.runId) && run.runId) {
+        if (isRecord(run) && typeof run.runId === "string" && run.runId) {
           resumed.add(await agentInvocationId(run.runId, delivery.invocation?.agentName || agentName))
         }
       }
@@ -9432,7 +9450,7 @@ function createQueuedChannelDispatch(
     const channelId = registration.channelId!
     const triggerName = options?.trigger
     const definition = agentChannelOptions(agent)[channelId]
-    if (!isRuntimeString(triggerName) || !definition?.triggers || !Object.hasOwn(definition.triggers, triggerName)) {
+    if (typeof triggerName !== "string" || !definition?.triggers || !Object.hasOwn(definition.triggers, triggerName)) {
       throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channelId}" has no trigger "${String(triggerName)}" to dispatch to.` })
     }
     if (!Array.isArray(items)) throw new TypeError(`[vitehub] Channel "${channelId}" dispatch needs an array of items.`)
@@ -9446,11 +9464,11 @@ function createQueuedChannelDispatch(
     }
     const result: ReplayChannelResult = { failed: 0, items: [], nextCursor: null, processed: 0, skipped: 0 }
     for (const item of items) {
-      if (!isRuntimeString(item?.key) || !item.key.trim()) {
+      if (typeof item?.key !== "string" || !item.key.trim()) {
         throw new TypeError(`[vitehub] Channel "${channelId}" dispatch items need a non-empty key.`)
       }
       const { order } = item
-      if (order !== undefined && (!isRecord(order) || !isRuntimeString(order.key) || !order.key.trim() || !isRuntimeNumber(order.version) || !Number.isFinite(order.version))) {
+      if (order !== undefined && (!isRecord(order) || typeof order.key !== "string" || !order.key.trim() || typeof order.version !== "number" || !Number.isFinite(order.version))) {
         throw new TypeError(`[vitehub] Channel "${channelId}" dispatch item "${item.key}" needs order { key, version } with a non-empty key and a finite number version.`)
       }
       const commit = createAgentChannelStateCommit(webhookState.state)
@@ -9460,7 +9478,7 @@ function createQueuedChannelDispatch(
           const orderKey = `${webhookState.keyPrefix}order:${triggerId}:${order.key}`
           commit.locks.push(await acquireChannelStateLock(webhookState.state, `${orderKey}:transaction`))
           admitted = await webhookState.state.get<unknown>(orderKey)
-          if (isRuntimeNumber(admitted) && order.version <= admitted) {
+          if (typeof admitted === "number" && order.version <= admitted) {
             result.items.push({ id: item.key, key: item.key, reason: "stale", status: "skipped" })
             result.skipped += 1
             continue
@@ -9503,7 +9521,7 @@ function createQueuedChannelDispatch(
           deliveryAgentName: context.agentIdentity?.name || agentName,
           invocation,
           // A terminal failure restores the previous version, so the item can be dispatched again.
-          ...(order ? { order: { key: `${webhookState.keyPrefix}order:${triggerId}:${order.key}`, version: order.version, ...(isRuntimeNumber(admitted) ? { previous: admitted } : {}) } } : {}),
+          ...(order ? { order: { key: `${webhookState.keyPrefix}order:${triggerId}:${order.key}`, version: order.version, ...(typeof admitted === "number" ? { previous: admitted } : {}) } } : {}),
           ownership: { ...ownership, deliveryId: ownership.deliveryId, concurrencyLimit: ownership.concurrencyLimit },
           registration,
           requestUrl: request.url,
@@ -9533,7 +9551,7 @@ function createQueuedChannelDispatch(
 function simulatedChannels(agent: unknown): Array<{ id: string, kind: string }> {
   if (!isRecord(agent) || !isRecord(agent.channels)) return []
   return Object.entries(agent.channels).flatMap(([id, channel]) =>
-    isRuntimeRecord(channel) && hasRuntimeType(channel.kind, "string") && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
+    isRuntimeRecord(channel) && typeof channel.kind === "string" && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
 }
 
 /**
@@ -9561,7 +9579,7 @@ async function simulatedChannelPageResponse(
   const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, webhookId))
   const channelId = match?.registration.channelId
   const channel = channelId ? channels[channelId] : undefined
-  if (!match || !channelId || !isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  if (!match || !channelId || !isRuntimeRecord(channel) || typeof channel.kind !== "string" || !isChannelSimulated(channel.kind)) return undefined
   const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
   const route = new URL(request.url).pathname
   // The other Channels share the route and differ in the webhook selector. Declared paths and aliases need not share
@@ -10096,7 +10114,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                     })
                     detachAgentChannelDelivery(channelDelivery)
                   } else {
-                    throw agentDiagnostics.AGENT_R0844({ message: isRuntimeString(result.metadata) ? result.metadata : `Agent Workflow returned ${result.status}.` })
+                    throw agentDiagnostics.AGENT_R0844({ message: typeof result.metadata === "string" ? result.metadata : `Agent Workflow returned ${result.status}.` })
                   }
                 } finally {
                   stopHeartbeat?.()
@@ -10166,7 +10184,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           })
         }
         catch (error) {
-          if (isRuntimeObject(error) && (error as { webhookStored?: boolean }).webhookStored === true) {
+          if (typeof error === "object" && error !== null && (error as { webhookStored?: boolean }).webhookStored === true) {
             return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
           }
           // Without a stored request, the route waits for admission as before.
@@ -10468,7 +10486,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       )
       const trackedStates = new Set<StateAdapter>()
       const sharedState = handlerOptions.webhookState && !stateResolverOwnsScope(handlerOptions.webhookState)
-      if (sharedState && !isRuntimeFunction(handlerOptions.webhookState)) {
+      if (sharedState && typeof handlerOptions.webhookState !== "function") {
         // SAFETY: Non-resolver webhook state is the state adapter itself.
         const state = handlerOptions.webhookState as StateAdapter
         await state.connect()
@@ -10521,7 +10539,7 @@ const telegramPollingChats = new WeakMap<object, Map<string, Promise<Chat>>>()
 
 async function startChannelChat(chat: Chat): Promise<void> {
   const initialize = Reflect.get(chat, "initialize")
-  if (!isRuntimeFunction(initialize)) {
+  if (typeof initialize !== "function") {
     throw agentDiagnostics.AGENT_R0845({ message: "[vitehub] The installed Chat SDK does not support starting listener-based Channels." })
   }
   await Reflect.apply(initialize, chat, [])
@@ -10650,7 +10668,7 @@ export function createDiscordGatewayRouteHandler(
         const responsePromises: Array<Promise<Response>> = []
         for (const [adapterName, adapter] of entries) {
           const startGatewayListener: unknown = Reflect.get(adapter, "startGatewayListener")
-          if (!isRuntimeFunction(startGatewayListener)) {
+          if (typeof startGatewayListener !== "function") {
             return createJsonErrorResponse(500, `Discord chat adapter "${adapterName}" does not expose startGatewayListener().`)
           }
 
@@ -10673,7 +10691,7 @@ export function createDiscordGatewayRouteHandler(
           await (chat as { initialize?: () => Promise<void> }).initialize?.()
           chats.push(chat)
           const webhookId = registration.id || adapterName
-          const webhookUrl = isRuntimeFunction(handlerOptions.webhookUrl) ? handlerOptions.webhookUrl(webhookId) : handlerOptions.webhookUrl
+          const webhookUrl = typeof handlerOptions.webhookUrl === "function" ? handlerOptions.webhookUrl(webhookId) : handlerOptions.webhookUrl
 
           logChannelListener("started", "discord", adapterName)
           responsePromises.push(

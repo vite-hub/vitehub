@@ -102,9 +102,13 @@ export type WorkspaceWriteValidatorResult = boolean | void | WorkspaceWriteInput
 export type WorkspaceWriteValidator =
   (input: WorkspaceWriteInput) => WorkspaceWriteValidatorResult | Promise<WorkspaceWriteValidatorResult>
 
+/**
+ * Limits writes to the paths that match the rule pattern. Every matching rule applies, from the least to the most
+ * specific. A more specific rule replaces a field only when it sets that field, and the validators of every matching
+ * rule run. Rules do not limit reads.
+ */
 export interface WorkspaceRule {
   commit?: boolean | string
-  read?: boolean
   write?: WorkspaceWriteMode
   maxBytes?: number | `${number}kb` | `${number}mb`
   mediaType?: string | string[]
@@ -231,6 +235,8 @@ export interface ExecResult {
 
 export interface WorkspaceSession {
   readonly executionAuthority: ExecutionAuthority
+  /** Retained revision used to materialize this Session, when the Store provides one. */
+  readonly revision?: string
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WorkspaceSessionWriteFileOptions): Promise<void>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
@@ -329,8 +335,12 @@ export interface WorkspaceRevision {
   createdAt: string
   message?: string
   metadata?: Record<string, unknown>
-  files: number
-  bytes: number
+  /**
+   * How many files the revision has, and their total size. The GitHub Store leaves both out of `list()` and `head()`,
+   * because counting needs one more request per commit. `open(id)` reports them.
+   */
+  files?: number
+  bytes?: number
 }
 
 export interface WorkspaceHistoryRefOptions {
@@ -411,6 +421,11 @@ export interface WorkspaceRevisionView {
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
+  /**
+   * Read many files of the revision at once, so that `readFile()` of each path needs no request. The GitHub Store reads
+   * them from one archive of the commit. Stores without it read each file on its own.
+   */
+  preload?(paths: readonly string[]): Promise<void>
 }
 
 /** An open pull request on a forge, for a Store whose refs are branches. */
@@ -712,8 +727,15 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
   /** Stable provider name used for inspection and diagnostics. */
   name?: string
+  /**
+   * The key of the one item of a file Source. Without a mount path, the Workspace places that item at this path.
+   * Other Sources mount under their binding key.
+   */
+  key?: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
@@ -728,6 +750,11 @@ export interface WorkspaceSource {
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
+  /**
+   * Returns a Source that holds only the items that match `include`, inside the items this Source holds.
+   * GitHub Sources fetch only the matching paths.
+   */
+  subset?(include: readonly string[]): WorkspaceSource
 }
 
 export interface WorkspaceSourceSyncPolicy {
@@ -746,6 +773,8 @@ type WorkspaceSourceBindingOptions = Pick<
 
 export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {
   source: WorkspaceSourceInput
+  /** `false` keeps the Skills in this Source out of a Provider Agent's skill roots. */
+  skills?: false
 }
 
 export type WorkspaceCustomSourceInput = WorkspaceSourceDefinition & WorkspaceSourceBindingOptions

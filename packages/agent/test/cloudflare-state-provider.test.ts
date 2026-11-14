@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AtomicAgentStateQueueAdapter } from "../src/internal/state-queue.ts"
 import { isDurableAgentState } from "../src/internal/state-lock.ts"
-import { isRuntimeNumber } from "../src/internal/runtime-value.ts"
 import { createCloudflareAgentState } from "../src/state/providers/cloudflare.ts"
 import { createFakeCloudflareStateNamespace } from "./support/cloudflare-state-namespace.ts"
 
@@ -121,7 +120,7 @@ function createFakeDurableObjectState() {
         const next =
           lists
             .map((row) => row.expires_at)
-            .filter((expiresAt): expiresAt is number => isRuntimeNumber(expiresAt) && expiresAt > now)
+            .filter((expiresAt): expiresAt is number => typeof expiresAt === "number" && expiresAt > now)
             .sort((a, b) => a - b)[0] ?? null
         return sqlCursor([{ next_expiry: next }])
       }

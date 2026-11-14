@@ -18,7 +18,7 @@ const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
   if (npmExecPath?.includes("pnpm")) {
-    await execFileAsync(process.execPath, [npmExecPath, ...args], { cwd })
+    await execFileAsync(npmExecPath, args, { cwd })
     return
   }
   await execFileAsync("corepack", ["pnpm", ...args], { cwd })

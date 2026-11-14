@@ -3,20 +3,21 @@ import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { admin } from "better-auth/plugins"
-import { generateSQLiteDrizzleJson, generateSQLiteMigration } from "drizzle-kit/api"
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/payload/sqlite"
+import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
 import { authSqliteSchema } from "../src/auth/schema.ts"
-import { createAuthForRequest } from "../src/auth/server.ts"
-import { consoleMcpOAuth } from "../src/console/auth.ts"
+import { createAuthForRequest } from "../src/_internal/auth/internal/server.ts"
+import { mcpOAuth } from "../src/auth/mcp.ts"
 
 const app = "https://app.example.com"
-const resource = `${app}/_vitehub/mcp`
+const resource = `${app}/mcp`
 const state = vi.hoisted(() => ({ databases: {} as Record<string, { db: unknown, schema: Record<string, unknown> }> }))
-vi.mock("@vite-hub/database/drizzle", () => ({ databases: state.databases }))
+vi.mock("@vite-hub/database/runtime/registry", () => ({ databases: state.databases }))
 
 let directory: string
 let client: ReturnType<typeof createClient>
@@ -25,9 +26,9 @@ beforeAll(async () => {
   directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "vitehub-auth-database-"))
   client = createClient({ url: `file:${join(directory, "auth.db")}` })
   // The migration that `vitehub database generate` writes for the contributed tables.
-  const statements = await generateSQLiteMigration(await generateSQLiteDrizzleJson({}), await generateSQLiteDrizzleJson({ ...authSqliteSchema }))
+  const statements = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...authSqliteSchema }))
   for (const statement of statements) await client.execute(statement)
-  state.databases.default = { db: drizzle(client, { schema: authSqliteSchema }), schema: { ...authSqliteSchema } }
+  state.databases.default = { db: drizzle({ client: client, relations: defineRelations(authSqliteSchema) }), schema: { ...authSqliteSchema } }
 })
 
 afterAll(async () => {
@@ -64,11 +65,11 @@ describe("authDatabase()", () => {
     expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/user.additionalFields/)
   })
 
-  it("runs Better Auth, admin(), and Console MCP OAuth on the contributed tables", async () => {
+  it("runs Better Auth, admin(), and MCP OAuth on the contributed tables", async () => {
     const definition = defineAuth({
       database: authDatabase(),
       emailAndPassword: { enabled: true },
-      plugins: [admin(), ...consoleMcpOAuth({ resource })],
+      plugins: [admin(), ...mcpOAuth({ resource, loginPage: "/oauth" })],
     })
     const auth = createAuthForRequest(definition, new Request(app))
     const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {

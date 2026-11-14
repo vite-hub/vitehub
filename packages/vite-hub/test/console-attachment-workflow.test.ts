@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
-import { defineAgent, startAgentInvocation, workflow } from "@vite-hub/agent"
+import { agentWorkflow, defineAgent, startAgentInvocation } from "@vite-hub/agent"
 import { blob } from "../../blob/src/runtime/storage.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
 import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "@vite-hub/workflow/runtime/openworkflow"
@@ -46,7 +46,7 @@ it.each(["import", "connect", "registration", "dispatch"] as const)("rolls back 
     throw new Error(`Unexpected import: ${specifier}`)
   })
   setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
-  const agent = defineAgent({ name: `console-upload-${stage}`, driver: { run: () => "unreachable" }, runtime: workflow(`console-upload-${stage}`) })
+  const agent = defineAgent({ name: `console-upload-${stage}`, driver: { run: () => "unreachable" }, runtime: agentWorkflow(`console-upload-${stage}`) })
   await expect(withConsoleInputMessage("", { files }, (message, onInputHandoff) => startAgentInvocation(
     agent,
     { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },

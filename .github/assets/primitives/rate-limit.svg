@@ -1,87 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3850ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 <style>
-svg { color: #59636e; --ui-bg: #ffffff; }
-@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
-.primitive-motion {
-  overflow: visible;
-}
-.primitive-motion .line,
-.primitive-motion .job,
-.primitive-motion .command,
-.primitive-motion .budget {
-  opacity: 0.55;
-}
-.primitive-motion .ink,
-.primitive-motion .token,
-.primitive-motion .pointer {
-  opacity: 0.85;
-}
-.primitive-motion .token,
-.primitive-motion .band,
-.primitive-motion .ghost,
-.primitive-motion .q-in,
-.primitive-motion .blob-next {
-  opacity: 0;
-}
-.primitive-motion .a {
-  animation-duration: var(--cycle);
-  animation-delay: var(--scene-delay);
-  animation-iteration-count: infinite;
-  animation-fill-mode: both;
-  animation-timing-function: steps(3);
-}
-.primitive-motion:not(.is-playing) .a {
-  animation-play-state: paused;
-}
-.primitive-motion .rl-request { animation-name: rl-request; }
-.primitive-motion .rl-gate { animation-name: rl-gate; }
-.primitive-motion .rl-budget-1 { animation-name: rl-budget-1; }
-.primitive-motion .rl-budget-2 { animation-name: rl-budget-2; }
-.primitive-motion .rl-budget-3 { animation-name: rl-budget-3; }
-@media (prefers-reduced-motion: reduce) {
-  .primitive-motion .a {
-    animation: none;
-  }
-}
-@keyframes rl-request {
-  0%, 4% { opacity: 0; transform: translateX(0); }
-  6% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
-  13% { opacity: 0.85; transform: translateX(-18px); }
-  15%, 18% { opacity: 0; transform: translateX(-18px); }
-  18.1% { opacity: 0; transform: translateX(0); }
-  20% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
-  27% { opacity: 0.85; transform: translateX(-18px); }
-  29%, 32% { opacity: 0; transform: translateX(-18px); }
-  32.1% { opacity: 0; transform: translateX(0); }
-  34% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
-  41% { opacity: 0.85; transform: translateX(-18px); }
-  43%, 46% { opacity: 0; transform: translateX(-18px); }
-  46.1% { opacity: 0; transform: translateX(0); }
-  48% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
-  55% { opacity: 0.85; transform: translateX(-18px); animation-timing-function: steps(5); }
-  63% { opacity: 0.5; transform: translateX(-8px); animation-timing-function: steps(1); }
-  68%, 100% { opacity: 0; transform: translateX(-6px); }
-}
-@keyframes rl-gate {
-  0%, 54% { opacity: 0; }
-  57% { opacity: 0.85; }
-  70%, 100% { opacity: 0; }
-}
-@keyframes rl-budget-1 {
-  0%, 13% { opacity: 0.55; }
-  16%, 74% { opacity: 0.12; }
-  80%, 100% { opacity: 0.55; }
-}
-@keyframes rl-budget-2 {
-  0%, 27% { opacity: 0.55; }
-  30%, 82% { opacity: 0.12; }
-  88%, 100% { opacity: 0.55; }
-}
-@keyframes rl-budget-3 {
-  0%, 41% { opacity: 0.55; }
-  44%, 90% { opacity: 0.12; }
-  96%, 100% { opacity: 0.55; }
-}
+svg { color: #59636e; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; } }
 </style>
-<path class="budget a rl-budget-3" d="M0 12h4v2h-4zM0 14h4v2h-4zM0 16h4v2h-4zM0 18h4v2h-4zM0 20h4v2h-4zM0 22h4v2h-4zM0 24h4v2h-4zM0 26h4v2h-4z"/><path class="budget a rl-budget-2" d="M8 12h4v2h-4zM8 14h4v2h-4zM8 16h4v2h-4zM8 18h4v2h-4zM8 20h4v2h-4zM8 22h4v2h-4zM8 24h4v2h-4zM8 26h4v2h-4z"/><path class="budget a rl-budget-1" d="M16 12h4v2h-4zM16 14h4v2h-4zM16 16h4v2h-4zM16 18h4v2h-4zM16 20h4v2h-4zM16 22h4v2h-4zM16 24h4v2h-4zM16 26h4v2h-4z"/><path class="line" d="M24 10h2v2h-2zM24 12h2v2h-2zM24 14h2v2h-2zM24 16h2v2h-2zM24 18h2v2h-2zM24 20h2v2h-2zM24 22h2v2h-2zM24 24h2v2h-2zM24 26h2v2h-2zM24 28h2v2h-2z"/><path class="ink ghost a rl-gate" d="M24 10h2v2h-2zM24 12h2v2h-2zM24 14h2v2h-2zM24 16h2v2h-2zM24 18h2v2h-2zM24 20h2v2h-2zM24 22h2v2h-2zM24 24h2v2h-2zM24 26h2v2h-2zM24 28h2v2h-2z"/><path class="token a rl-request" d="M44 18h4v2h-4zM44 20h4v2h-4z"/>
+  <path d="M3 16a9 9 0 0 1 18 0M6 20h12"/>
+  <path d="M12 16h.01"/>
+  <g data-motion="">
+    <path d="m12 16 4-5"/>
+  </g>
 </svg>

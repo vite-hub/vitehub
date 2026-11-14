@@ -8,9 +8,9 @@ vi.mock("#vitehub/auth/definition", () => ({
   get default() { return definition.current },
 }))
 
-import { defineAuth } from "../src/definition.ts"
-import authRoute, { resetAuth } from "../src/server.ts"
+import authRoute, { resetAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "https://app.example.com"
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -18,9 +18,10 @@ const credentials = { email: "owner@example.com", password: "correct-horse-batte
 
 function useDefinition(runtime: { secret?: string } = { secret }): void {
   const db: Record<string, unknown[]> = { account: [], session: [], user: [], verification: [] }
-  definition.current = defineAuth({
+  definition.current = defineFixedAuth({
     emailAndPassword: { enabled: true },
-    runtime: { database: memoryAdapter(db), ...runtime },
+    database: memoryAdapter(db),
+    ...runtime,
   })
 }
 
@@ -59,7 +60,7 @@ describe("Auth route", () => {
   })
 
   it("reads the Cloudflare bindings of the Request's Standard Context", async () => {
-    for (const name of ["VITEHUB_SECRET", "NUXT_APP_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) vi.stubEnv(name, undefined)
+    for (const name of ["VITEHUB_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) vi.stubEnv(name, undefined)
     useDefinition({})
     const env = { VITEHUB_SECRET: secret }
     const response = await authRoute.fetch(nitroRequest(

@@ -43,7 +43,7 @@ const codes = {
   // Runtime errors. Connection client calls return them as `[error, undefined]`.
   CONNECTIONS_APPROVAL_REQUIRED: {
     why: ({ action, approval, connection }: { action: string, approval: string, connection: string }): string => `Approval is required for ${action} on Connection "${connection}". Request: ${approval}.`,
-    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to approve request ${approval} on its Console page (/_vitehub/connections?connection=${encodeURIComponent(connection)}&tab=approvals), or to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
+    fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
   },
   CONNECTIONS_DENIED: {
     why: ({ action, actor, connection, immediate }: { action: string, actor: string, connection: string, immediate?: boolean }): string => immediate
@@ -68,19 +68,19 @@ const codes = {
       return `Connection "${connection}" must be connected again. ${connect(connection)}`
     },
     fix: ({ apiKey, connection, problem }: { apiKey?: boolean, connection: string, problem?: "approval" | "mutation" | "refresh-token" | "rejected" }): string => {
-      if (problem === "mutation") return `Check at the provider if the last token change of Connection "${connection}" completed. Then remove the mutation lease of "${connection}" from the Connections store, for example its row in \`vitehub_connection_refresh_leases\`. Then open its Console page (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Reconnect.`
-      if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Replace key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
-      return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Reconnect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
+      if (problem === "mutation") return `Check at the provider if the last token change of Connection "${connection}" completed. Then remove the mutation lease of "${connection}" from the Connections store, for example its row in \`vitehub_connection_refresh_leases\`. Then run \`vitehub connections connect ${arg(connection)}\`.`
+      if (apiKey) return `Run \`vitehub connections set-key ${arg(connection)}\` to replace the key.`
+      return `Run \`vitehub connections connect ${arg(connection)}\`, and follow the setup notes of the Connection, if it has them.`
     },
   },
   CONNECTIONS_NOT_CONNECTED: {
     why: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => {
-      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${arg(connection)}\` or in the Console.`
+      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${arg(connection)}\`.`
       return `Connection "${connection}" is not connected. ${connect(connection)}`
     },
     fix: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => {
-      if (apiKey) return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Set key. Or run \`vitehub connections set-key ${arg(connection)}\`.`
-      return `Open the Console page of Connection "${connection}" (/_vitehub/connections?connection=${encodeURIComponent(connection)}) and select Connect. Follow the setup notes on that page, if it has them. Or run \`vitehub connections connect ${arg(connection)}\`.`
+      if (apiKey) return `Run \`vitehub connections set-key ${arg(connection)}\`.`
+      return `Run \`vitehub connections connect ${arg(connection)}\`, and follow the setup notes of the Connection, if it has them.`
     },
   },
   CONNECTIONS_ORIGIN_NOT_ALLOWED: {
@@ -120,7 +120,8 @@ const codes = {
 
   // Config errors. ViteHub throws them, because the code or the deployment must change.
   CONNECTIONS_INVALID_ACTOR: {
-    why: ({ problem }: { problem: "access" | "agent" | "id" }): string => {
+    why: ({ problem }: { problem: "access" | "agent" | "id" | "missing" }): string => {
+      if (problem === "missing") return "This Connections runtime method records who made the decision, so it requires `actor`. It has no default."
       if (problem === "access") return "Connection `access` must be the Env access context of an Agent, without `actor`."
       if (problem === "agent") return "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent."
       return "Connection actor IDs must contain 1 to 512 characters and no control characters."
@@ -208,15 +209,15 @@ const codes = {
     why: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => {
       if (problem === "actor-policy") return "createConnectionsHandler() requires an actor policy."
       if (problem === "management-actor") return "Connections management in a production build requires an actor module."
-      return "Connections management requires Auth outside local development. Configure an actor module or Console Auth."
+      return "Connections management requires an actor module outside local development."
     },
     fix: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => problem === "management-actor"
-      ? "Set `hubConnections({ management: { actor: './server/connections-auth.ts' } })`. With `vite-hub`, the Console sets the actor when it shows Connections."
-      : "Protect the management routes with Console Auth, or pass an actor function to createConnectionsHandler().",
+      ? "Set `connections: { management: { actor: './server/connections-auth.ts' } }`. The actor module decides who may manage Connections."
+      : "Pass an actor function to createConnectionsHandler(), or set an actor module.",
   },
   CONNECTIONS_AUTHORIZATION_EXPIRED: {
     why: "The authorization link expired or was already used. Each link works one time, for 10 minutes.",
-    fix: "Run `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in within 10 minutes.",
+    fix: "Run `vitehub connections connect <name>` again, and finish the sign-in within 10 minutes.",
   },
   CONNECTIONS_AUTHORIZATION_CANCELLED: {
     why: "The provider did not grant access.",
@@ -267,7 +268,7 @@ const codes = {
       if (problem === "revocation") return "The Connection token changed during revocation."
       return "The Connection token changed during authorization."
     },
-    fix: "Read the Connection status in the Console, then connect, set the key, or revoke again.",
+    fix: "Read the Connection status with `vitehub connections list`, then connect, set the key, or revoke again.",
   },
   CONNECTIONS_ROUTE_NOT_FOUND: {
     why: "Not found.",

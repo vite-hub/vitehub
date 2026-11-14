@@ -1,5 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { otlpHttpJson } from "../telemetry.ts"
 
 import type {
@@ -20,7 +20,7 @@ export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   options: OtlpCapabilityOptions<TRuntimeConfig>,
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   const input = asUnknownBoundary(options)
-  if (!isRuntimeRecord(input) || !hasRuntimeType(input.endpoint, "string") || !input.endpoint.trim()) {
+  if (!isRuntimeRecord(input) || typeof input.endpoint !== "string" || !input.endpoint.trim()) {
     throw agentDiagnostics.AGENT_R0150({ message: "[vitehub] otlp({ endpoint }) requires a non-empty OTLP base endpoint." })
   }
   try {

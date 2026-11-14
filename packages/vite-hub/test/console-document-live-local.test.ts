@@ -91,7 +91,8 @@ const UDropdownMenu = defineComponent({
 })
 const stubs = {
   ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
-  ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
+  UAlert: { props: ["title", "description"], template: "<div>{{ title }}<slot name='description'>{{ description }}</slot><slot name='actions' /></div>" },
+  Status: { props: ["label"], template: "<span>{{ label }}</span>" },
   UButton,
   UDropdownMenu,
   UModal: true,

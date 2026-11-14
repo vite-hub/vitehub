@@ -192,8 +192,6 @@ interface NitroVercelConfig {
 }
 
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
-/** Nitro used by the Nuxt host, independently of ViteHub's own Nitro dependency. */
-export const VITEHUB_NITRO_MAJOR_VERSION = "__vitehubNitroMajorVersion" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
 /** The application's mount path, which can differ from Nuxt's Vite asset base. */
@@ -208,8 +206,8 @@ export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
  * discovered Channels. The application's `env.server` wins field by field.
  */
 export const VITEHUB_ENV_SERVER = "__vitehubEnvServer" as const
-/** The deployment preset that `vitehub()` selected, such as `"cloudflare"`. */
-export const VITEHUB_DEPLOYMENT_PRESET = "__vitehubDeploymentPreset" as const
+/** The deployment host that `vitehub()` selected, such as `"cloudflare"`. */
+export const VITEHUB_DEPLOYMENT_HOST = "__vitehubDeploymentHost" as const
 /**
  * Feature options that `vitehub()` and `vite-hub/nuxt` resolve for owner plugins during config hooks, such as the Queue
  * provider of the host. Apps set features only in `vitehub()`, so this key is private.
@@ -233,10 +231,10 @@ export function setResolvedFeatureOptions(config: object, feature: ViteHubResolv
   Reflect.set(config, VITEHUB_FEATURES, { ...(features && typeof features === "object" ? features : {}), [feature]: value })
 }
 
-/** The deployment preset that `vitehub()` selected on this Vite config. */
-export function getDeploymentPreset(config: object): string | undefined {
-  const preset: unknown = Reflect.get(config, VITEHUB_DEPLOYMENT_PRESET)
-  return typeof preset === "string" ? preset : undefined
+/** The deployment host that `vitehub()` selected on this Vite config. */
+export function getDeploymentHost(config: object): string | undefined {
+  const host: unknown = Reflect.get(config, VITEHUB_DEPLOYMENT_HOST)
+  return typeof host === "string" ? host : undefined
 }
 /**
  * Set by `vite-hub/nuxt` when it replays Vite config hooks for `nuxt prepare`. Prepare uses `command: "build"` to write
@@ -298,7 +296,7 @@ export function resolveNitroVercelFunctionName(
   const clientOutDir = config.environments?.client?.build?.outDir
   const vercel = preset
     ? preset.startsWith("vercel")
-    : env.VITEHUB_HOSTING === "vercel"
+    : env.VITEHUB_HOST === "vercel"
       || Boolean(env.VERCEL)
       || Boolean(clientOutDir && /(^|[/\\])\.vercel[/\\]output([/\\]|$)/.test(clientOutDir))
   return nitro && vercel
@@ -306,8 +304,8 @@ export function resolveNitroVercelFunctionName(
     : undefined
 }
 
-export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
-  return command === "serve" || mode === "e2e"
+export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined): boolean {
+  return command === "serve"
 }
 
 // Vite concatenates arrays when it merges a config hook result. Return only the missing pattern.

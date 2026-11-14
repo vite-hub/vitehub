@@ -7,7 +7,7 @@ const open = ref(false);
     <TraceCollapsible default-open>
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran node --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -20,7 +20,7 @@ const open = ref(false);
     <TraceCollapsible v-model:open="open">
       <TraceCollapsibleTrigger>
         <TraceLine>
-          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceIcon><UIcon name="i-lucide-terminal" /></TraceIcon>
           <TraceTitle>Ran pnpm --version</TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>

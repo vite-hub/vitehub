@@ -41,7 +41,7 @@ async function setup(options: { live?: "auto" | false, table?: boolean } = {}) {
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
+  const database = drizzle({ client })
   await migrate(database, history)
   if (options.table !== false) await migrate(database, sessionsTable)
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
@@ -58,7 +58,7 @@ async function setup(options: { live?: "auto" | false, table?: boolean } = {}) {
       about: singleton({ path: "about.md", fields: { title: z.string() } }),
       authors: documents({ path: "authors/*.json", fields: { name: z.string() } }),
     },
-    authorize: ({ user, action }) => user?.id === "ana" || (user?.id === "ben" && action !== "publish") || (user?.id === "viewer" && action === "read"),
+    authorize: ({ user, action }) => user?.id === "ana" || (user?.id === "ben" && action !== "publish") || (user?.id === "viewer" && action === "read-draft"),
     live: options.live,
     logger: false,
   })
@@ -138,7 +138,7 @@ describe("contentDocument", { timeout: 30_000 }, () => {
     expect(valid).toEqual({ digest: expect.any(String), stored: { body: "Hi\n\nMore", fields: { tags: [], title: "Fixed" } } })
     const [, revision] = (await content.revisions("posts", "hello")).revisions
     expect(revision!.metadata).toMatchObject({ source: "live", author: { id: "ana", name: "Ana" }, editors: [{ id: "ben", name: "Ben" }, { id: "ana", name: "Ana" }] })
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     const listed = await actions.revisions({ collection: "posts", id: "hello" }, { user: ana })
     expect(listed.revisions.map(entry => entry.author)).toEqual(["Ana", "Ben and Ana", undefined])
   })
@@ -265,11 +265,11 @@ describe("writes outside the live room", { timeout: 30_000 }, () => {
 describe("Console setup", { timeout: 30_000 }, () => {
   it("names the live definition where it is installed, and why it is not elsewhere", async () => {
     const { content } = await setup()
-    const actions = createContentConsoleActions({ content })
+    const actions = createContentConsoleActions({ default: content })
     expect(await actions.setup!({ user: ana })).toEqual({ live: { unavailable: expect.stringContaining("room authority") } })
     installContentLive({ definition: "content", refresh: async () => false })
     expect(await actions.setup!({ user: ana })).toEqual({ live: { definition: "content" } })
     const off = await setup({ live: false })
-    expect(await createContentConsoleActions({ content: off.content }).setup!({ user: ana })).toEqual({})
+    expect(await createContentConsoleActions({ default: off.content }).setup!({ user: ana })).toEqual({})
   })
 })

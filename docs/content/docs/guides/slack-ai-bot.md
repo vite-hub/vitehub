@@ -92,7 +92,7 @@ Use the version that matches ViteHub's `chat` package. `pnpm why chat` shows it.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -109,7 +109,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -127,7 +127,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -210,7 +210,7 @@ Vite blocks unknown host names, so add the tunnel domain to `server.allowedHosts
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -231,7 +231,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -250,7 +250,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -276,7 +276,7 @@ A quick tunnel gets a new URL on each start. Update the Request URL after a rest
 
 ## Deploy the bot
 
-This example deploys the `node` preset to your own server, behind an HTTPS reverse proxy. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+This example deploys the `node` host to your own server, behind an HTTPS reverse proxy. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -296,20 +296,20 @@ The webhook route also works off Node:
 - On Cloudflare, Agent State lives in a Durable Object. The Agent must answer in about 28 seconds, because Cloudflare stops background work after 30.
 - On Vercel and Netlify, set `VITEHUB_AGENT_STATE_URL` to a hosted libSQL database, because they reject `file:` URLs.
 
-See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those presets.
+See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those hosts.
 
 ## Limits
 
-- **Mentions.** The bot answers every direct message, but in a channel only messages that mention it. To also answer later replies in that thread, set `messages: { replyToSubscribedThreads: true }`. Slack sends those only with the `message.channels`, `message.groups`, or `message.mpim` events. See [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
-- **Other bots.** ViteHub ignores other bots' messages unless you set `messages: { allowBots: true }`.
-- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Slack member ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Actor](/docs/agents/actors).
-- **One workspace.** One bot token serves one workspace. For an app that many workspaces install, set up OAuth in the Chat SDK adapter. See the [Slack adapter docs](https://chat-sdk.dev/adapters/official/slack).
-- **Socket Mode.** The webhook route needs the Events API over HTTPS. ViteHub does not start a Socket Mode listener.
-- **Proof.** `slack()` is a thin Channel over your adapter. We test its types and the shared Chat SDK webhook route, but CI runs no Slack adapter or deployed Slack bot.
+- **Mentions.** In a direct message, the bot answers every message. In a channel, it answers only messages that mention it. To also answer replies in that thread without a mention, set `messages: { replyToSubscribedThreads: true }`. Slack sends those replies only with the `message.channels`, `message.groups`, or `message.mpim` events. Read [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
+- **Other bots.** ViteHub ignores messages from other bots. Set `messages: { allowBots: true }` to change this.
+- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Slack member ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Invoker](/docs/agents/trusted-invokers).
+- **One workspace.** This setup uses one bot token for one workspace. For an app that many workspaces install, configure OAuth in the Chat SDK adapter. Read the [Slack adapter docs](https://chat-sdk.dev/adapters/official/slack).
+- **Socket Mode.** The ViteHub webhook route needs the Events API over HTTPS. ViteHub does not start a Socket Mode listener.
+- **Proof.** `slack()` is a thin Channel over your adapter. ViteHub tests its types and the shared Chat SDK webhook route, but it does not run a Slack adapter or a deployed Slack bot in CI.
 
 ## Next steps
 
 - [Agent Channels](/docs/agents/channels): admission, delivery, attachments, and Channel instructions.
-- [Agent Actors](/docs/agents/actors): pass a trusted identity to the Agent.
-- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces.
+- [Trusted Invokers](/docs/agents/trusted-invokers): pass a trusted identity to the Agent.
+- [Learn to build with Agents](/docs/agents/get-started): add tools and Workspaces to the same Agent.
 - [Build an AI Discord bot](/docs/guides/discord-ai-bot) and [Build an AI Telegram bot](/docs/guides/telegram-ai-bot) with the same Agent file.

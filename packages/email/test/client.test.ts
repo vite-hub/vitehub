@@ -2,8 +2,8 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { createEmail } from "../src/index.ts"
-import { emailProviderError, isEmailProviderError } from "../src/provider.ts"
-import { email } from "../src/server.ts"
+import { emailProviderError } from "../src/provider.ts"
+import { email } from "../src/index.ts"
 
 import type { EmailClient, EmailDriver, EmailMessage } from "../src/index.ts"
 import type { EmailProviderError } from "../src/types.ts"
@@ -65,7 +65,6 @@ describe("createEmail", () => {
       driver: "fixture",
       meta: {},
       signal: undefined,
-      stream: undefined,
     })
   })
 
@@ -102,18 +101,11 @@ describe("createEmail", () => {
     expect(initialize).toHaveBeenCalledTimes(2)
   })
 
-  it("applies portable headers and preserves personalizations for the driver", async () => {
+  it("applies portable headers for the driver", async () => {
     const driver = fixtureDriver()
     const client = createEmail({ driver })
 
-    await client.send({
-      ...message,
-      personalizations: [
-        { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },
-        { sendAt: "2026-08-10T15:00:00.000Z", to: "john@example.com", variables: { name: "John" } },
-      ],
-      unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" },
-    })
+    await client.send({ ...message, unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" } })
 
     const preparedMessage = vi.mocked(driver.send).mock.calls[0]![0]
     expect(preparedMessage).toEqual(expect.objectContaining({
@@ -124,10 +116,66 @@ describe("createEmail", () => {
       subject: message.subject,
       to: message.to,
     }))
-    expect(preparedMessage.personalizations).toEqual([
-      { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },
-      { sendAt: "2026-08-10T15:00:00.000Z", to: "john@example.com", variables: { name: "John" } },
-    ])
+  })
+
+  it.each([
+    ["template", { template: { id: "welcome" } }, "html"],
+    ["react", { react: {} }, "html"],
+    ["jsx", { jsx: {} }, "html"],
+    ["mjml", { mjml: "<mjml />" }, "html"],
+    ["handlebars", { handlebars: "Hello {{name}}" }, "html"],
+    ["handlebarsVars", { handlebarsVars: { name: "Maxi" } }, "html"],
+    ["liquid", { liquid: "Hello {{ name }}" }, "html"],
+    ["liquidVars", { liquidVars: { name: "Maxi" } }, "html"],
+    ["personalizations", { personalizations: [{ to: "one@example.com" }] }, "one message per recipient"],
+    ["preheader", { preheader: "Preview" }, "html"],
+    ["tracking", { tracking: { opens: false } }, "provider dashboard"],
+    ["sandbox", { sandbox: true }, "test recipient"],
+    ["raw", { raw: "From: hello@example.com\r\n\r\nHello" }, "attachments"],
+    ["amp", { amp: "<html amp4email>" }, "html"],
+    ["dsn", { dsn: { notify: ["FAILURE"] } }, "Remove it"],
+    ["locale", { locale: "en" }, "locale"],
+    ["stream", { stream: "transactional" }, "Remove it"],
+  ])("rejects the removed %s field before the driver runs", async (field, extra, fix) => {
+    const initialize = vi.fn()
+    const driver = { ...fixtureDriver(), initialize }
+    // SAFETY: JavaScript callers can still pass fields that EmailMessage does not have.
+    const input = { ...message, ...extra } as EmailMessage
+    const error = await sendError(createEmail({ driver }), input)
+
+    expect(error).toMatchObject({ code: "EMAIL_INVALID_MESSAGE", cause: { code: "INVALID_OPTIONS", driver: "fixture" } })
+    expect(error?.cause).toHaveProperty("message", expect.stringContaining(`\`${field}\``))
+    expect(error?.cause).toHaveProperty("message", expect.stringContaining(fix))
+    expect(initialize).not.toHaveBeenCalled()
+    expect(driver.send).not.toHaveBeenCalled()
+  })
+
+  it("ignores a removed field that is undefined", async () => {
+    const driver = fixtureDriver()
+    const input = { ...message, template: undefined }
+
+    await expect(createEmail({ driver }).send(input)).resolves.toEqual([undefined, { driver: "fixture", id: "provider-1" }])
+  })
+
+  it("rejects a message without a body before the driver runs", async () => {
+    const driver = fixtureDriver()
+    const { html: _html, text: _text, ...withoutBody } = message
+    // SAFETY: JavaScript callers can omit both body fields.
+    const error = await sendError(createEmail({ driver }), withoutBody as EmailMessage)
+
+    expect(error).toMatchObject({ code: "EMAIL_INVALID_MESSAGE" })
+    expect(error?.cause).toHaveProperty("message", "The message has no body. Set `text`, `html`, or both.")
+    expect(driver.send).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { text: "Hello" },
+    { html: "<p>Hello</p>" },
+  ])("sends a message with one body %o", async (body) => {
+    const driver = fixtureDriver()
+    const { html: _html, text: _text, ...rest } = message
+
+    await expect(createEmail({ driver }).send({ ...rest, ...body })).resolves.toEqual([undefined, { driver: "fixture", id: "provider-1" }])
   })
 
   it("serializes concurrent initialization for an eager driver", async () => {
@@ -249,192 +297,14 @@ describe("createEmail", () => {
     })
   })
 
-  it("does not classify provider-shaped plain objects as errors", async () => {
+  it("maps provider-shaped plain objects by their fields", async () => {
     const cause = { code: "RATE_LIMIT", driver: "custom", message: "slow down" } as EmailProviderError
     const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
 
     expect(await sendError(client)).toMatchObject({
-      code: "EMAIL_PROVIDER_FAILED",
-      why: expect.stringContaining("fixture"),
+      code: "EMAIL_RATE_LIMITED",
+      why: expect.stringContaining("custom"),
     })
-  })
-
-  it("preserves tagged provider errors without native Error.isError", async () => {
-    const cause = Object.assign(new Error("slow down"), {
-      code: "RATE_LIMIT" as const,
-      driver: "custom",
-      retryable: true,
-      [Symbol.toStringTag]: "ProviderError",
-    })
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("preserves tagged provider errors from another realm without native Error.isError", async () => {
-    const cause = runInNewContext(
-      `Object.assign(new Error("slow down"), { code: "RATE_LIMIT", driver: "custom", [Symbol.toStringTag]: "ProviderError" })`,
-    ) as EmailProviderError
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("rejects tagged objects with a custom prototype without native Error.isError", async () => {
-    const cause = Object.create({ [Symbol.toStringTag]: "Error" }) as EmailProviderError
-    Object.assign(cause, { code: "RATE_LIMIT", driver: "custom", message: "slow down" })
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("rejects objects that only inherit Error.prototype without native Error.isError", async () => {
-    const cause = Object.assign(Object.create(Error.prototype), {
-      code: "RATE_LIMIT" as const,
-      driver: "custom",
-      message: "slow down",
-    }) as EmailProviderError
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("rejects an own-stack Error.prototype impostor without native Error.isError", async () => {
-    const cause = Object.assign(Object.create(Error.prototype), {
-      stack: "spoofed stack",
-      code: "RATE_LIMIT" as const,
-      driver: "custom",
-      message: "slow down",
-    }) as EmailProviderError
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("rejects an own-stack impostor when native brand intrinsics are unavailable", async () => {
-    const cause = Object.assign(Object.create(Error.prototype), {
-      stack: "spoofed stack",
-      code: "RATE_LIMIT" as const,
-      driver: "custom",
-      message: "slow down",
-    }) as EmailProviderError
-    const errorDescriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    const cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, "structuredClone")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    Object.defineProperty(globalThis, "structuredClone", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
-    }
-    finally {
-      if (errorDescriptor) Object.defineProperty(Error, "isError", errorDescriptor)
-      else Reflect.deleteProperty(Error, "isError")
-      if (cloneDescriptor) Object.defineProperty(globalThis, "structuredClone", cloneDescriptor)
-      else Reflect.deleteProperty(globalThis, "structuredClone")
-    }
-  })
-
-  it.each([
-    { realm: "same realm", create: () => Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" }) },
-    { realm: "foreign realm", create: () => runInNewContext('Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" })') },
-  ])("rejects a user class named Error from the $realm without native Error.isError", async ({ create }) => {
-    const cause = create() as EmailProviderError
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("preserves tagged foreign Error subclasses without native Error.isError", async () => {
-    const cause = runInNewContext(
-      'Object.assign(new (class ProviderError extends TypeError {})("slow down"), { code: "RATE_LIMIT", driver: "custom", [Symbol.toStringTag]: "ProviderError" })',
-    ) as EmailProviderError
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it.each(["cyclic", "fresh"])("bounds a %s proxy prototype chain without native Error.isError", (kind) => {
-    let reads = 0
-    let proxy: object
-    const handler: ProxyHandler<object> = {
-      getPrototypeOf() {
-        reads++
-        return kind === "cyclic" ? proxy : new Proxy({}, handler)
-      },
-    }
-    proxy = new Proxy({}, handler)
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      expect(isEmailProviderError(proxy)).toBe(false)
-      expect(reads).toBeLessThanOrEqual(65)
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
-  })
-
-  it("rejects failed prototype reflection without native Error.isError", () => {
-    const proxy = new Proxy({}, { getPrototypeOf() { throw new Error("reflection failed") } })
-    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
-    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
-    try {
-      expect(isEmailProviderError(proxy)).toBe(false)
-    }
-    finally {
-      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
-      else Reflect.deleteProperty(Error, "isError")
-    }
   })
 
   it("preserves structurally valid custom provider errors", async () => {

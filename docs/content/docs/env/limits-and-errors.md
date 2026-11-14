@@ -11,7 +11,7 @@ icon: i-lucide-circle-alert
 A failed Env read throws a `ViteHubError` with a stable code and JSON-safe details. Codes separate invalid declarations, sync reads of provider values, missing values, invalid runtime values, and failed sources. Errors from your own build source resolvers stay unchanged.
 
 ```ts fragment
-import { getViteHubErrorShape } from '@vite-hub/runtime'
+import { getViteHubErrorShape } from 'vite-hub/runtime'
 
 try {
   await resolveEnv()
@@ -52,6 +52,10 @@ The value was sealed for another purpose. Pass the purpose that `seal()` used. T
 ### ENV_SEAL_ARGUMENT_INVALID
 
 `seal()` and `unseal()` throw this code for a bad argument: an empty purpose, a `ttl` that is not a positive number of seconds, a value that `JSON.stringify()` cannot write, or a `secret` shorter than 32 characters.
+
+### ENV_NOT_GENERATED
+
+`useServerEnv()`, `usePublicEnv()`, or another accessor of `vite-hub/env` ran outside a Vite build, for example in a plain `node` script or a test without the Vite plugin. The Env Vite plugin generates the registry that these accessors read. Run the code through `vite dev`, `vite build`, or a framework that uses them, with `vitehub()` and Env on.
 
 ## Production checks
 

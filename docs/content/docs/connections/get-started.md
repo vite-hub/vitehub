@@ -25,7 +25,7 @@ pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Then update the ViteHub options in your app config. Keep the other options of your app:
+Then update the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -35,8 +35,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
-    console: { auth: false },
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -60,8 +59,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
-    console: { auth: false },
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -84,8 +82,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
-    console: { auth: false },
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -102,7 +99,6 @@ export default defineConfig({
 :::
 
 - `connections: true` turns on Connections.
-- `console: { auth: false }` turns on the [Console](/docs/development/console) endpoint without a sign-in. The CLI uses it to connect accounts. Use this only on your computer.
 - `env.server.google` reads your Google client ID and secret from environment variables. `secret: true` hides the value until your code calls `unseal()`.
 
 Connections encrypts what it stores with a key. Make a random key:
@@ -132,7 +128,7 @@ In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` and `
 Create `server/connections/google.ts`. The file name is the name of the Connection: `google`. This Connection can only read Gmail.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 

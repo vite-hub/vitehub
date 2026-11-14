@@ -21,6 +21,7 @@ export {
   docsSectionForPath,
   docsSectionGroup,
   docsSectionIcon,
+  docsSidebarCollapses,
   docsSidebarGroups,
   docsSidebarSections,
   docsTutorialNavigationCookie,
@@ -30,4 +31,4 @@ export {
 } from "./navigation.ts"
 export type { DocsCatalogGroup, DocsGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsRailEntry, DocsSidebarGroup, DocsSidebarSection, DocsSidebarSectionBlock } from "./navigation.ts"
 
-export type { DocsSource } from "./manifest.ts"
+export type { DocsContentSource, DocsSource, DocsSourceInput } from "./manifest.ts"

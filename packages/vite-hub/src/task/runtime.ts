@@ -1,4 +1,5 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
+import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { runTask } from "nitro/task"
 
 import { taskRegistryKey } from "./registry.ts"
@@ -42,10 +43,6 @@ function registry(): NitroTaskRegistry {
     throw new TaskOperationError("Nitro tasks are not enabled in this runtime.", 503, "TASK_RUNTIME_UNAVAILABLE", "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.")
   }
   return tasks
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object(value) === value && !Array.isArray(value)
 }
 
 export async function listTasks(): Promise<TaskListResult> {

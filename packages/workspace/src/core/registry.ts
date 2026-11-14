@@ -1,5 +1,4 @@
 import { workspaceNotFoundError } from "./errors.ts"
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry } from "../runtime/registry.ts"
@@ -75,7 +74,7 @@ export function normalizeWorkspaceDefinition(name: string, definition: Workspace
   const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
   if (workspaceAgentOptions?.workspace) {
     const injectedWorkspace = pickWorkspaceFields(definition)
-    const configuredWorkspace = hasRuntimeType(workspaceAgentOptions.workspace, "string") ? {} : workspaceAgentOptions.workspace
+    const configuredWorkspace = typeof workspaceAgentOptions.workspace === "string" ? {} : workspaceAgentOptions.workspace
     const sources = mergeWorkspaceSources(injectedWorkspace.sources, configuredWorkspace.sources)
     const normalizedWorkspace: WorkspaceDefinition = {
       ...injectedWorkspace,
@@ -102,7 +101,7 @@ function mergeWorkspaceSources(
 }
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): WorkspaceDefinition {
-  if (!name || !hasRuntimeType(name, "string")) {
+  if (!name || typeof name !== "string") {
     throw workspaceErrorDiagnostics.WORKSPACE_R0022({ message: "[vitehub] registerWorkspace requires a string name." })
   }
   const registered = normalizeWorkspaceDefinition(name, definition)

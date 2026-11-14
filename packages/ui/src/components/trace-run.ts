@@ -13,23 +13,18 @@ import {
   type TraceLineStatus,
 } from "./trace.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { formatDuration } from "../internal/format.ts";
+import { payloadText } from "../internal/payload-text.ts";
 
 type Status = TraceRunView["status"] | TraceStepView["status"];
 
 const statusLabels: Record<string, string> = { cancelled: "Cancelled", completed: "Completed", failed: "Failed", running: "Working" };
 const statusIcons: Record<string, string> = {
-  cancelled: "i-ph-minus-circle-light",
-  completed: "i-ph-check-circle-light",
-  failed: "i-ph-x-circle-light",
-  running: "i-ph-circle-dashed-light",
+  cancelled: "i-lucide-circle-minus",
+  completed: "i-lucide-circle-check",
+  failed: "i-lucide-circle-x",
+  running: "i-lucide-circle-dashed",
 };
-
-function formatDuration(duration: number | undefined): string | undefined {
-  if (duration === undefined) return undefined;
-  return duration < 1_000
-    ? `${duration} ms`
-    : `${(duration / 1_000).toFixed(duration < 10_000 ? 1 : 0)} s`;
-}
 
 function lineStatus(status: Status): TraceLineStatus | undefined {
   if (status === "failed") return "error";
@@ -37,18 +32,9 @@ function lineStatus(status: Status): TraceLineStatus | undefined {
   return undefined;
 }
 
-// Trace attributes come from instrumented code, so they can be cyclic or throw on access.
-function attributesText(attributes: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(attributes, null, 2) ?? "";
-  } catch {
-    return "[Attributes cannot be shown]";
-  }
-}
-
 function description(status: Status, duration: number | undefined): string {
   // An unknown status from a newer runtime shows as its own text.
-  return [Object.hasOwn(statusLabels, status) ? statusLabels[status] : String(status), formatDuration(duration)].filter(Boolean).join(" · ");
+  return [Object.hasOwn(statusLabels, status) ? statusLabels[status] : String(status), duration === undefined ? undefined : formatDuration(duration)].filter(Boolean).join(" · ");
 }
 
 // One runtime trace run from deriveTraceRuns(), as a Trace line that expands into its timed steps.
@@ -60,7 +46,7 @@ export const TraceRun = defineComponent({
   },
   setup(props, { slots }) {
     const UIcon = useUIComponent("UIcon");
-    const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: Object.hasOwn(statusIcons, status) ? statusIcons[status] : "i-ph-circle-light" }));
+    const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: Object.hasOwn(statusIcons, status) ? statusIcons[status] : "i-lucide-circle" }));
 
     const step = (value: TraceStepView) => {
       const custom = slots.step?.({ step: value });
@@ -75,7 +61,8 @@ export const TraceRun = defineComponent({
         const candidate = value.attributes;
         if (candidate && Object.keys(candidate).length > 0) attributes = candidate;
       } catch {
-        // Keep an uninspectable attribute object so attributesText() can show its fallback.
+        // Trace attributes come from instrumented code, so they can be cyclic or throw on access. Keep an object that
+        // cannot be inspected, so payloadText() shows why it cannot be shown.
         try {
           attributes = value.attributes;
         } catch {
@@ -86,7 +73,7 @@ export const TraceRun = defineComponent({
       return h(TraceCollapsible, { "aria-label": value.name, "data-trace-step": value.status, key: value.id, role: "group" }, () => [
         h(TraceCollapsibleTrigger, () => line),
         h(TraceCollapsibleContent, () =>
-          h(CodeBlock, { size: "sm" }, () => h(CodeBlockContent, { wrap: true }, () => attributesText(attributes))),
+          h(CodeBlock, { size: "sm" }, () => h(CodeBlockContent, { wrap: true }, () => payloadText(attributes))),
         ),
       ]);
     };

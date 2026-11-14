@@ -29,15 +29,15 @@ export const FilterSearch = defineComponent({
             leading: slots.leading,
             trailing: () => [
               props.choices.status.value === "thinking"
-                ? h(UIcon, { "aria-hidden": "true", class: "animate-spin", name: "i-ph-circle-notch" })
+                ? h(UIcon, { "aria-hidden": "true", class: "animate-spin", name: "i-lucide-loader-circle" })
                 : props.choices.text.value !== ""
-                  ? h(ChoicesInputClear, { as: UButton, color: "neutral", icon: "i-ph-x", size: "xs", variant: "link" })
+                  ? h(ChoicesInputClear, { as: UButton, color: "neutral", icon: "i-lucide-x", size: "xs", variant: "link" })
                   : null,
               slots.trailing?.(),
             ],
           },
         ),
-        h(ChoicesInputStatus, { class: "vh-visually-hidden" }),
+        h("span", { "data-slot": "visually-hidden" }, [h(ChoicesInputStatus)]),
         h(ChoicesInputError, { class: "vh-filter-search-error" }, {
           default: ({ error }: { error: Error | undefined }) => slots.error?.({ error }) ?? error?.message,
         }),

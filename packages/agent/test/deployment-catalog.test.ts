@@ -46,13 +46,15 @@ function deploymentRuntimeModules(): Map<string, string> {
     [agentRuntimeModule("server/internal"), [
       `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
+      `export { resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,
       // The generated SQLite-state route builds its webhook warm-up at module load (#2628).
       `export { createAgentWebhookWarmup } from ${JSON.stringify(join(import.meta.dirname, "../src/server/webhook-warmup.ts"))}`,
       // The generated route installs the Channel reader for the Console.
       `export { installChannelsConsoleHost } from ${JSON.stringify(join(import.meta.dirname, "../src/channels-console-host.ts"))}`,
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
       `export { namedChannelHosts } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/named-channels.ts"))}`,
-      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/h3.ts"))}`,
+      `export { withDeclaredAgentWorkspace } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,
+      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/internal/h3.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
@@ -88,7 +90,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "  return name",
       "}",
     ].join("\n")],
-    [agentRuntimeModule("state/sqlite"), [
+    [agentRuntimeModule("state"), [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function createLibsqlAgentState(options) {",
       "  capture.stateAdapter = { kind: 'sqlite', options }",
@@ -156,9 +158,9 @@ async function createDeploymentRuntimeFixture(
   await writeFile(join(reviewerRoot, "agent.ts"), [
     "import { defineAgent, defineCapability } from '@vite-hub/agent'",
     "export default defineAgent({",
-    "  capabilities: ({ abortSignal, actor, agentIdentity, event, request, runtime, waitUntil }) => actor.kind === 'inspection' ? [defineCapability({",
+    "  capabilities: ({ abortSignal, agentIdentity, event, invoker, request, runtime, waitUntil }) => invoker.kind === 'inspection' ? [defineCapability({",
     "    id: 'runtime',",
-    "    metadata: { actor: actor.kind, agent: agentIdentity?.name, hasAbortSignal: Boolean(abortSignal), hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
+    "    metadata: { invoker: invoker.kind, agent: agentIdentity?.name, hasAbortSignal: Boolean(abortSignal), hasEvent: Boolean(event), hasWaitUntil: typeof waitUntil === 'function', method: request?.method, runtime, token: 'private' },",
     "  })] : [],",
     "  description: 'reviewer',",
     "  driver: { model: {} },",
@@ -172,7 +174,7 @@ async function createDeploymentRuntimeFixture(
   await writeFile(join(brokenRoot, "agent.ts"), [
     "import { defineAgent } from '@vite-hub/agent'",
     "export default defineAgent({",
-    "  capabilities: ({ actor }) => { if (actor.kind === 'inspection') throw new Error('private failure') ; return [] },",
+    "  capabilities: ({ invoker }) => { if (invoker.kind === 'inspection') throw new Error('private failure') ; return [] },",
     "  description: 'broken',",
     "  driver: { run: () => 'ok' },",
     "  runtime: false,",
@@ -193,7 +195,7 @@ async function createDeploymentRuntimeFixture(
       hubAgent({
         providers: {
           state: {
-            provider: "sqlite",
+            driver: "sqlite",
             tablePrefix: "catalog_",
             url: "file:catalog.sqlite",
           },
@@ -369,7 +371,7 @@ describe("generated Agent deployment catalog", () => {
       capabilities: [{
         id: "runtime",
         metadata: {
-          actor: "inspection",
+          invoker: "inspection",
           agent: "reviewer",
           hasAbortSignal: true,
           hasEvent: true,
@@ -567,7 +569,7 @@ describe("generated Agent deployment catalog", () => {
 
   it("executes the same catalog through the Netlify Adapter", async () => {
     await runtime!.close()
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     runtime = await createDeploymentRuntimeFixture("netlify")
 
     await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({

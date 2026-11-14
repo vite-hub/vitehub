@@ -11,8 +11,7 @@ icon: i-lucide-circle-alert
 `email.send()` returns `[error, sent]`. When `error` is set, `error.code` names the failure, `error.why` says what went wrong and names the driver, `error.fix` says what to do, and `error.docs` links to the code in [Email diagnostics](/docs/email/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/send.ts]
-import { type EmailMessage } from 'vite-hub/email'
-import { email } from 'vite-hub/email/server'
+import { type EmailMessage, email } from 'vite-hub/email'
 
 export async function send(message: EmailMessage) {
   const [error, sent] = await email.send(message)
@@ -53,7 +52,9 @@ Email does not retry. A timeout or lost response can happen after the provider a
 
 ### EMAIL_INVALID_MESSAGE
 
-The driver rejected the message, for example for an empty address, a missing `from`, or a non-HTTPS unsubscribe URL. `cause` names the field.
+ViteHub or the driver rejected the message, for example for an empty address, a missing `from`, a non-HTTPS unsubscribe URL, or a message without `text` and `html`. `cause` names the field.
+
+ViteHub also rejects fields that no driver sends, such as `template`, `react`, `mjml`, `preheader`, or `personalizations`. Render the body yourself and pass it as `html` or `text`.
 
 ### EMAIL_AUTHENTICATION
 

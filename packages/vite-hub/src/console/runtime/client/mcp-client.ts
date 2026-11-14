@@ -49,12 +49,6 @@ export function consoleMcpAccount(connection: ConsoleMcpConnection): { primary: 
   return { primary: connection.label, ...(connection.auth === "none" || connection.auth === "console" ? { secondary: consoleMcpAuthLabels[connection.auth] } : {}) }
 }
 
-/** Up to two initials of a name or an email, for an avatar. */
-export function consoleMcpInitials(value: string): string {
-  const words = value.replace(/@.*$/, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  return (words.length > 1 ? `${words[0]![0]}${words[1]![0]}` : (words[0] ?? "?").slice(0, 2)).toUpperCase()
-}
-
 /** A host and path without the scheme, such as `example.com/mcp`. */
 export function consoleMcpEndpoint(url: string): string {
   const parsed = new URL(url)

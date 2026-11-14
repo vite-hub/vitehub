@@ -26,20 +26,24 @@ const pageUi = computed(() => ({
     ? "!grid !grid-cols-1 !gap-0 lg:!grid-cols-1 lg:!gap-0 xl:!grid-cols-[minmax(0,1fr)_var(--vh-toc-width)] xl:!gap-10"
     : "!grid !grid-cols-1 !gap-0 lg:!grid-cols-1 lg:!gap-0",
   center: "min-w-0 lg:!col-span-1",
-  right: "hidden xl:block xl:!col-span-1 xl:!w-full",
+  // The outline is 0.5rem wider than its column and pulled back by its negative margin, so the padding that keeps focus
+  // rings whole does not narrow the links.
+  right: hasCodePanel.value ? "hidden xl:block xl:!col-span-1 xl:!w-full" : "hidden xl:block xl:!col-span-1 xl:!w-[calc(100%+0.5rem)]",
 }))
 const headerUi = {
   root: "!px-0 !pt-10 !pb-0",
   title: "text-[2rem] sm:text-[2rem] leading-[1.15] tracking-[-0.025em] font-semibold text-highlighted text-balance",
   description: "mt-2 max-w-[34rem] text-[1.0625rem] leading-[1.7] text-muted text-pretty",
 }
+// The aside scrolls the outline. The list and its root do not scroll too, so only the aside clips, and its padding keeps
+// the focus ring of a link whole.
 const outlineUi = {
-  root: "!static !mx-0 !px-0",
+  root: "!static !mx-0 !px-0 !overflow-visible",
   container: "!pt-0 !border-s-0 !ps-0",
   link: "!h-auto min-h-6 !py-1 text-[0.8125rem] leading-5 !text-dimmed hover:!text-highlighted data-[active]:!text-highlighted",
   // Long code headings such as KV_UNSUPPORTED_OPERATION have no spaces, so they break anywhere instead of overflowing the column.
   linkText: "!whitespace-normal !overflow-visible !text-clip [overflow-wrap:anywhere]",
-  content: "!min-h-0",
+  content: "!min-h-0 !overflow-visible",
 }
 const mobileTocUi = {
   // The page body has no top margin, so the outline keeps the space that separates it from the first heading.
@@ -54,8 +58,8 @@ const mobileTocUi = {
 
 <template>
   <article class="vh-docs-article" :class="{ 'has-code-panel': hasCodePanel }" :data-path="page.path">
-    <UPage :ui="pageUi">
-      <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="headerUi">
+    <UPage :ui="withDocsTheme('page', pageUi)">
+      <UPageHeader :headline="page.eyebrow ?? undefined" :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="withDocsTheme('pageHeader', headerUi)">
         <template #links>
           <DocsPageHeaderLinks />
         </template>
@@ -67,7 +71,7 @@ const mobileTocUi = {
         title="On this page"
         :highlight="false"
         :links="tocLinks"
-        :ui="mobileTocUi"
+        :ui="withDocsTheme('contentToc', mobileTocUi)"
       />
 
       <UPageBody
@@ -91,7 +95,7 @@ const mobileTocUi = {
 
       <template v-else-if="tocLinks.length" #right>
         <aside class="vh-article-outline" aria-label="Page outline">
-          <UContentToc title="On this page" :highlight="false" :links="tocLinks" :ui="outlineUi" />
+          <UContentToc title="On this page" :highlight="false" :links="tocLinks" :ui="withDocsTheme('contentToc', outlineUi)" />
         </aside>
       </template>
     </UPage>
@@ -146,7 +150,8 @@ const mobileTocUi = {
   top: calc(var(--ui-header-height) + 2rem);
   max-height: calc(100dvh - var(--ui-header-height) - 4rem);
   overflow-y: auto;
-  padding-block: 2.5rem;
+  margin-inline: -0.25rem;
+  padding: 2.5rem 0.25rem;
 }
 
 @media (min-width: 40rem) {

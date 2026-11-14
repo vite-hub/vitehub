@@ -1,9 +1,9 @@
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
+import type { AnyRelations, EmptyRelations, ExtractTablesFromSchema, ExtractTablesWithRelations } from "drizzle-orm"
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
+import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 import type { ResolvedDatabaseContribution } from "./contributions.ts"
 
-export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite" | "postgresql"
 
 export interface RuntimeEnvDeclarationLike {
@@ -43,10 +43,6 @@ export interface DatabaseConnectionConfig {
   url?: DatabaseConfigValue
 }
 
-export interface DatabaseDrizzleOptions {
-  casing?: DrizzleCasing
-}
-
 export interface DatabaseLocalRuntimeOptions {
   filename?: string
 }
@@ -64,20 +60,47 @@ export interface DatabaseRuntimeD1Options {
   readReplication?: boolean
 }
 
+export interface MigrationBackupOptions {
+  /** The folder of the copies. A relative path starts at the server's working directory. Defaults to `backups` beside the database file. */
+  dir?: string
+  /** The number of copies to keep for each database file, including the new one. Defaults to 3. */
+  keep?: number
+}
+
 export interface DatabaseIntegrationOptions {
   cli?: false | {
     export?: false
     generate?: false
     migrate?: false
+    seed?: false
+    up?: false
   }
   /**
-   * Applies pending migrations of local SQLite databases when a Node server build starts, before it handles requests.
-   * It uses the ledger and data loss check of `vitehub database migrate`. Run one server process per database file.
+   * Applies pending migrations when a Node server build starts, before it handles requests. It uses the ledger and
+   * data loss check of `vitehub database migrate`, and a failed migration stops the server.
+   *
+   * Unset, Postgres databases of a Node build migrate on start and other databases do not. Postgres migrations hold an
+   * advisory lock, so several instances can start together. `true` also migrates local SQLite files, one server
+   * process per file. `false` turns it off.
    */
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */
     allowDataLoss?: boolean
+    /**
+     * Copies each local SQLite file with `VACUUM INTO` before the server applies its pending migrations. A start with no
+     * pending migration, or an empty database, makes no copy. A failed copy stops the start before any migration.
+     * Postgres and remote libSQL fail with `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`. `true` keeps the 3 newest copies in
+     * a `backups` folder beside the database file.
+     */
+    backup?: boolean | MigrationBackupOptions
   }
+  /**
+   * Applies the pending migrations of each Cloudflare D1 binding as part of the deploy, before the Worker deploys. The
+   * generated deploy command in `nitro.json` runs `wrangler d1 migrations apply <binding> --remote` first, so
+   * `nitro deploy --prebuilt`, Workers Builds and `vitehub deploy` stop when a migration fails. The build fails with
+   * `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED` for another host, or for a database without a D1 binding.
+   */
+  migrateOnDeploy?: boolean
   projectRoot?: string
 }
 
@@ -85,12 +108,19 @@ export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions 
   connection?: DatabaseConnectionConfig
 }
 
-export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+export interface DatabaseDefinitionOptions<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   dialect?: "sqlite"
-  drizzle?: DatabaseDrizzleOptions
   name?: string
+  /**
+   * Relations between tables, from Drizzle's `defineRelations(schema, r => ({ ... }))`. They type and run
+   * `db.query.<table>.findMany({ with })`. Defaults to `defineRelations(schema)`: every table, with no relations.
+   */
+  relations?: TRelations
   /**
    * In `vite dev`, query the real D1 database over HTTP instead of local SQLite. Writes change real data. It uses the
    * D1 HTTP path of `cloudflare.http` with the same credentials, so `true` means `cloudflare.http: true` in development.
@@ -109,44 +139,105 @@ export interface CloudflareHyperdriveConfig {
 
 export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
+  /**
+   * Read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. `db.$replica` sends a query to one of them, picked at
+   * random. Other queries use `url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore them.
+   */
+  replicas?: Array<DatabaseConfigValue | undefined>
 }
 
-export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+/**
+ * `pglite` runs a Postgres Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ * `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ */
+export type PostgresDatabaseDriver = "pglite"
+
+export interface PostgresDatabaseDefinitionOptions<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
-  drizzle?: DatabaseDrizzleOptions
+  /** Without it, a Database that has no URL or PG* variables still runs on PGlite in development. */
+  driver?: PostgresDatabaseDriver
   name?: string
+  /** Relations between tables, from Drizzle's `defineRelations()`. See `DatabaseDefinitionOptions.relations`. */
+  relations?: TRelations
   /** Only D1 has a remote development mode. */
   remote?: never
   schema: TSchema
 }
 
-export interface PostgresDatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+export interface PostgresDatabaseDefinition<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
-  drizzle: DatabaseDrizzleOptions
+  driver?: PostgresDatabaseDriver
   name: string
+  relations: TRelations
   schema: TSchema
 }
 
-export type RuntimePostgresDatabase<TSchema extends Record<string, unknown>> = PgDatabase<PgQueryResultHKT, TSchema>
+/**
+ * The relations that ViteHub gives Drizzle for a schema, as `defineRelations(schema)` returns them: each table of the
+ * schema, with no relations between tables. `db.query.<table>` reads one table.
+ */
+export type SchemaRelations<TSchema extends Record<string, unknown>> = ExtractTablesWithRelations<EmptyRelations, ExtractTablesFromSchema<TSchema>>
 
-export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+type RelationFields<TPart, TTable> = TTable extends keyof TPart ? TPart[TTable] extends { relations: infer TFields } ? TFields : {} : {}
+
+type MergeRelationFields<TParts extends readonly unknown[], TTable> = TParts extends readonly [...infer TRest, infer TLast]
+  ? Omit<MergeRelationFields<TRest, TTable>, keyof RelationFields<TLast, TTable>> & RelationFields<TLast, TTable>
+  : {}
+
+/**
+ * The relations of a Database whose schema and relations come from several parts, such as Nuxt layers and contributed
+ * tables. Every table of `TSchema` gets an entry. The relation fields of a table merge across `TParts`, lowest
+ * precedence first, and a later part wins a field name. The generated `DatabaseRegistry` uses it.
+ */
+export type MergeDatabaseRelations<TSchema extends Record<string, unknown>, TParts extends readonly unknown[]> = {
+  [TTable in keyof ExtractTablesFromSchema<TSchema>]: {
+    table: ExtractTablesFromSchema<TSchema>[TTable]
+    name: TTable & string
+    relations: { [TField in keyof MergeRelationFields<TParts, TTable>]: MergeRelationFields<TParts, TTable>[TField] }
+  }
+}
+
+export type RuntimePostgresDatabase<
+  TSchema extends Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> = PgAsyncDatabase<PgQueryResultHKT, TRelations> & {
+  /**
+   * The database on one read replica of `connection.replicas`, picked at random for each read. It is the primary
+   * database when there are no replicas, or when Hyperdrive or PGlite serves the database. Writes belong on `db`.
+   */
+  readonly $replica: PgAsyncDatabase<PgQueryResultHKT, TRelations>
+}
+
+export interface DatabaseDefinition<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
-  drizzle: DatabaseDrizzleOptions
   name: string
+  /** The relations of this Definition. The runtime merges them with the relations of Nuxt layers and contributed tables. */
+  relations: TRelations
   remote?: boolean
   schema: TSchema
 }
 
-export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema> & {
+export type RuntimeDrizzleDatabase<
+  TSchema extends Record<string, unknown>,
+  TRelations extends AnyRelations = SchemaRelations<TSchema>,
+> = SQLiteAsyncDatabase<"async", unknown, TRelations> & {
   /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
 }
-export type Database<TSchema extends Record<string, unknown> = Record<string, unknown>> = DatabaseDefinition<TSchema> & RuntimeDrizzleDatabase<TSchema>
 
 /** A module whose `schema` tables join a database. */
 export interface DatabaseSchemaSource {
@@ -188,7 +279,6 @@ export interface ResolvedCloudflareD1BindingConfig {
 export interface RuntimeDrizzleDatabaseConfig {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
-  drizzle: DatabaseDrizzleOptions
   /** Set by the dev server when the build targets Cloudflare: local SQLite then checks the D1 limits. */
   localLimits?: "d1"
   name: string
@@ -212,6 +302,8 @@ export interface ResolvedCloudflareHyperdriveConfig {
 export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseConfig {
   cloudflare?: ResolvedCloudflareD1BindingConfig
   dialect: DatabaseDialect
+  /** Postgres Definitions only. */
+  driver?: PostgresDatabaseDriver
   generatedSchemaFile: string
   /** Postgres Definitions only. */
   hyperdrive?: ResolvedCloudflareHyperdriveConfig

@@ -128,7 +128,7 @@ async function createViteRoot(parentDir = tmpdir()) {
   await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
     `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
     ``,
-    `export default defineSandboxTask({ run: async () => ({ ok: true }) })`,
+    `export default defineSandboxTask({ handler: async () => ({ ok: true }) })`,
     ``,
   ].join("\n"))
   return rootDir
@@ -244,7 +244,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     await writeFile(join(rootDir, "src/__proto__.sandbox-task.ts"), [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ timeout: 5000, run: async () => ({ message: "prototype sandbox" }) })`,
+      `export default defineSandboxTask({ timeout: 5000, handler: async () => ({ message: "prototype sandbox" }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -269,7 +269,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     await writeFile(join(rootDir, "src/tools/unrelated.sandbox-task.ts"), [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => ({ unrelated: true }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ unrelated: true }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -367,7 +367,7 @@ describe("hubSandboxTask", () => {
     const resolveId = idHook(plugin.resolveId)
     const load = idHook(plugin.load)
 
-    await configHook({ root: rootDir, preset: "vercel" }, { command: "serve", mode: "development" })
+    await configHook({ root: rootDir, nitro: { preset: "vercel" } }, { command: "serve", mode: "development" })
 
     const resolvedId = await resolveId("#vitehub/sandbox-task")
     const code = await load(resolvedId as string)
@@ -386,7 +386,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
       `import { message } from "@/lib/message"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -428,7 +428,7 @@ describe("hubSandboxTask", () => {
       `import { basename } from "node:path"`,
       `import { message } from "../lib/message.ts"`,
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => ({ message, name: basename("/tmp/value") }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message, name: basename("/tmp/value") }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -470,7 +470,7 @@ describe("hubSandboxTask", () => {
       `import kleur from "kleur"`,
       `export default defineSandboxTask({`,
       `  project: false,`,
-      `  async run(path: string) {`,
+      `  async handler(path: string) {`,
       `    await readFile(path)`,
       `    return kleur.green("ready")`,
       `  },`,
@@ -479,7 +479,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(rootDir, "src/tools/forced-project.sandbox-task.ts"), [
       `const definition = defineSandboxTask({`,
       `  project: true,`,
-      `  run: async () => "project",`,
+      `  handler: async () => "project",`,
       `})`,
       `export default definition`,
     ].join("\n"))
@@ -529,7 +529,7 @@ describe("hubSandboxTask", () => {
     }, null, 2))
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
       `import kleur from "kleur"`,
-      `export default defineSandboxTask({ run: async () => ({ message: kleur.green("ready") }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message: kleur.green("ready") }) })`,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "vercel" })
@@ -560,7 +560,7 @@ describe("hubSandboxTask", () => {
       `import { version } from "@/lib/version"`,
       `import { processAlias } from "process/"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ processAlias, version, node: execFileSync(process.execPath, ["--version"]).toString() }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ processAlias, version, node: execFileSync(process.execPath, ["--version"]).toString() }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -1138,8 +1138,7 @@ describe("hubSandboxTask", () => {
     const userConfig = {
       root: rootDir,
       plugins: [{ name: "nitro:main" }],
-      preset,
-      nitro: {},
+      nitro: { preset },
     }
     await configHook(userConfig, { command: "build", mode: "production" })
     const runNitroBuildBefore = createSandboxTaskNitroLifecycle(plugin, [/existing/])
@@ -1165,7 +1164,7 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask(false)
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir, nitro: {}, preset: "vercel" }
+    const userConfig = { root: rootDir, nitro: {} }
     await configHook(userConfig, { command: "build", mode: "production" })
     const runNitroBuildBefore = createSandboxTaskNitroLifecycle(plugin, [/existing/])
 
@@ -1228,7 +1227,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
       `import { message } from "#late/message"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -1468,7 +1467,7 @@ describe("hubSandboxTask", () => {
     await writeFile(definition, [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message: "updated" }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message: "updated" }) })`,
       ``,
     ].join("\n"))
     await handleHotUpdate({
@@ -1504,7 +1503,7 @@ describe("hubSandboxTask", () => {
     expect(resolve(dirname(currentResolvedRegistry), definitionImport)).toBe(currentResolvedDefinition)
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
 
-    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'latest' }) }\n")
     await handleHotUpdate({
       file: definition,
       server: {
@@ -1568,12 +1567,12 @@ describe("hubSandboxTask", () => {
       }
     }
 
-    await writeFile(definition, "export default { run: async () => ({ message: 'first' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'first' }) }\n")
     const firstUpdate = handleHotUpdate(context)
     await firstPrepared.promise
     const firstGenerationSandbox = await realpath(sandboxTaskAlias)
 
-    await writeFile(definition, "export default { run: async () => ({ message: 'second' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'second' }) }\n")
     const secondUpdate = handleHotUpdate(context)
     releaseFirst.resolve()
     await secondStarted.promise
@@ -1625,7 +1624,7 @@ describe("hubSandboxTask", () => {
     }) => Promise<void>
 
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
-    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'updated' }) }\n")
     realpathMock.windowsSeparators = separators === "Windows"
     await handleHotUpdate({
       file: definition,
@@ -1708,7 +1707,7 @@ describe("hubSandboxTask", () => {
     await rm(join(rootDir, "src/tools/release-notes.sandbox-task.ts"))
     await writeFile(join(rootDir, "src/tools/next.sandbox-task.ts"), [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ run: async () => ({ next: true }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ next: true }) })`,
       ``,
     ].join("\n"))
     await configResolved({ root: rootDir, resolve: { alias: [] } })
@@ -1742,9 +1741,9 @@ describe("hubSandboxTask", () => {
     await expect(readFile(stableDefinition, "utf8")).resolves.toContain("release-notes")
 
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
-    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'updated' }) }\n")
     await prepareSandboxTaskRuntime(options)
-    await writeFile(definition, "export default { run: async () => ({ message: 'latest' }) }\n")
+    await writeFile(definition, "export default { handler: async () => ({ message: 'latest' }) }\n")
     await prepareSandboxTaskRuntime(options)
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -1774,7 +1773,7 @@ describe("hubSandboxTask", () => {
     const generated = join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/tools__release-notes.mjs")
     const previous = await readFile(generated, "utf8")
     expect((await lstat(join(rootDir, ".vitehub/sandbox-task/runtime"))).isSymbolicLink()).toBe(true)
-    await writeFile(definition, "export default { run: async () => {\n")
+    await writeFile(definition, "export default { handler: async () => {\n")
 
     await expect(configResolved({ root: rootDir, resolve: { alias: [] } })).rejects.toThrow()
     await expect(readFile(generated, "utf8")).resolves.toBe(previous)
@@ -1884,7 +1883,7 @@ describe("hubSandboxTask", () => {
     }))
     await writeFile(definition, [
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
-      `export default defineSandboxTask({ project: true, run: async () => ({ ok: true }) })`,
+      `export default defineSandboxTask({ project: true, handler: async () => ({ ok: true }) })`,
       ``,
     ].join("\n"))
 
@@ -1952,7 +1951,7 @@ describe("hubSandboxTask", () => {
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
       `import { message } from "./message"`,
       ``,
-      `export default defineSandboxTask({ run: async () => ({ message }) })`,
+      `export default defineSandboxTask({ handler: async () => ({ message }) })`,
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -2012,7 +2011,7 @@ describe("hubSandboxTask", () => {
     await writeFile(helper, `export const message = "initial"\n`)
     await writeFile(definition, [
       `import { message } from "./message"`,
-      `export default { run: async () => ({ message }) }`,
+      `export default { handler: async () => ({ message }) }`,
       ``,
     ].join("\n"))
 
@@ -2044,7 +2043,7 @@ describe("hubSandboxTask", () => {
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
     await writeFile(definition, [
       `import { readdir } from "node:fs/promises"`,
-      `export default { run: async () => readdir("./prompts") }`,
+      `export default { handler: async () => readdir("./prompts") }`,
       ``,
     ].join("\n"))
 

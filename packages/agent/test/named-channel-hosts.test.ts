@@ -13,7 +13,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
   const root = await mkdtemp(join(tmpdir(), "vitehub-named-channel-host-"))
   const packageRoot = resolve(import.meta.dirname, "..")
   try {
-    if (hosting === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    if (hosting === "netlify") vi.stubEnv("VITEHUB_HOST", "netlify")
     await cp(join(packageRoot, "node_modules"), join(root, "node_modules"), { recursive: true })
     await symlink(packageRoot, join(root, "node_modules/@vite-hub/agent"), "dir")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "named-channel-host", type: "module" }))
@@ -61,7 +61,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "import { defineAgent } from '@vite-hub/agent'",
       "export default defineAgent({ description: 'Other Agent', runtime: false, driver: { run: () => 'other' } })",
     ].join("\n"))
-    const plugin = hubAgent({ runtime: hosting === "deno" ? "deno" : undefined, providers: { state: { provider: "memory" } } })
+    const plugin = hubAgent({ runtime: hosting === "deno" ? "deno" : undefined, providers: { state: { driver: "memory" } } })
     if (typeof plugin.config !== "function") throw new Error("Expected config hook")
     await plugin.config.call({} as never, { root }, { command: "build", mode: "production" })
     const config = await resolveConfig({ root, configFile: false, build: { outDir: "dist" } }, "build")

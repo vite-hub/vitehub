@@ -6,7 +6,7 @@ import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { usesRemoteLibsql } from "../src/internal/vite-build.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const tempDirs: string[] = []
@@ -20,7 +20,7 @@ const d1 = "cloudflare: { databaseId: 'database-id', databaseName: 'app' },"
 async function createProject(definition: string) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-db-libsql-build-"))
   tempDirs.push(root)
-  const file = join(root, "server/databases/config.ts")
+  const file = join(root, "server/databases/default.ts")
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vite-hub/database'",
@@ -33,14 +33,14 @@ async function createProject(definition: string) {
 
 /** Runs the Vite plugin as a Vite build or dev server for `preset`, and returns how it resolves `#vitehub/database/libsql`. */
 async function resolveLibsql(root: string, preset: string, command: "build" | "serve" = "build") {
-  const plugin = hubDb()
-  // SAFETY: hubDb exposes configResolved and resolveId.handler as callable Vite hooks.
+  const plugin = hubDatabase()
+  // SAFETY: hubDatabase exposes configResolved and resolveId.handler as callable Vite hooks.
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command, nitro: { preset }, plugins: [{ name: "nitro:main" }], root })
   const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
   return { config: plugin.api.getConfig(), id: resolveId("#vitehub/database/libsql") }
 }
 
-/** Every package that the Worker bundle of `@vite-hub/database/drizzle` contains, through static and dynamic imports. */
+/** Every package that the Worker bundle of `@vite-hub/database` contains, through static and dynamic imports. */
 async function bundledPackages(libsqlModule: string | undefined) {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-db-libsql-bundle-"))
   tempDirs.push(dir)
@@ -55,7 +55,7 @@ async function bundledPackages(libsqlModule: string | undefined) {
     },
     bundle: true,
     conditions: ["workerd", "worker", "browser"],
-    entryPoints: [join(packageRoot, "src/drizzle.ts"), join(packageRoot, "src/runtime/definition-local.ts")],
+    entryPoints: [join(packageRoot, "src/index.ts"), join(packageRoot, "src/runtime/definition-local.ts")],
     external: ["cloudflare:workers", "node:*"],
     format: "esm",
     metafile: true,

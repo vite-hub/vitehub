@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { consoleDayTime } from "../client/format";
+import { Status } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -23,10 +25,12 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
-import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentPendingChange, ConsoleDocumentScheduledChange, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
+import ConsoleState from "./console-state.vue";
 
 /**
  * The dashboard of a document editor section: counts by state, the changes that wait for a publish, the scheduled
@@ -83,7 +87,7 @@ const totals = computed(() => {
   return totals;
 });
 const stats = computed(() => (["draft", "changed", "published", "deleted"] as const).map(state => ({
-  count: totals.value[state],
+  value: totals.value[state],
   label: { changed: "Changed", deleted: "Deleted", draft: "Drafts", published: "Published" }[state],
   state,
 })));
@@ -98,10 +102,6 @@ const scheduled = computed(() => (props.overview?.collections ?? [])
   .sort((left, right) => left.item.schedule.at.localeCompare(right.item.schedule.at)));
 const scheduleStatus = { failed: "Failed", overdue: "Overdue", pending: "Scheduled" } as const;
 
-/** `Oct 20, 09:00` in the browser time zone. */
-function scheduleTime(at: string): string {
-  return new Date(at).toLocaleString(undefined, { day: "numeric", hour: "2-digit", hour12: false, minute: "2-digit", month: "short" });
-}
 
 // Writers see the changes, but only collections they may publish count toward the Publish button.
 // Drafts with field issues stay out of Publish: they would make the whole publish fail.
@@ -143,6 +143,8 @@ const activity = computed(() => {
 });
 const writable = computed(() => listed.value.filter(collection => collection.access.write));
 const firstLoad = computed(() => props.loading && !props.overview);
+// Without an overview the counts, the changes, and the activity are unknown, so the page shows the failure instead of zeros.
+const failed = computed(() => Boolean(props.error) && !props.loading && !props.overview);
 // Without an access policy no one reads anything, so "Everything is published" would not be true.
 const noAccess = computed(() => !props.collections.length ? props.setup?.access : undefined);
 
@@ -207,7 +209,7 @@ async function publishAll(): Promise<void> {
   <ConsolePageHeader :title="label">
     <template #right>
       <UPopover v-if="canPublishAny && publishable.length" v-model:open="publishOpen">
-        <UButton size="sm" label="Publish" :loading="publishing" :aria-label="`Publish ${publishable.length} ${publishable.length === 1 ? 'change' : 'changes'}`">
+        <UButton label="Publish" :loading="publishing" :aria-label="`Publish ${publishable.length} ${publishable.length === 1 ? 'change' : 'changes'}`">
           <template #trailing>
             <span class="tabular-nums opacity-70">{{ publishable.length }}</span>
           </template>
@@ -219,8 +221,8 @@ async function publishAll(): Promise<void> {
               <template v-if="blocked"> {{ blocked === 1 ? "1 draft with field issues stays" : `${blocked} drafts with field issues stay` }} unpublished.</template>
             </p>
             <div class="flex justify-end gap-2">
-              <UButton variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
-              <UButton size="sm" label="Publish all" :loading="publishing" @click="publishAll" />
+              <UButton variant="ghost" label="Cancel" @click="publishOpen = false" />
+              <UButton label="Publish all" :loading="publishing" @click="publishAll" />
             </div>
           </div>
         </template>
@@ -229,82 +231,63 @@ async function publishAll(): Promise<void> {
   </ConsolePageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
-    <div class="mx-auto grid max-w-5xl gap-8 px-4 py-6 sm:px-6">
-      <UAlert
-        v-if="error && !overview"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load the dashboard"
-        :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => emit('reload') }]"
-      />
+    <div class="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:px-6">
+      <ConsoleState v-if="failed" class="py-6" :error="error" title="Couldn't load the dashboard" :retry="() => emit('reload')" />
 
-      <!-- Counts: one hairline strip, the numbers lead and the labels follow quietly. -->
-      <section aria-label="Documents by state" class="grid grid-cols-2 overflow-hidden rounded-lg border border-default sm:grid-cols-4">
-        <div
-          v-for="(stat, index) in stats"
-          :key="stat.state"
-          class="grid gap-1 px-4 py-3"
-          :class="[index % 2 ? 'border-s border-default' : '', index > 1 ? 'border-t border-default sm:border-t-0' : '', index === 2 ? 'sm:border-s' : '']"
-        >
-          <ConsoleStatus :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" />
-          <!-- The height of the text-2xl count, so the cards keep their height when the counts arrive. -->
-          <USkeleton v-if="firstLoad" class="my-1 h-6 w-10 rounded" />
-          <span v-else class="text-2xl font-semibold tracking-tight tabular-nums" :class="stat.count ? 'text-highlighted' : 'text-dimmed'">{{ stat.count }}</span>
-        </div>
-      </section>
+      <!-- Counts: the numbers lead and the labels follow quietly. -->
+      <UCard v-else as="section" aria-label="Documents by state">
+        <ConsoleStatGrid :items="stats" size="lg" :columns="4">
+          <template #label="{ item }"><Status :tone="consoleDocumentStateColor(item.state)" :label="item.label" /></template>
+          <template #value="{ item }">
+            <!-- The height of the 24px count, so the card keeps its height when the counts arrive. -->
+            <USkeleton v-if="firstLoad" class="my-1 h-6 w-10" />
+            <span v-else :class="item.value ? '' : 'text-dimmed'">{{ item.value }}</span>
+          </template>
+        </ConsoleStatGrid>
+      </UCard>
 
-      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <div class="grid gap-8">
-          <section v-if="openNow.length" aria-labelledby="open-now" class="grid gap-2">
-            <h2 id="open-now" class="text-[13px] font-medium text-highlighted">
-              Open now
-              <span class="ms-1 font-normal text-dimmed tabular-nums">{{ openNow.length }}</span>
-            </h2>
-            <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="entry in openNow.slice(0, 12)" :key="`${entry.collection.name}/${entry.id}`">
-                <RouterLink :to="documentRoute(entry.collection.name, entry.id)" class="flex h-11 items-center gap-3 px-3 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2">
+      <div class="grid grid-cols-1 items-start gap-8" :class="failed ? undefined : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]'">
+        <div class="grid grid-cols-1 gap-8">
+          <ConsoleSection v-if="openNow.length" title="Open now" :count="openNow.length">
+            <!-- These lists do not clip their rows, so the focus ring around a row stays visible. The end rows take the corners. -->
+            <ul class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="entry in openNow.slice(0, 12)" :key="`${entry.collection.name}/${entry.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
+                <RouterLink :to="documentRoute(entry.collection.name, entry.id)" class="flex h-11 items-center gap-3 px-3 hover:bg-elevated">
                   <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ entry.title }}</span>
                   <span class="hidden truncate text-xs text-dimmed sm:inline">{{ entry.collection.label }}</span>
                   <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.id)" :user="sessionUser" />
                 </RouterLink>
               </li>
             </ul>
-          </section>
+          </ConsoleSection>
 
-          <section aria-labelledby="needs-publishing" class="grid gap-2">
-            <header class="flex items-baseline justify-between gap-3">
-              <h2 id="needs-publishing" class="text-[13px] font-medium text-highlighted">
-                Needs publishing
-                <span v-if="pending.length" class="ms-1 font-normal text-dimmed tabular-nums">{{ pending.length }}</span>
-              </h2>
-              <p v-if="pending.length && !canPublishAny" class="text-xs text-dimmed">An editor publishes these.</p>
-            </header>
+          <ConsoleSection v-if="!failed" title="Needs publishing" :count="pending.length || undefined" :description="pending.length && !canPublishAny ? 'An editor publishes these.' : undefined">
             <!-- One line, the height of "Everything is published": most visits find nothing to publish. -->
-            <USkeleton v-if="firstLoad" class="my-1 h-5 w-3/4 rounded" />
-            <div v-else-if="!pending.length && noAccess" class="grid gap-0.5 py-1">
-              <p class="text-[13px] text-highlighted">No one can read documents yet</p>
-              <p class="text-xs text-muted"><ConsoleSetupHint :hint="noAccess" /></p>
-            </div>
-            <p v-else-if="!pending.length" class="flex items-center gap-2 py-1 text-[13px] text-muted">
-              <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-success" aria-hidden="true" />
-              Everything is published. Drafts and edits show here until someone publishes them.
-            </p>
-            <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="entry in pending.slice(0, 12)" :key="`${entry.collection.name}/${entry.change.id}`">
+            <USkeleton v-if="firstLoad" class="h-24" />
+            <UEmpty v-else-if="!pending.length && noAccess" icon="i-lucide-lock" title="No one can read documents yet">
+              <template #description><ConsoleSetupHint :hint="noAccess" /></template>
+            </UEmpty>
+            <UEmpty
+              v-else-if="!pending.length"
+              icon="i-lucide-circle-check"
+              title="Everything is published"
+              description="Drafts and edits show here until someone publishes them."
+            />
+            <ul v-else class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="entry in pending.slice(0, 12)" :key="`${entry.collection.name}/${entry.change.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <RouterLink
                   :to="entry.change.state === 'deleted' ? collectionRoute(entry.collection.name) : documentRoute(entry.collection.name, entry.change.id)"
                   class="vitehub-dashboard-row"
+                  data-focus-inset
                 >
-                  <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
+                  <Status class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
                   <span class="vitehub-dashboard-row__title flex items-center gap-2">
                     <span class="truncate" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
                     <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.change.id)" :user="sessionUser" variant="row" />
                   </span>
                   <span class="vitehub-dashboard-row__meta flex items-center gap-2">
                     <UTooltip v-if="entry.change.issues" :text="consoleFixFieldsLabel(entry.change.issues)">
-                      <ConsoleStatus tone="error" :label="entry.change.issues === 1 ? '1 issue' : `${entry.change.issues} issues`" />
+                      <Status tone="error" :label="entry.change.issues === 1 ? '1 issue' : `${entry.change.issues} issues`" />
                     </UTooltip>
                     {{ entry.collection.label }}
                   </span>
@@ -316,48 +299,51 @@ async function publishAll(): Promise<void> {
               </li>
             </ul>
             <p v-if="pending.length > 12" class="text-xs text-dimmed tabular-nums">And {{ pending.length - 12 }} more. Each collection lists all of its changes.</p>
-          </section>
+          </ConsoleSection>
 
-          <section v-if="scheduled.length" aria-labelledby="scheduled" class="grid gap-2">
-            <h2 id="scheduled" class="text-[13px] font-medium text-highlighted">
-              Scheduled
-              <span class="ms-1 font-normal text-dimmed tabular-nums">{{ scheduled.length }}</span>
-            </h2>
+          <ConsoleSection v-if="scheduled.length" title="Scheduled" :count="scheduled.length">
             <p v-if="setup?.schedule" class="text-xs text-muted"><ConsoleSetupHint :hint="setup.schedule" /></p>
-            <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`">
+            <ul class="divide-y divide-default rounded-lg border border-default">
+              <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`" class="first:*:rounded-t-md last:*:rounded-b-md">
                 <RouterLink
                   :to="documentRoute(entry.collection.name, entry.item.id)"
                   class="vitehub-dashboard-row"
                   :title="consoleDocumentScheduleHint(entry.item.schedule, setup)"
                 >
-                  <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
+                  <Status class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
                   <span class="vitehub-dashboard-row__title flex items-center gap-2">
                     <span class="truncate">{{ entry.item.title }}</span>
                     <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.item.id)" :user="sessionUser" variant="row" />
                   </span>
                   <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
-                  <time class="vitehub-dashboard-row__time" :datetime="entry.item.schedule.at">{{ scheduleTime(entry.item.schedule.at) }}</time>
+                  <time class="vitehub-dashboard-row__time" :datetime="entry.item.schedule.at">{{ consoleDayTime(entry.item.schedule.at) }}</time>
                 </RouterLink>
               </li>
             </ul>
             <p v-if="scheduled.length > 12" class="text-xs text-dimmed tabular-nums">And {{ scheduled.length - 12 }} more. Each collection's Scheduled tab lists all of them.</p>
-          </section>
+          </ConsoleSection>
 
-          <section aria-labelledby="collections" class="grid gap-2">
-            <h2 id="collections" class="text-[13px] font-medium text-highlighted">Collections</h2>
+          <ConsoleSection title="Collections">
             <div v-if="firstLoad && !listed.length" class="grid gap-px">
-              <USkeleton v-for="index in 2" :key="index" class="h-11 rounded-md" />
+              <USkeleton v-for="index in 2" :key="index" class="h-11" />
             </div>
-            <p v-else-if="!listed.length && !singletons.length" class="text-xs text-muted">No collections you can read.</p>
-            <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
+            <UEmpty
+              v-else-if="!listed.length && !singletons.length"
+              icon="i-lucide-folder-lock"
+              title="No collections you can read"
+              description="Ask an admin for read access to a collection."
+            />
+            <!-- min-w-0 lets the grid narrow the list, so long names truncate instead of pushing the counts past the column. -->
+            <ul v-else class="min-w-0 divide-y divide-default rounded-lg border border-default">
               <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
-                <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2">
+                <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 hover:text-highlighted">
                   <span class="truncate text-sm font-medium text-highlighted">{{ collection.label }}</span>
                   <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ collection.path }}</span>
                 </RouterLink>
-                <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
-                  <ConsoleStatus v-for="count in collectionCounts([collection.name])" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
+                <!-- Counts show only when the overview is known. While it loads, a placeholder holds their place. -->
+                <USkeleton v-if="firstLoad" class="h-4 w-20" />
+                <span v-else-if="overview" class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
+                  <Status v-for="count in collectionCounts([collection.name])" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
                   <span>{{ statesOf([collection.name]).published }} published</span>
                 </span>
                 <UButton
@@ -371,26 +357,26 @@ async function publishAll(): Promise<void> {
                 />
               </li>
               <li v-if="singletons.length && settingsRoute" class="flex h-11 items-center gap-3 px-3">
-                <RouterLink :to="settingsRoute" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2">
+                <RouterLink :to="settingsRoute" class="flex min-w-0 flex-1 items-baseline gap-2">
                   <span class="truncate text-sm font-medium text-highlighted">Settings</span>
                   <span class="hidden truncate text-xs text-dimmed sm:inline">{{ singletons.length === 1 ? "1 singleton" : `${singletons.length} singletons` }}</span>
                 </RouterLink>
-                <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
-                  <ConsoleStatus v-for="count in collectionCounts(singletons.map(entry => entry.name))" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
+                <USkeleton v-if="firstLoad" class="h-4 w-20" />
+                <span v-else-if="overview" class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
+                  <Status v-for="count in collectionCounts(singletons.map(entry => entry.name))" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
                   <span>{{ statesOf(singletons.map(entry => entry.name)).published }} published</span>
                 </span>
               </li>
             </ul>
             <p v-if="listed.length && !writable.length" class="text-xs text-dimmed">You can read these collections but not edit them.</p>
-          </section>
+          </ConsoleSection>
         </div>
 
-        <section aria-labelledby="recent-activity" class="grid gap-2">
-          <h2 id="recent-activity" class="text-[13px] font-medium text-highlighted">Recent activity</h2>
+        <ConsoleSection v-if="!failed" title="Recent activity">
           <div v-if="firstLoad" class="grid gap-3">
-            <USkeleton v-for="index in 5" :key="index" class="h-9 rounded-md" />
+            <USkeleton v-for="index in 5" :key="index" class="h-9" />
           </div>
-          <p v-else-if="!overview?.activity.length" class="text-xs text-muted">Saves and publishes show here.</p>
+          <UEmpty v-else-if="!overview?.activity.length" icon="i-lucide-history" title="No activity yet" description="Saves and publishes show here." />
           <ol v-else class="grid">
             <li v-for="entry in activity" :key="entry.id" class="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1">
               <p class="min-w-0 truncate text-[13px] text-muted" :title="entry.documents.length === 1 ? collectionLabel(entry.documents[0]!.collection) : entry.documents.map(document => document.title).join(', ')">
@@ -409,16 +395,16 @@ async function publishAll(): Promise<void> {
               <span class="text-xs whitespace-nowrap text-dimmed tabular-nums"><ConsoleRelativeTime :value="entry.createdAt" /></span>
             </li>
           </ol>
-          <button
+          <UButton
             v-if="(overview?.activity.length ?? 0) > activityLimit"
-            type="button"
-            class="w-fit rounded-sm text-xs text-dimmed hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2"
+            variant="ghost"
+            size="xs"
+            class="w-fit"
+            :label="showAllActivity ? 'Show less' : `Show all ${overview?.activity.length}`"
             :aria-expanded="showAllActivity"
             @click="showAllActivity = !showAllActivity"
-          >
-            {{ showAllActivity ? "Show less" : `Show all ${overview?.activity.length}` }}
-          </button>
-        </section>
+          />
+        </ConsoleSection>
       </div>
     </div>
   </div>
@@ -442,12 +428,7 @@ async function publishAll(): Promise<void> {
 }
 
 .vitehub-dashboard-row:hover {
-  background: color-mix(in oklab, var(--ui-bg-elevated) 60%, transparent);
-}
-
-.vitehub-dashboard-row:focus-visible {
-  outline: 2px solid var(--vitehub-console-focus);
-  outline-offset: -2px;
+  background: var(--ui-bg-elevated);
 }
 
 .vitehub-dashboard-row__status { grid-area: status; }

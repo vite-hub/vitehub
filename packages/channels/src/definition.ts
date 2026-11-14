@@ -16,6 +16,26 @@ export function isWebhookChannelAdapter(adapter: unknown): adapter is ChannelAda
   return isObject(adapter) && isObject(adapter.webhook)
 }
 
+const verifyHint = "Use `webhook({ signature, secret })`, such as `webhook({ signature: 'bearer', secret: () => useServerEnv().hooks.secret })`. To accept requests that anyone can send, use `webhook({ secret: false })`."
+
+/** A webhook adapter must verify requests, or turn verification off with `secret: false`. */
+function validateWebhookVerification(kind: string, webhook: Record<string, unknown>): void {
+  const { header, secret, signature } = webhook
+  const fail = (problem: string, fix = verifyHint) => {
+    throw channelsErrorDiagnostics.CHANNELS_C0011({ message: `The "${kind}" webhook adapter ${problem}. ${fix}` })
+  }
+  if (secret === false) {
+    if (signature !== undefined) fail("sets `secret: false` and a `signature`, so it does not verify requests", "Remove `signature` to accept unsigned requests, or set a `secret`.")
+    return
+  }
+  if (signature === undefined && secret === undefined) fail("has no `signature` and no `secret`, so anyone can send it events")
+  if (signature === undefined) fail("has a `secret` but no `signature`, so it cannot verify requests")
+  if (secret === undefined) fail("has a `signature` but no `secret`, so it cannot verify requests")
+  if (signature === "token" && (typeof header !== "string" || !header.trim())) {
+    fail("uses `signature: 'token'`, which needs a `header`", "Set `header` to the header that carries the secret, such as `header: 'x-gitlab-token'`.")
+  }
+}
+
 export function validateChannelDefinition(value: unknown): asserts value is ChannelDefinitionOptions {
   if (!isObject(value)) {
     throw channelsErrorDiagnostics.CHANNELS_C0001({ message: "`defineChannel()` expects an object with an `adapter`." })
@@ -27,6 +47,7 @@ export function validateChannelDefinition(value: unknown): asserts value is Chan
   if (adapter.send !== undefined && typeof adapter.send !== "function") {
     throw channelsErrorDiagnostics.CHANNELS_C0008({ message: `The "${adapter.kind}" adapter \`send\` must be a function.` })
   }
+  if (isWebhookChannelAdapter(adapter)) validateWebhookVerification(adapter.kind, adapter.webhook)
   if (value.on === undefined) return
   if (!isObject(value.on)) {
     throw channelsErrorDiagnostics.CHANNELS_C0009({ message: "`defineChannel({ on })` expects an object of targets by event name." })
@@ -58,7 +79,7 @@ export function validateChannelDefinition(value: unknown): asserts value is Chan
  *   on: { 'checkout.session.completed': event => sendQueue('fulfil', event.data) },
  * })
  */
-export function defineChannel<TAdapter extends ChannelAdapter<never>>(
+export function defineChannel<TAdapter extends ChannelAdapter<never, never>>(
   definition: ChannelDefinitionOptions<TAdapter>,
 ): ChannelDefinition<TAdapter> {
   validateChannelDefinition(definition)

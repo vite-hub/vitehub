@@ -1,5 +1,7 @@
 // Browser upload helpers. They depend only on `fetch`, and on XMLHttpRequest for upload progress, so framework bindings
 // stay thin.
+import { isRecord } from "@vite-hub/internal/object"
+
 import type { BlobMultipartPart, BlobObject } from "./types.ts"
 
 // Check a file's leading bytes in the browser before upload. The server root exports the same function.
@@ -18,6 +20,11 @@ export interface BlobClientOptions {
 }
 
 export interface UploadFilesOptions extends BlobClientOptions {
+  /**
+   * Send each file straight to storage with a signed `PUT`, so it skips the request body limit of the host. The route
+   * must call `handleUpload(event, { direct: true })`. When the store cannot sign uploads, the files go as a form.
+   */
+  direct?: boolean
   /** Form field that holds the files. Must match `handleUpload({ formKey })`. Defaults to `"files"`. */
   formKey?: string
   /** HTTP method. Defaults to `"POST"`. */
@@ -50,16 +57,9 @@ export interface MultipartUploadTask {
 
 const defaultPartSize = 10 * 1024 * 1024
 
-function isFile(value: unknown): value is File {
-  try {
-    // The native name getter validates File slots across realms without trusting
-    // Symbol.toStringTag or the value's prototype chain.
-    const name = Object.getOwnPropertyDescriptor(File.prototype, "name")?.get
-    return name?.call(value) !== undefined
-  }
-  catch {
-    return false
-  }
+// A File from another realm (an iframe) also matches. An input element has a name but no arrayBuffer().
+function isFile(value: UploadInput): value is File {
+  return "name" in value && typeof value.name === "string" && "arrayBuffer" in value && typeof value.arrayBuffer === "function"
 }
 
 function toFiles(input: UploadInput): File[] {
@@ -78,10 +78,6 @@ function multipartUrl(baseURL: string, action: string, pathname: string, query: 
   const path = pathname.split("/").map(encodeURIComponent).join("/")
   const search = new URLSearchParams(query).toString()
   return `${baseURL.replace(/\/+$/, "")}/${action}/${path}${search ? `?${search}` : ""}`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isResponseLike(value: unknown): value is Response {
@@ -167,13 +163,35 @@ function parseMultipartComplete(value: unknown): { object: SerializedBlobObject 
   return { object: value.object }
 }
 
+type DirectUploadStep =
+  | { action: "form" }
+  | { action: "sign", request: { headers: Record<string, string>, method: string, url: string }, ticket: string }
+
+function malformedJson(): never {
+  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
+  throw new Error("Upload request returned malformed JSON.")
+}
+
+function parseDirectUploadStep(value: unknown): DirectUploadStep {
+  if (!isRecord(value)) return malformedJson()
+  if (value.action === "form") return { action: "form" }
+  const request = value.request
+  if (value.action !== "sign" || !isString(value.ticket) || !isRecord(request) || !isString(request.url) || !isString(request.method) || !isStringRecord(request.headers)) {
+    return malformedJson()
+  }
+  return { action: "sign", request: { headers: request.headers, method: request.method, url: request.url }, ticket: value.ticket }
+}
+
+async function assertOk(response: Response): Promise<void> {
+  if (response.ok) return
+  const message = await response.text().catch(() => "")
+  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
+  throw new Error(`Upload request failed with status ${response.status}${message ? `: ${message}` : ""}`)
+}
+
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The matching upload route defines each response shape at its call site.
 async function readJson<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
-  if (!response.ok) {
-    const message = await response.text().catch(() => "")
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error(`Upload request failed with status ${response.status}${message ? `: ${message}` : ""}`)
-  }
+  await assertOk(response)
   let body: unknown
   try {
     body = await response.json()
@@ -192,6 +210,7 @@ async function readJson<T>(response: Response, parse: (value: unknown) => T): Pr
 export async function uploadFiles(apiBase: string, input: UploadInput, options: UploadFilesOptions = {}): Promise<SerializedBlobObject[]> {
   const files = toFiles(input)
   if (!files.length) return []
+  if (options.direct) return await uploadDirect(apiBase, files, options)
   const form = new FormData()
   for (const file of files) form.append(options.formKey ?? "files", file, file.name)
   const init = { body: form, headers: mergeHeaders(options.headers), method: options.method ?? "POST" }
@@ -199,6 +218,49 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
     ? await sendWithProgress(apiBase, init, options.onProgress)
     : await (options.fetch ?? globalThis.fetch)(apiBase, init)
   return await readJson(response, parseSerializedBlobObjectArray)
+}
+
+/**
+ * Upload each file in three requests: `sign` asks the route for a signed `PUT`, the `PUT` sends the file to storage,
+ * and `complete` asks the route to check the stored file. The files go one after the other.
+ */
+async function uploadDirect(apiBase: string, files: File[], options: UploadFilesOptions): Promise<SerializedBlobObject[]> {
+  const request = options.fetch ?? globalThis.fetch
+  const step = (body: Record<string, unknown>) => request(apiBase, {
+    body: JSON.stringify(body),
+    headers: mergeHeaders(options.headers, { "content-type": "application/json" }),
+    method: options.method ?? "POST",
+  })
+  const total = files.reduce((sum, file) => sum + file.size, 0)
+  let sent = 0
+  const objects: SerializedBlobObject[] = []
+  for (const file of files) {
+    const signed = await readJson(await step({ action: "sign", contentType: file.type, name: file.name, size: file.size }), parseDirectUploadStep)
+    // The store cannot sign uploads, such as Netlify Blobs. Send the remaining files through the route.
+    if (signed.action === "form") return [...objects, ...await uploadFiles(apiBase, files.slice(objects.length), { ...options, direct: false })]
+    // A signed request carries its own authority. The app headers, such as an authorization header, stay with the app.
+    const url = resolveUrl(signed.request.url, apiBase)
+    const init = { body: file, headers: new Headers(signed.request.headers), method: signed.request.method }
+    const onProgress = options.onProgress
+    await assertOk(onProgress
+      ? await sendWithProgress(url, init, percent => onProgress(total ? Math.round(((sent + (file.size * percent) / 100) / total) * 100) : percent))
+      : await request(url, init))
+    sent += file.size
+    const [object] = await readJson(await step({ action: "complete", ticket: signed.ticket }), parseSerializedBlobObjectArray)
+    if (!object) return malformedJson()
+    objects.push(object)
+  }
+  return objects
+}
+
+// The `fs` driver signs links on the app origin, such as `/_vitehub/blob/signed/...`. Resolve them like the route.
+function resolveUrl(url: string, apiBase: string): string {
+  try {
+    return new URL(url, apiBase).href
+  }
+  catch {
+    return url
+  }
 }
 
 // The client is also imported by server code that typechecks without the DOM library.
@@ -210,10 +272,10 @@ interface UploadRequest {
   readonly status: number
   readonly upload: { addEventListener(type: "progress", listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void): void }
   addEventListener(type: "abort" | "error" | "load", listener: () => void): void
-  send(body: FormData): void
+  send(body: Blob | FormData): void
 }
 
-function sendWithProgress(url: string, init: { body: FormData, headers: Headers, method: string }, onProgress: (percent: number) => void): Promise<Response> {
+function sendWithProgress(url: string, init: { body: Blob | FormData, headers: Headers, method: string }, onProgress: (percent: number) => void): Promise<Response> {
   return new Promise((resolve, reject) => {
     // SAFETY: The progress transport runs in a browser with the native XMLHttpRequest API.
     const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => UploadRequest
@@ -263,7 +325,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       // promise settles. This keeps cleanup possible even when a later
       // response-processing step rejects after the server created the upload.
       const createRequest = send("create", pathname, {
-        body: JSON.stringify({ contentType: file.type || undefined }),
+        body: JSON.stringify({ contentType: file.type || undefined, size: file.size }),
         headers: { "content-type": "application/json" },
         method: "POST",
       })

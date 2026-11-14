@@ -11,7 +11,7 @@ import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRout
 import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
-import { captureMarked, markerBox, markerColors, markerWidth, startMarker } from "./marker.ts"
+import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
 import { overlayStyles, panelStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
@@ -21,7 +21,7 @@ import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
 import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
-import type { MarkerBox, MarkerColor, MarkerSession } from "./marker.ts"
+import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
 interface Cursor {
   selector: string
@@ -149,7 +149,27 @@ const commentIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24"
 
 const highlightIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "m9 11-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" }))
 
+/** The Marker's tips: the highlighter, a pen, an arrow, and a T for a text label. */
+const tipIcons: Record<MarkerTip, () => VNode> = {
+  marker: highlightIcon,
+  pen: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" })),
+  arrow: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M7 17 17 7M7 7h10v10" })),
+  text: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M4 7V4h16v3M9 20h6M12 4v16" })),
+}
+
+/** The tip whose key this is, as Drop's Marker keys: B, P, A, and T. */
+function tipOfKey(event: KeyboardEvent): MarkerTip | undefined {
+  if (event.metaKey || event.ctrlKey || event.altKey) return undefined
+  return (Object.keys(markerTips) as MarkerTip[]).find(tip => markerTips[tip].key === event.key.toUpperCase())
+}
+
 const undoIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" }))
+
+const pageIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4" }))
+
+const editIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" }))
+
+const closeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M18 6 6 18M6 6l12 12" }))
 
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
@@ -216,19 +236,20 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const panelOpen = ref(false)
   const panelTarget = shallowRef<HTMLElement>()
   const editing = ref(false)
-  /** The highlighter strokes being drawn, how many there are, their color, and whether Done is taking the screenshot. */
+  /** The ink being drawn, how much there is, the tip and color, and whether Done is taking the screenshot. */
   let marker: MarkerSession | undefined
   const marking = ref(false)
   const marks = ref(0)
-  const markColor = ref<MarkerColor>("yellow")
+  const markTip = ref<MarkerTip>("marker")
+  const markColor = ref<MarkerColor>("pink")
   const finishing = ref(false)
   /** Strokes that stay on the page while their comment is written, and that comment. */
   let ink: { session: MarkerSession, draft: unknown } | undefined
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
-  /** The mode to resume after a first-time guest gives their name. */
-  let namedMode: "comment" | "mark" = "comment"
+  /** The action to resume after a first-time guest gives their name. */
+  const namedMode = ref<"comment" | "mark" | "page">("comment")
   /** The text a first-time guest selected before the name card took the focus, so the comment starts on it after. */
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
@@ -322,14 +343,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (next !== "mark") stopMarking()
-    if (resolving.value && next !== "edit") {
-      paused.value = next === "comment" && canComment.value
-      return
-    }
+    // While the new page loads, the last choice wins: any mode but comment ends the paused comment mode. Edit and view
+    // need no subject, so they apply now.
+    if (resolving.value) paused.value = next === "comment" && canComment.value
+    if (resolving.value && next !== "edit" && next !== "view") return
     if (next === "mark") {
       if (!canComment.value || marking.value) return
       if (needsName.value) {
-        namedMode = next
+        namedMode.value = next
         namedQuote = undefined
         naming.value = true
         return
@@ -342,7 +363,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     else if (next === "comment") {
       if (!canComment.value) return
       if (needsName.value) {
-        namedMode = next
+        namedMode.value = next
         namedQuote = undefined
         naming.value = true
         return
@@ -358,6 +379,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       editing.value = true
     }
     else {
+      naming.value = false
+      namedQuote = undefined
       state.exit()
       editing.value = false
       void edit.finish(true)
@@ -365,12 +388,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     hover.value = undefined
   }
   const mode = computed<Mode>(() => marking.value ? "mark" : editing.value ? "edit" : state?.active.value ? "comment" : "view")
-  /** Whether comment mode is on, or comes back on when the subject of the new page is known. */
-  const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value))
+  /** Whether comment mode is on, waiting for a guest name, or paused until the new page is known. */
+  const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value) || (naming.value && namedMode.value !== "mark"))
 
   function startMarking() {
     dropInk()
-    marker = startMarker({ color: () => markerColors[markColor.value], onChange: () => (marks.value = marker?.strokes().length ?? 0) })
+    marker = startMarker({
+      tip: () => markTip.value,
+      color: () => markerColors[markColor.value],
+      onChange: () => (marks.value = marker?.strokes().length ?? 0),
+      onSubmit: () => void finishMarking(),
+    })
     marks.value = 0
     marking.value = true
   }
@@ -390,6 +418,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
    */
   async function finishMarking() {
     const session = marker
+    // A label being typed goes down as it is.
+    session?.commit()
     const strokes = session?.strokes() ?? []
     const box = markerBox(strokes)
     if (!session || !box || finishing.value) return
@@ -405,7 +435,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (!shot) showToast({ text: "This page could not be drawn as a picture. The comment marks the area without one.", kind: "info" })
       const files = shot ? [new File([shot], "highlight.webp", { type: shot.type })] : []
       const before = state.draft.value
-      const element = areaContainer(box, markerWidth / 2 + 1)
+      const element = areaContainer(box, markerTips.marker.width / 2 + 1)
       try {
         if (element) {
           const area = clip(box, element)
@@ -481,8 +511,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
-    const next = namedMode
-    namedMode = "comment"
+    const next = namedMode.value
+    namedMode.value = "comment"
     const quote = namedQuote
     namedQuote = undefined
     if (quote?.startContainer.isConnected) {
@@ -491,7 +521,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       selection?.addRange(quote)
       if (commentOnSelection()) return
     }
-    setMode(next)
+    if (next === "page") commentOnPage()
+    else setMode(next)
   }
 
   async function signOut(url: string) {
@@ -543,7 +574,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     pressingBar = false
     if (!range) return false
     if (needsName.value) {
-      namedMode = "comment"
+      namedMode.value = "comment"
       namedQuote = range
       naming.value = true
       return true
@@ -668,15 +699,18 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           const bar = selected.value
           if (bar && !state.draft.value) {
             // Near the top of the screen there is no room above. On a touch screen the system's own menu takes that place,
-            // and the selection handles hang under the text.
+            // and the selection handles hang under the text, so the bar goes above only when its 38px do not fit below.
+            // Above the text on a touch screen, it leaves 64px for the system's menu, which on Android is about 48px tall and 8px above the text.
             const touch = matchMedia("(pointer: coarse)").matches
-            const below = bar.top < 56 || touch
+            const under = bar.bottom + (touch ? 20 : 8)
+            const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
+            const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 64 : 8)
             nodes.push(h("div", {
               class: "selection-bar",
               "data-below": below ? "true" : undefined,
               role: "group",
               "aria-label": "Selected text",
-              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${below ? bar.bottom + (touch ? 20 : 8) : bar.top - 8}px` },
+              style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${top}px` },
               // A press here must not take the selection away from the page, nor hide the bar before the click.
               onPointerdown: (event: PointerEvent) => {
                 event.preventDefault()
@@ -726,55 +760,115 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
   })
 
-  /** While the person highlights: the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
+  function pickTip(tip: MarkerTip) {
+    markTip.value = tip
+    marker?.restyle()
+  }
+
+  /** While the person highlights: the tips, the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
   function markerToolbar(): VNode {
     const busy = finishing.value
+    // A press on a color keeps the focus in the label being typed, so the color goes to that label.
+    const keepFocus = (event: MouseEvent) => event.preventDefault()
     return h("div", { class: "toolbar", role: "group", "aria-label": "Highlight" }, [
-      ...(Object.keys(markerColors) as MarkerColor[]).map(name => h("button", {
+      h("div", { class: "swatches" }, (Object.keys(markerTips) as MarkerTip[]).map(tip => h("button", {
+        key: tip,
+        class: "swatch",
+        type: "button",
+        "aria-label": markerTips[tip].label,
+        "aria-keyshortcuts": markerTips[tip].key,
+        "aria-pressed": String(markTip.value === tip),
+        title: `${markerTips[tip].label} (${markerTips[tip].key})`,
+        disabled: busy,
+        onClick: () => pickTip(tip),
+      }, tipIcons[tip]()))),
+      h("span", { class: "sep" }),
+      h("div", { class: "swatches" }, (Object.keys(markerColors) as MarkerColor[]).map(name => h("button", {
         key: name,
         class: "swatch",
         type: "button",
-        "aria-label": `${name[0]!.toUpperCase()}${name.slice(1)} highlighter`,
+        "aria-label": `${name[0]!.toUpperCase()}${name.slice(1)} ink`,
         "aria-pressed": String(markColor.value === name),
         disabled: busy,
+        onMousedown: keepFocus,
         onClick: () => {
           markColor.value = name
-          marker?.recolor()
+          marker?.restyle()
         },
-      }, h("span", { style: { background: markerColors[name] } }))),
+      }, h("span", { style: { background: markerColors[name] } })))),
       h("span", { class: "sep" }),
-      h("button", { type: "button", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: busy || marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
+      h("button", { type: "button", class: "icon", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: busy || marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
       h("button", { type: "button", disabled: busy, onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
       h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", "aria-busy": busy ? "true" : undefined, disabled: !busy && marks.value === 0, onClick: () => void finishMarking(), title: "Comment on the highlighted area (Enter)" }, busy ? "Taking picture…" : "Done"),
     ])
   }
 
+  /** Starts a comment on the whole page, as Drop's **Whole page**. Its box opens near the top. */
+  function commentOnPage() {
+    if (!canComment.value || resolving.value) return
+    if (needsName.value) {
+      namedMode.value = "page"
+      namedQuote = undefined
+      naming.value = true
+      return
+    }
+    void edit.finish(true)
+    state.startDraft("page")
+  }
+
+  /**
+   * Drop's Comments segment: one **Comments** button with the open count. For people who may comment it turns comment
+   * mode on (C), says **Click anywhere**, and grows the actions beside it: **Whole page**, **All comments**, and ×. For
+   * people who may only read, it opens the list. **Highlight** and **Edit** follow.
+   */
   function toolbar(): VNode {
     void tick.value
-    const people = room?.people() ?? []
-    const seen = new Set<string>()
-    const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
-      h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
-    const open = state.counts.value.open
-    const count = `${open} open ${open === 1 ? "thread" : "threads"}`
-    const signOutUrl = session?.signOut
     if (marking.value || finishing.value) return markerToolbar()
+    const signOutUrl = session?.signOut
+    const github = signOutUrl ? session?.github : undefined
+    // Each person shows once, however many tabs they have open. The sign-out button shows the person themselves, so
+    // presence then lists only the others.
+    const seen = new Set(github && session?.user ? [session.user.id] : [])
+    const people = (room?.people() ?? []).filter(person => !seen.has(person.id) && seen.add(person.id))
+    const avatars = people.slice(0, 5).map(person =>
+      h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
+    const peopleLabel = `${people.length} ${github ? "other " : ""}${people.length === 1 ? "person" : "people"} on this page`
+    const open = state.counts.value.open
+    const commenting = commentOn.value
+    const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
+    const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
-      canComment.value ? h("button", { "aria-keyshortcuts": "C", "aria-pressed": String(commentOn.value), onClick: () => setMode(commentOn.value ? "view" : "comment"), title: "Comment (C)", type: "button" }, "Comment") : null,
+      canComment.value
+        ? h("button", {
+            "aria-keyshortcuts": "C",
+            "aria-label": commenting ? "Comments: click anywhere on the page" : open ? `Comments, ${open} open` : "Comments",
+            "aria-pressed": String(commenting),
+            onClick: () => setMode(commenting ? "view" : "comment"),
+            title: commenting ? "Stop commenting (C)" : "Comment on the page (C)",
+            type: "button",
+          }, [commentIcon(), commenting ? "Click anywhere" : "Comments", badge(!commenting)])
+        : h("button", {
+            "aria-expanded": String(panelOpen.value),
+            "aria-label": open ? `Comments, ${open} open` : "Comments",
+            onClick: togglePanel,
+            title: "Show comments",
+            type: "button",
+          }, [commentIcon(), "Comments", badge(true)]),
+      commenting
+        ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
+            h("span", { class: "divider", "aria-hidden": "true" }),
+            h("button", { onClick: commentOnPage, title: "Comment on the whole page", type: "button" }, [pageIcon(), "Whole page"]),
+            h("button", { "aria-expanded": String(panelOpen.value), onClick: togglePanel, title: "All comments on this page", type: "button" }, [listIcon(), "All comments", badge(!panelOpen.value)]),
+            h("button", { "aria-label": "Stop commenting", onClick: () => setMode("view"), title: "Stop commenting (Esc)", type: "button" }, closeIcon()),
+            h("span", { class: "divider", "aria-hidden": "true" }),
+          ])
+        : null,
       canComment.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
-      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, "Edit") : null,
-      h("span", { class: "sep" }),
-      h("button", {
-        "aria-label": `Comments on this page, ${count}`,
-        "aria-pressed": String(panelOpen.value),
-        onClick: () => (panelOpen.value ? pageWindow?.hide() : showPanel()),
-        title: "Comments on this page",
-        type: "button",
-      }, [listIcon(), String(open)]),
-      avatars.length > 0 ? h("span", { "aria-label": `${people.length} on this page`, class: "people" }, avatars) : null,
-      signOutUrl && session?.github
-        ? h("button", { "aria-label": `Sign out @${session.github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${session.github.login}. Sign out`, type: "button" },
-            session.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session.user?.name ?? session.github.login))
+      session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
+      avatars.length > 0 ? h("span", { "aria-label": peopleLabel, class: "people" }, avatars) : null,
+      signOutUrl && github
+        ? h("button", { "aria-label": `Sign out @${github.login}`, onClick: () => void signOut(signOutUrl), title: `Signed in as @${github.login}. Sign out`, type: "button" },
+            session?.user?.image ? h("img", { alt: "", class: "me", src: session.user.image }) : initials(session?.user?.name ?? github.login))
         : null,
     ])
   }
@@ -849,30 +943,41 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
   let retryToast: Toast | undefined
+  function clearRetry() {
+    if (toast.value === retryToast) toast.value = undefined
+    retryToast = undefined
+  }
   /**
    * Asks `/session` for the subject and the permissions of a new page. Until it answers, comments stay paused. A failed
    * answer keeps them paused, because the subject is not known, and offers Retry.
    */
   function resolvePage(next: string) {
     const current = ++navigations
-    void api.session(next).then(([error, answer]) => {
+    void api.session(next).then(async ([error, answer]) => {
       if (current !== navigations || page.value !== next) return
       if (error) {
-        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => resolvePage(next)] }
+        retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => {
+          // The Retry of a page that the person left must not cancel the request for the page they are on now.
+          if (page.value === next) resolvePage(next)
+        }] }
         showToast(retryToast, true)
         return
       }
-      if (toast.value === retryToast) toast.value = undefined
-      retryToast = undefined
+      clearRetry()
       pageCan.value = answer.can
       revision = answer.revision
       const mapped = answer.subject ?? { kind: "page", id: next }
       if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
       // The same subject lists no threads again, so the new page joins its room here.
       else if (!room && state.status.value === "ready") void joinRoom()
+      // A new subject cancels the draft of the old one. Comment mode turns a selected text into a draft, so it waits.
+      await nextTick()
+      if (current !== navigations) return
       resolving.value = false
-      state.active.value = paused.value && canComment.value
+      const resume = paused.value
       paused.value = false
+      // Through setMode, so comment mode ends edit mode, and a guest without a name gets the name card first.
+      if (resume) setMode("comment")
     })
   }
 
@@ -896,12 +1001,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         // The new page can have the same subject, which keeps the state's draft. The person said to discard it.
         state.cancelDraft()
       }
+      naming.value = false
+      namedQuote = undefined
       page.value = next
       search.value = location.search
       panelThread.value = null
       // Strokes mark the screen of the old page.
       if (marking.value) setMode("view")
       dropInk()
+      // The Retry of the previous page does not apply here.
+      clearRetry()
       // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
       paused.value = paused.value || state.active.value
       state.active.value = false
@@ -942,16 +1051,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         setMode("view")
         return
       }
-      if (marking.value) {
-        if (event.key === "Escape") setMode("view")
+      // B with the marker in hand turns Highlight off, below. With another tip in hand it takes the marker.
+      if (marking.value && !(event.key === "b" && markTip.value === "marker")) {
+        const tip = tipOfKey(event)
+        if (tip) pickTip(tip)
+        else if (event.key === "Escape") setMode("view")
         else if (event.key === "Enter") void finishMarking()
         else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") marker?.undo()
-        // The strokes stay where they were drawn, so the keys do not scroll the page either.
-        else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", "b"].includes(event.key)) return
-        if (event.key !== "b") {
-          event.preventDefault()
-          return
-        }
+        // The ink stays where it was drawn, so the keys do not scroll the page either.
+        else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) return
+        event.preventDefault()
+        return
       }
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
       // The key acts here only. Without preventDefault it would also type into the name box that comment mode opens.

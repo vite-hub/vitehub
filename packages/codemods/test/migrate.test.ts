@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest"
 
 import { codemods, formatMigrationReport, runCli, runCodemod, runMigration } from "../src/index.ts"
 import { scratchFolder } from "../src/migrate.ts"
+import { nuxtSafeRuntimeConfig } from "../src/nuxt-safe-runtime-config/index.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const fixtures = join(packageRoot, "test/fixtures")
@@ -39,6 +40,30 @@ async function cli(args: string[]) {
 afterAll(() => rm(scratch, { recursive: true, force: true }))
 
 describe("migrate", () => {
+  it("reports installed NuxtHub dependents through the scratch migration", async () => {
+    const cwd = await app("installed-nuxthub-dependent", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'] })\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "0.10.0", "uses-hub": "1.0.0" } }),
+      "node_modules/uses-hub/package.json": JSON.stringify({ peerDependencies: { "@nuxthub/core": "*" } }),
+    })
+    const migration = await runMigration({ cwd, dryRun: true })
+    expect(migration.steps[0]?.error).toBeUndefined()
+    expect(migration.steps[0]?.result?.followUps).toContainEqual(expect.objectContaining({
+      file: "package.json",
+      message: expect.stringContaining("uses-hub needs @nuxthub/core"),
+    }))
+  })
+
+  it("reports hooks in CommonJS app and layer configs", async () => {
+    const cwd = await app("commonjs-nuxthub-hooks", {
+      "nuxt.config.cjs": "export default { modules: ['@nuxthub/core'], hooks: { 'hub:db:schema:extend': () => {} } }\n",
+      "layers/base/nuxt.config.cjs": "export default { hooks: { 'hub:db:migrations:dirs': () => {} } }\n",
+    })
+    const result = await runCodemod("nuxthub", { cwd, dryRun: true })
+    expect(result.result.followUps).toContainEqual(expect.objectContaining({ file: "nuxt.config.cjs", line: 1, message: expect.stringContaining("hub:db:schema:extend") }))
+    expect(result.result.followUps).toContainEqual(expect.objectContaining({ file: "layers/base/nuxt.config.cjs", line: 1, message: expect.stringContaining("hub:db:migrations:dirs") }))
+  })
+
   it("detects nuxt-safe-runtime-config and writes what the codemod writes alone", async () => {
     const wizard = await copyFixture("env-schema", "wizard")
     const single = await copyFixture("env-schema", "single")
@@ -86,6 +111,17 @@ describe("migrate", () => {
     expect(await readFile(join(target, "config.ts"), "utf8")).toBe(code)
     expect(migration.steps[0]?.error).toContain("symbolic link")
     expect(migration.edits).toEqual([])
+  })
+
+  it("does not write through a symlinked config when it runs one codemod", async () => {
+    const code = "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n"
+    const target = await app("linked-config-single-target", { "config.ts": code })
+    const directory = await app("linked-config-single", { "package.json": "{}\n" })
+    await symlink(join(target, "config.ts"), join(directory, "nuxt.config.ts"))
+    const name = nuxtSafeRuntimeConfig.name
+    await expect(runCodemod(name, { cwd: directory, dryRun: true })).rejects.toThrow("symbolic link")
+    await expect(runCodemod(name, { cwd: directory })).rejects.toThrow("symbolic link")
+    expect(await readFile(join(target, "config.ts"), "utf8")).toBe(code)
   })
 
   it("does not write through a symlinked parent directory during a dry run", async () => {

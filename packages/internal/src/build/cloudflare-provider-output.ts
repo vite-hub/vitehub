@@ -1,6 +1,7 @@
 import { mergeProviderOutputConfig } from "./provider-output-config.ts"
 import type { CloudflareProviderOutputValue, ProviderOutputCatalog } from "./provider-output-catalog.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { cloneRecord } from "../object.ts"
 
 // SAFETY: ViteHub owns this namespaced global registry, and every bundled copy uses the same value type.
 function isDeepStrictEqual(left: unknown, right: unknown): boolean {
@@ -24,10 +25,6 @@ const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
 }
 const providerOutputCatalogByNitroValue = providerOutputCatalogRegistry.__vitehubProviderOutputCatalogsByNitroValue
   ??= new WeakMap<object, ProviderOutputCatalog>()
-
-function cloneRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
-}
 
 function cloneProviderRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}

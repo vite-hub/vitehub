@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { defineRelations } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import { createCloudflareD1HttpResolver } from "../src/runtime/d1-http.ts"
 
 const schema = { notes: sqliteTable("notes", { id: integer("id"), title: text("title") }) }
+const relations = defineRelations(schema)
 
 function configuration() {
   return {
     name: "notes",
-    drizzle: {},
     cloudflare: {
       databaseId: "notes-id",
       http: {
@@ -30,7 +31,7 @@ describe("Cloudflare D1 HTTP resolver", () => {
       success: true,
       result: [{ success: true, results: { rows: [[1, "hello"]] } }],
     }))
-    const getDatabase = createCloudflareD1HttpResolver(configuration(), schema, request)
+    const getDatabase = createCloudflareD1HttpResolver(configuration(), relations, request)
     const first = getDatabase()
     expect(getDatabase()).toBe(first)
     await expect(first.select().from(schema.notes)).resolves.toEqual([{ id: 1, title: "hello" }])
@@ -62,7 +63,7 @@ describe("Cloudflare D1 HTTP resolver", () => {
       errors: [{ message: 123 }],
       success: false,
     }, { status: 502 }))
-    const database = createCloudflareD1HttpResolver(configuration(), schema, request)()
+    const database = createCloudflareD1HttpResolver(configuration(), relations, request)()
 
     const error = await database.select().from(schema.notes).then(() => undefined, error => error)
     expect(error).toMatchObject({ cause: { code: "DATABASE_D1_REQUEST_FAILED", message: "Cloudflare D1 request failed with HTTP 502." } })
@@ -75,10 +76,23 @@ describe("Cloudflare D1 HTTP resolver", () => {
       success: true,
       result: [{ success: true, results: { rows: "not-an-array" } }],
     }))
-    const database = createCloudflareD1HttpResolver(configuration(), schema, request)()
+    const database = createCloudflareD1HttpResolver(configuration(), relations, request)()
 
     const error = await database.select().from(schema.notes).then(() => undefined, error => error)
     expect(error).toMatchObject({ cause: { code: "DATABASE_D1_INVALID_RESPONSE" } })
+  })
+
+  it("decodes boolean and JSON columns from the raw rows", async () => {
+    vi.stubEnv("DESIGN_D1_TOKEN", "token")
+    vi.stubEnv("DESIGN_D1_URL", "https://d1.example.com/raw")
+    const flags = sqliteTable("flags", { id: integer("id"), on: integer("on", { mode: "boolean" }), data: text("data", { mode: "json" }) })
+    const request = vi.fn(async () => Response.json({
+      success: true,
+      result: [{ success: true, results: { columns: ["id", "on", "data"], rows: [[1, 1, "{\"a\":1}"]] } }],
+    }))
+    const database = createCloudflareD1HttpResolver(configuration(), defineRelations({ flags }), request)()
+
+    await expect(database.select().from(flags)).resolves.toEqual([{ id: 1, on: true, data: { a: 1 } }])
   })
 
   it("accepts successful rowless write responses", async () => {
@@ -88,7 +102,7 @@ describe("Cloudflare D1 HTTP resolver", () => {
       success: true,
       result: [{ success: true }],
     }))
-    const database = createCloudflareD1HttpResolver(configuration(), schema, request)()
+    const database = createCloudflareD1HttpResolver(configuration(), relations, request)()
 
     await expect(database.insert(schema.notes).values({ id: 1, title: "hello" }).run()).resolves.toEqual({ rows: [] })
   })

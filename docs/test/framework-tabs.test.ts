@@ -12,15 +12,21 @@ const frameworks = ["Nuxt", "Nitro", "Vite"]
  */
 const singleFramework: Record<string, string> = {
   "development/testing.md vite.config.ts": "Vitest reads a Vite plugin config, including when the app uses Nuxt.",
+  "frameworks-hosts/node-self-hosted.md vite.config.ts": "The systemd unit is checked for vitehub() in vite.config.ts builds only, not for the Nuxt module yet.",
+  "blob/media.md nuxt.config.ts": "The Nuxt Image section is about @nuxt/image, which is a Nuxt module.",
   "docs-site/assistant.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/configure.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/get-started.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/index.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "docs-site/nuxt-app.md nuxt.config.ts": "The tutorial adds the docs Nuxt module to an existing Nuxt app.",
+  "frameworks-hosts/nuxt-server-auto-imports.md nuxt.config.ts": "The page is about the Nuxt module's server auto-imports.",
   "frameworks-hosts/nuxt.md nuxt.config.ts": "The page is about the Nuxt module.",
   "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
+  "kv/server-api.md nuxt.config.ts": "nuxt-og-image and nuxt-security are Nuxt modules.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
   "development/console.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
   "reference/doctor-rules.md nuxt.config.ts": "Each example shows the config that one Doctor rule reports.",
+  "auth/protect-pages.md nuxt.config.ts": "The page guard reads the meta of Nuxt pages, so the page is about Nuxt apps only.",
   "reference/doctor-rules.md vite.config.ts": "Each example shows the config that one Doctor rule reports.",
   "ui/installation.md nuxt/nuxt.config.ts": "The page installs the Vue UI package in Nuxt and in Vite side by side.",
   "ui/installation.md nuxt/defaults/nuxt.config.ts": "The page installs the Vue UI package in Nuxt and in Vite side by side.",
@@ -33,8 +39,8 @@ const singleFramework: Record<string, string> = {
   "comments/get-started.md vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
   "comments/get-started.md node/vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
   "comments/index.md vite.config.ts": "The landing shows Comments alone, without a ViteHub app.",
-  "queue/configure.md vite.config.ts": "vitehub() takes queue as a boolean, so region, base, and binding need hubQueue().",
   "frameworks-hosts/cloudflare.md vite.config.ts": "The rate-limit example composes hubRateLimit() and nitro() without vitehub().",
+  "web-container/get-started.md vite.config.ts": "hubWebContainer() is a Vite plugin for the page that boots a container, not a ViteHub app option.",
 }
 
 async function markdownFiles(directory: string): Promise<string[]> {
@@ -52,23 +58,27 @@ interface ConfigBlock { label: string, line: number, code: string, tab?: string,
 interface TabsGroup { id: number, line: number, labels: string[], optional?: boolean }
 
 /** The config code blocks of a page, with the framework tab and tabs group each one sits in. */
-function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGroup[] } {
+function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGroup[], unlabeled: number[] } {
   const lines = source.replaceAll("\r\n", "\n").split("\n")
   const blocks: ConfigBlock[] = []
+  const unlabeled: number[] = []
   const groups: TabsGroup[] = []
   const stack: { colons: number, name: string, group?: number, tab?: string }[] = []
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!
-    const fence = /^\s*(`{3,})\S*[^[]*(?:\[([^\]]+)\])?/.exec(line)
+    const fence = /^\s*(`{3,})(\S*)[^[]*(?:\[([^\]]+)\])?/.exec(line)
     if (fence) {
       const close = fence[1]!
       const start = index
       while (++index < lines.length && lines[index]!.trim() !== close);
-      const label = fence[2]
+      const label = fence[3]
+      const code = lines.slice(start + 1, index).join("\n")
+      // A snippet without a file name that calls vitehub() with options or defines a config hides which file it is.
+      if (!label && /^(?:ts|js)$/.test(fence[2]!) && /\bvitehub\(\{|\bdefine(?:Nuxt)?Config\(/.test(code)) unlabeled.push(start + 1)
       if (label && /(?:^|\/)(?:vite|nuxt)\.config\.ts$/.test(label)) {
         const tab = stack.findLast(entry => entry.name === "tabs-item" || entry.name === "framework")?.tab
         const group = tab === undefined ? undefined : stack.findLast(entry => entry.group !== undefined)?.group
-        blocks.push({ label, line: start + 1, code: lines.slice(start + 1, index).join("\n"), tab, group })
+        blocks.push({ label, line: start + 1, code, tab, group })
       }
       continue
     }
@@ -98,7 +108,7 @@ function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGrou
       if (at >= 0) stack.length = at
     }
   }
-  return { blocks, groups }
+  return { blocks, groups, unlabeled }
 }
 
 /** Removes the indent that every line shares, such as the two spaces of a block inside a landing hero. */
@@ -146,13 +156,29 @@ function entries(code: string, open: number): Map<string, string> {
   return out
 }
 
+/** Compare nested object options per key so a Nuxt mode can override one field. */
+function flattenOptions(options: Map<string, string>, prefix = ""): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const [key, value] of options) {
+    const path = `${prefix}${key}`
+    const nested = value.startsWith("{") ? entries(value, 0) : undefined
+    if (nested?.size) {
+      for (const [key, value] of flattenOptions(nested, `${path}.`)) out.set(key, value)
+    }
+    else out.set(path, value)
+  }
+  return out
+}
+
 /**
  * The ViteHub options of a config as `key=value` lines: the argument of `vitehub(...)`, or the `vitehub` key of a
  * Nuxt config. A Vite config declares Env at its top level and Nuxt under `vitehub.env`, so `env` compares per key.
  */
-function vitehubOptions(source: string): string | undefined {
-  const code = dedent(source)
+function vitehubOptions(source: string, mode: "development" | "production"): string | undefined {
+  // Resolve the literal command condition used by the development-only Console auth example.
+  const code = dedent(source).replace(/command\s*===\s*(['"])serve\1\s*\?\s*(false|true|'[^']*'|"[^"]*"|\{[^{}]*\})\s*:\s*(false|true|'[^']*'|"[^"]*"|\{[^{}]*\})/g, mode === "development" ? "$2" : "$3")
   let options: Map<string, string>
+  let overrides = new Map<string, string>()
   let env = new Map<string, string>()
   const nuxt = code.indexOf("defineNuxtConfig(")
   if (nuxt >= 0) {
@@ -160,6 +186,11 @@ function vitehubOptions(source: string): string | undefined {
     const key = /^ {2}vitehub:\s*/m.exec(code.slice(nuxt))
     if (!key) return code.includes("vite-hub/nuxt") ? "" : undefined
     options = entries(code, nuxt + key.index + key[0].length)
+    const modeKey = new RegExp(`^ {2}\\$${mode}:\\s*`, "m").exec(code.slice(nuxt))
+    if (modeKey) {
+      const config = entries(code, nuxt + modeKey.index + modeKey[0].length).get("vitehub")
+      if (config?.startsWith("{")) overrides = entries(config, 0)
+    }
   }
   else {
     const call = /vitehub\(/.exec(code)
@@ -182,6 +213,12 @@ function vitehubOptions(source: string): string | undefined {
     for (const [key, value] of entries(optionEnv, 0)) env.set(key, value)
   }
   for (const [key, value] of env) options.set(`env.${key}`, value)
+  options = flattenOptions(options)
+  for (const [key, value] of flattenOptions(overrides)) {
+    // An object override, such as `console: { auth: false }` over `console: true`, replaces the value of its parent.
+    for (const parent of options.keys()) if (key.startsWith(`${parent}.`)) options.delete(parent)
+    options.set(key, value)
+  }
   return [...options].map(([key, value]) => `${key}=${value}`).sort().join("\n")
 }
 
@@ -198,6 +235,11 @@ describe("framework tabs", async () => {
     expect(missing).toEqual([])
   })
 
+  it("names the config file of every config snippet", () => {
+    const missing = pages.flatMap(({ page, unlabeled }) => unlabeled.map(line => `${page}:${line}`))
+    expect(missing).toEqual([])
+  })
+
   it("orders the tabs Nuxt, Nitro, Vite", () => {
     const wrong = pages.flatMap(({ page, groups }) => groups
       .filter(group => !(group.optional && group.labels.length === 0) && group.labels.join() !== frameworks.join())
@@ -205,11 +247,11 @@ describe("framework tabs", async () => {
     expect(wrong).toEqual([])
   })
 
-  it("passes the same ViteHub options in every tab", () => {
+  it.each(["development", "production"] as const)("passes the same ViteHub options in every tab in %s", (mode) => {
     const drift = pages.flatMap(({ page, blocks }) => {
       const byGroup = Map.groupBy(blocks.filter(block => block.group !== undefined), block => block.group!)
       return [...byGroup.values()].flatMap((group) => {
-        const options = new Set(group.map(block => vitehubOptions(block.code)).filter(option => option !== undefined))
+        const options = new Set(group.map(block => vitehubOptions(block.code, mode)).filter(option => option !== undefined))
         return options.size > 1 ? [`${page}:${group[0]!.line} ${[...options].join(" | ")}`] : []
       })
     })

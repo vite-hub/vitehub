@@ -67,7 +67,8 @@ const keepAliveTimeout = 6 * 60 * 60_000;
 const fileOptions = { cwd: "/workspace" };
 // Output kept per stream for replay to late readers. Older output is dropped beyond this.
 const maxBufferedOutput = 8 * 1024 * 1024;
-const signals: Record<string, number> = { HUP: 1, INT: 2, KILL: 9, QUIT: 3, TERM: 15, USR1: 10, USR2: 12 };
+const maxCancelledExecs = 1024;
+const signals: Record<string, number> = { ALRM: 14, HUP: 1, INT: 2, KILL: 9, QUIT: 3, TERM: 15, USR1: 10, USR2: 12 };
 
 // Keep timeout's monitored shell alive until both output pipes reach EOF, including
 // output inherited by background descendants after the command shell has exited.
@@ -171,7 +172,9 @@ export interface CloudflareSandboxDurableObject {
   configure(configuration: CloudflareSandboxConfiguration): Promise<void>;
   deleteFile(path: string): Promise<{ success: boolean }>;
   destroy(): Promise<void>;
-  exec(command: string, options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number }): Promise<{
+  /** Stops the `exec` command started with this `id`. The Container and other commands keep running. */
+  cancelExec(id: string): Promise<void>;
+  exec(command: string, options?: CloudflareExecOptions): Promise<{
     exitCode: number;
     stderr: string;
     stdout: string;
@@ -192,6 +195,14 @@ export interface CloudflareSandboxDurableObject {
   writeFile(path: string, contents: string, options?: { encoding?: string }): Promise<{ success: boolean }>;
 }
 
+export interface CloudflareExecOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  /** Names the command for `cancelExec`. */
+  id?: string;
+  timeout?: number;
+}
+
 export function createCloudflareSandboxDurableObject(
   dependencies: CloudflareSandboxDurableObjectDependencies,
 ): new (ctx: CloudflareDurableObjectState, env: unknown) => CloudflareSandboxDurableObject {
@@ -201,6 +212,9 @@ export function createCloudflareSandboxDurableObject(
   return class ViteHubCloudflareSandbox extends DurableObject implements CloudflareSandboxDurableObject {
     readonly #ctx: CloudflareDurableObjectState;
     readonly #processes = new Map<string, SandboxProcessRecord>();
+    readonly #execs = new Map<string, { process: CloudflareContainerExecProcess; timed: boolean }>();
+    // Cancellations that arrived before their exec started its process.
+    readonly #cancelled = new Set<string>();
     #configuration: Promise<CloudflareSandboxConfiguration> | undefined;
     #files: CloudflareSandboxFiles | undefined;
 
@@ -223,8 +237,21 @@ export function createCloudflareSandboxDurableObject(
       if (container.running) await container.destroy();
     }
 
-    async exec(command: string, options: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number } = {}) {
+    async cancelExec(id: string) {
+      const exec = this.#execs.get(id);
+      if (!exec) {
+        // A cancellation can also arrive after its command ended. Keep only recent ids.
+        this.#cancelled.add(id);
+        if (this.#cancelled.size > maxCancelledExecs) this.#cancelled.delete(this.#cancelled.values().next().value!);
+        return;
+      }
+      // GNU timeout handles SIGALRM as its deadline: it kills the command's whole process group.
+      exec.process.kill(exec.timed ? signals.ALRM : signals.KILL);
+    }
+
+    async exec(command: string, options: CloudflareExecOptions = {}) {
       const container = await this.#running();
+      if (options.id && this.#cancelled.delete(options.id)) throw new DOMException("Command was cancelled before it started.", "AbortError");
       let timedOut = false;
       const timer = options.timeout ? setTimeout(() => { timedOut = true; }, options.timeout) : undefined;
       try {
@@ -234,6 +261,10 @@ export function createCloudflareSandboxDurableObject(
         const process = await container.exec(options.timeout
           ? ["timeout", "--signal=KILL", `${options.timeout / 1000}s`, "/bin/bash", "-c", timedExecShell, "--", command]
           : commandLine, execOptions(options));
+        if (options.id) {
+          this.#execs.set(options.id, { process, timed: Boolean(options.timeout) });
+          if (this.#cancelled.delete(options.id)) await this.cancelExec(options.id);
+        }
         const output = await process.output();
         if (timedOut) throw new Error(`Command timed out after ${options.timeout}ms.`);
         const decoder = new TextDecoder();
@@ -245,6 +276,7 @@ export function createCloudflareSandboxDurableObject(
         };
       } finally {
         clearTimeout(timer);
+        if (options.id) this.#execs.delete(options.id);
       }
     }
 
@@ -349,7 +381,14 @@ export function createCloudflareSandboxDurableObject(
     }
 
     async #applyConfiguration() {
-      this.#configuration ??= this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {});
+      if (!this.#configuration) {
+        const reading: Promise<CloudflareSandboxConfiguration> = this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {}).catch((error: unknown) => {
+          // A failed storage read lets the next start try again. configure() can store a newer policy meanwhile.
+          if (this.#configuration === reading) this.#configuration = undefined;
+          throw error;
+        });
+        this.#configuration = reading;
+      }
       const configuration = await this.#configuration;
       await this.#container().setInactivityTimeout(
         configuration.keepAlive ? keepAliveTimeout : parseDuration(configuration.sleepAfter) ?? defaultSleepAfter,

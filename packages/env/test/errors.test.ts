@@ -1,7 +1,8 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
-import { env, resolveServerEnv } from "../src/index.ts"
+import { env } from "../src/index.ts"
+import { resolveServerEnv } from "../src/server.ts"
 import { envSourceFailed } from "../src/core/errors.ts"
 import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
@@ -97,10 +98,16 @@ describe("Env errors", () => {
   })
 
   it("reports declaration misuse with Nostics and preserves schema errors", () => {
-    expect.assertions(3)
-    expect(capture(() => env({ optional: true, required: true }))).toMatchObject({
+    expect.assertions(5)
+    // JavaScript config can still pass the removed `required` key.
+    expect(capture(() => env({ required: false } as never))).toMatchObject({
       code: "ENV_R0006",
-      message: "env() cannot use both optional and required.",
+      message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing.",
+    })
+    expect(capture(() => env.number({ required: true } as never))).toMatchObject({ code: "ENV_R0006" })
+    expect(capture(() => env({ default: "eu", optional: true } as never))).toMatchObject({
+      code: "ENV_R0006",
+      message: "env() cannot use both optional and default. A default makes the value always present.",
     })
 
     try {

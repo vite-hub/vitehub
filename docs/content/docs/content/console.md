@@ -89,7 +89,11 @@ The editor reports every 15 seconds, or 60 while hidden. After 15 minutes withou
 
 ## Preview the page
 
-The page preview (the side browser with **Draft** and **Published** views, and click to edit) needed the Console that the app served, which is removed.
+Select the **Open the preview in a new tab** button in the editor header. A new tab opens the page of the document on your app, with its saved draft. The rest of the page shows published content. Edits that are not saved yet do not show, so wait for the draft to save first.
+
+The button needs `url` on the collection, so the document has a page. The Console asks your app for a [one-time link](/docs/development/console#one-time-links), and the app checks that you may read the document. Your app renders the draft with the [preview frame](/docs/content/preview) of `server/content.ts`.
+
+The side browser with **Draft** and **Published** views, and click to edit, needed the Console that the app served, which is removed.
 
 ## Translations
 
@@ -161,7 +165,7 @@ All collections share media, so access follows [`authorize` in `defineContent()`
 
 In the playground, writers upload and describe files, and editors also move and delete them. A request without access returns `403` with `MEDIA_FORBIDDEN`.
 
-MCP agents cannot use the library, because it is part of the Console UI. To let an editor's agent list and upload media, also grant the library's Blob store, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then uses `blob_list`, `blob_put`, and `blob_media` on that store only. Other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+Agents cannot use the library, because it is part of the Console UI. To let an editor's agent on the [ViteHub MCP](/docs/development/mcp) list and upload media, also grant the library's Blob store, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then runs `blob.list`, `blob.put`, and `blob.media` on that store only. Other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
 
 ## Publishing publishes what you reviewed
 
@@ -184,11 +188,11 @@ Two policies decide what an editor can do:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     auth: true,
     database: true,
     workspace: true,
-    console: { auth: 'app', authorize: './server/console-authorize.ts' },
+    console: { authorize: './server/console-authorize.ts' },
   },
 })
 ```
@@ -203,11 +207,11 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       auth: true,
       database: true,
       workspace: true,
-      console: { auth: 'app', authorize: './server/console-authorize.ts' },
+      console: { authorize: './server/console-authorize.ts' },
     }),
     nitro(),
   ],
@@ -223,11 +227,11 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       auth: true,
       database: true,
       workspace: true,
-      console: { auth: 'app', authorize: './server/console-authorize.ts' },
+      console: { authorize: './server/console-authorize.ts' },
     }),
   ],
 })
@@ -238,41 +242,41 @@ export default defineConfig({
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 
-export default defineConsoleAuthorize(({ user }) => {
-  if (user?.role === 'admin') return true
-  if (user?.role === 'editor' || user?.role === 'writer') return { sections: ['content'] }
-  return false
+export default defineConsoleAuthorize((context) => {
+  if (context.via !== 'console') return false
+  if (context.team?.role === 'owner') return true
+  return { sections: ['content'] }
 })
 ```
 
 ```ts [server/content.ts] fragment
-export const content = defineContent({
+export default defineContent({
   workspace: 'site',
   collections: { posts },
   // Writers save drafts. Only editors publish.
   authorize: ({ user, action }) => {
-    if (user?.role === 'editor') return true
-    if (user?.role === 'writer') return action !== 'publish'
+    if (user?.email === 'editor@example.com') return true
+    if (user) return action !== 'publish'
     return false
   },
 })
 ```
 
-A writer sees the posts and saves drafts, with no publish buttons. A writer's publish request returns `403` with `CONTENT_FORBIDDEN`. Other Console sections return `403`, and the navigation shows only Content.
+A writer sees the posts and saves drafts, with no publish buttons. A writer's publish request returns `403` with `CONTENT_FORBIDDEN`. For people who are not team owners, other Console sections return `403`, and the navigation shows only Content.
 
-The Console passes the user that its access mode signed in:
+The Console passes the user that it signed:
 
-| `console.auth` | `user` in `content.can()` |
+| Caller | `user` in `content.can()` |
 | --- | --- |
-| `'app'` or a session-based Console Auth | The signed-in user. |
-| `false` | `null`. Use `console.authorize` to decide who reaches the section. Let `content.authorize` allow `null` only if every such request may edit. |
-| Cloudflare Access | `null`. |
+| The Console | The person signed in to the Console, with `id`, `name`, and `email`. |
+| The CLI | `null`. Use `console.authorize` with `via: 'cli'` to decide which keys reach the section. |
+| `console: { auth: false }` in development | The local developer, `{ id: 'local', name: 'You' }`. |
 
 Saves, restores, deletes, and publishes record the user's `name`, `email`, or `id` as the revision author, shown in History.
 
 ## Playground
 
-`playground/content` in the ViteHub repository is a full app with app Auth, the Blob + Database Store, two collections, and three users: an admin, an editor limited to Content, and a writer who cannot publish. Its README shows how to run it.
+`playground/content` in the ViteHub repository is a full app with app Auth, the Blob + Database Store, two collections, and users with CMS roles: an admin, a publisher, an editor who cannot publish, and a reviewer. Its README shows how to run it.
 
 ## Limits
 
@@ -282,7 +286,7 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Recent activity shows the last 20 revisions, from at most 1,000 scanned per ref.
 - The dashboard and search publish one collection at a time. If a draft moved after the page loaded, that collection publishes nothing and the Console asks you to refresh.
 - History shows a document's last 20 saves and last 20 publishes, then older saves on request. Content scans at most 1,000 revisions per page.
-- Uploads take files up to 32 MB per request. Hosts can set a lower limit, such as 4.5 MB on Vercel Functions.
+- Uploads take files up to 32 MB per request. The file travels as base64 in the `media.upload` operation, so the request is a third larger than the file. The hosted Console sends files up to 9 MiB. Hosts can set a lower limit, such as 4.5 MB on Vercel Functions.
 - Media search scans at most 5,000 files below the open folder and shows at most 60 matches. Open a folder to narrow it.
 - **Used in** reads every document, on draft and published, of each collection the user may read. It finds bodies through the collection's [search fields](/docs/content/configure#define-collections), which include the body by default. It lists only documents the user may read, so the move or delete warning leaves out other documents that use the file. It does not tell which Blob Store a reference names.
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).

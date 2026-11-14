@@ -59,16 +59,15 @@ describe("mcp capability", () => {
 
     it.each([
       undefined, null, false, 0, "",
-      Object.assign(new Error("Unauthorized"), { statusCode: 401 }),
-      Object.assign(new Error("Forbidden"), { status: 403 }),
-      Object.assign(new Error("Bad request"), { statusCode: 400 }),
       Object.assign(new Error("Request aborted"), { name: "AbortError" }),
       Object.assign(new Error("Unsupported protocol version"), { name: "MCPClientError" }),
       Object.assign(new Error("Invalid maxRetries"), { name: "MCPClientError" }),
       new Error("Invalid network configuration"),
-      ...[400, 401, 403, 404, 405].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Request failed`), { name: "MCPClientError" })),
       Object.assign(new Error("MCP client initialization was aborted", { cause: new TypeError("fetch failed") }), { name: "MCPClientError" }),
       Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError", code: -32602 }),
+      // Configuration errors are the app's to fix, so they still stop the run.
+      Object.assign(new Error("Access denied"), { code: "CONNECTIONS_DENIED" }),
+      Object.assign(new Error("Unknown connection"), { code: "AGENT_R0082" }),
     ])("preserves hard rejection %#", async (error) => {
       await expect(resolveFailure(error)).rejects.toBe(error)
     })
@@ -84,7 +83,14 @@ describe("mcp capability", () => {
       Object.assign(new Error("MCP client initialization timed out after 5ms"), { name: "MCPClientError" }),
       Object.assign(new Error("Request timed out after 5ms"), { name: "MCPClientError" }),
       new Error("MCP transport failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) }),
-    ])("degrades transient rejection %#", async (error) => {
+      Object.assign(new Error("Unauthorized"), { statusCode: 401 }),
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+      Object.assign(new Error("Bad request"), { statusCode: 400 }),
+      Object.assign(new Error("MCP HTTP Transport Error: POSTing to endpoint (HTTP 401): Directus session expired"), { name: "MCPClientError", statusCode: 401 }),
+      ...[400, 401, 403, 404, 405].map(status => Object.assign(new Error(`MCP SSE Transport Error: ${status} Request failed`), { name: "MCPClientError" })),
+      ...["CONNECTIONS_NEEDS_RECONNECT", "CONNECTIONS_NOT_CONNECTED", "CONNECTIONS_PROVIDER_FAILED", "CONNECTIONS_UNAVAILABLE"].map(code => Object.assign(new Error("Connection failed"), { code })),
+      new Error("MCP transport failed", { cause: Object.assign(new Error("Token mutation in progress"), { code: "CONNECTIONS_UNAVAILABLE" }) }),
+    ])("degrades a server failure %#", async (error) => {
       const resolved = await resolveFailure(error)
       expect(resolved.tools).toEqual({})
       await resolved.close()
@@ -575,6 +581,47 @@ describe("mcp capability", () => {
       expect(createMCPClient).toHaveBeenCalledTimes(1)
       await resolved.close()
       expect(configuredClient.close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
+  it("connects a server with channels only for Invocations that those Channels start", async () => {
+    const createMCPClient = vi.fn(async (_config: Record<string, unknown> & { transport: { url: string } }) => createClient({ search: { execute: vi.fn() } }))
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { getMcpWarnings, mcp } = await import("../src/capabilities.ts")
+      const capability = () => mcp({
+        servers: {
+          everywhere: { transport: { type: "http", url: "https://example.com/everywhere" } },
+          productlane: { channels: ["productlane"], transport: { type: "http", url: "https://example.com/productlane" } },
+          portal: () => ({ channels: ["productlane", "teams"], transport: { type: "http", url: "https://example.com/portal" } }),
+        },
+        unavailableNotice: true,
+      })
+      const toolsFor = async (run: { channelId?: string } | undefined, context?: Record<string, unknown>) => {
+        const resolved = await resolveAgentCapabilities({ capabilities: [capability()] }, { ...runtime(), ...(run ? { run: { runId: "run", ...run } } : {}) }, context ? { context } : {})
+        expect(getMcpWarnings(resolved.input)).toEqual([])
+        expect(resolved.input.context?.["vitehub.chat.final-reply.notices"]).toBeUndefined()
+        await resolved.close()
+        return Object.keys(resolved.tools || {})
+      }
+
+      expect(await toolsFor({ channelId: "productlane" })).toEqual(["mcp_everywhere_search", "mcp_productlane_search", "mcp_portal_search"])
+      expect(await toolsFor(undefined, { "agent.trigger": { channelId: "teams" } })).toEqual(["mcp_everywhere_search", "mcp_portal_search"])
+      expect(await toolsFor({ channelId: "github" })).toEqual(["mcp_everywhere_search"])
+      expect(await toolsFor(undefined)).toEqual(["mcp_everywhere_search"])
+      expect(createMCPClient.mock.calls.map(([config]) => config.transport.url).filter(url => !url.endsWith("everywhere")))
+        .toEqual(["https://example.com/productlane", "https://example.com/portal", "https://example.com/portal"])
+      expect(createMCPClient.mock.calls.every(([config]) => !("channels" in config))).toBe(true)
+
+      await expect(resolveAgentCapabilities({
+        // @ts-expect-error channels must be an array of Channel names.
+        capabilities: [mcp({ servers: { invalid: { channels: "productlane", transport: { type: "http", url: "https://example.com/mcp" } } } })],
+      }, runtime(), {})).rejects.toThrow("requires channels to be an array of Channel names")
     }
     finally {
       vi.doUnmock("@ai-sdk/mcp")

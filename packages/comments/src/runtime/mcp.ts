@@ -1,19 +1,19 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
-import { describeCommentContext } from "../context.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
+import { commentThreadLine, commentThreadSummary as summary, describeCommentThread as describeThread } from "../thread-text.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
 import type { Comments } from "../index.ts"
-import type { CommentAction, CommentListCursor, CommentsRequestEvent, CommentsUser, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAction, CommentListCursor, CommentsRequestEvent, CommentsUser, CommentThread } from "../types.ts"
 import type { CommentsIdentity } from "./session.ts"
 
 export interface CommentsMcpToolsOptions {
   /**
-   * The caller passed the Console access check of the `comments` section, as the ViteHub MCP server does. Without
+   * The caller passed the Console access check of the `comments` section, as the comment operations do. Without
    * `identify`, the default policy then trusts `context.user`, as it does for the comment operations. Default `false`.
    */
   console?: boolean
@@ -49,40 +49,9 @@ function spend(grant: ToolGrant, action: CommentAction, threadId: string): void 
   if (allowed.action !== action || allowed.threadId !== threadId) throw new TypeError(`[vitehub] A Comments tool wrote ${action} with the grant of ${allowed.action}.`)
 }
 
-/** One thread as text an Agent reads: where it is, what the person saw, and the conversation. */
-function describeThread(thread: CommentThread): string {
-  const lines = [
-    `Thread #${thread.n} ${thread.id} (${thread.status}) on ${thread.subject.id}`,
-    ...(thread.anchor.kind === "element" ? [`Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label ?? thread.anchor.selector} (${thread.anchor.selector})`] : []),
-    ...describeCommentContext(thread.context ?? null).map(field => `${field.label}: ${field.value}`),
-    "",
-    ...thread.messages.map(message => `${nameOf(message.author)}, ${new Date(message.createdAt).toISOString()}: ${message.body}`),
-  ]
-  if (thread.resolvedBy) lines.push("", `Resolved by ${nameOf(thread.resolvedBy)} at ${new Date(thread.resolvedAt ?? thread.updatedAt).toISOString()}`)
-  return lines.join("\n")
-}
-
-function nameOf(person: CommentUser): string {
-  return `${person.name ?? person.id}${person.guest ? " (guest)" : ""}`
-}
-
-function summary(thread: CommentThread): Record<string, unknown> {
-  return {
-    id: thread.id,
-    n: thread.n,
-    page: thread.subject.id,
-    status: thread.status,
-    comment: thread.messages[0]?.body ?? "",
-    author: thread.author.name ?? thread.author.id,
-    replies: Math.max(0, thread.messages.length - 1),
-    components: thread.context?.components?.map(component => component.name) ?? [],
-    updatedAt: thread.updatedAt,
-  }
-}
-
 /**
- * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
- * as the overlay does. An app's own MCP server can register them too and supply the checked `context.user`.
+ * The Comments tools for an app's own MCP server. Each call resolves the Comments identity and checks `authorize`,
+ * as the overlay does. The server supplies the checked `context.user`. ViteHub MCP offers the comment operations instead.
  * With `identify` and a request event, `identify` names the user, as in the overlay API. Otherwise the tools use the
  * checked `context.user`. Replies and resolves show that user as the author.
  */
@@ -150,14 +119,9 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
           const last = listed.at(-1)!
           before = { id: last.id, updatedAt: last.updatedAt }
         }
-        const line = (thread: CommentThread) => {
-          const components = thread.context?.components?.map(component => component.name) ?? []
-          const replies = Math.max(0, thread.messages.length - 1)
-          return `- ${thread.id} ${thread.subject.id}: ${(thread.messages[0]?.body ?? "").slice(0, 120)} (${nameOf(thread.author)}, ${replies} replies${components.length ? `, in ${components.join(" › ")}` : ""})`
-        }
         return {
-          text: found.length ? found.map(line).join("\n") : `No ${status} threads.`,
-          structured: { threads: found.map(summary) },
+          text: found.length ? found.map(thread => commentThreadLine(summary(thread))).join("\n") : `No ${status} threads.`,
+          structured: { threads: found.map(thread => ({ ...summary(thread) })) },
         }
       },
     },
@@ -222,7 +186,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
         const [error, updated] = input.resolved === false ? await comments.reopen(thread.id) : await comments.resolve(thread.id, { by: author })
         if (error) return failure(error.why)
         await comments.flush()
-        return { text: `Thread ${updated.id} is ${updated.status}.`, structured: { thread: summary(updated) } }
+        return { text: `Thread ${updated.id} is ${updated.status}.`, structured: { thread: { ...summary(updated) } } }
       },
     },
   ]

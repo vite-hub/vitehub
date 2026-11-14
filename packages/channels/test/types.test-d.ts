@@ -1,7 +1,7 @@
 import { describe, it } from "vitest"
 
 import { createChannel, defineChannel, stripe, useChannel, webhook } from "../src/index.ts"
-import type { ChannelSendOptions, StripeEvent } from "../src/index.ts"
+import type { ChannelMessage, ChannelSendOptions, StripeEvent } from "../src/index.ts"
 
 declare global {
   interface ViteHubChannelDefinitionModules {
@@ -43,6 +43,18 @@ describe("Channel types", () => {
 
     const optional = createChannel("log", defineChannel({ adapter: { kind: "log", send: (_text: string) => ({}) } }))
     optional.send("Build finished.")
+    // @ts-expect-error A text adapter takes only text.
+    optional.send({ card: {} })
+
+    type Card = { card: { title: string }, fallbackText: string }
+    const cardAdapter = { kind: "teams", send: (_message: string | Card, _options: { recipient: string }) => ({}) }
+    const cards = createChannel("cards", defineChannel({ adapter: cardAdapter }))
+    cards.send("Build finished.", { recipient: "general" })
+    cards.send({ card: { title: "Build" }, fallbackText: "Build finished." }, { recipient: "general" })
+    // @ts-expect-error The adapter's message type rejects other objects.
+    cards.send({ adaptiveCard: {} }, { recipient: "general" })
+    const message: ChannelMessage<typeof cardAdapter> = { card: { title: "Build" }, fallbackText: "Build finished." }
+    void message
 
     async function checkSendTuple() {
       const [error, receipt] = await channel.send("Build finished.", { chatId: "chat-1" })
@@ -60,6 +72,8 @@ describe("Channel types", () => {
 
   it("types discovered Channels by name", () => {
     useChannel("alerts").send("Build finished.", { chatId: "chat-1" })
+    // @ts-expect-error Discovered Channels keep their adapter's message type.
+    useChannel("alerts").send({ card: {} }, { chatId: "chat-1" })
     // @ts-expect-error Discovered Channels keep their adapter's options.
     useChannel("alerts").send("Build finished.", { channelId: "channel-1" })
     // @ts-expect-error Generated Channel names reject unknown literals.
@@ -83,7 +97,7 @@ describe("Channel types", () => {
     })
 
     defineChannel({
-      adapter: webhook(),
+      adapter: webhook({ secret: false }),
       on: {
         // @ts-expect-error A target is a handler or a trigger.
         webhook: { run: () => undefined },
@@ -92,5 +106,25 @@ describe("Channel types", () => {
 
     // @ts-expect-error A Channel needs an adapter.
     defineChannel({ on: {} })
+  })
+
+  it("requires webhook verification or an explicit opt-out", () => {
+    webhook({ signature: "bearer", secret: () => process.env.TOKEN })
+    webhook({ signature: "token", header: "x-gitlab-token", secret: "token" })
+    webhook({ secret: false })
+    // @ts-expect-error `webhook()` needs `signature` and `secret`, or `secret: false`.
+    webhook()
+    // @ts-expect-error A webhook without verification needs `secret: false`.
+    webhook({})
+    // @ts-expect-error A `secret` needs a `signature`.
+    webhook({ secret: "token" })
+    // @ts-expect-error A `signature` needs a `secret`.
+    webhook({ signature: "bearer" })
+    // @ts-expect-error `secret: false` turns verification off, so it takes no `signature`.
+    webhook({ signature: "bearer", secret: false })
+    // @ts-expect-error `signature: 'token'` needs a `header`.
+    webhook({ signature: "token", secret: "token" })
+    // @ts-expect-error `stripe()` always verifies.
+    stripe({ secret: false })
   })
 })

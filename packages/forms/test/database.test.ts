@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { createDrizzleFormsStore, formsSchema, formsTables } from "../src/database.ts"
+import { createDrizzleFormsStore, formsTables } from "../src/database.ts"
 import { createFormsInbox, createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 
 import type { FormsStore, FormSubmission } from "../src/index.ts"
@@ -12,7 +12,7 @@ async function drizzleStore(): Promise<FormsStore> {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${formsTables.join(";\n")};`)
   // The Database of a ViteHub app has the Forms schema, so the store takes a Drizzle Database with any schema.
-  return createDrizzleFormsStore(drizzle(client, { schema: formsSchema }))
+  return createDrizzleFormsStore(drizzle({ client }))
 }
 
 function submission(id: string, form: string, createdAt: number): FormSubmission {
@@ -94,7 +94,7 @@ describe.each([
 })
 
 it("names the migration when the table is missing", async () => {
-  const store = createDrizzleFormsStore(drizzle(createClient({ url: ":memory:" })))
+  const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
   const [error] = await createFormsInbox(store).list()
   expect(error?.message).toContain("vitehub database generate")
   expect(error?.message).toContain("vitehub database migrate")

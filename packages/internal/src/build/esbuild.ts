@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { build as bundle, type Plugin } from "esbuild"
+import type { Plugin } from "esbuild"
 
 import { isPlainObject } from "../object.ts"
 import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
@@ -25,6 +25,8 @@ interface BundleEsmEntryOptions {
   plugins?: Plugin[]
   preserveSymlinks?: boolean
   rootDir?: string
+  /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
+  resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
   workingDir?: string
 }
@@ -90,7 +92,7 @@ interface ResolvedBareAliasPaths {
   publicSpecifier?: string
 }
 
-function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string): Plugin | undefined {
+function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, aliasResolveDir: string, resolveEntryPackageAliases = true): Plugin | undefined {
   const entries = Object.entries(aliases || {})
   if (!entries.length) return
   const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
@@ -152,7 +154,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
             ? canonicalSpecifier.startsWith(canonicalAlias)
             : canonicalSpecifier === canonicalAlias)
         }
-        if (!match && isAbsolute(args.path)) {
+        if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) {
           // Start every alias resolution at once. Awaiting them one by one costs one esbuild round trip per alias.
           const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
           for (const alias of aliases) {
@@ -178,6 +180,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
               alias.specifier,
               alias.prefix,
               resolutionScope,
+              // An exports match depends on the path inside the package, so two files of one package need two entries.
+              normalizedSpecifier,
               args.importer,
               args.resolveDir,
               args.kind,
@@ -478,6 +482,8 @@ export async function bundleEsmEntry(
   outfile: string,
   options: BundleEsmEntryOptions = {},
 ): Promise<void> {
+  // Load esbuild when an entry is bundled, so code that only imports these helpers does not load it.
+  const { build: bundle } = await import("esbuild")
   options.signal?.throwIfAborted()
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
@@ -490,6 +496,7 @@ export async function bundleEsmEntry(
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
     options.workingDir ?? options.rootDir ?? process.cwd(),
+    options.resolveEntryPackageAliases,
   )
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())

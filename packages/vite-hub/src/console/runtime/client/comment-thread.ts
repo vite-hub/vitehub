@@ -1,4 +1,5 @@
 import { requestConsoleOperation } from "./request"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { CommentsTransport, CommentSubject, CommentThread, CommentUser } from "@vite-hub/comments/client"
 
@@ -36,10 +37,6 @@ export interface ConsoleCommentSession {
   canWrite: boolean
   capabilities: { reply: boolean, resolve: boolean, deleteThread: boolean, edit: string[], delete: string[] }
   user: CommentUser | undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 /** Ask `comments.session` for the Console identity and, with `threadId`, action-specific capabilities. */

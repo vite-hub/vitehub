@@ -10,25 +10,93 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
-| `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect operational Env failures by `ENV_*` code. |
-| `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
-| `defineEnvProvider` from `@vite-hub/env` | Define a read-only runtime provider for external Env storage. |
-| `loadServerEnv` from `#vitehub/env/server` | Load one immutable Server Env snapshot, including provider-backed values. |
-| `describeServerEnv` from `#vitehub/env/server` | List declaration metadata without reading host values or calling providers. |
-| `inspectServerEnv` from `#vitehub/env/server` | Inspect status-only Server Env metadata without returning values. |
-| `isBlockingServerEnvEntry` from `@vite-hub/env` | Check whether an inspection entry makes `loadServerEnv()` fail. |
-| `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
-| `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
-| `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
+| `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
+| `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
+| `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
+| `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |
+| `loadServerEnv` from `vite-hub/env` | Load one frozen Server Env snapshot, with provider values. |
+| `describeServerEnv` from `vite-hub/env` | List declaration metadata. Reads no values and calls no provider. |
+| `inspectServerEnv` from `vite-hub/env` | Report the status of each value, never the value. |
+| `isBlockingServerEnvEntry` from `vite-hub/env` | Check if an inspection entry makes `loadServerEnv()` fail. |
+| `usePublicEnv` from `vite-hub/env`, or from `#vitehub/env/public` in browser code | Read generated Public Env. |
+| `useServerEnv` from `vite-hub/env` | Read Server Env in server code. |
+| `deriveSecret` from `vite-hub/env` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
-| `SecretEnv` from `@vite-hub/env` | Represent Secret Env values that redact by default. |
-| `resolveServerEnv` from `@vite-hub/env` | Resolve a server env registry manually. |
-| `openWorkflowEnv` from `@vite-hub/env` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `@vite-hub/env` | Declare the Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver), `llmGate()`, and `llmRoute()` use by default. |
-| `parseSchema` from `@vite-hub/env` | Parse Standard Schema-compatible values. |
+| `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
+| `resolveServerEnv`, and the registry forms of `loadServerEnv`, `describeServerEnv`, `inspectServerEnv` from `vite-hub/env/server` | Resolve, load, or inspect an explicit Server Env registry. |
+| `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
+| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
+| `parseSchema` from `vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime
+
+The examples in this section read these declarations:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv({
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv({
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 Read Public Env in browser code. ViteHub generates the module behind this import.
 
@@ -41,7 +109,7 @@ export const appName = usePublicEnv().appName
 Read Server Env in server code. A secret prints hidden. Call `unseal()` to get the string for an SDK or request.
 
 ```ts [server/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export async function listIssues() {
   const { github } = useServerEnv()
@@ -56,7 +124,7 @@ export async function listIssues() {
 
 `useServerEnv()` checks every declared value, not only the ones you read. If a required value is missing, every call throws `ENV_REQUIRED_MISSING` with its path. If the app can run without a value, mark it `optional: true`, or give it a default. Defaults go into the generated server code, so never give a secret one. Run `vitehub env check` before a release to list missing values.
 
-On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, `runWithServerEnv()`, and `deriveSecret()` take the same event.
+On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, and `runWithServerEnv()` take the same event. Pass it as `{ event }` to `deriveSecret()`.
 
 ## Read external Env storage
 
@@ -72,7 +140,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       providers: {
         credentials: './server/env/credentials.ts',
@@ -104,7 +172,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         providers: {
           credentials: './server/env/credentials.ts',
@@ -137,7 +205,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         providers: {
           credentials: './server/env/credentials.ts',
@@ -161,11 +229,11 @@ export default defineConfig({
 :::
 ::
 
-The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `#vitehub/env/server`.
+The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `vite-hub/env`.
 
 ```ts [server/env/credentials.ts]
-import { defineEnvProvider } from '@vite-hub/env'
-import type { SecretEnv } from '@vite-hub/env'
+import { defineEnvProvider } from 'vite-hub/env'
+import type { SecretEnv } from 'vite-hub/env'
 
 export default defineEnvProvider<{
   credentialsGatewayKey: SecretEnv<string>
@@ -186,7 +254,7 @@ export default defineEnvProvider<{
 Call `loadServerEnv()` at the start of each operation. Each call makes a new frozen snapshot, reads each key once, and caches nothing between loads. The next load sees a rotated value, while a running operation keeps its snapshot.
 
 ```ts [server/sources/private-repository.ts]
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 import { github } from 'vite-hub/workspace'
 
 export const privateRepository = github(async () => {

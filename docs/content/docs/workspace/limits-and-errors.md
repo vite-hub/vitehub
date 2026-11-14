@@ -12,6 +12,7 @@ Each Workspace name has one definition.
 
 - `WORKSPACE_B0003`: a discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) share a name, or two contributions share one.
 - `WORKSPACE_B0004`: a contribution is not `{ name, definition: { module, export? }, reason? }`, or its `definition.module` is relative.
+- `WORKSPACE_B0005`: the build cannot load a definition, and its source does not show a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`. So the build cannot write the Artifacts binding that the store may need. Set the store in the `workspace` config.
 
 ## Retained history
 
@@ -20,6 +21,7 @@ Retained-history methods need a Store with `history`.
 - `WORKSPACE_R0069`: the Store does not support history, or the Workspace scope is partial.
 - `WORKSPACE_R0070`: a list limit is not an integer from `1` to `100`, or a cursor comes from another ref.
 - `WORKSPACE_R0071`: a ref name is not valid.
+- `WORKSPACE_R0077`: the `database` of the Blob + Database Store is not a Drizzle database, for example a Database Definition.
 - `WORKSPACE_CONFLICT`: `ifHead` is stale. The error has the ref and the expected and actual revision ids.
 - `WORKSPACE_NOT_FOUND`: a revision or workspace identity is gone, or a change commit deletes a missing file.
 
@@ -51,7 +53,7 @@ Local Store lock markers do not expire. A crashed process can leave one, and lat
 Stop every process that uses the Workspace. Keep the Store and its parent directories unchanged during the call. Then run `recoverLocalWorkspaceLocks()` with the exact `root` of the Local Store:
 
 ```ts
-import { recoverLocalWorkspaceLocks } from '@vite-hub/workspace/runtime'
+import { recoverLocalWorkspaceLocks } from 'vite-hub/workspace/runtime'
 
 await recoverLocalWorkspaceLocks({
   root: '/srv/app/.vitehub/workspaces/docs',

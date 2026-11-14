@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
@@ -14,7 +13,6 @@ import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
-import { runAgentCodexHomeCli } from "./internal/agent-codex-home-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { conversationsExportUsage, runConversationsExportCli } from "./internal/conversations-cli.ts"
@@ -173,12 +171,12 @@ function writeDevUsage(context: AgentCliContext): void {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && hasRuntimeType(value, "object") && !Array.isArray(value)
+  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function formatDevPayload(value: unknown): string | undefined {
   if (value === undefined) return
-  const text = hasRuntimeType(value, "string") ? value : JSON.stringify(value)
+  const text = typeof value === "string" ? value : JSON.stringify(value)
   if (text === undefined) return
   return text.length > devPayloadMaxLength
     ? `${text.slice(0, devPayloadMaxLength)}... [truncated ${text.length - devPayloadMaxLength} chars]`
@@ -199,11 +197,11 @@ function writeDevText(context: AgentCliContext, value: unknown): boolean {
 }
 
 function deliveryPreviewPayload(value: unknown): { label: string, value: unknown } | undefined {
-  if (hasRuntimeType(value, "string")) return { label: "payload", value: value.trim() }
+  if (typeof value === "string") return { label: "payload", value: value.trim() }
   if (!isRecord(value)) return value === undefined ? undefined : { label: "payload", value }
   for (const label of ["body", "text", "markdown"]) {
     const text = value[label]
-    if (hasRuntimeType(text, "string")) return { label, value: text.trim() }
+    if (typeof text === "string") return { label, value: text.trim() }
   }
   return { label: "payload", value }
 }
@@ -215,22 +213,22 @@ function writeDeliveryPreviewPayload(context: AgentCliContext, value: unknown): 
 }
 
 function deliveryReactionContent(payload: unknown): string | undefined {
-  if (hasRuntimeType(payload, "string")) return payload
-  return isRecord(payload) && hasRuntimeType(payload.content, "string") ? payload.content : undefined
+  if (typeof payload === "string") return payload
+  return isRecord(payload) && typeof payload.content === "string" ? payload.content : undefined
 }
 
 function deliveryReactionAction(payload: unknown): string | undefined {
-  return isRecord(payload) && hasRuntimeType(payload.action, "string") ? payload.action : undefined
+  return isRecord(payload) && typeof payload.action === "string" ? payload.action : undefined
 }
 
 function deliveryTitleContent(payload: unknown): string | undefined {
-  if (hasRuntimeType(payload, "string")) return payload.trim()
-  return isRecord(payload) && hasRuntimeType(payload.title, "string") ? payload.title.trim() : undefined
+  if (typeof payload === "string") return payload.trim()
+  return isRecord(payload) && typeof payload.title === "string" ? payload.title.trim() : undefined
 }
 
 function isRedundantDeliveryTitlePayload(payload: unknown): boolean {
   if (!deliveryTitleContent(payload)) return false
-  return hasRuntimeType(payload, "string") || (isRecord(payload) && Object.keys(payload).length === 1)
+  return typeof payload === "string" || (isRecord(payload) && Object.keys(payload).length === 1)
 }
 
 function deliveryPreviewHeader(event: { channelId?: string, effect: { kind: string, payload?: unknown } }): string {
@@ -258,7 +256,7 @@ function deliveryPreviewArtifacts(effect: { artifacts?: unknown, payload?: unkno
 function writeDeliveryPreviewArtifacts(context: AgentCliContext, event: { channelId?: string, effect: { artifacts?: unknown, payload?: unknown } }): void {
   const channel = event.channelId ? ` on ${event.channelId}` : ""
   for (const artifact of deliveryPreviewArtifacts(event.effect)) {
-    const path = hasRuntimeType(artifact.path, "string") ? artifact.path : "artifact"
+    const path = typeof artifact.path === "string" ? artifact.path : "artifact"
     const label = artifact.placement === "attachment" ? "attachment" : "asset"
     context.stderr.write(`\n[delivery] ${label} ${path}${channel}\n`)
     writeDevPayload(context, "url", artifact.url)
@@ -269,7 +267,7 @@ function writeDeliveryPreviewArtifacts(context: AgentCliContext, event: { channe
 function toolTextOutput(value: unknown, seen = new Set<unknown>()): string | undefined {
   if (!isRecord(value) || seen.has(value)) return
   seen.add(value)
-  if (hasRuntimeType(value.text, "string") && value.text.trim()) return value.text
+  if (typeof value.text === "string" && value.text.trim()) return value.text
   for (const key of ["output", "result", "raw"]) {
     const text = toolTextOutput(value[key], seen)
     if (text) return text
@@ -279,11 +277,11 @@ function toolTextOutput(value: unknown, seen = new Set<unknown>()): string | und
 function thinkingFallback(metadata: Record<string, unknown> | undefined): string | undefined {
   if (!metadata || !Object.hasOwn(metadata, "thinkingFallback")) return "Thinking..."
   const value = metadata.thinkingFallback
-  return hasRuntimeType(value, "string") && value.trim() ? value : undefined
+  return typeof value === "string" && value.trim() ? value : undefined
 }
 
 function usageNumber(value: unknown): number | undefined {
-  return hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
 }
 
 function formatDurationMs(durationMs: unknown): string | undefined {
@@ -318,7 +316,7 @@ function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {
 }
 
 function formatUsageSpeed(record: AgentUsageRecord, durationMs?: number): string | undefined {
-  const explicit = hasRuntimeType(record.latency?.tokensPerSecond, "number") && Number.isFinite(record.latency.tokensPerSecond)
+  const explicit = typeof record.latency?.tokensPerSecond === "number" && Number.isFinite(record.latency.tokensPerSecond)
     ? record.latency.tokensPerSecond
     : undefined
   const duration = usageNumber(record.latency?.durationMs) ?? durationMs
@@ -370,20 +368,20 @@ async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageReco
 
 function shellCommand(value: unknown): string | undefined {
   if (!isRecord(value)) return
-  const raw = hasRuntimeType(value.command, "string")
+  const raw = typeof value.command === "string"
     ? value.command
-    : hasRuntimeType(value.cmd, "string")
+    : typeof value.cmd === "string"
       ? value.cmd
-      : isRecord(value.args) && hasRuntimeType(value.args.command, "string")
+      : isRecord(value.args) && typeof value.args.command === "string"
         ? value.args.command
         : undefined
-  if (!hasRuntimeType(raw, "string")) return
+  if (typeof raw !== "string") return
   const command = raw.trim()
   return command && !command.includes("\n") ? command : undefined
 }
 
 function quoteCliValue(value: unknown): string | undefined {
-  const text = hasRuntimeType(value, "string") ? value : JSON.stringify(value)
+  const text = typeof value === "string" ? value : JSON.stringify(value)
   if (!text) return
   return /^[\w./:@=-]+$/.test(text)
     ? text
@@ -397,9 +395,9 @@ function quoteCliPart(value: unknown): string | undefined {
 
 function operationCommand(name: string, value: unknown): string | undefined {
   if (!isRecord(value)) return
-  const operation = hasRuntimeType(value.operationId, "string") && value.operationId.trim()
+  const operation = typeof value.operationId === "string" && value.operationId.trim()
     ? value.operationId.trim()
-    : hasRuntimeType(value.operation, "string") && value.operation.trim()
+    : typeof value.operation === "string" && value.operation.trim()
       ? value.operation.trim()
       : undefined
   const quotedOperation = quoteCliPart(operation)
@@ -428,7 +426,7 @@ function operationCommand(name: string, value: unknown): string | undefined {
 function argvCommand(name: string, value: unknown): string | undefined {
   if (!isRecord(value)) return
   const argv = value.argv
-  if (!Array.isArray(argv) || argv.some(arg => !hasRuntimeType(arg, "string"))) return
+  if (!Array.isArray(argv) || argv.some(arg => typeof arg !== "string")) return
   const parts = [name]
   for (const arg of argv) {
     const quoted = quoteCliPart(arg)
@@ -468,8 +466,8 @@ function writeToolDuration(context: AgentCliContext, durationMs: unknown): void 
 
 function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown, durationMs?: number): boolean {
   if (!isRecord(output)) return false
-  const stdout = hasRuntimeType(output.stdout, "string") && output.stdout ? output.stdout : undefined
-  const stderr = hasRuntimeType(output.stderr, "string") && output.stderr ? output.stderr : undefined
+  const stdout = typeof output.stdout === "string" && output.stdout ? output.stdout : undefined
+  const stderr = typeof output.stderr === "string" && output.stderr ? output.stderr : undefined
   if (!stdout && !stderr && error === undefined) return false
   if (stdout) writeDevText(context, stdout)
   if (stderr) writeDevPayload(context, "stderr", stderr)
@@ -779,17 +777,17 @@ async function readDiscovery(
   })
   if (!server) return
   const { discovery, url } = server
-  const tokenOptions = hasRuntimeType(discovery.workspaceDevTokenServerId, "string") ? { serverId: discovery.workspaceDevTokenServerId } : {}
-  const root = hasRuntimeType(discovery.root, "string") ? discovery.root : context.rootDir
+  const tokenOptions = typeof discovery.workspaceDevTokenServerId === "string" ? { serverId: discovery.workspaceDevTokenServerId } : {}
+  const root = typeof discovery.root === "string" ? discovery.root : context.rootDir
   const discoveredAgents = Array.isArray(discovery.agents) ? discovery.agents.filter(isRecord) : []
-  const agents = discoveredAgents.flatMap(agent => hasRuntimeType(agent.name, "string") ? [agent.name] : [])
+  const agents = discoveredAgents.flatMap(agent => typeof agent.name === "string" ? [agent.name] : [])
   const agentTargets = new Map<string, string>()
   for (const agent of discoveredAgents) {
-    if (!hasRuntimeType(agent.name, "string")) continue
+    if (typeof agent.name !== "string") continue
     agentTargets.set(agent.name, agent.name)
     if (Array.isArray(agent.aliases)) {
       for (const alias of agent.aliases) {
-        if (hasRuntimeType(alias, "string")) agentTargets.set(alias, alias)
+        if (typeof alias === "string") agentTargets.set(alias, alias)
       }
     }
   }
@@ -1070,9 +1068,9 @@ async function sendDevCliCommand(
   }
   // SAFETY: CLI option parsing establishes the asserted command contract.
   const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
-  if (hasRuntimeType(result.stdout, "string")) context.stdout.write(result.stdout)
-  if (hasRuntimeType(result.stderr, "string") && result.stderr) context.stderr.write(result.stderr)
-  return hasRuntimeType(result.exitCode, "number") ? result.exitCode : 0
+  if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+  if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+  return typeof result.exitCode === "number" ? result.exitCode : 0
 }
 
 async function sendDevWorkspaceCommand(
@@ -1118,10 +1116,10 @@ async function sendDevWorkspaceCommand(
     }
     // SAFETY: CLI option parsing establishes the asserted command contract.
     const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
-    if (hasRuntimeType(result.stdout, "string")) context.stdout.write(result.stdout)
-    if (hasRuntimeType(result.stderr, "string") && result.stderr) context.stderr.write(result.stderr)
+    if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+    if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
     context.stderr.write(`[workspace] command completed (${formatDurationMs(Date.now() - startedAt)})\n`)
-    return hasRuntimeType(result.exitCode, "number") ? result.exitCode : 0
+    return typeof result.exitCode === "number" ? result.exitCode : 0
   }
   catch (error) {
     if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
@@ -1301,12 +1299,6 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       run: async (args, context) => await runAgentInvocationsCli(args, context),
       usage: "vitehub agent invocations <list|show|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
     },
-    {
-      description: "Measure and prune a Codex home with the driver.retention rules.",
-      name: "codex-home",
-      run: async (args, context) => await runAgentCodexHomeCli(args, context),
-      usage: "vitehub agent codex-home <status|prune> --home <path> [--max-age 14d] [--max-records <n>] [--max-size 45%] [--session-store <path>]... [--dry-run] [--json]",
-    },
   ]
   if (evalFiles.length) {
     features.unshift({
@@ -1376,4 +1368,4 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   }
 }
 
-export { runAgentCodexHomeCli, runAgentInfoCli, runAgentInvocationsCli }
+export { runAgentInfoCli, runAgentInvocationsCli }

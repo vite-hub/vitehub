@@ -27,6 +27,16 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/env/public": {
+      "types": "./dist/runtime/public-env.d.ts",
+      "default": "./dist/runtime/public-env.js"
+    },
+    "#vitehub/env/server": {
+      "types": "./dist/runtime/server-env.d.ts",
+      "default": "./dist/runtime/server-env.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -68,6 +78,11 @@
       "import": "./dist/seal.js",
       "default": "./dist/seal.js"
     },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js",
@@ -107,7 +122,7 @@
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "catalog:database",
+    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
     "@vite-hub/agent": "^0.1.0"
   },
   "peerDependenciesMeta": {

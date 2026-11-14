@@ -8,35 +8,10 @@ defineProps<{
 </script>
 
 <template>
-  <section class="not-prose vh-features">
-    <h2 v-if="title" class="vh-features-title">{{ title }}</h2>
-    <div class="vh-features-list">
+  <section class="not-prose py-10">
+    <h2 v-if="title" class="mb-6 text-xl font-semibold text-highlighted">{{ title }}</h2>
+    <UPageGrid>
       <slot />
-    </div>
+    </UPageGrid>
   </section>
 </template>
-
-<style scoped>
-.vh-features {
-  padding-block: 2.5rem;
-}
-
-.vh-features-title {
-  margin: 0 0 1.5rem;
-  color: var(--ui-text-highlighted);
-  font-size: 1.25rem;
-  font-weight: 600;
-}
-
-.vh-features-list {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2rem 3rem;
-}
-
-@media (min-width: 48rem) {
-  .vh-features-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-</style>

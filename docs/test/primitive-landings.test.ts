@@ -120,15 +120,6 @@ describe("primitive landing placeholders", () => {
       expect(source).not.toMatch(/definePrimitive|vite-hub\/vite|Illustrative pseudocode/);
     }
   });
-
-  it("displays the placeholder notice above the selected files", async () => {
-    const source = await readFile(
-      new URL("../app/components/PrimitiveProjectGroup.vue", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain('v-if="currentVariant?.illustrative"');
-    expect(source).toContain("Illustrative pseudocode. This layout is not an executable starter.");
-  });
 });
 
 describe("Queue starter projects", () => {
@@ -161,7 +152,7 @@ describe("Agents landing", () => {
       expect(agent.content).toContain('import { defineAgent } from "vite-hub/agent"');
       expect(agent.content).toContain("run({ prompt })");
       const config = variant.files.find((file) => file.path.endsWith(".config.ts"))!;
-      expect(config.content).toContain('preset: "node", agent: true');
+      expect(config.content).toContain('host: "node", agent: true');
       expect(variant.files.map((file) => file.content).join("\n")).not.toMatch(/definePrimitive|vite-hub\/agents|vite-hub\/vite/);
       expect(variant.files.some((file) => file.path.includes("agentss"))).toBe(false);
     }
@@ -179,7 +170,7 @@ describe("Sandbox landing projects", () => {
         expect(manifest.dependencies[dependency]).toBeTruthy();
       }
       const config = files.get(variant.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts");
-      expect(config).toContain('preset: "vercel", sandboxTask: true');
+      expect(config).toContain('host: "vercel", sandboxTask: true');
       expect(files.get("server/sandbox-tasks/release-notes/index.ts")).toContain("export default async function");
       expect(files.get("server/sandbox-tasks/release-notes/index.ts")).not.toContain("defineSandboxTask");
       expect(files.get("server/release-notes.ts")).toContain('runSandboxTask("release-notes", { notes: "ship it" })');
@@ -197,7 +188,7 @@ describe("Browser landing examples", () => {
     for (const variant of browser.variants) {
       expect(variant.illustrative).not.toBe(true);
       const source = variant.files.map(file => file.content).join("\n");
-      expect(source).toContain('preset: "cloudflare", browser: true');
+      expect(source).toContain('host: "cloudflare", browser: true');
       expect(source).not.toMatch(/definePrimitive|vite-hub\/vite/);
       expect(variant.files.find(file => file.path === "server/browsers/page-html.ts")?.content).toContain("defineBrowser");
       expect(source).toContain('runBrowser("page-html",');
@@ -211,7 +202,7 @@ describe("Content landing examples", () => {
     for (const variant of ContentLanding.variants) {
       const definition = variant.files.find((file) => file.path === "server/content.ts");
       expect(definition?.content).toContain('import { defineContent } from "vite-hub/content"');
-      expect(definition?.content).toContain("export const content = defineContent(");
+      expect(definition?.content).toContain("export default defineContent(");
       expect(definition?.content).toContain('glob({ cwd: "docs", include: "**/*.md" })');
       expect(variant.files.some((file) => file.path === "docs/guide.md")).toBe(true);
       const manifest = JSON.parse(variant.files.find((file) => file.path === "package.json")!.content);
@@ -226,11 +217,11 @@ describe("Content landing examples", () => {
       const route = variant.files.find((file) => file.path.startsWith("server/routes/"));
       if (variant.framework === "nitro") {
         expect(route?.path).toBe("server/routes/api/content/[...path].ts");
-        expect(route?.content).toContain('import { content } from "../../../content"');
+        expect(route?.content).toContain('import content from "../../../content"');
         expect(route?.content).toContain("export default defineContentHandler(content)");
       } else {
         expect(route).toBeUndefined();
-        expect(variant.files.find((file) => file.path.endsWith(".config.ts"))?.content).toContain('preset: "node"');
+        expect(variant.files.find((file) => file.path.endsWith(".config.ts"))?.content).toContain('host: "node"');
       }
     }
   });
@@ -240,7 +231,7 @@ describe("database landing examples", () => {
   it.each(DatabasesLanding.variants)("loads the $label schema using the database package", async (variant) => {
     const root = await mkdtemp(new URL("../.database-landing-", import.meta.url));
     try {
-      const definition = variant.files.find((file) => /(?:src\/database|server\/databases\/config)\.ts$/.test(file.path));
+      const definition = variant.files.find((file) => /(?:src\/database|server\/databases\/default)\.ts$/.test(file.path));
       expect(definition).toBeDefined();
       const path = join(root, "database.mjs");
       await writeFile(path, definition!.content);

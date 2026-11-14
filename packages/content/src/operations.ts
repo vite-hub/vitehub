@@ -2,6 +2,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { compileDocumentsPath, parseDocumentFile, renderDocumentFile } from "./documents.ts"
+import { contentSourceHeadsRuntime } from "./source-heads.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type {
@@ -14,14 +15,22 @@ import type {
   ContentRevisionsOptions,
   ContentWriteOptions,
 } from "./collections-types.ts"
+import type { ContentCheckResult } from "./check.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
+
+/** The Content actions that target one collection. */
+type CollectionAction = Exclude<ContentAction, "read">
 import type { ContentScheduleStatus } from "./schedules.ts"
+import type { ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
+import type { ContentSourcePreviewRoutes as ContentPreviewRoutes } from "./ref-routes.ts"
 import type {
   ContentDevCollection,
   ContentDevCollectionsResult,
   ContentDevDiffResult,
+  ContentDevHeadResult,
   ContentDevListResult,
+  ContentDevPreviewsResult,
   ContentDevPublishResult,
   ContentDevRemoveResult,
   ContentDevRevisionsResult,
@@ -41,7 +50,7 @@ const runtimeMembers = ["can", "collection", "collections", "publish", "revision
 const sectionModulesKey = Symbol.for("vitehub.console.section-modules")
 
 /**
- * The `server/content.ts` module loaders that the Console installs, by section. Content operations read the `content`
+ * The `server/content.ts` module loaders that the Console installs, by section. Content operations read the default
  * export through it, so they run in a deployed app and in `vite dev` with the same file.
  */
 type SectionModules = Record<string, (() => Promise<Record<string, unknown>>) | undefined>
@@ -74,6 +83,13 @@ const errorStatus = new Map([
   ["CONTENT_R0009", 400],
   ["CONTENT_R0011", 400],
   ["CONTENT_R0013", 409],
+  // A commit that fails validation, a Source without a head, and a failing KV store. Below 500, so every surface shows the fix.
+  ["CONTENT_R0019", 422],
+  ["CONTENT_R0020", 409],
+  ["CONTENT_R0021", 409],
+  ["CONTENT_R0022", 424],
+  // A check that cannot run, such as for an unknown Source or a SHA of a Source without commits.
+  ["CONTENT_R0069", 400],
   ["WORKSPACE_CONFLICT", 409],
 ])
 
@@ -99,11 +115,11 @@ async function contentRuntime(): Promise<ContentOperationsRuntime> {
   const modules = Reflect.get(globalThis, sectionModulesKey) as SectionModules | undefined
   const load = modules?.content
   if (!load) {
-    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on.", { fix: "Create server/content.ts and export `content` from defineContent()." })
+    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on.", { fix: "Create server/content.ts with `export default defineContent({ ... })`." })
   }
-  const content = (await load()).content
+  const content = (await load()).default
   if (!isRuntime(content)) {
-    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "server/content.ts does not export a defineContent() runtime named `content`.", { fix: "Export the result of defineContent() as `content`." })
+    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "server/content.ts does not default-export a defineContent() runtime.", { fix: "Write `export default defineContent({ ... })`." })
   }
   return content
 }
@@ -119,14 +135,14 @@ function trusted(context: OperationContext): boolean {
 
 interface Guard {
   /** Throws `CONTENT_FORBIDDEN` when the policy denies the action. */
-  allow(action: ContentAction, collection: string, id?: string): Promise<void>
-  can(action: ContentAction, collection: string, id?: string): Promise<boolean>
+  allow(action: CollectionAction, collection: string, id?: string): Promise<void>
+  can(action: CollectionAction, collection: string, id?: string): Promise<boolean>
   /** The ids the user may read. */
   readable(collection: string, ids: Iterable<string>): Promise<Set<string>>
 }
 
 function guard(content: ContentOperationsRuntime, context: OperationContext): Guard {
-  const can = async (action: ContentAction, collection: string, id?: string): Promise<boolean> => {
+  const can = async (action: CollectionAction, collection: string, id?: string): Promise<boolean> => {
     if (trusted(context)) return true
     return await content.can({
       action,
@@ -140,13 +156,13 @@ function guard(content: ContentOperationsRuntime, context: OperationContext): Gu
     can,
     async allow(action, collection, id) {
       if (await can(action, collection, id)) return
-      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`, {
+      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read-draft" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`, {
         fix: content.hasPolicy ? "Ask for access, or allow the action in defineContent({ authorize })." : "Add authorize to defineContent(). Without a policy nobody can use Content outside `vite dev`.",
       })
     },
     async readable(collection, ids) {
       const list = [...new Set(ids)]
-      const allowed = await Promise.all(list.map(id => can("read", collection, id)))
+      const allowed = await Promise.all(list.map(id => can("read-draft", collection, id)))
       return new Set(list.filter((_id, index) => allowed[index]))
     },
   }
@@ -232,8 +248,8 @@ function documentId(collection: AnyContentCollection, id: string | undefined, op
 async function readableCollections(content: ContentOperationsRuntime, access: Guard): Promise<AnyContentCollection[]> {
   const collections = content.collections()
   const allowed = await Promise.all(collections.map(async (collection) => {
-    if (!await access.can("read", collection.name)) return false
-    return collection.kind === "singleton" ? await access.can("read", collection.name, collection.id) : true
+    if (!await access.can("read-draft", collection.name)) return false
+    return collection.kind === "singleton" ? await access.can("read-draft", collection.name, collection.id) : true
   }))
   return collections.filter((_collection, index) => allowed[index])
 }
@@ -302,7 +318,7 @@ const list = defineOperation({
     const content = await contentRuntime()
     const access = guard(content, context)
     const collection = content.collection(input.collection)
-    await access.allow("read", collection.name)
+    await access.allow("read-draft", collection.name)
     const selectedRef = input.ref ?? "draft"
     const options: ContentListOptions = { limit: input.limit ?? 50, ref: selectedRef }
     if (input.search !== undefined) options.search = input.search
@@ -442,7 +458,7 @@ const show = defineOperation({
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "show")
-    await access.allow("read", collection.name, id)
+    await access.allow("read-draft", collection.name, id)
     const selectedRef = input.ref ?? "draft"
     const [raw, status] = await Promise.all([collection.raw(id, { ref: selectedRef }), collection.status(id)])
     if (!raw) {
@@ -469,14 +485,14 @@ const status = defineOperation({
     if (input.id !== undefined) {
       if (input.collection === undefined) throw invalid("Status of one document needs its collection.", "Pass the collection before the id.")
       const collection = content.collection(input.collection)
-      await access.allow("read", collection.name, input.id)
+      await access.allow("read-draft", collection.name, input.id)
       const one = await collection.status(input.id)
       if (!one) throw notFound(collection.name, input.id)
       return { documents: [one] }
     }
     const documents: ContentDocumentStatus[] = []
     for (const collection of selected(content, input.collection)) {
-      if (!await access.can("read", collection.name)) continue
+      if (!await access.can("read-draft", collection.name)) continue
       const statuses = await statusesOf(collection)
       const readable = await access.readable(collection.name, statuses.map(entry => entry.id))
       documents.push(...statuses.filter(entry => readable.has(entry.id)))
@@ -501,7 +517,7 @@ const diff = defineOperation({
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "diff")
-    await access.allow("read", collection.name, id)
+    await access.allow("read-draft", collection.name, id)
     // raw() returns the stored file even when it no longer validates, so a diff can show what to repair.
     const [state, published, draft] = await Promise.all([
       collection.status(id),
@@ -526,7 +542,7 @@ const revisions = defineOperation({
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "revisions")
-    await access.allow("read", collection.name, id)
+    await access.allow("read-draft", collection.name, id)
     const selectedRef = input.ref ?? "draft"
     const options: ContentRevisionsOptions = { ref: selectedRef }
     if (input.limit !== undefined) options.limit = input.limit
@@ -661,7 +677,7 @@ const publish = defineOperation({
       if (input.ids !== undefined && input.collection === undefined) throw invalid("Publishing documents by id requires a collection.")
       const documents: ContentDevPublishResult["documents"] = []
       for (const collection of selected(content, input.collection)) {
-        if (!await access.can("read", collection.name)) continue
+        if (!await access.can("read-draft", collection.name)) continue
         const statuses = input.ids === undefined
           ? await statusesOf(collection)
           : await Promise.all(input.ids.map(async (id) => {
@@ -685,7 +701,13 @@ const publish = defineOperation({
     const options: ContentPublishOptions = { expect: input.expect, metadata: metadata(context) }
     if (input.message !== undefined) options.message = input.message
     const result = await content.publish(options)
-    return { documents: result.documents, dryRun: false, revision: result.revision, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
+    return {
+      documents: result.documents,
+      dryRun: false,
+      revision: result.revision,
+      ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}),
+      ...(result.previews ? { previews: result.previews.map(preview => ({ ...preview, expiresAt: preview.expiresAt.toISOString() })) } : {}),
+    }
   }),
   section: "content",
 })
@@ -744,7 +766,7 @@ const schedules = defineOperation({
     // Show a schedule only when the user may enumerate each collection and read every document it publishes.
     const readable = new Map<string, Set<string>>()
     for (const name of new Set(found.flatMap(entry => entry.expect.map(document => document.collection)))) {
-      if (!await access.can("read", name)) continue
+      if (!await access.can("read-draft", name)) continue
       readable.set(name, await access.readable(name, found.flatMap(entry => entry.expect.filter(document => document.collection === name).map(document => document.id))))
     }
     return { schedules: found.filter(entry => entry.expect.every(document => readable.get(document.collection)?.has(document.id))) }
@@ -764,11 +786,134 @@ const sitemap = defineOperation({
     const entries = await content.sitemap(input.site === undefined ? {} : { site: input.site })
     // Entries of read-only Sources are public and have no collection policy.
     const collections = new Set(content.collections().map(collection => collection.name))
-    const allowed = await Promise.all(entries.map(async entry => !collections.has(entry.collection) || (await access.can("read", entry.collection) && await access.can("read", entry.collection, entry.id))))
+    const allowed = await Promise.all(entries.map(async entry => !collections.has(entry.collection) || (await access.can("read-draft", entry.collection) && await access.can("read-draft", entry.collection, entry.id))))
     return { entries: entries.filter((_entry, index) => allowed[index]) }
   }),
   section: "content",
 })
 
+/** `content.sources` of the runtime. A runtime from before `sources` has no head to show. */
+function sourceHeads(content: ContentOperationsRuntime): ContentSourceHeads {
+  const heads: unknown = Reflect.get(Object(content), "sources")
+  const runtime = typeof heads === "object" && heads !== null ? contentSourceHeadsRuntime(heads) : undefined
+  if (!runtime) throw invalid("This Content runtime has no Source heads. Update @vite-hub/content.")
+  return runtime.api
+}
+
+/** The names of the `github()` Sources. */
+function headNames(heads: ContentSourceHeads): string[] {
+  return contentSourceHeadsRuntime(heads)?.names() ?? []
+}
+
+/** The Source that a call names. Without a name, the only `github()` Source. A call that moves a head names one of many. */
+function headSource(heads: ContentSourceHeads, source: string | undefined): string | undefined {
+  if (source !== undefined) return source
+  const names = headNames(heads)
+  if (names.length > 1) throw invalid(`This app has ${names.length} github() Sources: ${names.join(", ")}. Name the Source, such as \`vitehub content advance ${names[0]}\`.`)
+  return names[0]
+}
+
+const sourceName = v.optional(text)
+
+// Heads belong to read-only Sources, which `defineContent({ authorize })` does not cover. The `content` section of the
+// Console access is the grant: `content:read` shows heads, and the whole section moves them.
+const head = defineOperation({
+  cli: { command: "head", positional: ["source"] },
+  description: "Show the commit that each github() Source serves, the rejected commit, the last webhook delivery, and what holds the head back.",
+  input: v.strictObject({ source: sourceName }),
+  kind: "read",
+  name: "content.head",
+  run: async (input): Promise<ContentDevHeadResult> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    const names = input.source === undefined ? headNames(heads) : [input.source]
+    return { heads: await Promise.all(names.map(name => heads.head(name))) }
+  }),
+  section: "content",
+})
+
+const advance = defineOperation({
+  cli: { command: "advance", positional: ["source"] },
+  description: "Move the head of a github() Source to the latest commit of its branch when every document parses and `content check` finds no error. A pinned head does not move.",
+  input: v.strictObject({ source: sourceName }),
+  kind: "write",
+  name: "content.advance",
+  run: async (input): Promise<ContentSourceHead> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    return await heads.advance(headSource(heads, input.source))
+  }),
+  section: "content",
+})
+
+const pin = defineOperation({
+  cli: { command: "pin", positional: ["sha", "source"] },
+  description: "Serve one full commit SHA of a github() Source until unpin, for example to roll back. The commit must parse and pass the check.",
+  input: v.strictObject({ sha: text, source: sourceName }),
+  kind: "destructive",
+  name: "content.pin",
+  run: async (input): Promise<ContentSourceHead> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    return await heads.pin(input.sha, headSource(heads, input.source))
+  }),
+  section: "content",
+})
+
+const unpin = defineOperation({
+  cli: { command: "unpin", positional: ["source"] },
+  description: "Remove the pin of a github() Source and move its head to the latest valid commit of its branch.",
+  input: v.strictObject({ source: sourceName }),
+  kind: "destructive",
+  name: "content.unpin",
+  run: async (input): Promise<ContentSourceHead> => attempt(async () => {
+    const heads = sourceHeads(await contentRuntime())
+    return await heads.unpin(headSource(heads, input.source))
+  }),
+  section: "content",
+})
+
+// A private pull request gets signed links, which open its drafts. So the operation needs the whole `content` section,
+// as moving a head does, and not only `content:read`.
+const previews = defineOperation({
+  cli: { command: "previews" },
+  description: "List the /pr/<number>/<path> preview links of the pages that a pull request adds or changes. A private pull request, such as a CMS publish, gets signed links.",
+  input: v.strictObject({
+    pr: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    site: optionalText,
+    maxAge: v.optional(v.pipe(v.number(), v.integer(), v.minValue(60), v.maxValue(86_400))),
+  }),
+  kind: "write",
+  name: "content.previews",
+  run: async (input): Promise<ContentDevPreviewsResult> => attempt(async () => {
+    const sources: unknown = Reflect.get(Object(await contentRuntime()), "sources")
+    if (typeof sources !== "object" || sources === null || !(Reflect.get(sources, "previewLinks") instanceof Function)) {
+      throw invalid("This Content runtime has no preview links. Update @vite-hub/content.")
+    }
+    // SAFETY: `sources` of a defineContent() runtime with previewLinks() is ContentSourcePreviewRoutes.
+    const routes = sources as ContentPreviewRoutes
+    const links = await routes.previewLinks(input.pr, { ...(input.site === undefined ? {} : { site: input.site }), ...(input.maxAge === undefined ? {} : { maxAge: input.maxAge }) })
+    return { ...links, expiresAt: links.expiresAt?.toISOString() ?? null }
+  }),
+  section: "content",
+})
+
+/** `content.check()` of the runtime. A runtime from before `check` cannot run it. */
+function contentChecker(content: ContentOperationsRuntime): (options: { source?: string, sha?: string }) => Promise<ContentCheckResult> {
+  const method: unknown = Reflect.get(Object(content), "check")
+  if (typeof method !== "function") throw invalid("This Content runtime has no check(). Update @vite-hub/content.")
+  return options => Reflect.apply(method, content, [options]) as Promise<ContentCheckResult>
+}
+
+const check = defineOperation({
+  cli: { command: "check", positional: ["source"] },
+  description: "Check the documents of the Sources: frontmatter against the schema, links to missing pages or headings, and title and description rules. A github() Source is checked at sha, or at the latest commit of its branch.",
+  input: v.strictObject({ source: sourceName, sha: v.optional(text) }),
+  kind: "read",
+  name: "content.check",
+  run: async (input): Promise<ContentCheckResult> => attempt(async () => {
+    const run = contentChecker(await contentRuntime())
+    return await run({ ...(input.source === undefined ? {} : { source: input.source }), ...(input.sha === undefined ? {} : { sha: input.sha }) })
+  }),
+  section: "content",
+})
+
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap, previews, head, advance, pin, unpin, check]

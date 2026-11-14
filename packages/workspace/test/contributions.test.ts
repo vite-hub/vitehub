@@ -238,7 +238,7 @@ describe("hubWorkspace contributions", () => {
     })
   })
 
-  it("does not load package-imported stores that cannot use Artifacts in dev", async () => {
+  it("loads contributed Definitions with package-imported memory stores in dev", async () => {
     const root = await createPackageStoreRoot([
       `import { writeFileSync } from "node:fs"`,
       `writeFileSync(new URL("./loaded", import.meta.url), "loaded")`,
@@ -252,7 +252,7 @@ describe("hubWorkspace contributions", () => {
       viteRoot: root,
     })
     expect(nitro).not.toHaveProperty("cloudflare.wrangler.artifacts")
-    await expect(readFile(join(root, "node_modules", "content-store", "loaded"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(readFile(join(root, "node_modules", "content-store", "loaded"), "utf8")).resolves.toBe("loaded")
     const registry = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(registry).toContain("import(\"content-owner/workspace\")")
   })

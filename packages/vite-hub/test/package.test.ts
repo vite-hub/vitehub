@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import * as ownerAgent from "@vite-hub/agent";
 import * as ownerCapabilities from "@vite-hub/agent/capabilities";
 import * as ownerAgentMcp from "@vite-hub/agent/mcp";
-import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
+import * as ownerAgentProcessRuntime from "@vite-hub/agent/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
 import ownerAuthHandler from "@vite-hub/auth/server";
@@ -28,11 +28,10 @@ import * as framework from "vite-hub";
 import * as frameworkAgent from "vite-hub/agent";
 import * as frameworkCapabilities from "vite-hub/agent/capabilities";
 import * as frameworkAgentMcp from "vite-hub/agent/mcp";
-import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
+import * as frameworkAgentProcessRuntime from "vite-hub/agent/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
-import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
-import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
+import * as consoleAuth from "vite-hub/console/auth";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -41,8 +40,7 @@ import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
-import * as frameworkRuntimeNode from "vite-hub/runtime/node";
-import * as ownerRuntimeNode from "@vite-hub/runtime/node";
+import * as ownerRuntimeNode from "@vite-hub/runtime/internal/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/internal/database-runtime-state.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
@@ -79,11 +77,8 @@ const manifest = parseDistributionManifest(
 );
 
 describe("Console Auth package exports", () => {
-  it("resolves the public imports used by generated and user code", () => {
-    expect(typeof defineConsoleAuth).toBe("function");
-    expect(typeof createConsoleAppAuthAccess).toBe("function");
-    expect(typeof createConsoleAppAuthPages).toBe("function");
-    expect(typeof createInlineConsoleAuth).toBe("function");
+  it("exports only defineConsoleAuthorize, without Better Auth", () => {
+    expect(Object.keys(consoleAuth)).toEqual(["defineConsoleAuthorize"]);
   });
 });
 
@@ -92,6 +87,12 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 const consolidatedOwnerExports = new Set(["@vite-hub/docs/navigation"]);
 
 const lowLevelOwnerExports = new Set([
+  // Apps serve the standalone browser bundle directly from its owner package.
+  "@vite-hub/realtime/client/browser.js",
+  // Message utilities stay available on the standalone Agent package.
+  "@vite-hub/agent/messages",
+  // Importing native CLI sessions is a standalone journal integration.
+  "@vite-hub/agent/sessions",
   // The Console reads the hashed entry names of the prebuilt Console app.
   "@vite-hub/console-client/manifest.json",
   "@vite-hub/comments/testing",
@@ -110,38 +111,58 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
-  "@vite-hub/realtime/client",
+  "@vite-hub/docs/primitive-rail",
+  // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
   "@vite-hub/ui/playground",
-  "@vite-hub/ui/primitive-rail",
-  "@vite-hub/ui/browser-support-notice",
-  "@vite-hub/ui/connect-panel",
+  "@vite-hub/ui/theme",
+  "@vite-hub/ui/theme.css",
   "@vite-hub/ui/workspace",
-  "@vite-hub/ui/workspace-boot-status",
-  "@vite-hub/ui/workspace-editor",
-  "@vite-hub/ui/workspace-file-tree",
-  "@vite-hub/ui/workspace-preview",
-  "@vite-hub/ui/workspace-shell",
-  "@vite-hub/ui/workspace-terminal",
   "@vite-hub/web-container/env",
   "@vite-hub/web-container/snapshot",
+  "@vite-hub/web-container/vue",
   "@vite-hub/workspace/source-metadata",
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
-  "@vite-hub/runtime/shutdown",
+  // Private Auth startup and Console entries have no public distribution facade.
+  "@vite-hub/auth/console",
+  "@vite-hub/auth/console-runtime",
+  "@vite-hub/auth/runtime/server",
+  // The generated durability boot plugin of a Node server imports each primitive's reporter by file.
+  "@vite-hub/agent/durability",
+  "@vite-hub/blob/durability",
+  "@vite-hub/database/durability",
+  "@vite-hub/kv/durability",
+  "@vite-hub/queue/durability",
+  "@vite-hub/rate-limit/durability",
+  "@vite-hub/realtime/durability",
+  "@vite-hub/schedule/durability",
+  "@vite-hub/workflow/durability",
+  "@vite-hub/workspace/durability",
+  "@vite-hub/mcp/runtime",
+  "@vite-hub/runtime/internal/shutdown",
   // The generated Agent Invocations plugin installs the default journal; apps configure it with `agent.invocations`.
+  // It loads the libSQL driver only when the build can select SQLite or libSQL.
   "@vite-hub/agent/invocations/app",
-  "@vite-hub/agent/invocations/default",
+  "@vite-hub/agent/internal/default-invocations",
+  "@vite-hub/agent/internal/default-invocations-core",
+  "@vite-hub/agent/internal/default-invocations-libsql",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/auth/runtime/console",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/comments/runtime/connect",
   "@vite-hub/comments/runtime/connect/node",
+  // Generated code imports these through `vite-hub` forwarders by path. The forwarders are not package exports.
+  "@vite-hub/comments/realtime",
+  "@vite-hub/comments/runtime/auth",
+  "@vite-hub/connections/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/libsql-drizzle",
+  "@vite-hub/database/runtime/registry",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/email/runtime/console",
+  "@vite-hub/kv/runtime/redis-driver",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
@@ -150,7 +171,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/sandbox/task/runtime/state",
   "@vite-hub/schedule/runtime/static",
   "@vite-hub/workflow/runtime/openworkflow",
-  "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
 ]);
 
@@ -170,8 +190,13 @@ function sourceForwarderTargets(source: string): string[] | undefined {
   return targets;
 }
 
+// `vite-hub/operations` forwards the operation contract of the Runtime package.
+const renamedForwarders = new Map([["./operations", "@vite-hub/runtime/operations"]]);
+
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
-  const [owner, ...rest] = subpath.replace(/^\.\//, "").split("/");
+  const renamed = renamedForwarders.get(subpath);
+  if (renamed) return renamed;
+  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
 
@@ -189,7 +214,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
   const path = subpath.replace(/^\.\//, "");
 
   if (subpath === "./package.json") return "package metadata";
-  if (packageName === "@vite-hub/cli") return "framework tooling";
+  if (packageName === "@vite-hub/cli" || packageName === "@vite-hub/codemods") return "framework tooling";
   if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
@@ -201,20 +226,8 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 }
 
 describe("framework package contract", () => {
-  it("imports from h3 only what h3 1 exports, because Nuxt 4 bundles h3 as its own h3 1", async () => {
-    const h3V1Exports = new Set(Object.keys(await import("h3-v1")));
-    const missing = globSync("dist/**/*.js", { cwd: packageRoot }).flatMap((file) => {
-      const source = readFileSync(`${packageRoot}/${file}`, "utf8");
-      return [...source.matchAll(/^import \{([^}]*)\} from "h3";/gm)]
-        .flatMap(([, names]) => names!.split(",").map(name => name.trim().split(/\s+as\s+/)[0]!))
-        .filter(name => name && !h3V1Exports.has(name))
-        .map(name => `${file}: ${name}`);
-    });
-    expect(missing).toEqual([]);
-  });
-
   it("keeps the root export intentionally small", () => {
-    expect(Object.keys(framework)).toEqual(["vitehub"]);
+    expect(Object.keys(framework)).toEqual(["detectHost", "vitehub"]);
   });
 
   it("forwards feature APIs from their owner packages", () => {
@@ -244,7 +257,7 @@ describe("framework package contract", () => {
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter);
     expect(frameworkWebContainer.bootWebContainer).toBe(ownerWebContainer.bootWebContainer);
     expect(frameworkWebContainerConnect.defineConnect).toBe(ownerWebContainerConnect.defineConnect);
-    expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
+    expect(frameworkCapabilities.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
   });
 
   it("keeps the Database environment setter on its owner runtime instance", () => {
@@ -269,11 +282,16 @@ describe("framework package contract", () => {
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/build/included-nitro", "@vite-hub/internal/build/included-nitro-registry"]);
+    // Generated journal code imports the optional libSQL loader by path.
+    expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/internal/agent-invocations-libsql.ts`, "utf8")))
+      .toEqual(["@vite-hub/agent/internal/default-invocations-libsql"]);
     // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
     expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
-    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
+    // Generated code imports these forwarders by path, so an app reaches the owner without installing it.
+    const generatedForwarders = ["src/_internal/auth/internal/server.ts", "src/_internal/auth/runtime/server.ts", "src/_internal/runtime/internal/h3.ts", "src/comments/realtime.ts", "src/comments/runtime/auth.ts", "src/connections/agent.ts", "src/internal/agent-invocations-libsql.ts"];
+    expect(sourceForwarders).toEqual([...exportedForwarders, ...generatedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -283,26 +301,15 @@ describe("framework package contract", () => {
       ".",
       "./console",
       "./console/auth",
-      "./console/auth/cloudflare-access",
-      "./console/auth/inline",
-      "./console/blob",
-      "./console/database",
-      "./console/definitions",
-      "./console/documents",
-      "./console/env",
       "./console/mcp-client",
-      "./console/operations",
-      "./console/sections",
       "./console/server",
       "./console/ui",
-      "./deployment",
       "./doctor",
       "./logs",
       "./logs/host",
       "./logs/memory",
       "./logs/source",
       "./nuxt",
-      "./operations",
       "./skills",
       "./test",
     ]);
@@ -338,6 +345,7 @@ describe("framework package contract", () => {
 
       for (const subpath of Object.keys(Object(ownerExports))) {
         if (manifest.exports[distributionSubpath(packageName, subpath)]) continue;
+        if ([...renamedForwarders.values()].includes(ownerSpecifier(packageName, subpath))) continue;
         if (ownerOnlyReason(packageName, subpath)) continue;
         unclassified.push(ownerSpecifier(packageName, subpath));
       }
@@ -398,20 +406,20 @@ describe("framework package contract", () => {
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.d.ts`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.js`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/client/time.d.ts`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/format.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/console/runtime/client/format.d.ts`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/appearance.d.ts`)).toBe(true);
     expect(manifest.exports).not.toHaveProperty("./console/runtime/console-route");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/sections");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/request");
-    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/time");
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/client/format");
     expect(manifest.exports).not.toHaveProperty("./console/runtime/client/appearance");
     expect(consolePage).toContain("AgentInvocationList");
-    expect(consolePage).toContain('aria-label="Filter sessions"');
+    expect(consolePage).toMatch(/aria-label="[^"]*'Filter sessions'"/);
     expect(consolePage).toContain("selectedCapabilityId");
-    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
-    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
+    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(2);
+    expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(1);
     expect(consolePage).toContain(
       'const view = target === "agent" ? "details" : "workspace";',
     );
@@ -456,18 +464,17 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
-    );
-    expect(consolePage).toContain(
-      'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
+      'v-if="isDesktop && selectedInvocationId"',
     );
     expect(consolePage).toContain("detail.isLoading.value || initialSessionLoading");
-    expect(consolePage).toContain('@toggle-maximized="detailsMaximized = false"');
     expect(consolePage).not.toContain("min-height: 32rem");
     expect(consoleFrame).toContain("min-height: 0");
     expect(consoleFrame).not.toContain("min-height: 32rem");
     expect(consolePage).toContain("<ConsoleSessionNavbar");
-    expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
+    // A desktop session uses the AgentSession header. Phones keep the session navbar and its details slideover.
+    expect(consolePage.split("<ConsoleSessionNavbar").length).toBe(2);
+    expect(consolePage).toContain('<ConsoleSessionNavbar\n              v-if="!(isDesktop && selectedInvocationId)"');
+    expect(consolePage).toContain('<ConsoleAgentSession\n            v-if="isDesktop && selectedInvocationId"');
     expect(consolePage).toContain('@inspect="inspectSession"');
     expect(consolePage).toContain("function inspectSession");
     const consoleSessionNavbar = readFileSync(
@@ -487,7 +494,12 @@ describe("framework package contract", () => {
     expect(consoleSessionLoading).toContain(':disabled="!props.maximizable"');
     expect(consoleSessionLoading).toContain('class="session-inspector__header"');
     expect(consoleSessionLoading).toContain("emit('toggleMaximized')");
-    expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
+    const consoleAgentSession = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-agent-session.vue`,
+      "utf8",
+    );
+    // The AgentSession panel is the only panel, so its inspector surfaces do not maximize.
+    expect(consoleAgentSession).toContain(':maximizable="false"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
     expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
@@ -522,7 +534,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
-    expect(sessionInspector).toMatch(/<button\s+v-if="props.workspaceBase"/);
+    expect(sessionInspector).toMatch(/<UButton\s+v-if="props.workspaceBase"/);
     expect(sessionInspector).toMatch(
       /const invocationId = props\.invocation\.id;[\s\S]*?if \(!workspace\.value\) await loadWorkspace\(\);[\s\S]*?if \(props\.invocation\.id !== invocationId\) return;/,
     );
@@ -535,10 +547,10 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
-    expect(sessionInspector).toContain('<TabsList data-slot="list">');
-    expect(sessionInspector).toContain('import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";');
+    expect(sessionInspector).toContain('<TabsList class="session-inspector__tablist">');
+    expect(sessionInspector).toContain('import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";');
     expect(sessionInspector).toMatch(
-      /<TabsTrigger[\s\S]*?<\/TabsTrigger>[\s\S]*?class="session-inspector__tab-close"/,
+      /<TabsTab[\s\S]*?<\/TabsTab>[\s\S]*?<UButton[\s\S]*?:aria-label="`Close \$\{item\.label\}`"/,
     );
     expect(sessionInspector).not.toContain('<template #leading="{ item }">');
     expect(sessionInspector).not.toContain("scrollIntoView");
@@ -550,7 +562,7 @@ describe("framework package contract", () => {
       /\.session-inspector__tabs \{[\s\S]*?flex: 0 1 auto;[\s\S]*?max-width: calc\(100% - 2rem\);[\s\S]*?width: max-content;/,
     );
     expect(consoleSessionCss).toMatch(
-      /\.session-inspector__tabs \[data-slot="list"\] \{[^}]*?display: flex;[^}]*?min-width: 0;[^}]*?width: max-content;/,
+      /\.session-inspector__tablist \{[^}]*?display: flex;[^}]*?min-width: 0;[^}]*?width: max-content;/,
     );
     const sessionTrace = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-trace.vue`,
@@ -589,7 +601,7 @@ describe("framework package contract", () => {
     expect(sessionCodePreview).toContain('class="line"');
     expect(sessionCodePreview).toContain("plainLines");
     expect(consoleSessionCss).toMatch(
-      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.6875rem;/,
+      /\.session-code-preview \.shiki,[\s\S]*?\.session-code-preview__plain[\s\S]*?font-size: 0\.75rem;/,
     );
     expect(consoleSessionCss).toMatch(
       /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
@@ -602,10 +614,7 @@ describe("framework package contract", () => {
     expect(consoleSessionNavbar).toContain('class="md:hidden"');
     expect(consoleSessionNavbar).not.toContain('class="lg:hidden"');
     expect(consolePage).toContain(':header="false"');
-    expect(consolePage).toContain('auto-save-id="vitehub-agent-session-layout-v2"');
-    expect(consolePage).toMatch(
-      /id: "thread",[\s\S]*?defaultSize: 720,[\s\S]*?id: "details",[\s\S]*?defaultSize: 440,/,
-    );
+    expect(consoleAgentSession).toContain('storage-key="vitehub-console:session-layout"');
     expect(consolePage).toContain(':continuation-key="list.cursor.value"');
     expect(consolePage).not.toContain(':retry-key="invocationPaginationKey"');
     expect(consolePage).toContain("list.loadMoreError.value");
@@ -646,10 +655,6 @@ describe("framework package contract", () => {
     expect(consolePage).toMatch(
       /\.vitehub-console__session-panel > \[data-slot="body"\][\s\S]*?padding: 0 !important;/,
     );
-    expect(consolePage).toContain("minSize: 360");
-    expect(consolePage).toContain("defaultSize: 720");
-    expect(consolePage).toContain("maxSize: 1080");
-    expect(consolePage).toContain("defaultSize: 440");
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
     expect(consolePage).not.toContain("groupConsoleSessions");
@@ -732,11 +737,12 @@ describe("framework package contract", () => {
     );
     expect(existsSync(`${packageRoot}/dist/console/runtime/public/console`)).toBe(false);
     expect(consoleRpcSource).not.toContain("devframe/adapters/h3");
-    expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
+    // Only the Nuxt cloudflare preset references these declarations, so an app that wants them installs them.
+    expect(manifest.dependencies).not.toHaveProperty("@cloudflare/workers-types");
+    expect(manifest.peerDependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
     expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
-    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures distributed Console files without OAuth discovery for open access", async () => {
@@ -748,7 +754,7 @@ describe("framework package contract", () => {
           agent: true,
           console: { auth: false, authorize: hostManagedAuthorize },
           kv: true,
-          preset: "node",
+          host: "node",
           queue: true,
           schedule: true,
           workflow: true,
@@ -761,9 +767,10 @@ describe("framework package contract", () => {
         throw new TypeError("Expected the Console config hook.");
       const config = { root };
 
+      // Open access is for development. A production build refuses it.
       await Reflect.apply(configHandler, plugin, [
         config,
-        { command: "build", mode: "production" },
+        { command: "serve", mode: "development" },
       ]);
 
       const nitro = Reflect.get(config, "nitro");
@@ -772,13 +779,11 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve the Console endpoints only: no Console page, client script, or page tools session.
+      // Apps serve the Console RPC and the page tools session of the Console link only: no Console page, client script,
+      // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc/**",
-        "/_vitehub/env/manage",
-        "/_vitehub/channels/replay",
-        "/_vitehub/schedules/run",
-        "/_vitehub/mcp",
+        "/_vitehub/rpc",
+        "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
@@ -786,7 +791,10 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills"]);
+      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills", "/_vitehub/console/assets", "/_vitehub/page/assets"]);
+      // The Console segment of the pill and the page tools loader are built files of the package.
+      expect(existsSync(`${Reflect.get(Object(publicAssets[1]), "dir")}/page-tool.js`)).toBe(true);
+      expect(existsSync(`${Reflect.get(Object(publicAssets[2]), "dir")}/loader.js`)).toBe(true);
       const skillsDir = Reflect.get(Object(publicAssets[0]), "dir");
       if (String(skillsDir) !== skillsDir) throw new TypeError("Expected the Console skills path.");
       // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.

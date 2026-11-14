@@ -1,4 +1,4 @@
-import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { defineInternalTool } from "./capabilities/internal.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
@@ -92,11 +92,11 @@ function defaultQuotaChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error
   // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
   // may opt in by supplying an explicitly named usage link on the error object.
   const usageLink = (() => {
-    if (!args.error || !hasRuntimeType(args.error, "object")) return undefined
+    if (!args.error || typeof args.error !== "object") return undefined
     const candidate = readAgentErrorProperty(args.error, "usageUrl")
       ?? readAgentErrorProperty(args.error, "usageURL")
       ?? readAgentErrorProperty(args.error, "usageLink")
-    if (!hasRuntimeType(candidate, "string")) return undefined
+    if (typeof candidate !== "string") return undefined
     try {
       const url = new URL(candidate)
       return url.protocol === "https:" ? url.toString() : undefined
@@ -110,7 +110,7 @@ function defaultQuotaChatErrorFallback(args: Pick<AgentChatErrorHookArgs, "error
 }
 export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
   // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
-  return hasRuntimeType(effect, "function") && (effect as { kind?: string }).kind === "chat.error-fallback"
+  return typeof effect === "function" && (effect as { kind?: string }).kind === "chat.error-fallback"
 }
 
 export function durableChatErrorFallbackTimeout(
@@ -151,7 +151,7 @@ async function resolveChatErrorFallbackBody<TRuntimeConfig extends AgentRuntimeC
   const fallback = options?.errorFallbackText
   if (fallback === null) return
   const defaultText = defaultChatErrorFallback(args)
-  if (hasRuntimeType(fallback, "function")) {
+  if (typeof fallback === "function") {
     try {
       const resolution = Promise.resolve(fallback({ ...args, defaultText }))
       // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
@@ -161,7 +161,7 @@ async function resolveChatErrorFallbackBody<TRuntimeConfig extends AgentRuntimeC
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
-  return hasRuntimeType(fallback, "string") && args.publicError.code === "INTERNAL" ? fallback : defaultText
+  return typeof fallback === "string" && args.publicError.code === "INTERNAL" ? fallback : defaultText
 }
 
 export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -330,29 +330,29 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<string | null | undefined> {
   const fallback = options.loading?.text ?? options.fallbackStreamingPlaceholderText
   if (fallback === null) return null
-  if (hasRuntimeType(fallback, "function")) {
+  if (typeof fallback === "function") {
     const resolved = await fallback(args)
     if (resolved === null) return null
-    return hasRuntimeType(resolved, "string") ? formatChannelCitationText(resolved) : undefined
+    return typeof resolved === "string" ? formatChannelCitationText(resolved) : undefined
   }
   if (Array.isArray(fallback)) {
     if (fallback.length === 0) return null
     const selected = fallback[Math.floor(Math.random() * fallback.length)]
     return selected === undefined ? undefined : formatChannelCitationText(selected)
   }
-  if (hasRuntimeType(fallback, "string")) return formatChannelCitationText(fallback)
+  if (typeof fallback === "string") return formatChannelCitationText(fallback)
   return undefined
 }
 
 function isResolvableObject(value: unknown): value is { resolve: (...args: never[]) => unknown } {
-  return hasRuntimeType(value, "object")
+  return typeof value === "object"
     && value !== null
     // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
-    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
+    && typeof (value as { resolve?: unknown }).resolve === "function"
 }
 
 function isStaticPlatformMap(value: AgentChatOptions["platforms"]): value is Record<string, AgentChatPlatformResolver> {
-  return hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && !isResolvableObject(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value) && !isResolvableObject(value)
 }
 
 function isKnownChatWebhookPlatform(platform: string): platform is KnownChatWebhookPlatform {
@@ -406,7 +406,7 @@ function chatMessageSentAt(messages: readonly Pick<Message, "createdAt">[]): str
 }
 
 function chatContextString(value: unknown, maxLength = 256): string | undefined {
-  return hasRuntimeType(value, "string") && value.trim()
+  return typeof value === "string" && value.trim()
     ? value.trim().slice(0, maxLength)
     : undefined
 }
@@ -559,7 +559,7 @@ export function defineChatCapability<
           inputSchema: { additionalProperties: false, properties: { reason: { type: "string" } }, required: ["reason"], type: "object" },
           name: skipReplyToolName,
           async execute(input) {
-            const reason = isRuntimeRecord(input) && hasRuntimeType(input.reason, "string") ? input.reason.trim() : ""
+            const reason = isRuntimeRecord(input) && typeof input.reason === "string" ? input.reason.trim() : ""
             if (!reason) throw new TypeError(`[vitehub] ${skipReplyToolName} requires a non-empty reason.`)
             silentReplies.set(context.context, reason)
             if (context.runtimeContext) await agentChannelDeliveryTracker(context.runtimeContext)?.setMarker?.(silentReplyContextKey, reason)

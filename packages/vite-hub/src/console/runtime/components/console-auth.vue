@@ -21,7 +21,7 @@ import {
   readAuthConsole,
 } from "../client/auth-management";
 import { queryChoice, queryInteger, querySelection, queryText, useConsoleQuery } from "../client/route-query";
-import { projectUrl } from "../client/project";
+import { projectAppUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
@@ -30,7 +30,8 @@ import ConsoleAuthActivity from "./console-auth-activity.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
-const props = defineProps<{ sectionsBase: string; managementBase: string }>();
+import ConsoleSection from "./console-section.vue";
+const props = defineProps<{ sectionsBase: string }>();
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
 const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const route = useRoute();
@@ -90,7 +91,7 @@ const icons: Record<AuthConsolePage, string> = {
 };
 // With Console Auth, the app session of this browser can be an impersonation session while the Console stays open.
 const impersonating = computed(() => description.value?.impersonation?.active ?? undefined);
-const appRoot = computed(() => (impersonating.value ? projectUrl("/") : "/"));
+const appRoot = computed(() => (impersonating.value ? projectAppUrl("/") : "/"));
 const stopping = ref(false);
 const stopError = ref("");
 async function stopImpersonating() {
@@ -98,7 +99,7 @@ async function stopImpersonating() {
   stopping.value = true;
   stopError.value = "";
   try {
-    await changeAuthConsole(props.managementBase, { action: "stopImpersonating" });
+    await changeAuthConsole({ action: "stopImpersonating" });
     if (target) selectedUser.value = target;
     await refresh();
   } catch (cause) {
@@ -124,11 +125,11 @@ async function refresh() {
   loading.value = true;
   error.value = undefined;
   try {
-    const config = await readAuthConsole(props.managementBase, "describe", {}, current.signal);
+    const config = await readAuthConsole("describe", {}, current.signal);
     if (current.signal.aborted) return;
     description.value = config;
     if (page.value === "overview") {
-      const result = await readAuthConsole(props.managementBase, "overview", {}, current.signal);
+      const result = await readAuthConsole("overview", {}, current.signal);
       if (!current.signal.aborted) overview.value = result;
       return;
     }
@@ -143,7 +144,6 @@ async function refresh() {
     let list: AuthConsoleList<unknown>;
     if (page.value === "users") {
       const result = await readAuthConsole(
-        props.managementBase,
         "users",
         { query },
         current.signal,
@@ -152,7 +152,6 @@ async function refresh() {
       list = result;
     } else if (page.value === "sessions") {
       const result = await readAuthConsole(
-        props.managementBase,
         "sessions",
         { query },
         current.signal,
@@ -161,7 +160,6 @@ async function refresh() {
       list = result;
     } else if (page.value === "organizations") {
       const result = await readAuthConsole(
-        props.managementBase,
         "organizations",
         { query },
         current.signal,
@@ -170,7 +168,6 @@ async function refresh() {
       list = result;
     } else {
       const result = await readAuthConsole(
-        props.managementBase,
         "agents",
         { query },
         current.signal,
@@ -184,6 +181,13 @@ async function refresh() {
   } finally {
     if (!current.signal.aborted) loading.value = false;
   }
+}
+const pageItems = computed(() =>
+  (description.value?.pages ?? (["overview", "users", "activity"] satisfies AuthConsolePage[])).map((item) => ({ label: labels[item], value: item, icon: icons[item] })),
+);
+function choosePage(value: string | number) {
+  const target = pageItems.value.find((item) => item.value === value);
+  if (target) navigate(target.value);
 }
 function navigate(target: AuthConsolePage) {
   void router.push({
@@ -214,7 +218,6 @@ async function openOrganization(id: string, offset = 0) {
   orgLoading.value = true;
   try {
     const result = await readAuthConsole(
-      props.managementBase,
       "organization",
       { id, query: { offset, limit } },
       current.signal,
@@ -241,34 +244,34 @@ onBeforeUnmount(() => {
 </script>
 <template>
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
-    <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
+    <UDashboardPanel id="auth">
       <template #header>
         <UDashboardNavbar title="Auth" :toggle="false"
           ><template #right
             ><UButton
               aria-label="Refresh Auth"
-              color="neutral"
               icon="i-lucide-refresh-cw"
               size="xs"
               variant="ghost"
               :disabled="loading"
               @click="refresh" /></template
         ></UDashboardNavbar>
-        <nav aria-label="Auth pages" class="overflow-x-auto border-b border-default">
-          <div class="mx-auto flex w-full max-w-6xl gap-1 px-4 py-2 sm:px-6">
-          <UButton
-            v-for="item in description?.pages ?? ['overview', 'users', 'activity']"
-            :key="item"
-            :icon="icons[item as AuthConsolePage]"
-            :color="page === item ? 'primary' : 'neutral'"
-            :variant="page === item ? 'soft' : 'ghost'"
-            :aria-current="page === item ? 'page' : undefined"
-            size="sm"
-            @click="navigate(item as AuthConsolePage)"
-            >{{ labels[item as AuthConsolePage] }}</UButton
-          >
+        <!-- On a narrow screen the tab list keeps its labels and scrolls sideways. The tab list draws its line 1px
+             below itself, so the scroller makes room for it and overlaps the bottom border: the two are one line. -->
+        <div class="border-b border-default">
+          <div class="-mb-px overflow-x-auto pb-px">
+            <div class="mx-auto max-w-6xl px-4 sm:px-6">
+              <UTabs
+                :model-value="page"
+                :items="pageItems"
+                :content="false"
+                aria-label="Auth pages"
+                class="w-max min-w-full"
+                @update:model-value="choosePage"
+              />
+            </div>
           </div>
-        </nav>
+        </div>
         <div v-if="impersonating" class="border-b border-warning/25 bg-warning/10">
           <div
             class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
@@ -291,11 +294,10 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="flex shrink-0 gap-2">
-              <UButton :to="appRoot" external size="xs" color="neutral" variant="ghost"
+              <UButton :to="appRoot" external size="xs" variant="ghost"
                 >Open app</UButton
               ><UButton
                 size="xs"
-                color="neutral"
                 :loading="stopping"
                 @click="stopImpersonating"
                 >Stop impersonating</UButton
@@ -310,7 +312,6 @@ onBeforeUnmount(() => {
             aria-label="Search users by name or email"
             placeholder="Search name or email…"
             icon="i-lucide-search"
-            size="sm"
             class="min-w-48 flex-1 sm:max-w-72"
           /><USelect
             v-model="filter"
@@ -324,7 +325,6 @@ onBeforeUnmount(() => {
                 ? [{ label: 'With agents', value: 'agents' }]
                 : []),
             ]"
-            size="sm"
             class="w-36"
           />
         </ConsolePageToolbar>
@@ -339,7 +339,6 @@ onBeforeUnmount(() => {
           />
           <ConsoleAuthActivity
             v-else-if="page === 'activity' && description"
-            :base="managementBase"
             :enabled="description.events.enabled"
             :revision="revision"
           />
@@ -355,7 +354,7 @@ onBeforeUnmount(() => {
           <div v-else class="min-h-0 flex-1 overflow-auto">
             <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
               <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
-                <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--vitehub-console-focus)">
+                <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md select-none hover:text-highlighted">
                   <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
                   Access rules
                 </summary>
@@ -363,7 +362,7 @@ onBeforeUnmount(() => {
                   <li v-for="rule in description.access" :key="rule">{{ rule }}</li>
                 </ul>
               </details>
-              <div class="overflow-x-auto rounded-md border border-default">
+              <div class="overflow-x-auto rounded-lg border border-default">
               <table class="w-full text-left text-sm auth-table" :aria-label="labels[page]">
                 <thead class="bg-elevated/30">
                   <tr v-if="page === 'users'">
@@ -396,11 +395,11 @@ onBeforeUnmount(() => {
                   </tr>
                 </thead>
                 <tbody v-if="page === 'users'">
-                  <tr v-for="user in users" :key="user.id" class="relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50">
+                  <tr v-for="user in users" :key="user.id" class="relative hover:bg-elevated">
                     <td>
-                      <!-- The button overlay makes the whole row open the user. Focus shows as the row fill. -->
+                      <!-- The button overlay makes the whole row open the user. The theme rings the button itself. -->
                       <button
-                        class="flex max-w-72 items-center gap-2 text-left outline-none after:absolute after:inset-0"
+                        class="flex max-w-72 items-center gap-2 rounded-md text-left after:absolute after:inset-0"
                         @click="selectedUser = user.id"
                       >
                         <UAvatar :src="user.image ?? undefined" :alt="user.name" size="sm" /><span
@@ -431,7 +430,7 @@ onBeforeUnmount(() => {
                   <tr v-for="session in sessions" :key="session.id">
                     <td>
                       <button
-                        class="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-(--vitehub-console-focus)"
+                        class="rounded-md text-left"
                         @click="selectedUser = session.user.id"
                       >
                         <span class="block text-highlighted">{{ session.user.name }}</span
@@ -443,7 +442,6 @@ onBeforeUnmount(() => {
                     <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(session.expiresAt) }}</td>
                     <td class="text-right">
                       <UButton
-                        color="neutral"
                         variant="ghost"
                         size="xs"
                         :disabled="!description?.actions.revokeSession.enabled"
@@ -459,10 +457,10 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
                 <tbody v-else-if="page === 'organizations'">
-                  <tr v-for="org in organizations" :key="org.id" class="relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50">
+                  <tr v-for="org in organizations" :key="org.id" class="relative hover:bg-elevated">
                     <td>
                       <button
-                        class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
+                        class="rounded-md text-left font-medium text-highlighted after:absolute after:inset-0"
                         @click="selectedOrgId = org.id"
                       >
                         {{ org.name }}
@@ -480,7 +478,7 @@ onBeforeUnmount(() => {
                     </td>
                     <td>
                       <button
-                        class="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-(--vitehub-console-focus)"
+                        class="rounded-md text-left"
                         @click="selectedUser = client.user.id"
                       >
                         <span class="block">{{ client.user.name }}</span
@@ -493,7 +491,6 @@ onBeforeUnmount(() => {
                     <td class="text-muted">{{ authDate(client.lastUsed) }}</td>
                     <td class="text-right">
                       <UButton
-                        color="neutral"
                         variant="ghost"
                         size="xs"
                         :disabled="!description?.actions.revokeConsent.enabled"
@@ -537,14 +534,12 @@ onBeforeUnmount(() => {
               >
               <div class="flex gap-1">
                 <UButton
-                  color="neutral"
                   variant="ghost"
                   size="xs"
                   :disabled="offset === 0"
                   @click="offset -= limit"
                   >Previous</UButton
                 ><UButton
-                  color="neutral"
                   variant="ghost"
                   size="xs"
                   :disabled="offset + limit >= total"
@@ -560,14 +555,12 @@ onBeforeUnmount(() => {
     </UDashboardPanel>
     <ConsoleAuthDetail
       v-if="description"
-      :base="managementBase"
       :id="selectedUser"
       :description="description"
       @close="selectedUser = undefined"
       @changed="refresh"
     />
     <ConsoleAuthAction
-      :base="managementBase"
       :action="action"
       :id="actionId"
       :name="actionName"
@@ -595,39 +588,34 @@ onBeforeUnmount(() => {
         /><p v-else-if="orgLoading" role="status" class="text-sm text-muted">
           Loading organization…
         </p><template v-else-if="selectedOrg"
-          ><h2 class="mb-3 text-sm font-medium">
-            Members <span class="text-muted tabular-nums">{{ selectedOrg.membersTotal }}</span>
-          </h2>
-          <ul class="-mx-2 space-y-0.5">
-            <li v-for="member in selectedOrg.members" :key="member.id">
-              <button
-                type="button"
-                class="flex w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-elevated/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--vitehub-console-focus)"
-                @click="selectedUser = member.user.id"
-              >
-                <span class="min-w-0">
-                  <span class="block truncate">{{ member.user.name }}</span>
-                  <span class="block truncate text-xs text-muted">{{ member.user.email }}</span>
-                </span>
-                <span class="shrink-0 text-muted">{{ member.role }}</span>
-              </button>
-            </li>
-          </ul>
-          <h2 class="mb-3 mt-6 text-sm font-medium">
-            Pending invitations
-            <span class="text-muted tabular-nums">{{ selectedOrg.invitationsTotal }}</span>
-          </h2>
-          <p v-if="!selectedOrg.invitationsTotal" class="text-sm text-muted">
-            No pending invitations.
-          </p>
-          <ul class="space-y-3">
-            <li v-for="invitation in selectedOrg.invitations" :key="invitation.id" class="text-sm">
-              <p>
-                {{ invitation.email }} <span class="text-muted">{{ invitation.role }}</span>
-              </p>
-              <p class="text-xs text-muted">Expires {{ authDate(invitation.expiresAt) }}</p>
-            </li>
-          </ul>
+          ><div class="grid gap-6"><ConsoleSection :level="3" title="Members" :count="selectedOrg.membersTotal">
+            <ul class="-mx-2 space-y-0.5">
+              <li v-for="member in selectedOrg.members" :key="member.id">
+                <button
+                  type="button"
+                  class="flex w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-elevated"
+                  @click="selectedUser = member.user.id"
+                >
+                  <span class="min-w-0">
+                    <span class="block truncate">{{ member.user.name }}</span>
+                    <span class="block truncate text-xs text-muted">{{ member.user.email }}</span>
+                  </span>
+                  <span class="shrink-0 text-muted">{{ member.role }}</span>
+                </button>
+              </li>
+            </ul>
+          </ConsoleSection>
+          <ConsoleSection :level="3" title="Pending invitations" :count="selectedOrg.invitationsTotal">
+            <UEmpty v-if="!selectedOrg.invitationsTotal" variant="naked" size="sm" icon="i-lucide-mail" title="No pending invitations" description="An invitation shows here until the person accepts it or it expires." />
+            <ul class="space-y-3">
+              <li v-for="invitation in selectedOrg.invitations" :key="invitation.id" class="text-sm">
+                <p>
+                  {{ invitation.email }} <span class="text-muted">{{ invitation.role }}</span>
+                </p>
+                <p class="text-xs text-muted">Expires {{ authDate(invitation.expiresAt) }}</p>
+              </li>
+            </ul>
+          </ConsoleSection></div>
           <div
             v-if="Math.max(selectedOrg.membersTotal, selectedOrg.invitationsTotal) > limit"
             class="mt-4 flex justify-between"

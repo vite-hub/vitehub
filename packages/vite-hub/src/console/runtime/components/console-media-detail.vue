@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CopyButton, useCopy } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
@@ -12,6 +13,8 @@ import ConsoleMediaCrops from "./console-media-crops.vue";
 import ConsoleMediaFocal from "./console-media-focal.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaFocal as ConsoleMediaFocalPoint, ConsoleMediaReferenceDocument } from "../client/media-library";
+import ConsoleSection from "./console-section.vue";
+import ConsoleStatGrid from "./console-stat-grid.vue";
 
 /**
  * The details of one file: a preview, alt text and caption that save as you type, size and format, the served URL,
@@ -106,15 +109,12 @@ async function setFocal(focal: ConsoleMediaFocalPoint | undefined): Promise<void
   }
 }
 
+const clipboard = useCopy();
+// The menu items have no button to show the check, so a toast confirms the copy.
 async function copy(value: string | undefined, label: string): Promise<void> {
   if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.show({ title: `${label} copied` });
-  }
-  catch {
-    toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
-  }
+  if (await clipboard.copy(value)) toast.show({ title: `${label} copied` });
+  else toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
 }
 
 // "Used in": the draft and published documents that reference the file.
@@ -165,9 +165,9 @@ const facts = computed(() => [
           ]] : []),
         ]"
       >
-        <UButton variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="File actions" />
+        <UButton variant="ghost" icon="i-lucide-ellipsis" aria-label="File actions" />
       </UDropdownMenu>
-      <UButton variant="ghost" size="sm" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
+      <UButton variant="ghost" icon="i-lucide-x" aria-label="Close details" @click="emit('close')" />
     </header>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
@@ -192,12 +192,11 @@ const facts = computed(() => [
         </p>
       </section>
 
-      <section class="grid gap-3 border-t border-default p-4" aria-labelledby="media-detail-text">
-        <div class="flex items-center justify-between">
-          <h3 id="media-detail-text" class="text-xs font-medium text-highlighted">Description</h3>
+      <ConsoleSection :level="3" title="Description" class="border-t border-default p-4">
+        <template #actions>
           <span class="text-xs text-dimmed" aria-live="polite">{{ saving ? "Saving…" : saved ? "Saved" : "" }}</span>
-        </div>
-        <UFormField label="Alt text" :description="isImage ? 'What the image shows, for people who cannot see it.' : undefined" :ui="{ label: 'text-xs', description: 'text-xs' }">
+        </template>
+        <UFormField label="Alt text" :description="isImage ? 'What the image shows, for people who cannot see it.' : undefined">
           <UTextarea
             v-model="alt"
             class="w-full"
@@ -210,7 +209,7 @@ const facts = computed(() => [
             @blur="flush"
           />
         </UFormField>
-        <UFormField label="Caption" :ui="{ label: 'text-xs' }">
+        <UFormField label="Caption">
           <UTextarea
             v-model="caption"
             class="w-full"
@@ -223,52 +222,48 @@ const facts = computed(() => [
             @blur="flush"
           />
         </UFormField>
-      </section>
+      </ConsoleSection>
 
       <section class="grid gap-3 border-t border-default p-4" aria-label="File information">
-        <dl class="grid grid-cols-2 gap-x-4 gap-y-2">
-          <div v-for="fact in facts" :key="fact.label" class="grid gap-0.5">
-            <dt class="text-xs text-dimmed">{{ fact.label }}</dt>
-            <dd class="text-[13px] text-highlighted tabular-nums">{{ fact.value }}</dd>
-          </div>
-        </dl>
+        <ConsoleStatGrid :items="facts" />
         <div class="grid gap-1">
           <span class="text-xs text-dimmed">Pathname</span>
           <div class="flex min-w-0 items-center gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
             <code class="min-w-0 flex-1 truncate text-xs" :title="file.pathname">{{ file.pathname }}</code>
-            <UButton variant="ghost" size="xs" icon="i-lucide-copy" aria-label="Copy pathname" @click="copy(file.pathname, 'Pathname')" />
+            <CopyButton :value="file.pathname" size="xs" aria-label="Copy pathname" />
           </div>
         </div>
         <div v-if="absoluteUrl" class="grid gap-1">
           <span class="text-xs text-dimmed">URL</span>
           <div class="flex min-w-0 items-center gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
             <code class="min-w-0 flex-1 truncate text-xs" :title="absoluteUrl">{{ url }}</code>
-            <UButton variant="ghost" size="xs" icon="i-lucide-copy" aria-label="Copy URL" @click="copy(absoluteUrl, 'URL')" />
+            <CopyButton :value="absoluteUrl" size="xs" aria-label="Copy URL" />
           </div>
         </div>
       </section>
 
-      <section v-if="isImage && url && consoleMediaTransformable(file.contentType)" class="grid gap-3 border-t border-default p-4" aria-labelledby="media-detail-crops">
-        <div class="grid gap-0.5">
-          <h3 id="media-detail-crops" class="text-xs font-medium text-highlighted">Crops</h3>
-          <p class="text-xs text-muted">Framing for other layouts. Upload a replacement when a phone needs a different image.</p>
-        </div>
+      <ConsoleSection
+        v-if="isImage && url && consoleMediaTransformable(file.contentType)"
+        :level="3"
+        title="Crops"
+        description="Framing for other layouts. Upload a replacement when a phone needs a different image."
+        class="border-t border-default p-4"
+      >
         <ConsoleMediaCrops :client="client" :file="file" :served="served" :disabled="!access.write" @updated="emit('updated', $event)" />
-      </section>
+      </ConsoleSection>
 
-      <section class="grid gap-2 border-t border-default p-4" aria-labelledby="media-detail-usage">
-        <h3 id="media-detail-usage" class="text-xs font-medium text-highlighted">Used in</h3>
+      <ConsoleSection :level="3" title="Used in" class="border-t border-default p-4">
         <div v-if="usageError" class="flex items-center gap-2 text-xs text-muted">
           <span class="min-w-0 flex-1">Couldn't find the documents that use this file.</span>
           <UButton variant="ghost" size="xs" label="Try again" @click="loadUsage" />
         </div>
         <USkeleton v-else-if="!usage" class="h-7 w-2/3" />
-        <p v-else-if="!usage.length" class="text-xs text-muted">No document uses this file.</p>
+        <UEmpty v-else-if="!usage.length" variant="naked" size="xs" icon="i-lucide-file-text" title="Not used yet" description="A document that links or embeds this file shows here." />
         <ul v-else class="grid gap-px">
           <li v-for="reference in usage" :key="`${reference.collection}/${reference.id}`">
             <RouterLink
               :to="documentRoute(reference)"
-              class="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] hover:bg-elevated focus-visible:outline-2"
+              class="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] hover:bg-elevated"
             >
               <UIcon name="i-lucide-file-text" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate text-highlighted">{{ reference.title }}</span>
@@ -276,7 +271,7 @@ const facts = computed(() => [
             </RouterLink>
           </li>
         </ul>
-      </section>
+      </ConsoleSection>
     </div>
   </aside>
 </template>

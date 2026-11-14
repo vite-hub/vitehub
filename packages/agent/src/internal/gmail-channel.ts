@@ -5,7 +5,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { acquireChannelStateLock } from "./channel-state.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
 import { decodeText } from "./windows-1252.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { isRuntimeRecord } from "./runtime-type.ts"
 
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { AgentChannelHistoryCollection, AgentChannelHistoryQuery, AgentChannelStateBinding } from "../types.ts"
@@ -91,8 +91,8 @@ export const gmailEnvNames: Readonly<Record<keyof GmailSettings, string>> = {
 }
 
 function settingValue(value: unknown): string | undefined {
-  const raw = isRuntimeRecord(value) && hasRuntimeType(value.unseal, "function") ? value.unseal() : value
-  return hasRuntimeType(raw, "string") && raw.trim() ? raw.trim() : undefined
+  const raw = isRuntimeRecord(value) && typeof value.unseal === "function" ? value.unseal() : value
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined
 }
 
 /** Reads Gmail settings from a Server Env `gmail` namespace, then from the environment variables. */
@@ -219,7 +219,7 @@ export function normalizeGmailLabelSettings(name: string, settings: GmailLabelSe
   const normalized: GmailLabelColor = { backgroundColor: "", textColor: "" }
   for (const key of ["textColor", "backgroundColor"] as const) {
     const value = color[key]
-    const lower = hasRuntimeType(value, "string") ? value.toLowerCase() : undefined
+    const lower = typeof value === "string" ? value.toLowerCase() : undefined
     if (!lower || !gmailLabelPaletteSet.has(lower)) {
       return `label "${name}" color ${key} ${JSON.stringify(value)} is not in Gmail's label palette. Use a value from gmailLabelPalette, such as "#4a86e8". See https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color.`
     }
@@ -268,7 +268,7 @@ export const gmailMessageSchema: v.GenericSchema<GmailMessage> = v.object({
 })
 
 function gmailErrorStatus(error: unknown): number | undefined {
-  return isRuntimeRecord(error) && hasRuntimeType(error.status, "number") ? error.status : undefined
+  return isRuntimeRecord(error) && typeof error.status === "number" ? error.status : undefined
 }
 
 function withTimeout(signal?: AbortSignal): AbortSignal {
@@ -289,9 +289,9 @@ async function responseJson(response: Response): Promise<unknown> {
 
 function googleErrorMessage(body: unknown): string | undefined {
   if (!isRuntimeRecord(body)) return
-  if (hasRuntimeType(body.error_description, "string")) return body.error_description
-  if (hasRuntimeType(body.error, "string")) return body.error
-  if (isRuntimeRecord(body.error) && hasRuntimeType(body.error.message, "string")) return body.error.message
+  if (typeof body.error_description === "string") return body.error_description
+  if (typeof body.error === "string") return body.error
+  if (isRuntimeRecord(body.error) && typeof body.error.message === "string") return body.error.message
 }
 
 export interface GmailOAuthCredentials {
@@ -341,7 +341,7 @@ function requestUrl(request: GmailRequest): string {
   const url = new URL(request.path.replace(/^\/+/, ""), gmailApiBaseUrl)
   for (const [name, value] of Object.entries(request.query || {})) {
     if (value === undefined) continue
-    if (hasRuntimeType(value, "string") || hasRuntimeType(value, "number") || hasRuntimeType(value, "boolean")) url.searchParams.append(name, String(value))
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") url.searchParams.append(name, String(value))
     else for (const item of value) url.searchParams.append(name, item)
   }
   return url.toString()
@@ -1017,7 +1017,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
   const seenKey = `${state.keyPrefix}sync-seen-ids`
   const cursor = await state.state.get<string>(cursorKey)
   if (!cursor) {
-    const historyId = hasRuntimeType(sync.notificationHistoryId, "string") ? sync.notificationHistoryId : await sync.notificationHistoryId()
+    const historyId = typeof sync.notificationHistoryId === "string" ? sync.notificationHistoryId : await sync.notificationHistoryId()
     await renew()
     await mutate([
       { key: cursorKey, type: "set", value: historyId },
@@ -1331,8 +1331,8 @@ export function gmailHistoryCollection(
       const { ids, labelIds } = input
       return v.parse(historyQuerySchema, {
         ...input,
-        ...(hasRuntimeType(ids, "string") ? { ids: [ids] } : {}),
-        ...(hasRuntimeType(labelIds, "string") ? { labelIds: [labelIds] } : {}),
+        ...(typeof ids === "string" ? { ids: [ids] } : {}),
+        ...(typeof labelIds === "string" ? { labelIds: [labelIds] } : {}),
       })
     },
     querySchema: historyQuerySchema,

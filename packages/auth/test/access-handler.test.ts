@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/server.ts"
+import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const provider = vi.hoisted(() => ({
@@ -46,7 +46,7 @@ describe("Auth access handlers", () => {
     second.mockReturnValue(true)
     await expect(handler(request)).resolves.toBeUndefined()
     expect(resolve).toHaveBeenLastCalledWith(request, request, false)
-    for (const path of ["/portal/_vitehub/mcp/extra", "/portal/_vitehub/rpc/__call", "/_vitehub/mcp"]) {
+    for (const path of ["/portal/_vitehub/mcp/extra", "/portal/_vitehub/rpc", "/_vitehub/mcp"]) {
       expect((await handler(new Request(`https://app.example${path}`)))?.status).toBe(401)
     }
     expect(resolve).toHaveBeenCalledTimes(2)
@@ -325,7 +325,7 @@ describe("Auth access handlers", () => {
       expect(result).toBeInstanceOf(Response)
       expect(result?.status).toBe(403)
       expect(result?.headers.has("x-policy")).toBe(false)
-      await expect(result?.json()).resolves.toEqual({ error: "Forbidden." })
+      await expect(result?.json()).resolves.toEqual({ status: 403, statusText: "Forbidden", message: "Forbidden.", data: { code: "FORBIDDEN" } })
     })
 
     it("does not read the getters of a forged Response", async () => {
@@ -342,6 +342,29 @@ describe("Auth access handlers", () => {
       expect(status).not.toHaveBeenCalled()
       expect(headers).not.toHaveBeenCalled()
     })
+  })
+
+  it("guards every path but the public routes with `/**`", async () => {
+    provider.getSession.mockResolvedValue(null)
+    provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
+    const publicRoutes = ["/", "/login", "/api/auth/**"]
+    const handler = createAuthAccessHandler([{ route: "/**" }], defineAuth({
+      access: { routes: ["/**"], public: publicRoutes, signIn: { provider: "github" } },
+    }), publicRoutes)
+
+    for (const path of ["/", "/login?next=/drops", "/api/auth", "/api/auth/sign-in/social"]) {
+      await expect(handler(new Request(`https://app.example${path}`)), path).resolves.toBeUndefined()
+    }
+    expect(provider.getSession).not.toHaveBeenCalled()
+    for (const path of ["/drops", "/login/extra", "/api/authx", "/api/drops/1"]) {
+      expect((await handler(new Request(`https://app.example${path}`)))?.status, path).toBe(401)
+    }
+    const page = await handler(new Request("https://app.example/drops", { headers: { accept: "text/html" } }))
+    expect(page?.status).toBe(302)
+    expect(page?.headers.get("location")).toBe("https://provider.example/sign-in")
+
+    provider.getSession.mockResolvedValue(session)
+    await expect(handler(new Request("https://app.example/drops"))).resolves.toBeUndefined()
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

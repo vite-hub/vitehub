@@ -8,9 +8,21 @@ icon: i-lucide-users-round
 
 The Auth section of the [Console](/docs/development/console) appears when the app has a primary Auth Definition. To read stored data, it needs a Better Auth database adapter such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). With stateless Auth, it explains why the data is missing.
 
-Turn on and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`, and it covers every Auth page and management request. Console access lets you look. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login gives no app admin rights.
+Turn on and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`, and it covers every Auth page and management request. Console access lets you look. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A Console account gives no app admin rights.
 
-With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call.
+`console: { auth: false }` is for development. A production build with it fails. Set `console: true` and link the app in the Console at `https://console.vitehub.dev`, which shows the `VITEHUB_CONSOLE_KEY_<NAME>` line to set.
+
+Each page and action of the section is an operation on the Console RPC: `auth.describe`, `auth.overview`, `auth.activity`, `auth.users`, `auth.user`, `auth.sessions`, `auth.organizations`, `auth.organization`, and `auth.agents` read, and `auth.ban`, `auth.unban`, `auth.remove`, `auth.revoke-sessions`, `auth.revoke-session`, `auth.set-role`, `auth.edit-field`, and `auth.revoke-consent` change. `auth.impersonate` and `auth.stop-impersonating` return a [one-time link](/docs/development/console#one-time-links), because impersonation sets the session cookie on the app origin.
+
+## Who makes Auth changes
+
+The Console [signs](/docs/development/console#sign-console-requests) the person who calls, with their email. Changes run as the app user with that email, with the newest app session of that user that is not an impersonation, so Better Auth checks the permissions of that account and Activity records it as the actor. The session never leaves the server.
+
+- Without an app user with that email, changes are refused with `403`: "No app user has the email of your Console account".
+- Without a live app session of that user, changes are refused with `401`. Sign in to the app as that user once, then try again.
+- The CLI signs no person, so `vitehub auth ban` and the other changes are refused with `403`. The CLI can still read.
+
+`auth.describe` says why each action is off, so the Console disables the buttons with the same reason.
 
 ## Pages
 
@@ -31,10 +43,16 @@ Without an event store, Overview and Activity show the setup steps. Overview sti
 
 Add `events.store` to `defineAuth()`. This example uses a SQLite Database Definition named `auth`. Keep your Better Auth adapter and options.
 
+```ts [server/databases/auth/index.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
+
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineAuth(() => ({
   database: authDatabase('auth'),
@@ -126,7 +144,14 @@ Ban, unban, remove, role changes, field edits, session revocation, and impersona
 
 The client never gets session tokens, account passwords, access or refresh tokens, or OAuth client secrets. Session revocation looks up the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
 
-Impersonation is off until the host turns it on. In ViteHub, `console.impersonation: true` turns it on. The **Impersonate** action needed the Console that the app served, which is removed. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it. It also needs `events.store`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target.
+Impersonation is off until the host turns it on. In ViteHub, `console.impersonation: true` turns it on. It also needs `events.store`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it.
+
+In the Console, open a user and select **Impersonate**. The Console calls `auth.impersonate`, and a new tab opens the [one-time link](/docs/development/console#one-time-links) on your app. The app then checks the browser:
+
+1. The browser must be signed in to the app with the email of your Console account. Otherwise the tab shows `CONSOLE_TICKET_MISMATCH`.
+2. Better Auth must let that app session impersonate the user, with the `impersonate` permission of the admin plugin.
+
+The app sets the impersonation session cookie and opens its home page as the user. **Stop impersonating** in the user panel opens a link that ends the impersonation of this browser and restores your session. The app's own UI can stop it too, with `stopImpersonating()` of `useUserSession()`.
 
 With the admin plugin, Auth limits every impersonation session, whoever starts it:
 
@@ -159,7 +184,6 @@ Operations return `[error, data]`. Errors have a typed code, a cause for server 
 
 `inspect.overview()` returns the totals, chart data, and recent events of Overview. `inspect.activity({ group: 'admin', userId: 'user-id', limit: 25 })` returns safe display records and a `nextCursor`. For the next page, pass that cursor with the same filters.
 
-Manual hosts can use `createAuthConsole(auth, consoleOptions, eventStore)` from `vite-hub/auth/console-runtime`, where `auth` is the app's Better Auth instance. Pass the `events.store` store, or leave it out to turn off event reads.
 
 ::warning
 Read methods do not check HTTP access. Check your access policy before you expose them in a route.

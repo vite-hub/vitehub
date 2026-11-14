@@ -286,7 +286,7 @@ describe("Blob response transforms", () => {
   it("preserves the configured store access for cached derivatives", async () => {
     const put = driver.put.bind(driver)
     vi.spyOn(driver, "put").mockImplementation(async (path, body, settings) => {
-      if (settings?.access) throw new Error("object access differs from store access")
+      if (Object.hasOwn(settings ?? {}, "access")) throw new Error("object access differs from store access")
       return put(path, body, settings)
     })
     for (let count = 0; count < 2; count++) {
@@ -363,6 +363,30 @@ describe("Blob response transforms", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it("reads storage for each edgeCache request on a host without Cloudflare's cache", async () => {
+    // Deno has a standard `caches` without Cloudflare's `default` cache.
+    const open = vi.fn()
+    vi.stubGlobal("caches", { open })
+    try {
+      const get = vi.spyOn(driver, "get")
+      for (let index = 0; index < 2; index++) {
+        const response = await storage.serve(request(), "private/original", { edgeCache: { maxAge: 60 } })
+        expect(await response.text()).toBe("public:private-camera-data")
+      }
+      expect(get).toHaveBeenCalledTimes(2)
+      expect(open).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("rejects an edgeCache maxAge that is not a positive integer", async () => {
+    for (const maxAge of [0, -1, 1.5, Number.NaN]) {
+      await expect(storage.serve(request(), "private/original", { edgeCache: { maxAge } })).rejects.toMatchObject({ code: "BLOB_R0047" })
+    }
+  })
+
   it("answers 404 with a JSON body for a missing object", async () => {
     const app = new H3().get("/files/**", event => storage.serve(event.req, "missing.txt"))
     const response = await app.fetch(new Request("https://example.test/files/missing.txt"))
@@ -373,7 +397,7 @@ describe("Blob response transforms", () => {
   it("does not serve a cached derivative after the source is deleted", async () => {
     const first = await storage.serve(request(), "private/original", options)
     await first.body?.cancel()
-    await storage.del("private/original")
+    await storage.delete("private/original")
     const response = await storage.serve(request({ "if-none-match": first.headers.get("etag")! }), "private/original", options)
     expect(response.status).toBe(404)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -387,7 +411,7 @@ describe("Blob response transforms", () => {
     await second.body?.cancel()
     expect(second.headers.get("etag")).toBe(first.headers.get("etag"))
     expect(run).toHaveBeenCalledTimes(1)
-    await storage.del("private/original")
+    await storage.delete("private/original")
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     expect(cache?.blobs).toHaveLength(0)
   })
@@ -500,7 +524,7 @@ describe("Blob response transforms", () => {
       } },
     })
     await ready
-    await storage.del("private/original")
+    await storage.delete("private/original")
     finish()
     await pending
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -519,7 +543,7 @@ describe("Blob response transforms", () => {
     })
     const pending = storage.serve(request(), "private/original", options)
     await ready
-    await storage.del("private/original")
+    await storage.delete("private/original")
     finish()
     await pending
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -638,10 +662,145 @@ describe("Blob response transforms", () => {
     await (await storage.serve(request(), "private/original", options)).body?.cancel()
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "list").mockRejectedValue(new Error("cache listing unavailable"))
-    const [error] = await storage.del("private/original")
+    const [error] = await storage.delete("private/original")
     expect(error).toBeUndefined()
     expect(await driver.head("private/original")).toBeNull()
     expect(warning).toHaveBeenCalledOnce()
+  })
+})
+
+describe("Blob responses for types that a browser opens as a page", () => {
+  let directory: string
+  let storage: BlobStorage
+
+  function request(headers?: Record<string, string>, method = "GET") {
+    return new Request("https://example.test/file", { headers, method })
+  }
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "vitehub-blob-active-"))
+    storage = createBlobStorage(createDriver({ driver: "fs", base: directory }))
+  })
+
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  it.each([
+    "text/html",
+    "Text/HTML; charset=utf-8",
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "text/xml",
+    "application/xml",
+    "application/rss+xml",
+    "text/xsl",
+    "image/png, text/html",
+    "image/png,image/svg+xml",
+    "text/html (comment)",
+    "text/html extra",
+    "multipart/x-mixed-replace; boundary=b",
+    "multipart/mixed; boundary=b",
+    "Multipart/Byteranges; boundary=b",
+    "image/png,multipart/x-mixed-replace;boundary=b",
+  ])("serves %s in a CSP sandbox on GET, HEAD, 206, and 304", async (contentType) => {
+    await storage.put("uploads/file", "content", { contentType })
+
+    const served = await storage.serve(request(), "uploads/file")
+    expect(served.status).toBe(200)
+    expect(served.headers.get("content-type")).toBe(contentType)
+    expect(served.headers.get("content-security-policy")).toBe("sandbox")
+    expect(served.headers.get("x-content-type-options")).toBe("nosniff")
+    expect(served.headers.get("content-disposition")).toBeNull()
+    expect(await served.text()).toBe("content")
+
+    const head = await storage.serve(request(undefined, "HEAD"), "uploads/file")
+    expect(head.headers.get("content-security-policy")).toBe("sandbox")
+
+    const range = await storage.serve(request({ range: "bytes=0-1" }), "uploads/file")
+    expect(range.status).toBe(206)
+    expect(range.headers.get("content-security-policy")).toBe("sandbox")
+    await range.body?.cancel()
+
+    const conditional = await storage.serve(request({ "if-none-match": served.headers.get("etag")! }), "uploads/file")
+    expect(conditional.status).toBe(304)
+    expect(conditional.headers.get("content-security-policy")).toBe("sandbox")
+  })
+
+  it("serves a type guessed from the pathname in a CSP sandbox", async () => {
+    await storage.put("uploads/page.html", "content")
+    const served = await storage.serve(request(), "uploads/page.html")
+    expect(served.headers.get("content-type")).toBe("text/html; charset=utf-8")
+    expect(served.headers.get("content-security-policy")).toBe("sandbox")
+    await served.body?.cancel()
+  })
+
+  it.each(["image/png", "text/plain", "application/pdf", "video/mp4", "application/json"])("sends no CSP for %s", async (contentType) => {
+    await storage.put("uploads/file", "content", { contentType })
+    const served = await storage.serve(request(), "uploads/file")
+    expect(served.headers.get("content-security-policy")).toBeNull()
+    await served.body?.cancel()
+  })
+
+  it("adds the sandbox to a CSP from the headers option and does not let it replace the sandbox", async () => {
+    await storage.put("uploads/file.svg", "content", { contentType: "image/svg+xml" })
+    const served = await storage.serve(request(), "uploads/file.svg", { headers: { "Content-Security-Policy": "default-src 'self'" } })
+    expect(served.headers.get("content-security-policy")).toBe("default-src 'self', sandbox")
+    await served.body?.cancel()
+  })
+
+  it("serves a transform result by its own type", async () => {
+    await storage.put("uploads/source.txt", "content", { contentType: "text/plain" })
+    const served = await storage.serve(request(), "uploads/source.txt", {
+      transform: { key: "as-svg", run: async original => new Blob([await original.text()], { type: "image/svg+xml" }) },
+    })
+    expect(served.headers.get("content-type")).toBe("image/svg+xml")
+    expect(served.headers.get("content-security-policy")).toBe("sandbox")
+    await served.body?.cancel()
+  })
+
+  it("keeps the sandbox on a 304 for a transform result, with a CSP from the headers option", async () => {
+    await storage.put("uploads/source.txt", "content", { contentType: "text/plain" })
+    const options = {
+      headers: { "Content-Security-Policy": "default-src 'self'" },
+      transform: { key: "as-html", run: async (original: Blob) => new Blob([await original.text()], { type: "text/html" }) },
+    }
+    const served = await storage.serve(request(), "uploads/source.txt", options)
+    expect(served.headers.get("content-security-policy")).toBe("default-src 'self', sandbox")
+    await served.body?.cancel()
+
+    // A 304 replaces the headers that a cache stored. The output type is not known before the transform runs.
+    for (const method of ["GET", "HEAD"]) {
+      const conditional = await storage.serve(request({ "if-none-match": served.headers.get("etag")! }, method), "uploads/source.txt", options)
+      expect(conditional.status).toBe(304)
+      expect(conditional.headers.get("content-security-policy")).toBe("default-src 'self', sandbox")
+    }
+  })
+
+  it("sends Content-Disposition: attachment with the pathname file name for download: true", async () => {
+    await storage.put("reports/2026/summary.pdf", "content", { contentType: "application/pdf" })
+    const served = await storage.serve(request(), "reports/2026/summary.pdf", { download: true })
+    expect(served.headers.get("content-disposition")).toBe("attachment; filename=\"summary.pdf\"; filename*=UTF-8''summary.pdf")
+    await served.body?.cancel()
+
+    const conditional = await storage.serve(request({ "if-none-match": served.headers.get("etag")! }), "reports/2026/summary.pdf", { download: true })
+    expect(conditional.status).toBe(304)
+    expect(conditional.headers.get("content-disposition")).toBe(served.headers.get("content-disposition"))
+  })
+
+  it("writes a safe file name for download: string", async () => {
+    await storage.put("uploads/file", "content", { contentType: "text/html" })
+    const download = async (name: string) => {
+      const served = await storage.serve(request(), "uploads/file", { download: name })
+      await served.body?.cancel()
+      return served.headers.get("content-disposition")
+    }
+    expect(await download("Résumé (final).html")).toBe("attachment; filename=\"R_sum_ (final).html\"; filename*=UTF-8''R%C3%A9sum%C3%A9%20%28final%29.html")
+    expect(await download("a\"b\r\nc.txt")).toBe("attachment; filename=\"a_bc.txt\"; filename*=UTF-8''a%22bc.txt")
+    expect(await download("../../etc/report.txt")).toBe("attachment; filename=\"report.txt\"; filename*=UTF-8''report.txt")
+    expect(await download("..\\..\\report.txt")).toBe("attachment; filename=\"report.txt\"; filename*=UTF-8''report.txt")
+    expect(await download("")).toBe("attachment; filename=\"file\"; filename*=UTF-8''file")
+    expect(await download("a\uD800.txt")).toBe("attachment; filename=\"a_.txt\"; filename*=UTF-8''a%EF%BF%BD.txt")
   })
 })
 
@@ -895,6 +1054,19 @@ describe("Blob streams on an R2 binding", () => {
     expect(response.status).toBe(206)
     expect(text).toBe("KLMNO")
     expect(response.headers.get("content-range")).toBe("bytes 20-24/25")
+  })
+
+  it("serves a streamed type that a browser opens as a page in a CSP sandbox", async () => {
+    contentType = "image/svg+xml"
+    const { response } = await serve()
+    expect(response.headers.get("content-type")).toBe("image/svg+xml")
+    expect(response.headers.get("content-security-policy")).toBe("sandbox")
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+
+    const etag = response.headers.get("etag")!
+    const conditional = await serve({ "if-none-match": etag })
+    expect(conditional.response.status).toBe(304)
+    expect(conditional.response.headers.get("content-security-policy")).toBe("sandbox")
   })
 
   it("reads again when a stale If-Range whole read finds another content type", async () => {

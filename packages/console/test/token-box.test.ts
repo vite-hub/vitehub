@@ -1,29 +1,18 @@
-import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
-import { consoleSecretProblem, createProjectToken, openProjectToken, sealProjectToken, tokenSha256 } from "../src/token-box.ts"
+import { consoleSecretProblem, openProjectKey, sealProjectKey } from "../src/token-box.ts"
 
 const secret = "a".repeat(64)
 
-describe("project tokens", () => {
-  it("makes 64 hex characters, which the app's token check accepts", () => {
-    const token = createProjectToken()
-    expect(token).toMatch(/^[0-9a-f]{64}$/)
-    expect(createProjectToken()).not.toBe(token)
-  })
-
-  it("hashes a token the way VITEHUB_CONSOLE_TOKEN_SHA256 expects", async () => {
-    await expect(tokenSha256("token")).resolves.toBe(createHash("sha256").update("token").digest("hex"))
-  })
-
-  it("opens a sealed token only with the same secret and project", async () => {
-    const sealed = await sealProjectToken(secret, "project-a", "token-a")
+describe("project key box", () => {
+  it("opens a sealed key only with the same secret and project", async () => {
+    const sealed = await sealProjectKey(secret, "project-a", "key-a")
     expect(sealed).toMatch(/^v1\.[\w-]+\.[\w-]+$/)
-    expect(sealed).not.toContain("token-a")
-    await expect(openProjectToken(secret, "project-a", sealed)).resolves.toBe("token-a")
-    await expect(openProjectToken("b".repeat(64), "project-a", sealed)).resolves.toBeUndefined()
-    // A sealed token copied to another project row does not open.
-    await expect(openProjectToken(secret, "project-b", sealed)).resolves.toBeUndefined()
+    expect(sealed).not.toContain("key-a")
+    await expect(openProjectKey(secret, "project-a", sealed)).resolves.toBe("key-a")
+    await expect(openProjectKey("b".repeat(64), "project-a", sealed)).resolves.toBeUndefined()
+    // A sealed key copied to another project row does not open.
+    await expect(openProjectKey(secret, "project-b", sealed)).resolves.toBeUndefined()
   })
 
   it.each([
@@ -32,11 +21,11 @@ describe("project tokens", () => {
     ["a short iv", "v1.AAAA.AAAA"],
     ["an extra part", "extra"],
   ])("refuses %s", async (_, kind) => {
-    const sealed = await sealProjectToken(secret, "p", "t")
+    const sealed = await sealProjectKey(secret, "p", "t")
     const value = kind === "flip"
       ? `${sealed.slice(0, -2)}${sealed.endsWith("AA") ? "BB" : "AA"}`
       : kind === "extra" ? `${sealed}.AAAA` : kind
-    await expect(openProjectToken(secret, "p", value)).resolves.toBeUndefined()
+    await expect(openProjectKey(secret, "p", value)).resolves.toBeUndefined()
   })
 
   it.each([

@@ -13,7 +13,7 @@ The Auth Definition is the `defineAuth()` file: `server/auth.ts` or `server.auth
 In Nuxt, a layer can supply `server/auth.ts`, and the app's own Definition replaces it. Definitions in two layers fail the build until the app defines one.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
@@ -28,23 +28,24 @@ export default defineAuth({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed to `betterAuth()` without the ViteHub fields. |
-| `database` | `authDatabase(name?)`, or `true \| { name, dedicated? }` | In-memory store | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. `true` and `{ name }` only record the planned Database for inspection. |
-| `secondaryStorage` | `true \| { store }` | Disabled | Records the planned Default or named KV Store for inspection. It creates no Better Auth secondary storage adapter. |
+| `database` | `authDatabase(name?)` or `"memory"` | Memory on a development server. A build fails with `AUTH_C0063`. | [`authDatabase()`](#keep-users-in-the-app-database) keeps users and sessions in an app Database and adds the Better Auth tables to it. Return another Better Auth adapter from the Definition callback. See [Storage adapters](#storage-adapters). |
+| `secondaryStorage` | None in the static options | Disabled | Return a Better Auth `secondaryStorage` adapter from the Definition callback. |
 | `preset` | `stateless()` | None | Sets a preset's Better Auth options and checks the other options against it. See [Sessions without a database](#sessions-without-a-database). |
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
+| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
+| `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in. See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
 | `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
-| `runtime` | Options object or `(context) => options` | None | Runtime-only Better Auth values such as `baseURL`, `secret`, `secrets`, and storage adapters. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback or put them under `runtime`, never as static top-level fields. `access.routes` must be static so the Vite integration can register middleware.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
 
 ### Secret
 
 When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no Better Auth secret. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth signs with `deriveSecret('vitehub:auth')`.
 
-- Auth reads `VITEHUB_SECRET`, then `NUXT_APP_SECRET`, from the process environment and the request's Cloudflare bindings.
+- Auth reads `VITEHUB_SECRET` from the process environment and the request's Cloudflare bindings.
 - A configured Better Auth secret always wins.
 - With no secret at all, Better Auth uses a development default and throws in production.
 - A root secret shorter than 32 characters throws `AUTH_R0016`.
@@ -52,7 +53,7 @@ When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no B
 
 ## Runtime options
 
-When values depend on the request, Server Env, provider credentials, or request origin, use a Definition callback or the `runtime` field. Declare the secrets in [Env](/docs/env) first.
+When values depend on the request, Server Env, provider credentials, or request origin, pass a callback to `defineAuth()`. The callback returns all the options, the static ones too. Auth does not merge it with other options, so each nested object, such as `advanced`, has all its fields in one place. Declare the secrets in [Env](/docs/env) first.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -132,7 +133,7 @@ export default defineConfig({
 ::
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   appName: 'Acme',
@@ -153,13 +154,15 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `requestOrigin` | The current request's origin. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps need no separate auth URL variable. |
 | `request` | The current request headers and URL, if there is a request. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition and `runtime` callbacks once (twice with proxy trust, below). Each new request gets fresh options.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`. It uses the request origin only when `publicUrl` is unset. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition callback once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
 
 ### Behind a proxy that ends TLS
 
-Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
+Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. When the proxy sends the client's `Host` header, set [`vitehub({ trustProxy: true })`](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy): the request URL of every route, Auth included, becomes `https://`. Otherwise, set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
 
 ```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
 export default defineAuth(({ env, requestOrigin }) => ({
   advanced: { trustedProxyHeaders: true },
   baseURL: requestOrigin,
@@ -171,15 +174,15 @@ export default defineAuth(({ env, requestOrigin }) => ({
 Turn it on only when a proxy you run sets these headers. Without one, a client can send them and choose the origin of callback URLs and emailed links.
 ::
 
-Caller runtime options override the `runtime` result, which overrides the Definition, and `advanced` is replaced as a whole. Callbacks first run with the request URL's origin. If proxy trust is then on and the forwarded origin differs, they run again with that origin. If that run turns trust off, Auth drops the forwarded values and proxy trust. By default, Auth checks each request's `Origin` against the final `baseURL`.
+The callback first runs with the request URL's origin. If proxy trust is then on and the forwarded origin differs, they run again with that origin. If that run turns trust off, Auth drops the forwarded values and proxy trust. By default, Auth checks each request's `Origin` against the final `baseURL`.
 
 ## Sessions without a database
 
 Use the `stateless()` preset when users sign in only with social providers and the app has no database. Each session lives in an encrypted cookie, so it survives restarts and works across replicas and Workers.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
-import { stateless } from '@vite-hub/auth/presets'
+import { defineAuth } from 'vite-hub/auth'
+import { stateless } from 'vite-hub/auth/presets'
 
 export default defineAuth(({ env, requestOrigin }) => ({
   baseURL: requestOrigin,
@@ -207,11 +210,11 @@ With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session
 - You cannot revoke one session. Sign-out removes the cookies from that browser only. To sign out every user, change `session.cookieCache.version` or rotate the secret.
 - The cookie holds a copy of the user from sign-in and the provider tokens. Large provider tokens can go over browser or proxy header limits.
 
-Because `preset` is a ViteHub option, ViteHub checks the other options against it. These combinations fail when the Definition is created, or when a callback or `runtime` resolves:
+Because `preset` is a ViteHub option, ViteHub checks the other options against it. These combinations fail when the Definition is created, or when a callback resolves:
 
 | Code | Combination |
 | --- | --- |
-| `AUTH_C0044` | `database`, metadata or an adapter |
+| `AUTH_C0044` | `database` |
 | `AUTH_C0045` | `secondaryStorage` |
 | `AUTH_C0046` | `emailAndPassword.enabled`, because users and passwords need a database |
 | `AUTH_C0047` | A Better Auth plugin that adds tables or fields, such as `jwt()`, `admin()`, or `organization()`, or one that stores verification tokens, such as `magicLink()`, `emailOTP()`, or `oneTimeToken()` |
@@ -229,7 +232,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 Better Auth extends a stored session once it is older than `session.updateAge`. `session.onRefresh` runs then, so you can check the user again, for example against a ban list.
 
 ```ts [server/auth.ts] fragment
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   session: {
@@ -289,17 +292,17 @@ pnpm vitehub database migrate
 ```
 
 - `authDatabase()` uses the `default` Database. For a Named Database, pass its name, such as `authDatabase('content')`. Write the call inline in `defineAuth()`, in the object or the object the callback returns, so the Vite integration can read it.
-- Keep one unconditional Database target. A callback must return one object with the inline call. Branches and `runtime.database` cannot pick another target. Other runtime options still work.
+- Keep one unconditional Database target. A callback must return one object with the inline call. Branches cannot pick another target. Other runtime options still work.
 - The tables use text IDs and references. Use Better Auth's default ID generator or a custom function that returns strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` need another adapter and your own schema. `authDatabase()` rejects them with `AUTH_C0053`.
 - The core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema with those columns. `authDatabase()` rejects them with `AUTH_C0055`, and a Database contribution cannot extend these tables.
-- `admin()`, `jwt()`, and `oauthProvider()` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
-- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [Console MCP OAuth](/docs/development/mcp#set-up-oauth), and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
+- `admin()`, `jwt()`, `oauthProvider()`, `organization()`, and `passkey()` from `@better-auth/passkey` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
+- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [MCP OAuth](#sign-mcp-clients-in), the [`organization()`](https://www.better-auth.com/docs/plugins/organization) tables (`organization`, `member`, `invitation`, and `session.activeOrganizationId`), the [`passkey()`](https://www.better-auth.com/docs/plugins/passkey) table, and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
 - The tables use the target Database's dialect: SQLite, libSQL, Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. Server code can read them from `useDatabase(name).schema`.
-- Other plugins that add tables, such as `organization()`, need those tables in the Database Definition. A missing table fails when Better Auth uses it.
+- Other plugins that only add tables need those tables in the Database Definition. A missing table fails when Better Auth uses it. `twoFactor()` also adds `user.twoFactorEnabled`, so it needs another adapter and a matching schema.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
 
-Better Auth's own adapters still work. To use another database, return one from the Definition callback or `runtime`.
+Better Auth's own adapters still work. To use another database, return one from the Definition callback.
 
 ## Rate limiting
 
@@ -342,17 +345,75 @@ Set this variable on the host, for example as a Worker secret:
 VITEHUB_ADMIN_CLAIM=sha256:3f9a...
 ```
 
-Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then open `/_vitehub/sign-in`, sign in, and enter the code under **Claim code**. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
+Set `VITEHUB_ADMIN_CLAIM` to the printed value. The host stores only the SHA-256 of the code. Then sign in to the app, and send the code to the claim route below, for example from your own admin page. The first signed-in user who enters it gets the admin role, and the code stops working. A database row in the `verification` table marks the use, so two instances cannot both accept the code. Better Auth's rate limit allows five tries a minute.
 
 The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "available": true }` until the code is used, and `POST <auth base>/vitehub/admin-claim` with `{ "code": "..." }`. Both need a session. A wrong code answers `403` and a used code `409`. Run `vitehub auth claim --json` for the code and value as JSON. A value that is not `sha256:` and 64 hex characters fails with `AUTH_C0059`.
 
-The Console can claim through Primary Auth with `console.auth: "app"`. Independent Console Auth ignores `VITEHUB_ADMIN_CLAIM` and keeps its own sign-in policy. Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value too.
+Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value.
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
+## Sign in through a trusted proxy
+
+A reverse proxy can sign people in before the request reaches the app, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. The proxy sends the person's identity, or a credential for it, in a request header. `forwardAuth()` turns that header into a Better Auth session.
+
+Anyone who reaches the app without the proxy can send the same header. So Auth trusts the header only when your `verify` function proves it and returns the identity. This example proves the GitHub token that oauth2-proxy forwards with `--pass-access-token`, by asking GitHub who owns it:
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { forwardAuth } from 'vite-hub/auth/forward'
+
+interface GitHubUser {
+  id: number
+  login: string
+  name: string | null
+  email: string | null
+  avatar_url: string
+}
+
+export default defineAuth({
+  plugins: [
+    forwardAuth({
+      header: 'x-auth-request-access-token',
+      verify: async ({ value }) => {
+        const response = await fetch('https://api.github.com/user', {
+          headers: { authorization: `Bearer ${value}`, 'user-agent': 'acme' },
+        })
+        if (!response.ok) return null
+        const user: GitHubUser = await response.json()
+        return {
+          providerId: 'github',
+          accountId: String(user.id),
+          email: user.email ?? `${user.id}+${user.login}@users.noreply.github.com`,
+          emailVerified: user.email !== null,
+          name: user.name ?? user.login,
+          image: user.avatar_url,
+          accessToken: value,
+        }
+      },
+    }),
+  ],
+})
+```
+
+| `verify` | Result |
+| --- | --- |
+| Returns an identity | The request uses a session of that identity. Auth signs it in the first time, as a Better Auth account with `providerId` and `accountId`, and sets the session cookie. |
+| Returns `null` | Auth ignores the header. The request keeps the session of its cookie, or stays signed out. |
+| Throws | The request fails. |
+
+- Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
+- Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
+- The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
+- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
+- When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
+
 ## Sign MCP clients in
 
-An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token. For the Console endpoint `/_vitehub/mcp`, use [Console MCP OAuth](/docs/development/mcp#set-up-oauth) instead.
+An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
+
+With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 
@@ -389,7 +450,16 @@ With a Better Auth `secondaryStorage` adapter, also set `session: { storeSession
 
 These helpers support only bearer tokens. Registration with `dpop_bound_access_tokens: true` gets `400 invalid_client_metadata`, and `verifyMcpRequest()` rejects DPoP-bound tokens even when sent as bearer tokens.
 
-The login and consent pages get a signed query from Better Auth. Send its parameters back unchanged as `oauth_query`, as [Console MCP OAuth](/docs/development/mcp#set-up-oauth) explains. The plugins keep keys, clients, and tokens in the `jwks` and `oauth*` tables, which `authDatabase()` includes.
+The plugins keep keys, clients, and tokens in the `jwks` and `oauth*` tables, which `authDatabase()` includes.
+
+Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`. Both pages get a signed query:
+
+1. Better Auth sends the person to your page with a signed query: the parameters named by `ba_param`, plus `sig`.
+2. Send those parameters back unchanged, in order, as `oauth_query` in the sign-in request body, such as `/api/auth/sign-in/email`. The response has the `url` of the next step.
+3. The signed-in person comes back to the consent page. Show the client name from `/api/auth/oauth2/public-client?client_id=…`, and send `{ accept, oauth_query }` to `/api/auth/oauth2/consent`.
+4. Go to the `url` in its response.
+
+Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests for you.
 
 ### Serve discovery at the origin root
 
@@ -431,7 +501,7 @@ export default {
 It reads only the request URL and headers, so a Fetchable route's Request, H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It takes the signing keys from the Auth in the same process, with no call to the authorization server, and checks:
 
 - The signature, against the algorithms of those keys, plus the issuer, the audience, and the expiry with 30 seconds of tolerance.
-- The user, read again by the `sub` claim, so a deleted or banned person loses access while the token is still valid.
+- The user, read again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. With [`access.policy`](/docs/auth/server-api#decide-who-can-stay-signed-in), `allow` must also accept the user.
 - The OAuth client, which must still exist and be enabled.
 - The session, when the token names one in `sid`. It must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
 
@@ -457,30 +527,26 @@ export default defineSchedule({
 
 `olderThan` sets the age in milliseconds. `limit` sets how many clients one call checks, 500 by default.
 
-## Storage placement metadata
+## Storage adapters
 
-The `database` and `secondaryStorage` fields record, for inspection, which ViteHub Database or KV Store Auth should use. ViteHub removes them before it calls `betterAuth()`. They do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.
+`database` and `secondaryStorage` take Better Auth adapters only.
 
-| Value | Records |
-| --- | --- |
-| `database` omitted or `true` | The Default Database. |
-| `database: { name: 'auth' }` | The Named Database `auth`. |
-| `database: { name: 'auth', dedicated: true }` | The Named Database `auth`, dedicated to Auth. |
-| `secondaryStorage` omitted | No secondary storage. |
-| `secondaryStorage: true` | The Default KV Store. |
-| `secondaryStorage: { store: 'auth' }` | The named KV Store `auth`. |
+- In a static Definition, `database` takes only [`authDatabase()`](#keep-users-in-the-app-database) or `"memory"`. `authDatabase('auth')` uses the Named Database `auth`.
+- `"memory"` keeps users and sessions in the memory of one server process. A restart removes them, and a second instance does not see them.
+- Without `database` or `preset`, Auth uses memory only on a development server. A production build fails with `AUTH_C0063`. When the Auth Vite plugin did not build the server code, Auth reads `NODE_ENV`: only `development` and `test` count as a development server, and the first Auth request of any other server fails with `AUTH_C0063`.
+- Return another Better Auth `database` adapter, or a `secondaryStorage` adapter, from the Definition callback.
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
   appName: 'Acme',
-  database: { name: 'auth', dedicated: true },
-  secondaryStorage: { store: 'auth' },
+  database: authDatabase('auth'),
 })
 ```
 
-To keep Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-database), or return a real Better Auth `database` or `secondaryStorage` adapter from the Definition callback or `runtime`. This metadata does not replace the adapter.
+`true`, `{ name }`, and `{ store }` do not create storage. Auth rejects them at build time (`AUTH_C0014`, `AUTH_C0017`), when the Definition loads (`AUTH_C0021`, `AUTH_C0024`), and when a callback returns them (`AUTH_C0061`, `AUTH_C0062`).
 
 ## Vite Integration options
 

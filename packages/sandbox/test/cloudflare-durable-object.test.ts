@@ -92,7 +92,7 @@ function fakeContainer() {
           return { exitCode: await exitCode, stderr: await err, stdout: await out };
         },
       };
-      if (command[2] !== "long-running") {
+      if (command.at(-1) !== "long-running") {
         queueMicrotask(() => {
           stdout.enqueue(encoder.encode(`${options?.cwd}|${options?.env?.NAME ?? ""}|${command.join(" ")}`));
           stderr.enqueue(encoder.encode("warning\n"));
@@ -213,6 +213,26 @@ describe("Cloudflare Sandbox Durable Object", () => {
 
     await session.close();
     expect(container.destroyed).toBe(1);
+  });
+
+  it("reads the idle policy again at the next start after a failed read", async () => {
+    const { container, timeouts } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const get = vi.fn()
+      .mockRejectedValueOnce(new Error("transient storage failure"))
+      .mockResolvedValue({ sleepAfter: "30s" });
+    const sandbox = new Sandbox({ container, id: { name: "a", toString: () => "a" }, storage: { get, put: async () => {} } }, {});
+
+    await expect(sandbox.mkdir("/workspace/a")).rejects.toThrow("transient storage failure");
+    // The Container went to sleep, so the next call starts it again.
+    (container as { running: boolean }).running = false;
+    await expect(sandbox.mkdir("/workspace/a")).resolves.toEqual({ success: true });
+    expect(timeouts).toEqual([30_000]);
   });
 
   it("retries a completed deletion after its response is lost", async () => {
@@ -408,6 +428,66 @@ describe("Cloudflare Sandbox Durable Object", () => {
     await process.kill("SIGINT");
     expect(execution.signals).toEqual([2]);
     execution.exit(130);
+    await session.close();
+  });
+
+  it("stops only the aborted command when exec times out or is cancelled", async () => {
+    const { container, executions, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const controller = new AbortController();
+
+    const running = () => executions.filter(execution => execution.command.at(-1) === "long-running");
+
+    const cancelled = session.exec("long-running", [], { signal: controller.signal });
+    await vi.waitFor(() => expect(running()).toHaveLength(1));
+    controller.abort(new Error("cancel exec"));
+    await expect(cancelled).rejects.toThrow("cancel exec");
+    // GNU timeout treats SIGALRM as its deadline and kills the command's process group.
+    await vi.waitFor(() => expect(running()[0]!.signals).toEqual([14]));
+    running()[0]!.exit(137);
+
+    await expect(session.exec("long-running", [], { timeout: 50 })).rejects.toThrow();
+    await vi.waitFor(() => expect(running()[1]!.signals).toEqual([14]));
+    running()[1]!.exit(137);
+
+    expect(container.destroyed).toBe(0);
+    expect(container.running).toBe(true);
+    await expect(session.exec("echo", ["still open"])).resolves.toMatchObject({ code: 0 });
+    await session.close();
+    expect(container.destroyed).toBe(1);
+  });
+
+  it("cancels an exec whose cancellation arrives before the command starts", async () => {
+    const { executions, objects, runtime } = setup();
+    await (await resolveSandbox({ runtime }, {})).open();
+    const object = objects.get("Task-1")!;
+
+    const before = executions.length;
+    await object.cancelExec("early");
+    await expect(object.exec("long-running", { id: "early", timeout: 60_000 })).rejects.toThrow("cancelled before it started");
+    expect(executions).toHaveLength(before);
+  });
+
+  it("kills a spawned process when its signal aborts or its timeout elapses", async () => {
+    const { container, executions, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const controller = new AbortController();
+    const reason = new Error("cancel spawn");
+
+    const cancelled = await session.spawn!("long-running", [], { signal: controller.signal });
+    const first = executions.at(-1)!;
+    controller.abort(reason);
+    await vi.waitFor(() => expect(first.signals).toEqual([9]));
+    first.exit(137);
+    await expect(cancelled.wait()).rejects.toBe(reason);
+
+    const timed = await session.spawn!("long-running", [], { timeout: 20 });
+    const second = executions.at(-1)!;
+    await vi.waitFor(() => expect(second.signals).toEqual([9]));
+    second.exit(137);
+    await expect(timed.wait()).rejects.toMatchObject({ name: "TimeoutError" });
+
+    expect(container.destroyed).toBe(0);
     await session.close();
   });
 

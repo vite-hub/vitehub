@@ -14,10 +14,16 @@ Use the app's SQLite Drizzle database or another one. Like the Env and Connectio
 
 Here, users and events share the `auth` Database. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
+```ts [server/databases/auth/index.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
+
 ```ts [server/auth.ts]
-import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
-import { authDatabase } from '@vite-hub/auth/database'
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineAuth(() => ({
   database: authDatabase('auth'),
@@ -35,7 +41,7 @@ Better Auth 1.7.7 has a last-login-method plugin but no local audit log. ViteHub
 ## Read events from code
 
 ```ts
-import { aggregateAuthEvents, listAuthEvents } from '@vite-hub/auth/server'
+import { aggregateAuthEvents, listAuthEvents } from 'vite-hub/auth/server'
 
 const first = await listAuthEvents({
   type: 'user.signed_in',
@@ -85,7 +91,7 @@ Server readers do not authorize HTTP callers. Guard the route, or the Console, b
 The Auth Vite integration adds `vitehub auth events`, which calls the app's Auth route. Turn on this read endpoint with `events.authorize` and your own access policy:
 
 ```ts fragment
-import type { AuthEventsConfiguration } from '@vite-hub/auth'
+import type { AuthEventsConfiguration } from 'vite-hub/auth'
 
 const events: AuthEventsConfiguration = {
   store,
@@ -153,4 +159,4 @@ The log records only operations through the supported Better Auth hooks and endp
 
 ## Console runtime exports
 
-`@vite-hub/auth/runtime/console` exports `readAuthEventConsoleRecords`, a no-argument reader that follows `@vite-hub/internal/console`. It returns up to 50 recent records, or an empty array when the log is off. `listAuthEvents` and `aggregateAuthEvents` are exported too, for pages that need cursors or metrics. This package adds no Console UI.
+`@vite-hub/auth/runtime/console` exports `listAuthEvents` and `aggregateAuthEvents`, for Console pages that need cursors or metrics. This package adds no Console UI.

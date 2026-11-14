@@ -10,14 +10,14 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineWorkflow` from `@vite-hub/workflow` | Declare a workflow. |
-| `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `@vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
-| `createWorkflow` from `@vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
-| `ViteHubError` from `@vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
-| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `@vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
+| `defineWorkflow` from `vite-hub/workflow` | Declare a workflow. |
+| `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
+| `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
+| `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
+| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
-`@vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
+`vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
 
 ## Start a run
 
@@ -25,7 +25,7 @@ Call `startWorkflow()` from server code.
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { startWorkflow } from '@vite-hub/workflow'
+import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
@@ -74,13 +74,15 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |
 
+Every provider uses the same statuses. A run that sleeps, waits, or waits between step retries reports `running`. A run that does not exist reports `unknown`. On Cloudflare, `waiting`, `waitingForPause`, and `paused` report `running`, and `terminated` reports `cancelled`. `metadata.status` keeps the Cloudflare status.
+
 ## Inspect a run
 
 Call `getWorkflowRun()` to read the current run state.
 
 ```ts [server/api/workflows/[id].get.ts]
 import { defineEventHandler, getRouterParam } from 'h3'
-import { getWorkflowRun } from '@vite-hub/workflow'
+import { getWorkflowRun } from 'vite-hub/workflow'
 
 export default defineEventHandler((event) => {
   return getWorkflowRun('onboard-user', getRouterParam(event, 'id')!)

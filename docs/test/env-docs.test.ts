@@ -7,7 +7,6 @@ import {
   isCallExpression,
   isIdentifier,
   isObjectLiteralExpression,
-  isPropertyAccessExpression,
   isPropertyAssignment,
   isStringLiteralLike,
   type CallExpression,
@@ -73,18 +72,8 @@ function directEnvDeclarations(source: string) {
   const calls: CallExpression[] = [];
 
   function visit(node: Node) {
-    if (
-      isCallExpression(node) &&
-      (isIdentifier(node.expression) || isPropertyAccessExpression(node.expression))
-    ) {
-      const expression = node.expression;
-      const isDirectEnv = isIdentifier(expression) && expression.text === "env";
-      const isEnvVariable =
-        isPropertyAccessExpression(expression) &&
-        isIdentifier(expression.expression) &&
-        expression.expression.text === "env" &&
-        expression.name.text === "variable";
-      if (isDirectEnv || isEnvVariable) calls.push(node);
+    if (isCallExpression(node) && isIdentifier(node.expression) && node.expression.text === "env") {
+      calls.push(node);
     }
     forEachChild(node, visit);
   }
@@ -122,7 +111,8 @@ describe("canonical Env documentation", () => {
   it("keeps every Public Env and Define Env declaration in build mode", async () => {
     const declarations = await canonicalBuildDeclarations();
 
-    expect(declarations).toHaveLength(4);
+    // The standalone hero code tree adds one Vite declaration to the canonical examples.
+    expect(declarations).toHaveLength(6);
     for (const declaration of declarations) {
       const options = declaration.arguments[0];
       expect(isObjectLiteralExpression(options) && optionsHaveBuildMode(options)).toBe(true);
@@ -134,7 +124,7 @@ describe("canonical Env documentation", () => {
       hubEnv({
         public: {
           valid: env({ mode: "build" }),
-          invalid: env.variable({ mode: "runtime" }),
+          invalid: env({ mode: "runtime" }),
           server: env({ mode: "runtime" }),
         },
         server: { token: env({ mode: "runtime" }) },

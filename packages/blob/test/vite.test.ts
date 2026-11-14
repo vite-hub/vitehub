@@ -7,13 +7,13 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { UserConfig } from "vite"
-import { VITEHUB_DEPLOYMENT_PRESET, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -54,7 +54,25 @@ function driverImports(source: string) {
 }
 
 describe("hubBlob", () => {
-  it.each([undefined, { authorize: false }, { authorize: true }])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
+  it("imports without the optional Vite peer", async () => {
+    const script = [
+      'import { registerHooks } from "node:module"',
+      'registerHooks({ resolve(specifier, context, nextResolve) {',
+      '  if (specifier === "vite" || specifier.startsWith("vite/")) {',
+      '    throw Object.assign(new Error("Cannot find package vite"), { code: "ERR_MODULE_NOT_FOUND" })',
+      '  }',
+      '  return nextResolve(specifier, context)',
+      '} })',
+      'const { hubBlob } = await import("@vite-hub/blob/vite")',
+      'console.log(typeof hubBlob)',
+    ].join("\n")
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", script], {
+      cwd: resolve(import.meta.dirname, ".."),
+    })
+    expect(stdout.trim()).toBe("function")
+  })
+
+  it.each([undefined, { access: "public" } as const, { authorize: true } as const])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
     const root = await temporaryDirectory("vitehub-blob-auth-watcher-")
     try {
       const plugin = hubBlob({ driver: "fs", serve })
@@ -167,13 +185,6 @@ describe("hubBlob", () => {
       vi.unstubAllEnvs()
       await rm(root, { force: true, recursive: true })
     }
-  })
-
-  it("preserves Nitro inline-all policy", () => {
-    const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
-    const config = { nitro: { externals: { inline: true, trace: false } } }
-    ;((typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as (config: unknown, env: unknown) => void)(config, { command: "build" })
-    expect(config.nitro.externals).toEqual({ inline: true, trace: false })
   })
 
   it("resolves Blob config from the Vite layer", () => {
@@ -293,7 +304,7 @@ describe("hubBlob", () => {
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
-      serve: true,
+      serve: { access: "public" },
     })
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -489,7 +500,8 @@ describe("hubBlob", () => {
   it.each(["vercel-blob", "netlify-blobs"] as const)("preserves generated default and named %s stores when Nitro installs its plugin", async (driver) => {
     const root = await temporaryDirectory("vitehub-blob-nitro-replay-")
     try {
-      const plugin = hubBlob({ stores: { default: { driver, name: "default" }, assets: { driver, name: "assets" } } })
+      const store = (name: string) => driver === "netlify-blobs" ? { driver, name } : { driver }
+      const plugin = hubBlob({ stores: { default: store("default"), assets: store("assets") } })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
         nitro: { preset: driver === "vercel-blob" ? "vercel" : "netlify" },
@@ -530,8 +542,8 @@ describe("hubBlob", () => {
   it("generates only the selected Netlify Blob driver for Nitro", async () => {
     const root = await temporaryDirectory("vitehub-blob-nitro-netlify-")
     const artifactRoot = await temporaryDirectory("vitehub-blob-netlify-artifact-")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
+    const previousHosting = process.env.VITEHUB_HOST
+    process.env.VITEHUB_HOST = "netlify"
     try {
       const plugin = hubBlob()
       const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -601,8 +613,8 @@ describe("hubBlob", () => {
       expect(stdout.trim()).toBe("netlify-store")
     }
     finally {
-      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
+      if (previousHosting === undefined) delete process.env.VITEHUB_HOST
+      else process.env.VITEHUB_HOST = previousHosting
       await Promise.all([
         rm(root, { force: true, recursive: true }),
         rm(artifactRoot, { force: true, recursive: true }),
@@ -784,9 +796,9 @@ describe("hubBlob", () => {
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {
     const root = await temporaryDirectory("vitehub-blob-inferred-cloudflare-")
     const previousBucket = process.env.BLOB_BUCKET_NAME
-    const previousHosting = process.env.VITEHUB_HOSTING
+    const previousHosting = process.env.VITEHUB_HOST
     process.env.BLOB_BUCKET_NAME = "assets"
-    process.env.VITEHUB_HOSTING = "cloudflare"
+    process.env.VITEHUB_HOST = "cloudflare"
     try {
       const plugin = hubBlob()
       const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
@@ -847,8 +859,8 @@ describe("hubBlob", () => {
     finally {
       if (typeof previousBucket === "undefined") delete process.env.BLOB_BUCKET_NAME
       else process.env.BLOB_BUCKET_NAME = previousBucket
-      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
+      if (typeof previousHosting === "undefined") delete process.env.VITEHUB_HOST
+      else process.env.VITEHUB_HOST = previousHosting
     }
   })
 
@@ -966,7 +978,7 @@ describe("hubBlob", () => {
   })
 
   it("registers an opt-in Nitro serving route", async () => {
-    const plugin = hubBlob({ serve: true })
+    const plugin = hubBlob({ serve: { access: "public" } })
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
 
     const userConfig = {}
@@ -974,12 +986,85 @@ describe("hubBlob", () => {
     expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
-        handlers: [{
-          handler: ".vitehub/blob/serve-route.ts",
-          route: "/api/_vitehub/blob/**",
-        }],
+        handlers: [
+          { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" },
+          { handler: ".vitehub/blob/serve-route.ts", route: "/api/_vitehub/blob/**" },
+        ],
       },
     })
+  })
+
+  it("registers the signed route only when a store uses the fs driver", async () => {
+    async function handlers(options: Parameters<typeof hubBlob>[0]) {
+      const plugin = hubBlob(options)
+      const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+      const userConfig: { nitro?: { handlers?: unknown[] } } = {}
+      await config(userConfig, { command: "build" })
+      return userConfig.nitro?.handlers
+    }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" }
+
+    expect(await handlers({ driver: "fs" })).toEqual([signed])
+    expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare-r2" }, local: { driver: "fs" } } })).toEqual([signed])
+    expect(await handlers({ bucketName: "assets", driver: "cloudflare-r2" })).toEqual([])
+    expect(await handlers({ bucket: "assets", driver: "s3" })).toEqual([])
+  })
+
+  it.each([
+    ["serve", 1],
+    ["build", 0],
+  ] as const)("registers the signed route once for the local fallback of R2 in %s", async (command, count) => {
+    // The `config` hook and `configResolved` both resolve the dev store. The route stays registered once.
+    const plugin = hubBlob()
+    const configHook = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config: Record<string, unknown> & { nitro: { handlers?: Array<{ route?: string }>, preset: string } } = {
+      build: { outDir: "dist" },
+      command,
+      nitro: { preset: "cloudflare_module" },
+      plugins: [{ name: "nitro:main" }],
+      root: await temporaryDirectory("vitehub-blob-signed-route-"),
+    }
+    await configHook(config, { command })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    expect(config.nitro.handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+  })
+
+  it.each([
+    ["the local store of an inferred Vercel Blob store", "serve", { BLOB_READ_WRITE_TOKEN: "secret-token" }, {}, 1],
+    ["the local fallback of R2", "serve", {}, { preset: "cloudflare_module" }, 1],
+    ["a hosted Vercel Blob store", "build", { BLOB_READ_WRITE_TOKEN: "secret-token" }, {}, 0],
+  ] as const)("registers the signed route in the Nitro instance for %s in %s", async (_name, command, env, nitroConfig, count) => {
+    // Nitro copies its handlers in its own `config` hook. A later change to the Vite config does not reach its router.
+    const { nitro }: { nitro: () => unknown } = await import("nitro/vite" as string)
+    const root = await temporaryDirectory("vitehub-blob-signed-nitro-")
+    await writeFile(join(root, "package.json"), "{}")
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    let handlers: Array<{ route?: string }> | undefined
+    let close: (() => Promise<void>) | undefined
+    try {
+      await resolveViteConfig({
+        configFile: false,
+        logLevel: "silent",
+        nitro: nitroConfig,
+        plugins: [
+          hubBlob({ images: false }),
+          nitro() as never,
+          { name: "capture-nitro", nitro: { setup(instance: { close: () => Promise<void>, options: { handlers: Array<{ route?: string }> } }) {
+            handlers = instance.options.handlers
+            close = () => instance.close()
+          } } } as never,
+        ],
+        root,
+      } as UserConfig, command)
+
+      expect(handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+    }
+    finally {
+      await close?.()
+      vi.unstubAllEnvs()
+    }
   })
 
   it("writes the generated Nitro serving route handler", async () => {
@@ -990,6 +1075,7 @@ describe("hubBlob", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
+        access: "public",
         route: "/assets",
         store: "media",
       },
@@ -1061,7 +1147,7 @@ describe("hubBlob", () => {
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers, route: serveRoute },
+        serve: { headers, access: "public", route: serveRoute },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -1194,6 +1280,72 @@ describe("hubBlob", () => {
     }
   })
 
+  it("keeps the Blob sandbox and a middleware CSP on the generated route", async () => {
+    const root = await temporaryDirectory("vitehub-blob-route-csp-")
+    const plugin = hubBlob({ driver: "fs", serve: { access: "public" } }, { importBase: "virtual:blob-test" })
+    await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
+    const artifactFile = join(root, "serve-route.mjs")
+    await bundle({
+      bundle: true,
+      entryPoints: [join(root, ".vitehub", "blob", "serve-route.ts")],
+      format: "esm",
+      logLevel: "silent",
+      nodePaths: [join(workspaceRoot, "node_modules")],
+      outfile: artifactFile,
+      platform: "node",
+      plugins: [{
+        name: "blob-route-csp-stub",
+        setup(build) {
+          build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({ namespace: "blob-route-csp-stub", path: "blob" }))
+          build.onLoad({ filter: /.*/, namespace: "blob-route-csp-stub" }, () => ({
+            contents: [
+              `import { createBlobStorage } from ${JSON.stringify(join(workspaceRoot, "packages/blob/src/storage.ts"))}`,
+              `export { parseImageVariant } from ${JSON.stringify(join(workspaceRoot, "packages/blob/src/media/variant.ts"))}`,
+              "const types = { 'page.html': 'text/html', 'photo.png': 'image/png' }",
+              "const storage = createBlobStorage({",
+              "  name: 'blob-route-csp-test',",
+              "  async head(pathname) { return { pathname, contentType: types[pathname], size: 7, httpEtag: '\"v1\"', uploadedAt: new Date(0), httpMetadata: {}, customMetadata: {} } },",
+              "  async get(pathname) { return new Blob(['content'], { type: types[pathname] }) },",
+              "})",
+              "export const blob = { store() { return storage } }",
+            ].join("\n"),
+            resolveDir: workspaceRoot,
+            loader: "js",
+          }))
+        },
+      }],
+      target: "node24",
+    })
+    const artifact = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
+    // An empty middleware CSP must not replace the Blob sandbox either.
+    for (const appPolicy of ["default-src 'self'", ""]) {
+      const app = new H3({ onRequest: event => installStandardContext(event) })
+      app.use((event) => {
+        event.res.headers.set("content-security-policy", appPolicy)
+      })
+      app.all("/api/_vitehub/blob/**", artifact.default)
+      const request = (pathname: string, headers: Record<string, string> = {}, method = "GET") =>
+        app.fetch(new Request(`http://localhost/api/_vitehub/blob/${pathname}`, { headers, method }))
+      const pagePolicy = appPolicy ? `${appPolicy}, sandbox` : "sandbox"
+
+      const page = await request("page.html")
+      expect(page.status).toBe(200)
+      expect(page.headers.get("content-security-policy"), JSON.stringify(appPolicy)).toBe(pagePolicy)
+      expect(await page.text()).toBe("content")
+      const etag = page.headers.get("etag")!
+      for (const [headers, method, status] of [[{}, "HEAD", 200], [{ Range: "bytes=0-1" }, "GET", 206], [{ "If-None-Match": etag }, "GET", 304], [{ "If-None-Match": etag }, "HEAD", 304]] as const) {
+        const response = await request("page.html", headers, method)
+        expect(response.status, `${method} ${status}`).toBe(status)
+        expect(response.headers.get("content-security-policy"), `${JSON.stringify(appPolicy)} ${method} ${status}`).toBe(pagePolicy)
+        await response.body?.cancel()
+      }
+      // A type that runs no script keeps only the app policy.
+      const photo = await request("photo.png")
+      expect(photo.headers.get("content-security-policy")).toBe(appPolicy)
+      await photo.body?.cancel()
+    }
+  })
+
   describe("serve authorization", () => {
     const authPlugin = { name: "@vite-hub/auth/vite", api: { getConfig: () => ({ definition: {} }) } }
 
@@ -1234,10 +1386,13 @@ describe("hubBlob", () => {
               loader: "js",
             }))
             build.onResolve({ filter: /^#vitehub\/auth\/server$/ }, () => ({
-              path: join(workspaceRoot, "packages/auth/src/server.ts"),
+              path: join(workspaceRoot, "packages/auth/src/internal/server.ts"),
             }))
             build.onResolve({ filter: /^(?:better-auth|#vitehub\/auth\/definition)$/ }, (args) => {
-              if (args.path === "better-auth" && args.importer !== join(workspaceRoot, "packages/auth/src/server.ts")) return
+              if (args.path === "better-auth" && ![
+                join(workspaceRoot, "packages/auth/src/internal/server.ts"),
+                join(workspaceRoot, "packages/auth/src/auth-instance.ts"),
+              ].includes(args.importer)) return
               return { namespace: "auth-provider-test", path: args.path }
             })
             build.onLoad({ filter: /^#vitehub\/auth\/definition$/, namespace: "auth-provider-test" }, () => ({
@@ -1435,7 +1590,7 @@ describe("hubBlob", () => {
       try {
         await mkdir(join(root, "server"), { recursive: true })
         await writeFile(join(root, "server", "blob.ts"), "export const authorize = () => true\n")
-        const plugin = hubBlob({ driver: "fs", serve: { route: "/photos" } })
+        const plugin = hubBlob({ driver: "fs", serve: { access: "public", route: "/photos" } })
         await expect((plugin.configResolved as (config: unknown) => void | Promise<void>)({
           build: { outDir: "dist" },
           plugins: [authPlugin],
@@ -1473,7 +1628,7 @@ describe("hubBlob", () => {
     const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
-      serve: true,
+      serve: { access: "public" },
     }, { importBase: "vite-hub/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 
@@ -1522,7 +1677,7 @@ describe("hubBlob in vite dev", () => {
     ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, true],
     ["cloudflare", { driver: "cloudflare-r2" }, false],
     ["cloudflare", { driver: "cloudflare-r2" }, true],
-  ] as const)("keeps the %s preset (%o, remote=%s) when ViteHub replaces Blob options", async (preset, options, remote) => {
+  ] as const)("keeps the %s host (%o, remote=%s) when ViteHub replaces Blob options", async (preset, options, remote) => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
     vi.stubEnv("BLOB_STORE_ID", "")
     try {
@@ -1534,7 +1689,7 @@ describe("hubBlob in vite dev", () => {
         logLevel: "silent",
         plugins: [
           // SAFETY: These private keys carry what the `vitehub()` deployment hook resolves for the owner plugin.
-          { name: "app-blob-config", config: () => ({ [VITEHUB_FEATURES]: { blob: { remote } }, [VITEHUB_DEPLOYMENT_PRESET]: preset }) as UserConfig },
+          { name: "app-blob-config", config: () => ({ [VITEHUB_FEATURES]: { blob: { remote } }, [VITEHUB_DEPLOYMENT_HOST]: preset }) as UserConfig },
           plugin,
         ],
         root,

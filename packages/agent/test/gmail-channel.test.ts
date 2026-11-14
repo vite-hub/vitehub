@@ -8,9 +8,9 @@ import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { gmail, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { gmail, gmailChannelStatus, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
-import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
+import { defineAgent, runAgentTrigger, agentWorkflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
@@ -295,7 +295,7 @@ describe("gmail() Channel", () => {
     const chatSet = vi.spyOn(chatState, "set")
     const webhookSet = vi.spyOn(webhookState, "set")
     const driver = vi.fn(() => "ok")
-    const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: driver }, name: "gmail-workflow-state", runtime: workflow("gmail-workflow-state") })
+    const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: driver }, name: "gmail-workflow-state", runtime: agentWorkflow("gmail-workflow-state") })
     const tasks: Promise<unknown>[] = []
     const response = await createChannelWebhookRouteHandler(agent)(new Request(audience, {
       body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: 100 })), messageId: "workflow-state" }, subscription }),
@@ -1507,6 +1507,34 @@ describe("gmail() Channel", () => {
     expect(seen[0]).toMatchObject({ runtime: "cloudflare-agents", cloudflare: { env } })
   })
 
+  it("reads the Channel status of the Agent that uses the Channel, with ambient Cloudflare bindings", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const env = { GMAIL_CLIENT_ID: "client-id", GMAIL_CLIENT_SECRET: "client-secret", GMAIL_REFRESH_TOKEN: "refresh-token" }
+    const agents = {
+      other: defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: () => "ok" } }),
+      poller: defineAgent({ channels: { mail: inbox }, driver: { run: () => "ok" } }),
+    }
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-status-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents,
+      handlers: { other: createChannelWebhookRouteHandler(agents.other), poller: createChannelWebhookRouteHandler(agents.poller) },
+      options: (name, env) => {
+        if (!env) throw new Error("Cloudflare env missing")
+        return { agentName: name, cloudflare: { env }, webhookState: () => state }
+      },
+    })
+    await expect(runWithActiveCloudflareEnv(env, () => gmailChannelStatus(inbox))).resolves.toEqual({ failures: 0, retrying: [], skipped: [], status: "ok" })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    await expect(runWithActiveCloudflareEnv(env, () => gmailChannelStatus(inbox))).resolves.toMatchObject({ failures: 0, status: "ok", syncedAt: expect.any(String) })
+    await expect(gmailChannelStatus(inbox, { agent: "other" })).resolves.toBeUndefined()
+    await expect(gmailChannelStatus(gmail({ fetch: google.fetch }))).resolves.toBeUndefined()
+  })
+
   it("polls every Agent sharing a Channel before reporting dispatch failures", async () => {
     stubGmailEnv()
     const google = await createGoogle()
@@ -1673,7 +1701,7 @@ describe("gmail() Channel", () => {
     }
     const status = async () => await agentChannelOperations[4].run({ agent: "labeller", channel: "gmail" }, {
       access: { mode: "open", sections: "all" },
-      request: new Request("http://vitehub.local/_vitehub/rpc/__call"),
+      request: new Request("http://vitehub.local/_vitehub/rpc"),
       surface: "console",
       user: null,
     })

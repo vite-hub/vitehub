@@ -18,8 +18,7 @@ describe("Console RPC module", () => {
   }, 60_000)
 
   it.each([
-    "auth-manage", "channel-replay", "env-manage", "logs.get", "mcp", "mcp-authorization-server", "mcp-metadata",
-    "rpc", "schedule-run", "status.get", "usage.get",
+    "logs.get", "rpc", "status.get", "usage.get",
   ])("serves %s as a Fetchable route that imports nothing from h3", async (name) => {
     const { default: route } = await import(`../src/console/runtime/server/${name}.ts`)
 

@@ -1,8 +1,6 @@
-import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage"
-
+import { messagePlaceholders } from "./placeholders.ts"
 import { isVisible } from "./record-format.ts"
 
-import type { CompiledMessage } from "@lingui/message-utils/compileMessage"
 import type { SourceMessages } from "./manifest.ts"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
 
@@ -45,30 +43,13 @@ export function similarity(left: string, right: string): number {
 
 /** Placeholders such as `{name}` and tags such as `<0>`. A translation with other placeholders does not fit. */
 function placeholders(text: string): string | undefined {
-  const result: string[] = []
-  function collect(tokens: CompiledMessage): void {
-    for (const token of tokens) {
-      if (typeof token === "string") {
-        for (const match of token.matchAll(/<\/?(\d+)\/?>/g)) result.push(`<${match[1]}>`)
-        continue
-      }
-      const [name, type, choices] = token
-      result.push(name)
-      if ((type === "plural" || type === "select" || type === "selectordinal") && choices && typeof choices === "object") {
-        for (const branch of Object.values(choices)) {
-          if (Array.isArray(branch)) collect(branch)
-        }
-      }
-    }
-  }
   try {
-    collect(compileMessageOrThrow(text))
+    return messagePlaceholders(text).join()
   }
   catch {
     // An invalid ICU message cannot establish compatible placeholders.
     return undefined
   }
-  return result.sort().join(",")
 }
 
 /**
