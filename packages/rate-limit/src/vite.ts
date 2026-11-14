@@ -179,7 +179,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const warnAboutMemory = (): void => {
     if (!resolved || warnedAboutMemory || resolved.command !== "build" || declarations.length === 0 || effectiveProvider(provider, resolved) !== "memory") return
     // One hint for a build that counts in memory, so a multi-instance deploy does not hide it.
-    reportViteHubHint(resolved, rateLimitErrorDiagnostics.RATE_LIMIT_B0005())
+    reportViteHubHint(resolved, rateLimitErrorDiagnostics.RATE_LIMIT_MEMORY_PER_PROCESS())
     warnedAboutMemory = true
   }
 
