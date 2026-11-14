@@ -163,6 +163,12 @@ describe("replayChannel()", () => {
     expect(label).not.toHaveBeenCalled()
   })
 
+  it("returns what the Agent answered for each completed item", async () => {
+    const { agent } = labeller()
+    const result = await replayChannel(agent, "mailbox", { force: true, limit: 2, query: { folder: "inbox" } })
+    expect(result.items.map(item => [item.key, item.status, item.output])).toEqual([["m1", "completed", "label:Invoice"], ["m2", "completed", "label:Receipt"]])
+  })
+
   it("keeps colon-bearing Channel names and message keys independent", async () => {
     const invocations = memoryInvocations()
     const { channel } = mailbox()
