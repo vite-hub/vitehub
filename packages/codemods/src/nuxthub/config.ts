@@ -50,6 +50,77 @@ function optionText(config: NuxtConfigFile, node: Node): string {
   return config.code.slice(start(node), end(node)).replace(/\s+/g, " ")
 }
 
+/** A `hub.db` value that the Database Definition can repeat: a string, or `process.env.NAME`. */
+export type StaticValue = { kind: "literal", value: string } | { kind: "env", name: string }
+
+/** The `hub.db` options that the codemod moves to the Database Definition or turns into follow-ups. */
+export interface HubDatabaseOptions {
+  /** NuxtHub's `connection.hyperdriveId` for Postgres. */
+  hyperdriveId?: StaticValue
+  /** NuxtHub's `driver: 'd1-http'`, with its `connection.databaseId`. */
+  d1Http?: { databaseId?: StaticValue }
+  /** NuxtHub's Drizzle `casing`, which Drizzle 1.0 sets per table. */
+  casing?: string
+  /** NuxtHub applied migrations during the build, the `applyMigrationsDuringBuild` default. */
+  migrationsDuringBuild: boolean
+}
+
+function staticValue(node: Node): StaticValue | undefined {
+  const literal = literalValue(node)
+  if (typeof literal === "string" && literal) return { kind: "literal", value: literal }
+  const value = unwrapExpression(node)
+  if (value.type !== "MemberExpression" || value.object.type !== "MemberExpression") return undefined
+  const { object } = value
+  if (object.computed || object.object.type !== "Identifier" || object.object.name !== "process" || keyName(object.property) !== "env") return undefined
+  const name = keyName(value.property, value.computed)
+  return name ? { kind: "env", name } : undefined
+}
+
+/** Reads the `hub.db` options that the codemod handles. `consumed` holds the properties that need no note. */
+function readDatabaseObject(object: ObjectExpression, dialect: Dialect): { options: HubDatabaseOptions, consumed: Set<Node> } {
+  const options: HubDatabaseOptions = { migrationsDuringBuild: true }
+  const consumed = new Set<Node>()
+  const property = (name: string) => findProperty(object, name)
+  const casing = property("casing")
+  if (casing && typeof literalValue(casing.value) === "string") {
+    options.casing = String(literalValue(casing.value))
+    consumed.add(casing)
+  }
+  const migrations = property("applyMigrationsDuringBuild")
+  if (migrations && typeof literalValue(migrations.value) === "boolean") {
+    options.migrationsDuringBuild = literalValue(migrations.value) === true
+    consumed.add(migrations)
+  }
+  const driver = property("driver")
+  const d1Http = dialect === "sqlite" && driver !== undefined && literalValue(driver.value) === "d1-http"
+  if (d1Http) consumed.add(driver)
+  const connectionProperty = property("connection")
+  const connection = connectionProperty && staticOptionsObject(connectionProperty.value)
+  if (d1Http) options.d1Http = {}
+  // Only the ids move to the Definition. Other connection options keep the note.
+  let moved = 0
+  for (const entry of connection?.properties ?? []) {
+    if (entry.type !== "ObjectProperty") continue
+    const key = keyName(entry.key, entry.computed)
+    const value = staticValue(entry.value)
+    if (value && key === "hyperdriveId" && dialect === "postgresql") options.hyperdriveId = value
+    else if (value && key === "databaseId" && options.d1Http) options.d1Http.databaseId = value
+    else continue
+    moved++
+  }
+  if (connectionProperty && connection && moved === connection.properties.length) consumed.add(connectionProperty)
+  return { options, consumed }
+}
+
+/** Reads the `hub.db` options that the Database Definition and the follow-ups need. */
+export function readDatabaseOptions(config: NuxtConfigFile, dialect: Dialect): HubDatabaseOptions {
+  const hubProperty = findProperty(config.root, "hub")
+  const hub = hubProperty && staticOptionsObject(hubProperty.value)
+  const db = hub && (findProperty(hub, "db") ?? findProperty(hub, "database"))
+  const object = db && unwrapExpression(db.value)
+  return object?.type === "ObjectExpression" ? readDatabaseObject(object, dialect).options : { migrationsDuringBuild: true }
+}
+
 function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]): Dialect | undefined {
   const literal = literalValue(value)
   if (literal === false) return undefined
@@ -63,7 +134,8 @@ function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]):
   }
   const dialectProperty = findProperty(object, "dialect")
   const dialect = dialectProperty ? readDatabase(config, dialectProperty.value, notes) : "sqlite"
-  const others = object.properties.filter(property => property !== dialectProperty)
+  const { consumed } = readDatabaseObject(object, dialect ?? "sqlite")
+  const others = object.properties.filter(property => property !== dialectProperty && !consumed.has(property))
   if (others.length) {
     notes.push({ path: ["database"], message: `hub.db also set ${others.map(property => optionText(config, property)).join(", ")}. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.` })
   }
