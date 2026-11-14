@@ -53,7 +53,7 @@ A chain of redirects counts where it ends.
 
 ### DocsSeoError
 
-A prerendered page fails a search check. A production build logs it by default and stops on it when `seoAudit` is `"error"` or `true`. The limits are those of common site audits: a title of 10 to 60 characters with the site name, a description of 70 to 160, one `h1`, headings that go down one level at a time, at least 150 words, a link from another page, and the Open Graph tags `og:title`, `og:type`, `og:image`, and `og:url`. Each sitemap URL must be a prerendered page that does not redirect. Every page must stay below 2 MiB of HTML, because Googlebot reads only the first 2 MB, and must not link to a redirect page or to `/mcp`, which answers a browser with an error. The message lists each page with its fix:
+A prerendered page fails a search check. A production build logs it by default and stops on it when `seoAudit` is `"error"` or `true`. The limits are those of common site audits: a title of 10 to 60 characters with the site name, a description of 70 to 160, one `h1`, headings that go down one level at a time, at least 150 words, a link from another page, and the Open Graph tags `og:title`, `og:type`, `og:image`, and `og:url`. Each sitemap URL must be a prerendered page that does not redirect. Every page must stay below 2 MB (2,000,000 bytes) of HTML, because Googlebot reads only the first 2 MB, and must not link to a redirect page or to `/mcp`, which answers a browser with an error. The message lists each page with its fix:
 
 ```txt [output/docs-seo-error.txt]
 Docs pages fail the search checks:

@@ -3,14 +3,14 @@ import { ELEMENT_NODE, parse, walkSync } from "ultrahtml"
 /**
  * The search checks that every prerendered page must pass. The limits are those of common site audits, such as OpenSEO
  * and Ahrefs: a title of 10 to 60 characters, a description of 70 to 160, one `h1`, headings that go down one level at
- * a time, at least 150 words of text, and at most 2 MiB of HTML, because Googlebot reads only the first 2 MB of a page.
+ * a time, at least 150 words of text, and at most 2 MB (2,000,000 bytes) of HTML, because Googlebot reads only the first
+ * 2 MB of a page.
  */
 export const docsSeoLimits = {
   title: { min: 10, max: 60 },
   description: { min: 70, max: 160 },
   words: 150,
-  /** 2 MiB. */
-  bytes: 2_097_152,
+  bytes: 2_000_000,
 }
 
 /**
@@ -122,9 +122,9 @@ export interface DocsSeoOptions {
 export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly string[], options: DocsSeoOptions = {}): string[] {
   const problems: string[] = []
   const byPath = new Map(pages.map(page => [page.path, page]))
-  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+  const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`
   for (const page of pages) {
-    if (page.bytes > docsSeoLimits.bytes) problems.push(`${page.path} has ${megabytes(page.bytes)} of HTML, and crawlers read only the first ${megabytes(docsSeoLimits.bytes)}. Split the page, or show long lists with a component that renders less markup than a Markdown table.`)
+    if (page.bytes > docsSeoLimits.bytes) problems.push(`${page.path} has ${megabytes(page.bytes)} of HTML, and Googlebot reads only the first ${megabytes(docsSeoLimits.bytes)}. Split the page, or show long lists with a component that renders less markup than a Markdown table.`)
   }
   // One problem for each target, so a link in a footer is one line and not one per page.
   const redirects = new Set(pages.filter(page => page.redirect).map(page => page.path))

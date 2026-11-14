@@ -118,7 +118,7 @@ describe("docsSeoProblems", () => {
     const reordered = readDocsSeoPage("/docs/reordered", html({ og: false }).replace("</head>", '<meta content="KV" property="og:title"><meta content="article" property="og:type"><meta content="https://acme.dev/og.png" property="og:image"><meta property="og:url" content=""></head>'), origin)
     expect(reordered.openGraphMissing).toEqual(["og:url"])
     const problems = docsSeoProblems([home, big, guides, links, bare], [], { endpoints: ["/mcp"] })
-    expect(problems).toContain("/docs/codes has 2.6 MiB of HTML, and crawlers read only the first 2.0 MiB. Split the page, or show long lists with a component that renders less markup than a Markdown table.")
+    expect(problems).toContain("/docs/codes has 2.7 MB of HTML, and Googlebot reads only the first 2.0 MB. Split the page, or show long lists with a component that renders less markup than a Markdown table.")
     expect(problems).toContain("/docs/links link to /guides, which redirects. Link to the page that it redirects to.")
     expect(problems).toContain("/docs/links link to /mcp, an endpoint that answers a browser with an error. Write the URL as code, or link to the page that explains it.")
     expect(problems).toContain("/docs/bare has no og:title, og:type, og:image, og:url tag, so share previews and site audits call its Open Graph tags incomplete. Pages from `useDocsSeo()` set them; an app page that writes its own head needs them too.")
