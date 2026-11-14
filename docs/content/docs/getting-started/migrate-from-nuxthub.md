@@ -583,9 +583,12 @@ report these modules.
 `@evlog/nuxthub` stores evlog events in the NuxtHub database and deletes old
 ones on a cron. Keep the `evlog/nuxt` module, then do the same with ViteHub.
 
-Add a table to your Database schema:
+Append this table to `server/databases/schema.ts`, alongside the tables
+created earlier. The default Database Definition already imports this file
+as its schema, so the new table is included in migration generation and
+exported as `schema.evlogEvents`. Reuse any existing Drizzle imports.
 
-```ts [server/databases/default/schema.ts] fragment
+```ts [server/databases/schema.ts] fragment
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const evlogEvents = sqliteTable('evlog_events', {
