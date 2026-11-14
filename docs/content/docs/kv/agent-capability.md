@@ -24,10 +24,10 @@ export default defineAgent({
 })
 ```
 
-`mode: 'write'` allows writes. `store` limits the Agent to one store. `policy` controls writes.
+`mode: 'write'` allows writes. `store` limits the Agent to one store. `prefix` limits it to the keys under one prefix. `policy` controls writes.
 
 ```ts [server/agents/support.ts] fragment
-kv({ mode: 'write', policy: 'require-approval', store: 'agent-notes' })
+kv({ mode: 'write', policy: 'require-approval', store: 'agent-notes', prefix: 'support:' })
 ```
 
 ## Agent-visible tool contract
@@ -52,6 +52,8 @@ When an Agent run loads its tools, the Capability reads the `kv` runtime handle,
 - With `key`, it returns `get(key)`. With `prefix`, it returns key names from `keys(prefix)`, without values or a count limit.
 - `kv_edit` calls `set(key, value)` for `operation: 'put'` and `delete(key)` for `operation: 'delete'`.
 
+With `prefix`, every key must be under the prefix. The Capability normalizes keys as the KV primitive does: `/` and `\` become `:`. It also removes the query suffix starting with `?`, collapses repeated separators, and removes leading and trailing separators, for both keys and configured prefixes. Then it checks the prefix at a `:` boundary. With `prefix: 'support:'`, `support:1` and `support/1` are inside, but `support`, `support-private:1`, and `support:..:secret` are not. A key outside the prefix fails with `AGENT_R1056` and the store is not called. A `kv_read` list of `support` lists `support:`. A list prefix outside the prefix fails, and the list result keeps only keys inside the prefix.
+
 When the handle returns `[error, value]`, the tool throws the error or returns the value.
 
 ## Requirements
@@ -62,8 +64,9 @@ When the handle returns `[error, value]`, the tool throws the error or returns t
 
 ## Security and approval
 
-- Read mode lets the Agent read any key and list any prefix in the store. The tool description says "developer-provided prefix", but nothing enforces one. To limit what the Agent sees, give it its own store.
-- Write mode lets the Agent put or delete any key in the selected store.
+- Without `prefix`, read mode lets the Agent read any key and list any prefix in the selected store, and write mode lets it put or delete any key.
+- With `prefix`, both tools stay inside the prefix. The tool descriptions tell the Agent the prefix.
+- To keep the Agent away from other data completely, give it its own store with `store`.
 - `policy` applies only to `kv_edit`, never to `kv_read`.
 - `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that gets `{ name, input }` and returns one of them.
 - Without `policy`, `kv_edit` runs when the Agent calls it.
@@ -90,6 +93,7 @@ When the handle returns `[error, value]`, the tool throws the error or returns t
 | --- | --- | --- | --- |
 | `mode` | `"read" \| "write"` | `"read"` | `"write"` adds `kv_edit`. Other values fail when the Agent Definition loads. |
 | `store` | `string` | default store | Picks a named store through `store()` on the KV handle. |
+| `prefix` | `string` | none (whole store) | Limits `kv_read` and `kv_edit` to keys under this prefix, such as `support:`. An empty prefix or one with `.` or `..` segments fails with `AGENT_R1055` when the Agent Definition loads. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | none (calls run) | Policy for `kv_edit`. No effect in read mode. |
 
 ## Related pages

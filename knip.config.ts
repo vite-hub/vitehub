@@ -123,7 +123,7 @@ const bundledInternal: Record<string, string[]> = {
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
-const packsWithPublint = ["forge", "gateways", "kit", "presets", "runtime", "shell"];
+const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
 
 // Settings that no manifest, config or script states.
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
@@ -193,8 +193,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   "vite-hub": {
     // `console.vite.config.ts` aliases `shiki/wasm` to this file by path.
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
-    // `test/agent-page.browser.mjs` writes fixture apps that import ui-sdk, as source text.
-    ignoreDependencies: ["@ui-sdk/core", "@ui-sdk/vue"],
   },
 };
 

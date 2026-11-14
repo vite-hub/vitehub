@@ -48,7 +48,7 @@ Each `blob_read` call runs one operation:
 
 - `get` returns the file at `pathname`.
 - `head` returns its metadata.
-- `list` requires a non-empty `prefix`. It passes `cursor`, `folded`, and `limit` to the Blob handle. `limit` defaults to 25, with a maximum of 100.
+- `list` requires a non-empty `prefix`, except with the `prefix` option. It passes `cursor`, `folded`, and `limit` to the Blob handle. `limit` defaults to 25, with a maximum of 100.
 
 Each `blob_edit` call runs one operation:
 
@@ -56,6 +56,21 @@ Each `blob_edit` call runs one operation:
 - `delete` removes the file at `pathname` and returns `{ pathname, deleted: true }`.
 
 When the current input has attachments, the `blob_edit` description lists their IDs and media types.
+
+## Limit the Agent to a folder
+
+`prefix` keeps both tools inside one folder of the store.
+
+```ts [server/agents/support.ts] fragment
+blob({ mode: 'write', prefix: 'reports/' })
+```
+
+The Capability decodes each pathname once and removes leading slashes, as the Blob primitive does. Then it checks that the pathname starts with `reports/`.
+
+- `reports/a.txt` and `/reports/a.txt` are inside. `reports`, `reports-private/a.txt`, `reports/../secret.txt`, and `reports%2F..%2Fsecret.txt` are not.
+- For `put`, the check covers `options.prefix` joined before `pathname`, because the Blob primitive writes to that joined pathname.
+- `list` without `prefix`, or with `reports`, lists `reports/`. A list prefix outside the folder fails. The result keeps only objects and folders inside it.
+- A pathname outside the folder fails with `AGENT_R1056` and the store is not called.
 
 ## Provider artifacts
 
@@ -111,8 +126,9 @@ await blob_edit({
 
 ## Security and approval
 
-- Read mode lets the Agent read any pathname, and list under any non-empty prefix, in the selected store. The `prefix` description says "developer-provided prefix", but the Capability does not enforce it. To limit what the Agent sees, give it its own store with `store`.
-- Write mode lets the Agent put or delete any pathname in the selected store, including input attachments and Workspace files.
+- Without `prefix`, read mode lets the Agent read any pathname, and list under any non-empty prefix, in the selected store. Write mode lets it put or delete any pathname, including input attachments and Workspace files.
+- With `prefix`, both tools stay inside that folder. The tool descriptions tell the Agent the folder. Provider artifacts that `assetPaths` publishes are not tool calls, and they still go under `vitehub-agent-artifacts/`.
+- To keep the Agent away from other data completely, give it its own store with `store`.
 - `policy` applies only to `blob_edit`. `blob_read` has no policy gate.
 - `policy` accepts `'allow'`, `'require-approval'`, `'deny'`, `'retryable-failure'`, or a function that gets `{ name, input }` and returns one of them.
 - Without `policy`, `blob_edit` runs when the Agent calls it.
@@ -141,6 +157,7 @@ await blob_edit({
 | `mode` | `"read" \| "write"` | `"read"` | `"write"` adds `blob_edit`. Other values fail when the Agent loads. |
 | `assetPaths` | `boolean \| string \| string[]` | `false` | Write mode and Provider-backed Drivers only. Copies out these Workspace paths and publishes files from this run that the final Markdown links. `true` uses `screenshots`. |
 | `store` | `string` | default store | Named store, through `store()` on the Blob handle. |
+| `prefix` | `string` | none (whole store) | Limits `blob_read` and `blob_edit` to pathnames under this folder, such as `reports/`. An empty prefix, or one with `.` or `..` segments, `\`, or percent-encoding, fails with `AGENT_R1055` when the Agent loads. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | none (calls run) | Policy for `blob_edit`. Does not affect artifact publishing. |
 
 ## Related pages
