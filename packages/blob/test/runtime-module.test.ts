@@ -232,10 +232,7 @@ describe("Blob Nitro runtime module", () => {
     expect(list).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    { objectAccess: "private" as const, storeAccess: "public" as const },
-    { objectAccess: "public" as const, storeAccess: "private" as const },
-  ])("reads a $objectAccess Vercel object when per-put access differs from the $storeAccess store default", async ({ objectAccess, storeAccess }) => {
+  it.each(["private", "public"] as const)("writes and reads a Vercel object with the %s access of its store", async (objectAccess) => {
     const pathname = "images/private.txt"
     const canonicalUrl = `https://store.${objectAccess}.blob.vercel-storage.com/${pathname}`
     vercelBlobMock.head.mockResolvedValueOnce({
@@ -250,12 +247,12 @@ describe("Blob Nitro runtime module", () => {
     }))
     vi.stubGlobal("fetch", anonymousFetch)
     const driver = createInternalVercelBlobDriver({
-      access: storeAccess,
+      access: objectAccess,
       driver: "vercel-blob",
       token: "vercel_blob_rw_test",
     })
 
-    await driver.put(pathname, "value", { access: objectAccess })
+    await driver.put(pathname, "value")
     const value = await driver.getArrayBuffer(pathname)
     expect(new TextDecoder().decode(value || undefined)).toBe("value")
     expect(vercelBlobMock.put).toHaveBeenCalledWith(pathname, "value", expect.objectContaining({ access: objectAccess }))
@@ -391,7 +388,7 @@ describe("Blob Nitro runtime module", () => {
     Object.assign(process.env, testCredentialEnv)
 
     await writeVercelRuntimeModule(rootDir, resolveVercelBlob({
-      serve: { route: "/", store: "assets" },
+      serve: { access: "public", route: "/", store: "assets" },
       stores: {
         assets: {
           access: "public",
@@ -448,7 +445,7 @@ describe("Blob Nitro runtime module", () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-read-mode-runtime-")
     Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
-      serve: { route: "/reports", store: "reports" },
+      serve: { access: "public", route: "/reports", store: "reports" },
       stores: {
         default: { base: join(rootDir, "default"), driver: "fs" },
         reports: { base: join(rootDir, "reports"), driver: "fs" },
@@ -500,7 +497,7 @@ describe("Blob Nitro runtime module", () => {
   it("exposes media records on the generated default and named stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-media-runtime-")
     const resolved = normalizeBlobOptions({
-      serve: { route: "/media", store: "default" },
+      serve: { access: "public", route: "/media", store: "default" },
       stores: {
         archive: { base: join(rootDir, "archive"), driver: "fs" },
         default: { base: join(rootDir, "default"), driver: "fs" },
