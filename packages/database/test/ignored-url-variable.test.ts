@@ -69,7 +69,9 @@ it("queries local SQLite after migrating empty Turso placeholders", async () => 
   delete env.TURSO_AUTH_TOKEN
   await execFileAsync(process.execPath, ["--env-file=.env", "--input-type=module", "--eval", [
     "import { sql } from 'drizzle-orm'",
-    "import db from './server/databases/default/index.ts'",
+    "import definition from './server/databases/default/index.ts'",
+    `import { createDefinitionRuntime } from ${JSON.stringify(new URL("../src/runtime/definition-local.ts", import.meta.url).href)}`,
+    "const db = createDefinitionRuntime(definition, {})",
     "await db.run(sql`select 1`)",
   ].join("\n")], { cwd, env })
   expect(existsSync(join(cwd, ".vitehub/data/database/sqlite.db"))).toBe(true)
