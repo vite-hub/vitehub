@@ -22,8 +22,9 @@ concurrency:
 
 env:
   NUXT_BUNDLE_ANALYZER_VERSION: 0.2.0
-  # The pages the analysis build renders and measures: the landing page, a guide, a primitive, and a diagnostics code.
-  NUXT_BUNDLE_ANALYZER_URLS: /,/docs/getting-started,/docs/kv,/docs/kv/diagnostics/kv_invalid_cursor
+  # The pages the analysis build renders and measures: the landing page, a guide, a primitive, a diagnostics panel and
+  # one of its codes. The code must be indexed and linked from a rendered page, or the docs search checks fail.
+  NUXT_BUNDLE_ANALYZER_URLS: /,/docs/getting-started,/docs/kv,/docs/kv/diagnostics,/docs/kv/diagnostics/kv_store_not_found
 
 jobs:
   # Analyzes the base commit and the pull request side by side. docs-bundle-size-comment.yml compares them and comments.
