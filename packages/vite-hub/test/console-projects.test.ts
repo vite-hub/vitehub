@@ -256,9 +256,11 @@ describe("account Console", () => {
     expect(transport.projectUrl("/_vitehub/rpc")).toBe("/p/p-1/_vitehub/rpc")
   })
 
-  it("shows the variable to set while the project has no public key for the link, or another one", async () => {
+  it("shows the variable to set while the project has no public key for the link, or another one, or no Console yet", async () => {
     for (const answer of [
       json(500, { code: "CONSOLE_KEY_NOT_CONFIGURED", message: "not set", ok: false, status: 500 }),
+      // An app without `console: true` answers the Console route with its 404 page.
+      operationRpcFetch(async () => new Response("<!doctype html><title>404</title>", { headers: { "content-type": "text/html" }, status: 404 })),
       json(401, { code: "CONSOLE_KEY_UNKNOWN", message: "unknown", ok: false, status: 401 }),
       json(401, { code: "CONSOLE_SIGNATURE_INVALID", message: "refused", ok: false, status: 401 }),
     ]) {

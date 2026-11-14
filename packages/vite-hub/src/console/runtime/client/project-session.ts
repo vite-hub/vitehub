@@ -181,8 +181,10 @@ function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget): Conso
   if (probe.kind === "ready") return undefined
   const projects = useState()
   if (projects.mode === "embedded") return undefined
-  // The project has no public key for this link yet, or another one: the person sets the variable of this link.
-  if (probe.kind === "signed" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED")) {
+  // The project has no public key for this link yet, or another one: the person sets the variable of this link. An app
+  // without `console: true` yet has no Console route at all. The setup page asks for both, so the person gets the
+  // variable and the next step in one place instead of a retry.
+  if (probe.kind === "signed" || probe.kind === "missing" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED")) {
     const linked = projects.account.value?.projects.find(project => project.url === target.url)
     if (linked) return { kind: "setup", project: linked }
   }
