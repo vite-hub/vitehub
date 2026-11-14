@@ -33,6 +33,11 @@ type SyncQueuedWrite = {
    * id until the server answers.
    */
   sent?: true
+  /**
+   * The scope id of a write of Sync v1, which had no account. The write waits, with `account: null`, until a pull has
+   * this scope id, and then gets the account of that pull.
+   */
+  legacyScope?: string
 } & ({ op: "insert", value: SyncRow } | { op: "update", patch: SyncRow } | { op: "delete" } | { op: "action", name: string, args: unknown })
 
 /** A write before the storage gave it a `seq`. */

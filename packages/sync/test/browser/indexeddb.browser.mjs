@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
 import { build } from "vite"
 
-import { createFakeSyncServer } from "../client-fake-server.ts"
+import { accountOf, createFakeSyncServer, scopeIdOf } from "../client-fake-server.ts"
 
 async function bundle(entry) {
   const output = await build({
@@ -142,7 +142,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       assert.deepEqual(result.meta, undefined)
       assert.deepEqual(result.rows, [])
       assert.deepEqual(result.writes.map(({ seq: _seq, ...write }) => write), [
-        { id: "m1", account: "s", key: "k1", op: "delete", sent: true },
+        { id: "m1", account: null, legacyScope: "s", key: "k1", op: "delete", sent: true },
         { id: "m2", account: null, key: "k2", op: "insert", value: { title: "Early" }, sent: true },
       ])
       await page.close()
@@ -251,6 +251,46 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       })
       assert.deepEqual(stored, { meta: undefined, rows: [], writes: [] })
       server.offline = false
+    })
+
+    await t.test("a queued write of Sync v1 goes out with the account of its user after the upgrade", async () => {
+      const page = await open()
+      const scope = scopeIdOf({ name: "todos", ownerId: "ada" })
+      await page.evaluate(async (scope) => {
+        await new Promise((resolve, reject) => {
+          const request = indexedDB.deleteDatabase("vitehub-sync")
+          request.onsuccess = resolve
+          request.onerror = reject
+        })
+        const old = await new Promise((resolve, reject) => {
+          const request = indexedDB.open("vitehub-sync", 1)
+          request.onupgradeneeded = () => {
+            const database = request.result
+            database.createObjectStore("rows", { keyPath: ["name", "key"] })
+            database.createObjectStore("meta", { keyPath: "name" })
+            database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
+          }
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = reject
+        })
+        const transaction = old.transaction(["outbox"], "readwrite")
+        transaction.objectStore("outbox").add({ name: "/api/_vitehub/sync/todos", id: "v1-insert", scope, key: "from-v1", op: "insert", value: { title: "From v1" } })
+        await new Promise(resolve => transaction.oncomplete = resolve)
+        old.close()
+      }, scope)
+      const state = await page.evaluate(async () => {
+        const todos = window.sync.createSync("todos", { interval: false })
+        await todos.refresh()
+        await todos.refresh()
+        const { queued, rows } = todos.getState()
+        todos.destroy()
+        return { queued, rows }
+      })
+      assert.equal(state.queued, 0)
+      assert.deepEqual(server.rows.get("from-v1"), { id: "from-v1", ownerId: "ada", title: "From v1" })
+      const sent = server.requests.filter(request => request.method === "POST").at(-1).body
+      assert.equal(sent.account, accountOf("ada"))
+      await page.close()
     })
   })
 }

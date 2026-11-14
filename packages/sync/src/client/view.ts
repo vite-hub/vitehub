@@ -53,14 +53,23 @@ function singleValues(values: SyncValues | undefined): SyncValues {
   return single
 }
 
-/** `true` when the write belongs to `account`, or was made before the first pull. A refused write is not active. */
+/**
+ * `true` when the write belongs to `account`, or was made before the first pull. A write of Sync v1 waits for the pull
+ * of its scope, so it belongs to nobody until then.
+ */
+function isOwn(write: SyncNewWrite, account: string | undefined): boolean {
+  if (write.legacyScope !== undefined) return false
+  return write.account === null || account === undefined || write.account === account
+}
+
+/** `true` when the write belongs to `account` and goes to the server. A refused write is not active. */
 function isActive(write: SyncNewWrite, account: string | undefined): boolean {
-  return !write.error && (write.account === null || account === undefined || write.account === account)
+  return !write.error && isOwn(write, account)
 }
 
 /** `true` when the failure belongs to the current account. */
 function isOwnFailure(write: SyncNewWrite, account: string | undefined): boolean {
-  return Boolean(write.error) && (write.account === null || account === undefined || write.account === account)
+  return Boolean(write.error) && isOwn(write, account)
 }
 
 /**
@@ -175,13 +184,22 @@ function toMutation(write: SyncNewWrite, meta: SyncMeta | undefined): SyncMutati
 }
 
 /**
- * The storage change for a pull. Writes made before the first pull take its account. Writes of another account stay
- * as they are, for when that account comes back. A new scope or table version drops the rows, not the writes.
+ * The storage change for a pull. Writes made before the first pull take its account. A write of Sync v1 takes it only
+ * when the pull has the scope id of the write, which is the same user with the same `where` values. Writes of another
+ * account stay as they are, for when that account comes back. A new scope or table version drops the rows, not the
+ * writes.
  */
 function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: readonly SyncQueuedWrite[]): SyncStorageChange {
   const update: SyncQueuedWrite[] = []
   for (const write of writes) {
-    if (write.account === null) update.push({ ...write, account: pull.account })
+    if (write.legacyScope !== undefined) {
+      if (write.legacyScope !== pull.scope.id) continue
+      const { legacyScope: _legacyScope, ...adopted } = write
+      update.push({ ...adopted, account: pull.account })
+    }
+    else if (write.account === null) {
+      update.push({ ...write, account: pull.account })
+    }
   }
   return {
     meta: { key: pull.key, cursor: pull.cursor, scope: pull.scope, account: pull.account, version: pull.version, defaults: pull.defaults },

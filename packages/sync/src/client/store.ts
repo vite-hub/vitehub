@@ -97,7 +97,7 @@ function isPush(value: unknown): value is SyncPushResponse {
 
 /** A short text that changes when the stored meta or outbox differs from the copy in memory. */
 function queueSignature(meta: SyncMeta | undefined, writes: readonly SyncQueuedWrite[]): string {
-  return `${meta?.account}:${meta?.scope.id}:${meta?.version}:${meta?.cursor}:${writes.map(write => `${write.seq}${write.account ?? ""}${write.error ? "!" : ""}${write.sent ? "s" : ""}`).join(",")}`
+  return `${meta?.account}:${meta?.scope.id}:${meta?.version}:${meta?.cursor}:${writes.map(write => `${write.seq}${write.account ?? write.legacyScope ?? ""}${write.error ? "!" : ""}${write.sent ? "s" : ""}`).join(",")}`
 }
 
 function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boolean {

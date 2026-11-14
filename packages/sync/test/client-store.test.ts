@@ -5,7 +5,7 @@ import { SyncError } from "../src/client/types.ts"
 import { accountOf, scopeIdOf } from "./client-fake-server.ts"
 import { createHarness, until } from "./client-harness.ts"
 
-import type { SyncStorage } from "../src/client/storage.ts"
+import type { SyncNewWrite, SyncStorage } from "../src/client/storage.ts"
 import type { Harness, Todo } from "./client-harness.ts"
 
 let harness: Harness
@@ -393,6 +393,28 @@ describe("accounts", () => {
     await until(() => reload.store.getState().queued === 0)
     expect(h.server.applied.map(mutation => mutation.op === "insert" && mutation.value.title)).toEqual(["Bob's offline", "Ada's offline"])
     expect(reload.store.getState().rows.map(row => row.title)).toEqual(["Ada's", "Ada's offline"])
+  })
+
+  it("sends a write of Sync v1 only with the account of a pull that has its scope id", async () => {
+    const h = setup()
+    seed(h, [{ id: "b", ownerId: "bob", title: "Bob's" }])
+    // The v1 upgrade keeps the scope id of the write. With Auth, the account of v2 is another fingerprint.
+    const legacy: SyncNewWrite = { id: "v1-write", account: null, legacyScope: scopeIdOf({ name: "todos", ownerId: "ada" }), key: "k1", op: "insert", value: { title: "From v1" }, sent: true }
+    await h.storage.write("/api/_vitehub/sync/todos", { add: [legacy] })
+    h.server.user = "bob"
+    const { store } = h.open()
+    await store.refresh()
+    expect(h.server.applied).toEqual([])
+    expect(store.getState()).toMatchObject({ queued: 0, failures: [], rows: [{ id: "b" }] })
+    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toMatchObject([{ id: "v1-write", account: null, legacyScope: legacy.legacyScope }])
+
+    // Ada signs in. Her pull has the scope id of the write, so the write gets her account and goes out.
+    h.server.user = "ada"
+    await store.refresh()
+    await until(() => h.server.rows.has("k1"))
+    expect(h.server.rows.get("k1")).toMatchObject({ title: "From v1", ownerId: "ada" })
+    expect(posts(h).at(-1)!.body!.account).toBe(accountOf("ada"))
+    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
   })
 
   it("stops pushing after a 409 when the pull keeps the same account", async () => {

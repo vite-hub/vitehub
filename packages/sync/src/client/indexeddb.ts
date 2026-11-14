@@ -9,7 +9,8 @@ import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResul
 const databaseName = "vitehub-sync"
 // Format 2 (Sync v2) adds the account, the table version and the defaults to the meta, and tags each write with its
 // account instead of its scope. Format 3 keeps the store of a write in `store`, since `name` is the name of an action.
-// Format 4 marks sent writes. An upgrade drops the stored rows and keeps the outbox.
+// Format 4 marks sent writes and keeps the v1 scope of a write in `legacyScope`. An upgrade drops the stored rows and
+// keeps the outbox.
 const format = 4
 
 interface MetaRecord extends SyncMeta {
@@ -43,8 +44,8 @@ function done(transaction: IDBTransaction): Promise<void> {
 
 /**
  * Moves an outbox of an older format to the current one. Before format 3, `name` held the store. A write of format 1
- * keeps the scope id that it was made for as its account. Any write may have been sent before the upgrade, so each
- * one is marked as sent.
+ * has the scope id that it was made for, and no account: it keeps the scope id in `legacyScope` and waits for a pull
+ * with that scope id. Any write may have been sent before the upgrade, so each one is marked as sent.
  */
 function upgradeOutbox(outbox: IDBObjectStore, oldVersion: number): void {
   if (oldVersion < 3) {
@@ -62,7 +63,8 @@ function upgradeOutbox(outbox: IDBObjectStore, oldVersion: number): void {
     }
     else {
       const { name, scope, ...write } = record
-      current.update({ ...write, account: write.account ?? scope ?? null, store: name, sent: true })
+      const legacy = oldVersion === 1 && typeof scope === "string" ? { account: null, legacyScope: scope } : {}
+      current.update({ ...write, ...(oldVersion === 1 ? { account: null } : {}), ...legacy, store: name, sent: true })
     }
     current.continue()
   }
