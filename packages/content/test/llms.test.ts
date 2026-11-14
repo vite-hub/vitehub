@@ -270,7 +270,8 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
 })
 
 describe("Markdown negotiation", { timeout: 30_000 }, () => {
-  function app(content: Parameters<typeof defineContentMarkdownHandler>[0], page: () => unknown = () => "page") {
+  const htmlPage = () => new Response("page", { headers: { "content-type": "text/html; charset=utf-8" } })
+  function app(content: Parameters<typeof defineContentMarkdownHandler>[0], page: () => unknown = htmlPage) {
     return new H3().use(defineContentMarkdownHandler(content)).all("/**", page)
   }
 
@@ -278,7 +279,8 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const content = await site({ markdown: true })
     for (const prepared of ["Cookie", "*"]) {
       for (const vary of ["Accept-Language, Origin", "Accept-Encoding", "*", "accept"]) {
-        for (const response of [new Response("page", { headers: { vary } }), new HTTPResponse("page", { headers: { vary } })]) {
+        const headers = { vary, "content-type": "text/html" }
+        for (const response of [new Response("page", { headers }), new HTTPResponse("page", { headers })]) {
           const handler = new H3().use((event) => { event.res.headers.set("vary", prepared) })
             .use(defineContentMarkdownHandler(content))
             .all("/**", () => response)
@@ -403,18 +405,90 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(browser.headers.get("content-type")).not.toContain("markdown")
   })
 
-  it("loads Content only for requests that ask for Markdown", async () => {
+  it("loads Content to check copies for downstream responses", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
     let loads = 0
     const lazy = app(() => {
       loads++
       return content
-    })
-    expect(await (await lazy.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })).text()).toBe("page")
-    expect(await (await lazy.request("https://example.com/style.css")).text()).toBe("page")
-    expect(loads).toBe(0)
+    }, () => new Response("body {}", { headers: { "content-type": "text/css" } }))
+    expect(await (await lazy.request("https://example.com/style.css")).text()).toBe("body {}")
+    expect(await (await lazy.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })).text()).toBe("body {}")
+    expect(loads).toBe(2)
     expect(await (await lazy.request("https://example.com/blog/hello.md")).text()).toMatch(/^# Hello\n/)
-    expect(loads).toBe(1)
+    expect(loads).toBe(3)
+    // An HTML page also loads Content to find its copy.
+    expect((await app(() => {
+      loads++
+      return content
+    }).request("https://example.com/blog/hello")).headers.get("link")).toContain("</blog/hello.md>")
+    expect(loads).toBe(4)
+  })
+
+  it("links the copy from an HTML page that has one", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const html = (body = "<p>page</p>", status = 200) => () => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } })
+    const page = await app(content, html()).request("https://example.com/blog/hello", { headers: { accept: "text/html" } })
+    expect(page.headers.get("link")).toBe("</blog/hello.md>; rel=\"alternate\"; type=\"text/markdown\"")
+    expect(page.headers.get("vary")).toBe("Accept")
+    expect((await app(content, html()).request("https://example.com/", { method: "HEAD" })).headers.get("link")).toBe("</index.md>; rel=\"alternate\"; type=\"text/markdown\"")
+    // A page without a copy does not change with Accept. A page 404 does: a Markdown request gets the Markdown 404.
+    const plain = await app(content, html()).request("https://example.com/blog/draft")
+    expect(plain.headers.get("link")).toBeNull()
+    expect(plain.headers.get("vary")).toBeNull()
+    const missing = await app(content, html("<p>gone</p>", 404)).request("https://example.com/blog/nope")
+    expect(missing.headers.get("link")).toBeNull()
+    expect(missing.headers.get("vary")).toBe("Accept")
+    // An existing Link header keeps its values.
+    const linked = await app(content, () => new Response("<p>page</p>", { headers: { "content-type": "text/html", link: "</style.css>; rel=preload; as=style" } }))
+      .request("https://example.com/blog/hello")
+    expect(linked.headers.get("link")).toBe("</style.css>; rel=preload; as=style, </blog/hello.md>; rel=\"alternate\"; type=\"text/markdown\"")
+  })
+
+  it("varies every representation at copy-backed URLs, but leaves unrelated responses alone", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    for (const response of [Response.json({ ok: true }), new Response("body {}", { headers: { "content-type": "text/css" } }), new Response(null, { status: 302, headers: { location: "/blog/hello" } })]) {
+      for (const path of ["/blog/hello", "/unrelated"]) {
+        const handler = app(content, () => response.clone())
+        const result = await handler.request(`https://example.com${path}`, { headers: { accept: "application/json" } })
+        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(result.headers.get("link")).toBeNull()
+        const markdown = await handler.request(`https://example.com${path}`, { headers: { accept: "text/markdown" } })
+        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        if (path === "/blog/hello") expect(await markdown.text()).toMatch(/^# Hello\n/)
+        else expect(await markdown.text()).toBe(await response.clone().text())
+      }
+    }
+  })
+
+  it("varies unmatched browser and Markdown 404s", async () => {
+    const content = await site({ markdown: true })
+    const handler = new H3().use(defineContentMarkdownHandler(content))
+    for (const accept of ["text/html", "text/markdown"]) {
+      const result = await handler.request("https://example.com/missing", { headers: { accept } })
+      expect(result.status).toBe(404)
+      expect(result.headers.get("vary")).toBe("Accept")
+      expect(result.headers.get("content-type")?.includes("text/markdown")).toBe(accept === "text/markdown")
+    }
+  })
+
+  it("names the copy and revalidates it with an ETag", async () => {
+    const content = await site({ site: "https://example.com", markdown: { prefix: "/raw" } })
+    for (const [path, accept, location] of [["/blog/hello.md", "*/*", "/blog/hello.md"], ["/raw/blog/hello.md", "*/*", "/raw/blog/hello.md"], ["/blog/hello", "text/markdown", "/blog/hello.md"]] as const) {
+      const first = await app(content).request(`https://example.com${path}`, { headers: { accept } })
+      expect(first.status).toBe(200)
+      expect(first.headers.get("content-location")).toBe(location)
+      const etag = first.headers.get("etag")
+      expect(etag).toMatch(/^"[\w-]+"$/)
+      const again = await app(content).request(`https://example.com${path}`, { headers: { accept, "if-none-match": `W/"other", ${etag}` } })
+      expect(again.status).toBe(304)
+      expect(again.headers.get("etag")).toBe(etag)
+      expect(await again.text()).toBe("")
+      const changed = await app(content).request(`https://example.com${path}`, { headers: { accept, "if-none-match": "\"other\"" } })
+      expect(changed.status).toBe(200)
+    }
+    const head = await app(content).request("https://example.com/blog/hello.md", { method: "HEAD" })
+    expect(head.headers.get("etag")).toBe((await app(content).request("https://example.com/blog/hello.md")).headers.get("etag"))
   })
 
   it("reads Accept quality values", () => {

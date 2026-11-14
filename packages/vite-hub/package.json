@@ -97,6 +97,11 @@
       "import": "./dist/agent/observability.js",
       "default": "./dist/agent/observability.js"
     },
+    "./agent/page": {
+      "types": "./dist/agent/page.d.ts",
+      "import": "./dist/agent/page.js",
+      "default": "./dist/agent/page.js"
+    },
     "./agent/process": {
       "types": "./dist/agent/process.d.ts",
       "import": "./dist/agent/process.js",
@@ -142,6 +147,11 @@
       "import": "./dist/auth/database.js",
       "default": "./dist/auth/database.js"
     },
+    "./auth/forward": {
+      "types": "./dist/auth/forward.d.ts",
+      "import": "./dist/auth/forward.js",
+      "default": "./dist/auth/forward.js"
+    },
     "./auth/mcp": {
       "types": "./dist/auth/mcp.d.ts",
       "import": "./dist/auth/mcp.js",
@@ -181,6 +191,11 @@
       "types": "./dist/blob/media.d.ts",
       "import": "./dist/blob/media.js",
       "default": "./dist/blob/media.js"
+    },
+    "./blob/nuxt-image": {
+      "types": "./dist/blob/nuxt-image.d.ts",
+      "import": "./dist/blob/nuxt-image.js",
+      "default": "./dist/blob/nuxt-image.js"
     },
     "./blob/vue": {
       "types": "./dist/blob/vue.d.ts",
@@ -557,6 +572,11 @@
       "import": "./dist/realtime/bus.js",
       "default": "./dist/realtime/bus.js"
     },
+    "./realtime/agent": {
+      "types": "./dist/realtime/agent.d.ts",
+      "import": "./dist/realtime/agent.js",
+      "default": "./dist/realtime/agent.js"
+    },
     "./realtime/client": {
       "types": "./dist/realtime/client.d.ts",
       "import": "./dist/realtime/client.js",
@@ -854,7 +874,8 @@
     "build:console-account": "vp build --config console.account.vite.config.ts",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
-    "test": "vp run --cache -t vite-hub#build && vp test"
+    "test": "vp run --cache -t vite-hub#build && vp test",
+    "test:browser": "vp run --cache -t vite-hub#build && node --test test/agent-page.browser.mjs"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
@@ -889,6 +910,7 @@
     "@better-auth/passkey": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@cloudflare/workers-types": "^5.20261016.1",
+    "@electric-sql/pglite": "catalog:database",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@google-cloud/storage": "catalog:storage",
@@ -911,6 +933,8 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/vue-3": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
@@ -932,7 +956,8 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/kit": "workspace:*",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/mcp": "workspace:*",

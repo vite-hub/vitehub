@@ -22,7 +22,8 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
-import { assertNoRuntimeOption } from "./definition.ts"
+import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
+import { createAccessPolicyPlugin } from "./access-policy.ts"
 
 import type { BetterAuthOptions } from "better-auth"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -127,7 +128,7 @@ function stripViteHubOptions(
   environment: ProviderEnvironment,
 ): AuthBetterAuthRuntimeOptions {
   const {
-    access: _access,
+    access,
     adminClaim: _adminClaim,
     console: _console,
     database,
@@ -160,6 +161,11 @@ function stripViteHubOptions(
     if (!memory && !isDevelopmentServer()) throw authMemoryDatabaseError()
     storage.database = sharedMemoryDatabase(definition)
   }
+  const policy = isPlainObject(access) ? access.policy : undefined
+  validateAuthAccessPolicy(policy)
+  if (policy && !storage.database && !storage.secondaryStorage) {
+    throw authErrorDiagnostics.AUTH_C0066({ message: "`defineAuth()` access.policy needs a Better Auth `database` or `secondaryStorage` adapter. A session that lives only in a cookie cannot be ended." })
+  }
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
@@ -171,6 +177,7 @@ function stripViteHubOptions(
     ...(impersonation ? [createImpersonationPlugin()] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
+    ...(policy ? [createAccessPolicyPlugin(policy)] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
@@ -273,7 +280,11 @@ export function resolveAuthOptions(
   // A callback result is request-scoped as a whole. A static Definition adds only the request defaults below.
   let requestRuntimeOptions = (callback ? declared : {}) as AuthRuntimeOptions & Record<string, unknown>
   if (request) {
-    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: trusted && proxiedOrigin ? { url: proxiedOrigin } : request })
+    const requestOrigin = trusted && proxiedOrigin ? proxiedOrigin : request.url
+    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: { url: requestOrigin } })
+    if (!baseURL) {
+      throw authErrorDiagnostics.AUTH_R0022({ message: `[vitehub] The request host ${new URL(requestOrigin).host} is not an origin of vitehub({ publicUrl }), so Auth has no base URL.` })
+    }
     // SAFETY: Origin defaults preserve the runtime options shape and add only supported Better Auth fields.
     requestRuntimeOptions = {
       ...(!Object.hasOwn(declared, "trustedOrigins") ? { trustedOrigins: [baseURL] } : {}),

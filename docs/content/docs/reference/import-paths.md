@@ -32,18 +32,19 @@ the same behavior.
 | `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runs without Evlog, but its types need `evlog`. |
 | `vite-hub/logs/host` | Install and resolve a project's LogSource in the process-wide registry, without Evlog. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state helpers. |
-| `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
+| `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. `useChat(agent, { page })` connects the page's ui-sdk bridge. |
+| `vite-hub/agent/page` | [`connectPage()`](/docs/agents/capabilities/page): lets an Agent with `page()` work this page through ui-sdk's agent bridge, in any framework. |
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
 | `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
 | `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
 | `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. Re-exports `@vite-hub/forms`. |
-| `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. Re-exports `@vite-hub/forms/client`. |
+| `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. `fieldErrors()` gives them by field name. Re-exports `@vite-hub/forms/client`. |
 | `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
 | `vite-hub/forms/operations` | The `forms.list`, `forms.get`, and `forms.mark` operations of the Console, `vitehub forms`, and MCP. Re-exports `@vite-hub/forms/operations`. |
 | `vite-hub/forms/runtime` | `installedForms()`: the inbox of the running app, for server code. Re-exports `@vite-hub/forms/runtime`. |
-| `vite-hub/forms/vue` | `AutoForm`, a whole form from a Valibot object schema, and `useFormSubmit()` for a Formisch form. Needs `@formisch/vue`. Re-exports `@vite-hub/forms/vue`; `useFormSubmit()` is auto-imported in Nuxt. |
+| `vite-hub/forms/vue` | `AutoForm`, a whole form from a Valibot object schema, `useFormAction()` for a native `<form>`, and `useFormSubmit()` for a Formisch form. Needs `@formisch/vue`. Re-exports `@vite-hub/forms/vue`; `useFormAction()` and `useFormSubmit()` are auto-imported in Nuxt. |
 | `vite-hub/i18n` | [`t`, `plural`, `select`, `selectOrdinal`, `msg`](/docs/i18n/server-api), `getLocale()`, `getLocales()`, `setLocale()`, and `translate()`. Messages in the source language, compiled to IDs by the build. Re-exports `@vite-hub/i18n`. |
 | `vite-hub/i18n/vue` | [`createI18n()`](/docs/i18n/configure#add-i18n-to-a-vue-app) and `useLocale()` for Vue apps. Re-exports `@vite-hub/i18n/vue`; `vite-hub/nuxt` installs the plugin and auto-imports `useLocale()`. |
 | `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
@@ -64,7 +65,7 @@ the same behavior.
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/collections` | Editable document collections (`documents()`, `singleton()`). Needs `@vite-hub/workspace`. |
-| `vite-hub/content/markdown` | Markdown negotiation middleware and Markdown 404 helpers. Pass a Content runtime or a loader that defers Content until a Markdown request. |
+| `vite-hub/content/markdown` | Markdown negotiation middleware and Markdown 404 helpers. Pass a Content runtime or a loader that defers Content until a Markdown request or an HTML page. |
 | `vite-hub/content/preview` | The Content preview API and `defineContentPreviewPlugin()`. Pass a runtime or a loader. A loader defers Content until the first preview request. |
 | `vite-hub/content/sqlite` | In-memory SQLite database for full-text search on Node and Cloudflare Workers. |
 | `vite-hub/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
@@ -76,6 +77,7 @@ the same behavior.
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/abilities` | [`defineAbilities()`, `guest()`, and `deny()`](/docs/auth/abilities) for permission rules shared by server and app. |
 | `vite-hub/auth/mcp` | OAuth sign-in, discovery, request checks, and unused-client cleanup for an app's MCP server. Needs `@better-auth/oauth-provider`. |
+| `vite-hub/auth/forward` | [`forwardAuth()`](/docs/auth/configure#sign-in-through-a-trusted-proxy) signs people in from a trusted reverse proxy's identity header. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and adds its tables to generated migrations. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
@@ -84,6 +86,7 @@ the same behavior.
 | `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, `ensureBlob()`, `detectContentType()`, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()`, `createMultipartUploader()`, and `detectContentType()`. |
 | `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |
+| `vite-hub/blob/nuxt-image` | The `@nuxt/image` provider for served Blob media. `vite-hub/nuxt` registers it as `vitehub`. |
 | `vite-hub/blob/vue` | Vue upload composables: `useUpload()` and `useMultipartUpload()`. |
 | `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, named Browser runs, and Browser Run actions (`runBrowserAction()`, `runBrowserContent()`). |
 | `vite-hub/web-container` | Boot and mount a [WebContainer](/docs/web-container) in the browser, run app commands, read preview readiness and status, and export snapshots. Re-exports `@vite-hub/web-container`. |
@@ -112,7 +115,7 @@ the same behavior.
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
-| `vite-hub/mcp` | `defineMcpTool()` for the tools of the app's MCP server in `server/mcp/tools/`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
+| `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` for the tools, prompts, and resources of the app's MCP server in `server/mcp/tools/`, `server/mcp/prompts/`, and `server/mcp/resources/`, and `defineMcpHooks()` for `server/mcp.ts`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
 | `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Rate Limit handles declared in your source, and direct Rate Limiters. |
@@ -121,6 +124,7 @@ the same behavior.
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
 | `vite-hub/realtime/bus` | Node room fanout through Postgres or Redis, bus selection, and shutdown hooks for manual server integration. |
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
+| `vite-hub/realtime/agent` | `agentRealtime`, the Realtime handle that ViteHub passes to the Agent [`page()`](/docs/agents/capabilities/page) Capability. Apps do not import it. |
 | `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |

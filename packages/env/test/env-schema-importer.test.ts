@@ -166,21 +166,27 @@ VITEHUB_MODE=draft`);
   });
 
   it.each([
-    ["# @type=number @public\nVITEHUB_VALUE=3", ""],
     ["# @type=number @public\nVITEHUB_VALUE=3", "0xff"],
     ["# @type=number(min=2, max=5, isInt=true) @public\nVITEHUB_VALUE=3", "1"],
     ["# @type=number(min=2, max=5, isInt=true) @public\nVITEHUB_VALUE=3", "2.5"],
     ["# @type=number(min=2, max=5, isInt=true) @public\nVITEHUB_VALUE=3", "6"],
-    ["# @type=boolean @public\nVITEHUB_VALUE=true", ""],
     ["# @type=url @public\nVITEHUB_VALUE=https://example.test", "relative/path"],
     ["# @type=string(minLength=2, maxLength=5) @public\nVITEHUB_VALUE=abc", "x"],
     ["# @type=string(minLength=2, maxLength=5) @public\nVITEHUB_VALUE=abc", "abcdef"],
-    ["# @public\nVITEHUB_VALUE=valid", ""],
   ])("rejects invalid present overrides without falling back to the default", (source, value) => {
     const registry = createRuntimeRegistry(contract(source).server);
     expect(() => resolveServerEnv(registry, cloudflareRequest({ VITEHUB_VALUE: value }))).toThrow(
       expect.objectContaining({ code: "ENV_RUNTIME_VALUE_INVALID" }),
     );
+  });
+
+  it.each([
+    ["# @type=number @public\nVITEHUB_VALUE=3", 3],
+    ["# @type=boolean @public\nVITEHUB_VALUE=true", true],
+    ["# @public\nVITEHUB_VALUE=valid", "valid"],
+  ])("treats an empty override as missing, so the default applies: %s", (source, expected) => {
+    const registry = createRuntimeRegistry(contract(source).server);
+    expect(resolveServerEnv(registry, cloudflareRequest({ VITEHUB_VALUE: "" })).value).toBe(expected);
   });
 
   it("does not turn examples into defaults or expose rejected secret values", () => {

@@ -647,6 +647,7 @@ function createContainerSession(state: {
         async wait() {
           const exitCode = await exit;
           await termination;
+          if (termination) throw options.abortSignal!.reason;
           return { exitCode };
         },
       };
