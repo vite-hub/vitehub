@@ -104,7 +104,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         installRequestStandardContext(request)
         // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
         const event = request as Request & CommentsRequestEvent
-        const { user, gate } = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
+        const { user, gate } = await resolveCommentsIdentity(options.comments, event, options)
         const page = new URL(request.url).searchParams.get("page")
         const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
         if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true

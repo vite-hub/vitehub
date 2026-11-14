@@ -230,14 +230,9 @@ function leaseHolder(error: unknown): string {
  */
 export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(request: Request): Promise<Response> } {
   const { comments } = options
-  const sessionOptions: CommentsSessionOptions = {
-    ...options,
-    session: async request => await options.session?.(request) ?? await options.githubLogin?.user(request),
-  }
-
   /** The user of the request. See `resolveCommentsIdentity()`. */
   async function identityOf(request: CommentsRequest): Promise<CommentsIdentity> {
-    return resolveCommentsIdentity(comments, request, sessionOptions)
+    return resolveCommentsIdentity(comments, request, options)
   }
 
   async function access(request: CommentsRequest, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<CommentsIdentity & { author: CommentUser | undefined }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {

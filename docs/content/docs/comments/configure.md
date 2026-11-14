@@ -121,7 +121,7 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 
 The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
 
-On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
+On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -283,7 +283,7 @@ A guest id starts with `guest:`, so it never matches a signed-in person's id. Gu
 
 ### Roles from Site access
 
-[Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 

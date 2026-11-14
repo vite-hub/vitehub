@@ -202,7 +202,8 @@ describe("a Console app without Comments", () => {
       expect(withAuth).toContain(`export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: "/portal/", script: ${JSON.stringify(consolePageToolScript)}, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request) }) }`)
       await write([], { base: "/" })
       const withoutAuth = await readFile(file, "utf8")
-      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)} })`)
+      // Without Auth, the Console page tool reads the Site access cookie.
+      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)}, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request) })`)
       expect(withoutAuth).not.toContain(generatedModules.consolePageAuth)
       await write([])
       const off = await readFile(file, "utf8")
