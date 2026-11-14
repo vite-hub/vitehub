@@ -1,6 +1,9 @@
 import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
-import { resolveVercelSandbox } from '../../../internal/vercel.ts'
+import { loadVercelSandbox, resolveVercelSandbox } from '../../../internal/vercel.ts'
+import type { VercelSandboxCreateOptions, VercelSandboxInstance } from '../../../vercel.ts'
 import { readEnv } from '@vite-hub/internal/env'
+import { sandboxTaskErrorDiagnostics } from '../../error-diagnostics.ts'
+import { DEFAULT_SANDBOX_TASK_TIMEOUT_MS } from '../provider-resolution'
 
 /**
  * The Vercel VM timeout starts at create, but the task timeout starts after the Sandbox opens.
@@ -51,9 +54,7 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   const credentials = resolveCredentials(options.provider)
   const sandboxOptions = {
     runtime: options.provider.runtime || 'node24',
-    timeout: typeof options.local.timeout === 'number'
-      ? options.local.timeout + VERCEL_TASK_SANDBOX_HEADROOM_MS
-      : options.provider.timeout,
+    timeout: (options.local.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS) + VERCEL_TASK_SANDBOX_HEADROOM_MS,
     cpu: options.provider.cpu,
     ports: options.provider.ports,
     source: options.provider.source,
@@ -63,8 +64,28 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   return {
     provider: 'vercel' as const,
     resolveSandbox: async (requirements: readonly string[]) => await resolveVercelSandbox(
-      sandboxOptions,
+      { ...sandboxOptions, create: withPlanLimitError(await loadVercelSandbox()) },
       requirements,
     ),
   }
+}
+
+/** Reports a session timeout above the Vercel plan maximum with its own code and the limit from Vercel. */
+function withPlanLimitError(create: (options: VercelSandboxCreateOptions) => Promise<VercelSandboxInstance>) {
+  return async (createOptions: VercelSandboxCreateOptions) => {
+    try {
+      return await create(createOptions)
+    }
+    catch (error) {
+      const limit = error instanceof Error ? vercelTimeoutLimit(error.message) : undefined
+      if (limit && createOptions.timeout !== undefined)
+        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0077({ cause: error, limit, timeout: createOptions.timeout })
+      throw error
+    }
+  }
+}
+
+function vercelTimeoutLimit(message: string) {
+  // provider-message-match: the Vercel API answers a timeout above the plan maximum with a plain 400 and no error code.
+  return /`timeout` restricted to [^\n]+/.exec(message)?.[0]
 }

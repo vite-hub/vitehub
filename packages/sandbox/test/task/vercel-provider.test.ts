@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { resolveVercelSandbox } = vi.hoisted(() => ({
+const { loadVercelSandbox, resolveVercelSandbox } = vi.hoisted(() => ({
+  loadVercelSandbox: vi.fn(async () => async () => ({})),
   resolveVercelSandbox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
-vi.mock("../../src/internal/vercel.ts", () => ({ resolveVercelSandbox }))
+vi.mock("../../src/internal/vercel.ts", () => ({ loadVercelSandbox, resolveVercelSandbox }))
 
 import { resolveVercelTaskSandbox } from "../../src/task/runtime/providers/vercel.ts"
 

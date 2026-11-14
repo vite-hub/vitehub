@@ -8,6 +8,7 @@ import type { ResolvedTaskSandbox } from './provider-loader'
 import {
   assertSandboxTaskDefinitionOptions,
   createCloudflareExecutionSandboxId,
+  DEFAULT_SANDBOX_TASK_TIMEOUT_MS,
   detectSandbox,
   isSandboxAvailable,
   resolveRuntimeProvider,
@@ -134,7 +135,6 @@ async function resolveSandboxTaskProvider(
   sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined,
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
-  assertSandboxTaskDefinitionOptions(definition.options ?? {})
   const config = getSandboxTaskFeatureProvider(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
@@ -253,9 +253,15 @@ export async function resolveSandboxTaskRunner(name?: string) {
       : `[vitehub] Unknown Sandbox Task "${name}". Sandbox Tasks are not enabled in this build. Set \`sandboxTask: true\` on a preset that supports Sandbox.` })
   if (!hasValidSandboxTaskBundle(definition))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
+  assertSandboxTaskDefinitionOptions(definition.options ?? {})
 
-  const provider = await resolveSandboxTaskProvider(config, definition)
-  return await createSandboxTaskRunner(name, definition, provider)
+  // Every provider ends a run at the same default, instead of at its own session or command limit.
+  const runDefinition = {
+    ...definition,
+    options: { ...definition.options, timeout: definition.options?.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS },
+  }
+  const provider = await resolveSandboxTaskProvider(config, runDefinition)
+  return await createSandboxTaskRunner(name, runDefinition, provider)
 }
 
 export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknown>(

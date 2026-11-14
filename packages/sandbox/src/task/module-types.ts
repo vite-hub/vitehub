@@ -12,7 +12,6 @@ export interface CloudflareSandboxTaskOptions {
 export interface VercelSandboxTaskProviderOptions {
   provider: 'vercel'
   runtime?: string
-  timeout?: number
   cpu?: number
   ports?: number[]
   source?: VercelSandboxSource

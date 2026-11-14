@@ -100,5 +100,9 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0074: dynamicError,
     SANDBOX_TASK_R0075: dynamicError,
     SANDBOX_TASK_R0076: dynamicError,
+    SANDBOX_TASK_R0077: {
+      why: ({ limit, timeout }: { limit: string; timeout: number }) => `Vercel rejected the Sandbox session timeout of ${timeout}ms: ${limit}.`,
+      fix: "Set a lower Sandbox Task `timeout`. Vercel allows up to 45 minutes on Hobby and 24 hours on Pro. The Vercel session gets the task timeout plus 30 seconds.",
+    },
   },
 })
