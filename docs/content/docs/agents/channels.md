@@ -448,7 +448,7 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 - Replays check the signature again. A timestamped signature such as `stripe-sha256` is checked against the first arrival, so late replays still pass.
 - A request gets at most 3 admissions.
 
-The request is stored at `<scope>inbox:<id>`, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+The request is stored at `<scope>inbox:<id>` for one day, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. Replay finds it through an hourly index list at `<scope>inbox-index:<hour>`, which holds only IDs and expires a day after its last entry. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
 ```ts [server/agents/support.ts] fragment
 webhooks: {

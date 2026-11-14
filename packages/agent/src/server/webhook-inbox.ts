@@ -9,6 +9,11 @@ const webhookInboxRetentionMs = 86_400_000
 /** The route admits a stored request at most this many times, the first delivery included. */
 const webhookInboxMaxAttempts = 3
 const webhookInboxOwnerTtlMs = 30_000
+/**
+ * Width of one replay index list. A list expires a day after its last append, so closing a list
+ * every hour bounds the index to the retention window plus one hour of webhooks.
+ */
+const webhookInboxIndexBucketMs = 3_600_000
 
 /** Admissions that got a 202 answer and still run. `drainDeferredWebhookAdmissions()` waits for them. */
 const deferredWebhookAdmissions = new Set<Promise<void>>()
@@ -38,6 +43,12 @@ interface WebhookInboxEntry {
 
 interface StoredWebhookInboxEntry extends WebhookInboxEntry {
   attempts: number
+}
+
+/** A replay index entry. The stored row keeps the request. */
+interface WebhookInboxIndexEntry {
+  attempts: number
+  id: string
 }
 
 export interface WebhookInbox {
@@ -103,8 +114,17 @@ export async function webhookInboxId(request: Request, rawBody: Uint8Array): Pro
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
-function webhookInboxIndexKey(prefix: string): string {
+/** Before replay indexed by hour, one list per scope held complete copies of every request. */
+function legacyWebhookInboxIndexKey(prefix: string): string {
   return `${prefix}inbox`
+}
+
+function webhookInboxIndexKey(prefix: string, bucket: number): string {
+  return `${prefix}inbox-index:${bucket}`
+}
+
+function webhookInboxIndexBucket(time: number): number {
+  return Math.floor(time / webhookInboxIndexBucketMs)
 }
 
 function webhookInboxKey(prefix: string, id: string): string {
@@ -147,7 +167,6 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   activeWebhookInboxLocks.add(key)
   const ownerKey = `${key}:owner`
   const ownerToken = crypto.randomUUID()
-  let indexed = false
   try {
     await state.set(ownerKey, { token: ownerToken, heartbeatAt: Date.now() }, webhookInboxOwnerTtlMs)
   }
@@ -163,14 +182,15 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
     const previous = await state.get(key)
     const previousAttempts = isStoredWebhookInboxEntry(previous) ? previous.attempts : 0
     const attempts = Math.max(previousAttempts, entry.priorAttempts ?? 0) + 1
-    if (!previous) {
-      // Keep a complete copy in the replay index. If the process stops between the
-      // row and index writes, replay can still recover the stored request.
-      await state.appendToList(webhookInboxIndexKey(keyPrefix), { ...entry, attempts } satisfies StoredWebhookInboxEntry, {
-        ttlMs: webhookInboxRetentionMs,
-      })
-      indexed = true
-    }
+    // Index before the row, so every stored row has an index entry whose list lives as long
+    // as the row. Each admission indexes again, because it renews the row's retention.
+    // The route answers the provider only after both writes, so a process that stops between
+    // them leaves a request the provider saw fail, the same as one that stops before either.
+    await state.appendToList(
+      webhookInboxIndexKey(keyPrefix, webhookInboxIndexBucket(Date.now())),
+      { attempts, id: entry.id } satisfies WebhookInboxIndexEntry,
+      { ttlMs: webhookInboxRetentionMs },
+    )
     await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
     return {
       attempts,
@@ -193,7 +213,7 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
         catch (error) {
           logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
         }
-        // Keep a settled marker while the replay index entry expires. It is written
+        // Keep a settled marker while the replay index entries expire. It is written
         // before releasing the lock, so replay can never mistake this settlement for
         // a crashed owner and remove a replacement owner's marker.
         await state.set(ownerKey, { settled: true }, webhookInboxRetentionMs).catch(() => undefined)
@@ -207,11 +227,6 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
     activeWebhookInboxLocks.delete(key)
     await state.delete(ownerKey).catch(() => undefined)
     await state.releaseLock(lock).catch(() => undefined)
-    if (indexed) {
-      const storedError = error instanceof Error ? error : new Error(String(error))
-      Object.assign(storedError, { webhookStored: true })
-      throw storedError
-    }
     throw error
   }
 }
@@ -308,20 +323,33 @@ export async function replayWebhookInbox(
   for (const { keyPrefix, state } of scopes) states.set(keyPrefix, state)
   for (const [keyPrefix, state] of states) {
     const indexedEntries = new Map<string, { entry?: StoredWebhookInboxEntry, attempts: number }>()
-    for (const indexed of await state.getList(webhookInboxIndexKey(keyPrefix))) {
-      if (!isRecord(indexed) || typeof indexed.id !== "string") continue
-      const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
-      const previous = indexedEntries.get(indexed.id)
-      indexedEntries.set(indexed.id, {
-        entry: previous?.entry || indexedEntry,
-        attempts: Math.max(previous?.attempts || 0, indexedEntry?.attempts || 0),
-      })
+    const legacyIndexKey = legacyWebhookInboxIndexKey(keyPrefix)
+    // An index list can hold entries until a day after its last append.
+    const lastBucket = webhookInboxIndexBucket(Date.now())
+    const indexKeys = [legacyIndexKey]
+    for (let bucket = webhookInboxIndexBucket(Date.now() - webhookInboxRetentionMs) - 1; bucket <= lastBucket; bucket++) {
+      indexKeys.push(webhookInboxIndexKey(keyPrefix, bucket))
+    }
+    for (const indexKey of indexKeys) {
+      for (const indexed of await state.getList(indexKey)) {
+        if (!isRecord(indexed) || typeof indexed.id !== "string") continue
+        // Entries of the legacy list carry the whole request.
+        const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
+        const previous = indexedEntries.get(indexed.id)
+        indexedEntries.set(indexed.id, {
+          entry: previous?.entry || indexedEntry,
+          attempts: Math.max(previous?.attempts || 0, typeof indexed.attempts === "number" ? indexed.attempts : 0),
+        })
+      }
     }
     for (const [id, indexed] of indexedEntries) {
       const key = webhookInboxKey(keyPrefix, id)
       const row = await state.get(key)
       const storedRow = isStoredWebhookInboxEntry(row) ? row : undefined
-      const stored = storedRow || indexed.entry
+      // A legacy copy without a row is replayable for as long as its row would have been kept.
+      // An older one belongs to an admission whose settled marker has expired.
+      const stored = storedRow
+        || (indexed.entry && Date.now() - Date.parse(indexed.entry.receivedAt) < webhookInboxRetentionMs ? indexed.entry : undefined)
       if (!isStoredWebhookInboxEntry(stored) || !(Date.parse(stored.receivedAt) < before)) continue
       const attempts = Math.max(stored.attempts, indexed.attempts)
       const fields = { attempts, deliveryScope: keyPrefix, inboxId: stored.id }
@@ -331,6 +359,16 @@ export async function replayWebhookInbox(
         logWebhookInbox("inbox.dropped", fields)
         await state.delete(key)
         continue
+      }
+      if (indexed.entry) {
+        // Move a request from the legacy list to the hourly index, with its row, so it stays
+        // replayable whatever the route does with it once the legacy list is gone.
+        await state.appendToList(
+          webhookInboxIndexKey(keyPrefix, webhookInboxIndexBucket(Date.now())),
+          { attempts, id } satisfies WebhookInboxIndexEntry,
+          { ttlMs: webhookInboxRetentionMs },
+        )
+        if (!storedRow) await state.set(key, { ...stored, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
       }
       logWebhookInbox("inbox.replaying", { ...fields, receivedAt: stored.receivedAt })
       try {
@@ -368,5 +406,7 @@ export async function replayWebhookInbox(
         logWebhookInbox("inbox.replay.failed", { ...fields, error: errorMessage(error) })
       }
     }
+    // Every request still to replay from the legacy list now has an hourly index entry.
+    await state.delete(legacyIndexKey)
   }
 }

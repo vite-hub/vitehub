@@ -77,12 +77,21 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
       headers: { "content-type": "application/json", "x-github-delivery": `delivery-${n}`, "x-hub-signature-256": signature === undefined ? sign(JSON.stringify({ n })) : `sha256=${signature}` },
       method: "POST",
     }), "", routeOptions)
-  const inbox = async () => {
+  // Every replay index row of this scope, whichever list holds it.
+  const indexRows = async () => {
     await state.connect()
+    const rows = await state.extension("webhook_ack_test").execute(
+      "SELECT value FROM vitehub_agent_state_lists WHERE key LIKE ? ORDER BY id",
+      [`${scope}inbox%`],
+    )
+    return rows.map(row => String(row.value))
+  }
+  const inbox = async () => {
     const rows = []
     // The replay index can list an ID more than once; replay reads each stored request once.
     const ids = new Set<string>()
-    for (const entry of await state.getList<{ id: string }>(`${scope}inbox`)) {
+    for (const value of await indexRows()) {
+      const entry = JSON.parse(value) as { id: string }
       if (ids.has(entry.id)) continue
       ids.add(entry.id)
       const row = await state.get(`${scope}inbox:${encodeURIComponent(entry.id)}`)
@@ -94,6 +103,7 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
     create,
     hold: () => { const held = deferred(); gate = held.promise; return held },
     inbox,
+    indexRows,
     invokes,
     routeOptions,
     send,
@@ -198,30 +208,67 @@ describe("webhook acknowledgement after store", () => {
     await stop()
   })
 
-  it("preserves attempts when replay recovers an index-only entry", async () => {
+  it("preserves attempts when replay recovers an index-only entry of the legacy list", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { create, inbox, invokes, routeOptions, state, setStatus } = await setup({ ackTimeoutMs: 1_000 })
     setStatus(503)
     await state.connect()
-    await state.appendToList(`${scope}inbox`, {
-      attempts: 2,
-      id: "delivery-index-only",
-      receivedAt: new Date(Date.now() - 1_000).toISOString(),
+    // Before the hourly index, one list per scope kept a complete copy of each request.
+    const legacyEntry = (n: number, receivedAt: number, attempts: number) => ({
+      attempts,
+      id: `delivery-index-only-${n}`,
+      receivedAt: new Date(receivedAt).toISOString(),
       // Replay checks the signature again, so the stored request keeps its signed headers.
       request: {
-        body: "{\"n\":9}",
-        headers: { "content-type": "application/json", "x-github-delivery": "delivery-index-only", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update("{\"n\":9}").digest("hex")}` },
+        body: `{"n":${n}}`,
+        headers: { "content-type": "application/json", "x-github-delivery": `delivery-index-only-${n}`, "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(`{"n":${n}}`).digest("hex")}` },
         method: "POST",
         url: "https://example.com/hook",
       },
       webhookId: "",
     })
+    // A copy from two days ago belongs to an admission whose settled marker has expired.
+    await state.appendToList(`${scope}inbox`, legacyEntry(10, Date.now() - 2 * 86_400_000, 1))
+    await state.appendToList(`${scope}inbox`, legacyEntry(9, Date.now() - 1_000, 2))
     const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
     // The route stores attempt 3 before it runs the trigger, so wait for the trigger as well.
     await vi.waitFor(() => expect(invokes).toEqual([9]), { timeout: 4_000 })
     await vi.waitFor(async () => expect(await inbox()).toMatchObject([{ attempts: 3 }]))
+    await vi.waitFor(async () => expect(await state.getList(`${scope}inbox`)).toEqual([]))
     await stop()
+    expect(invokes).toEqual([9])
+  })
+
+  it("keeps the replay index to the retention window while webhooks keep arriving", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { create, indexRows, invokes, routeOptions, send, setStatus, state } = await setup({ ackTimeoutMs: 1_000 })
+    const now = Date.now
+    let offset = 0
+    vi.spyOn(Date, "now").mockImplementation(() => now() + offset)
+    // One webhook an hour for four days. Each one settles, except n = 90, which ends in a 5xx and stays stored.
+    for (let n = 1; n <= 96; n++) {
+      offset = n * 3_600_000
+      setStatus(n === 90 ? 503 : undefined)
+      await (await send(n)).arrayBuffer()
+    }
+    setStatus(undefined)
+    await state.cleanupExpiredState()
+
+    const rows = await indexRows()
+    // The index keeps about one day of webhooks, not all four, and no request bodies.
+    expect(rows.length).toBeGreaterThanOrEqual(24)
+    expect(rows.length).toBeLessThanOrEqual(27)
+    expect(rows.some(value => value.includes("\"body\""))).toBe(false)
+
+    // The next process replays the unsettled request and skips the settled ones.
+    invokes.length = 0
+    offset += 60_000
+    const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(() => expect(invokes).toEqual([90]), { timeout: 5_000 })
+    await stop()
+    expect(invokes).toEqual([90])
   })
 
   it("drops a stored request after 3 admissions", async () => {
