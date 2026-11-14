@@ -100,7 +100,7 @@ async function failure(promise: unknown) {
 
 describe("Content Console actions", { timeout: 30_000 }, () => {
   it("keeps setup available for a read-only runtime without collections", async () => {
-    const content = defineContent({ source: { items: async () => [] }, logger: false })
+    const content = defineContent({ access: "public", source: { items: async () => [] }, logger: false })
     cleanup.push(() => content.dispose())
     const actions = createContentConsoleActions({ default: content })
 

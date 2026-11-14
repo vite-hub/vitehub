@@ -282,7 +282,7 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
       { key: "hello.md", path: "hello.md", content: page("Hello from Acme", "See [world](/blog/wrld).\n") },
       { key: "world.md", path: "world.md", content: page("World from Acme") },
     ]
-    const content = defineContent({ sources: { blog: contentSource({ items: async () => items }, { url: "/blog/:id" }) }, logger: false })
+    const content = defineContent({ access: "public", sources: { blog: contentSource({ items: async () => items }, { url: "/blog/:id" }) }, logger: false })
     cleanup.push(() => content.dispose())
     const result = await content.check()
     expect(result).toMatchObject({ ok: false, errors: 1, sources: [{ source: "blog", sha: null, pages: 2 }] })

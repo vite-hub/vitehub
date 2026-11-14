@@ -223,7 +223,7 @@ describe("contentSource", () => {
     })
     registerSources({ docs })
     const source = input === "definition" ? docs : input === "name" ? "docs" : () => createSource(docs)
-    const content = defineContent({ sources: { live: source } })
+    const content = defineContent({ access: "public", sources: { live: source } })
     const initial = await content.get("/", { fresh: true })
     expect(JSON.stringify(initial?.nodes)).toContain("Revision 1")
 
@@ -282,8 +282,8 @@ describe("contentSource", () => {
         return [{ content: `---\ntitle: Revision ${++revision}\n---\n# Content`, key: "index.md" }]
       },
     }), { prefix: "/docs" })
-    const first = defineContent({ source })
-    const second = defineContent({ source })
+    const first = defineContent({ access: "public", source })
+    const second = defineContent({ access: "public", source })
 
     await first.init()
     await second.init()
@@ -565,6 +565,7 @@ describe("contentSource", () => {
     })
 
     const content = defineContent({
+      access: "public",
       plugins: [media()],
       sources: { media: "media" as any },
     })
@@ -1060,6 +1061,29 @@ describe("defineContentHandler", () => {
     expect(defineContent({ sources: { handbook }, authorize: ({ user }) => user !== null }).route).toBe(true)
   })
 
+  it("requires an exposure choice for opaque Source inputs, including adapters", () => {
+    const handbook = github({ repo: "acme/private" })
+    registerSources({ handbook })
+    const inputs = [
+      createSource(handbook),
+      () => createSource(handbook),
+      "handbook" as SourceName,
+    ]
+    for (const input of inputs) {
+      for (const source of [input, contentSource(input), contentSource(contentSource(input), { prefix: "docs" })]) {
+        for (const config of [{ source }, { sources: { handbook: source } }]) {
+          expect(() => defineContent(config)).toThrow(/access: "public"/)
+          expect(() => defineContent({ ...config, route: false, seo: { llms: true } })).toThrow(/authorize/)
+          expect(() => defineContent({ ...config, route: false, previews: true })).toThrow(/authorize/)
+          expect(() => defineContent({ ...config, route: false, seo: { robots: true } })).not.toThrow()
+          expect(() => defineContent({ ...config, route: false })).not.toThrow()
+          expect(() => defineContent({ ...config, access: "public" })).not.toThrow()
+          expect(() => defineContent({ ...config, authorize: () => false })).not.toThrow()
+        }
+      }
+    }
+  })
+
   it("rejects an unknown route or access value", () => {
     expect(() => defineContent({ source: guide, route: "open" as never })).toThrow(/must be true or false/)
     expect(() => defineContent({ source: guide, access: "open" as never })).toThrow(/must be "public"/)
@@ -1076,6 +1100,6 @@ describe("defineContentHandler", () => {
     expect(await content.can({ action: "read" })).toBe(true)
     expect(policy).toHaveBeenLastCalledWith({ user: null, action: "read" })
     await expect(content.can({ action: "read", collection: "posts" } as never)).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    expect(await defineContent({ source: guide }).can({ action: "read" })).toBe(false)
+    expect(await defineContent({ source: guide, route: false }).can({ action: "read" })).toBe(false)
   })
 })

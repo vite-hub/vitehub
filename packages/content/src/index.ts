@@ -20,7 +20,7 @@ import type {
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { checkContentDocuments, contentCheckResult, parseContentFiles } from "./check.ts"
 import type { ContentCheckFinding, ContentCheckInput, ContentCheckOptions, ContentCheckResult } from "./check.ts"
-import { contentSource, contentSourceKeys, contentSourceKind, contentSourceRoute, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSource, contentSourceKeys, contentSourceKind, contentSourceNeedsExposureChoice, contentSourceRoute, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import { createContentHistory } from "./history.ts"
 import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
@@ -586,8 +586,8 @@ export function defineContent<
   if (access !== undefined && access !== "public") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ access }) must be "public" when it is set, received ${JSON.stringify(access)}.` })
   }
-  // A `github()` Source reads with a token, so its private files must not become public without a decision.
-  const tokenSources = Object.entries(inputs).flatMap(([name, input]) => input !== undefined && contentSourceKind(input) === "github" ? [name] : [])
+  // GitHub and opaque Source inputs can read with a token; require a decision before exposing their files.
+  const tokenSources = Object.entries(inputs).flatMap(([name, input]) => input !== undefined && contentSourceNeedsExposureChoice(input) ? [name] : [])
   if (access !== "public" && !policy && tokenSources.length) {
     const readers = [
       ...route ? ["/api/content/**"] : [],
@@ -599,7 +599,7 @@ export function defineContent<
       ...previews === false ? [] : ["preview URLs"],
     ]
     if (readers.length) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${readers.join(", ")} would serve the github() Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the repository is public.${route ? " route: false removes /api/content/**." : ""}` })
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${readers.join(", ")} would serve the potentially token-backed Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source or an opaque registered name, reader, or factory can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the content is public (or pass a direct non-GitHub Source definition).${route ? " route: false removes /api/content/**." : ""}` })
     }
   }
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`

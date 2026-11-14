@@ -39,6 +39,8 @@ Plugin options are read once. Rebuild the runtime to change them.
 | `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
+Registered names, explicit readers, and reader factories have opaque provenance: they can read a private GitHub repository using server credentials. When enabling any generated reader, set `authorize` or `access: 'public'` for these inputs, including when wrapped in `contentSource()`. To keep a local Source public without that choice, pass its direct non-GitHub definition instead. Turning off every generated reader also avoids exposure.
+
 An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
 
 `contentSource(input, { prefix, schema })` sets Comark options for one Source. Add `url`, such as `'/:id'`, to list its documents in the sitemap. See [Source URLs](/docs/content/seo#source-urls). A direct adapter picks a Reader when `keys()` starts an enumeration, and later `getItem()` calls use it until the next one. Pass the adapter through `defineContent()` to keep overlapping loads apart.

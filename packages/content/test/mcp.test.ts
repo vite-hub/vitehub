@@ -199,6 +199,7 @@ describe("seo.mcp for Sources", () => {
       ? files({ "a.md": () => text })
       : { async items() { return added ? [{ key: "b.md", content: "---\ntitle: B\n---\nBody B.\n" }] : [{ key: "a.md", content: text }] } }
     const content = defineContent({
+      access: "public",
       route: false,
       logger: false,
       sources: { notes: contentSource(input, { url: "/notes/:id" }) },
@@ -247,6 +248,7 @@ describe("seo.mcp for Sources", () => {
 
   it("reads a Source without a head commit as it is", async () => {
     const content = defineContent({
+      access: "public",
       route: false,
       logger: false,
       sources: { notes: contentSource({ async items() { return [{ key: "a.md", content: "---\ntitle: A\n---\nBody of A.\n" }] } }, { url: "/notes/:id" }) },
