@@ -35,7 +35,11 @@ export type ConsoleEnvInspection = ServerEnvDescription & {
 /** The Console reads each database with `db` and lists its tables from `schema`. A Definition is SQLite or Postgres. */
 export type ConsoleDatabaseEntry =
   | Pick<RuntimeDatabaseEntry<Record<string, unknown>>, "db" | "schema">
-  | Pick<RuntimeDatabaseEntry<Record<string, unknown>, "postgresql">, "db" | "schema">
+  | {
+    // Inspection uses the primary query API, including for standalone Drizzle databases without replicas.
+    db: Omit<RuntimeDatabaseEntry<Record<string, unknown>, "postgresql">["db"], "$replica">
+    schema: Record<string, unknown>
+  }
 
 export interface ConsoleDatabaseInspection {
   databases: Record<string, ConsoleDatabaseEntry>
