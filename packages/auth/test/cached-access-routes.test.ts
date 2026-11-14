@@ -13,14 +13,14 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createProject(routes: string[], database: string | null = "'memory'", route = true): Promise<string> {
+async function createProject(routes: string[], database: string | null = "'memory'", route = true, publicRoutes: string[] = []): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-cached-"))
   tempDirs.push(root)
   await mkdir(join(root, "server"), { recursive: true })
   await writeFile(join(root, "server/auth.ts"), [
     "import { defineAuth } from '@vite-hub/auth'",
     "export default defineAuth({",
-    `  access: { routes: [${routes.join(", ")}] },`,
+    `  access: { routes: [${routes.join(", ")}]${publicRoutes.length ? `, public: [${publicRoutes.join(", ")}]` : ""} },`,
     ...(route ? [] : ["  route: false,"]),
     ...(database ? [`  database: ${database},`] : []),
     "})",
@@ -67,8 +67,8 @@ async function buildNitro(config: Record<string, unknown>, routeRules: RouteRule
   await runBuildHooks(nitro)
 }
 
-async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string): Promise<void> {
-  const root = await createProject(routes)
+async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string, publicRoutes?: string[]): Promise<void> {
+  const root = await createProject(routes, "'memory'", true, publicRoutes)
   await buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), routeRules, baseURL)
 }
 
@@ -109,6 +109,12 @@ describe("Auth access routes with cache route rules", () => {
     await expect(buildViteApp(["'/dashboard/**'"], { "/blog/**": { swr: 60 }, "/": { prerender: true } })).resolves.toBeUndefined()
   })
 
+  it("passes when every cached path is public, and fails when a cached path is not", async () => {
+    await expect(buildViteApp(["'/**'"], { "/": { prerender: true }, "/blog/**": { swr: 60 } }, undefined, ["'/'", "'/blog/**'"])).resolves.toBeUndefined()
+    await expect(buildViteApp(["'/**'"], { "/blog/**": { swr: 60 } }, undefined, ["'/blog'"])).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/**'"], { "/**": { prerender: true } }, undefined, ["'/'"])).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
   it("passes when the guarded route turns off an inherited cache", async () => {
     await expect(buildViteApp(["'/dashboard/**'"], { "/**": { swr: 60 }, "/dashboard/**": { cache: false } })).resolves.toBeUndefined()
   })
@@ -141,7 +147,20 @@ describe("Auth access routes with cache route rules", () => {
       "GET /admin/**": { swr: 60 },
       "HEAD /admin/**": { cache: false },
     })).resolves.toBeUndefined()
-    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
+  it("checks HEAD overrides after inherited GET cache rules", async () => {
+    const rules: RouteRules = {
+      "/api/billing": { swr: 60 },
+      "GET /api/billing": { cache: false },
+    }
+    // H3 also applies the GET override to HEAD, unless HEAD explicitly re-enables caching.
+    await expect(buildViteApp(["{ route: '/api/billing', method: 'GET' }"], rules)).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/api/billing', method: 'GET' }"], {
+      ...rules,
+      "HEAD /api/billing": { cache: true },
+    })).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
   it("reads the route rules that a later build hook adds", async () => {
@@ -160,14 +179,16 @@ describe("Auth access routes with cache route rules", () => {
     await expect(runBuildHooks(nitro)).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
-  it("reads guard paths literally, as the access middleware matches them", async () => {
-    // The access middleware matches `(`, `)`, `:`, and `*` in a guard path as literal characters.
-    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/\\(drafts\\)/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/reports/(drafts)'"], { "/reports/\\(drafts\\)": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/files/:name'"], { "/files/:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/drafts/**": { swr: 60 } })).resolves.toBeUndefined()
-    await expect(buildViteApp(["'/files/:name'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
-    await expect(buildViteApp(["'/files/*'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
+  it("stops the build for a guard path with route pattern syntax", async () => {
+    for (const route of ["'/reports/(drafts)/**'", "'/files/:name'", "'/files/*'"]) {
+      await expect(buildViteApp([route], { "/files/report": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_C0068" })
+    }
+  })
+
+  it("reads guard paths as the access middleware matches them", async () => {
+    await expect(buildViteApp(["'/reports/'"], { "/reports": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/a+b'"], { "/files/a+b": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/a+b'"], { "/files/ab": { swr: 60 } })).resolves.toBeUndefined()
   })
 
   it("logs a warning and keeps the route rules when a development update caches a guarded route", async () => {

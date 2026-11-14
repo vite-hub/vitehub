@@ -13,7 +13,7 @@ export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
@@ -1721,6 +1721,12 @@ function requiredString(value: unknown, name: string): string {
   return string
 }
 
+/** A Server Env value that can be a number, as text. */
+function envNumberText(value: unknown): string | undefined {
+  const plain = unseal(value)
+  return typeof plain === "number" ? String(plain) : cleanSecret(plain)
+}
+
 function requiredNumber(value: unknown, name: string): number {
   const number = typeof value === "number" ? value : Number(cleanSecret(value))
   if (!Number.isFinite(number)) throw agentDiagnostics.AGENT_R0346({ message: `[vitehub] Missing GitHub App ${name}.` })
@@ -1766,7 +1772,13 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const configuredInstallation = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
-    ?? await githubAppSetting(options, env, "installationId", "installationId", context)
+    ?? await resolveGithubAppOption(options.installationId, context)
+    // Server Env routes by repository owner, the same way as useForge().
+    ?? githubInstallationFor(githubInstallationRouting({
+      installationId: envNumberText(env.installationId),
+      appOwner: cleanSecret(env.appOwner),
+      appInstallations: cleanSecret(env.appInstallations),
+    }), repository)
   const credentials = githubAppCredentials({
     appId,
     privateKey: await githubAppPrivateKey(options, env, context),

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { EyeIcon, EyeOffIcon } from "../icons"
-import { Field, FieldDescription, FieldLabel } from "@vite-hub/kit/field"
+import { Field, FieldDescription, FieldLabel } from "@ui-sdk/vue/field"
 import {
   PasswordInput,
   PasswordInputControl,
   PasswordInputToggle,
-} from "@vite-hub/kit/password-input"
+} from "@ui-sdk/vue/password-input"
 </script>
 
 <template>

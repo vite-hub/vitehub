@@ -67,6 +67,38 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
 
+## Room request errors
+
+`requestRealtimeRoom()` returns them as `[error, undefined]`. It never throws.
+
+### REALTIME_ROOM_ABORTED
+
+The `signal` of the request aborted, such as when the Agent run that asked was cancelled.
+
+### REALTIME_ROOM_CROWDED
+
+More than one browser is in the room. A request goes to one browser, so give each browser its own room, such as a random id for each tab.
+
+### REALTIME_ROOM_ELSEWHERE
+
+With Redis or Postgres, no browser of this instance is in the room. Requests reach only the browsers connected to the same instance.
+
+### REALTIME_ROOM_EMPTY
+
+No browser is in the room after `wait` milliseconds, 5 seconds by default, or the browser left before it answered.
+
+### REALTIME_ROOM_REFUSED
+
+The browser answered with an error: its handler threw, it has no `onRequest()` handler, or its answer is over 1 MiB. `error.why` has its reason.
+
+### REALTIME_ROOM_REQUESTS_OFF
+
+The Realtime Definition does not take requests. Define it with `defineRealtime({ access: "public", document: false, requests: true })`.
+
+### REALTIME_ROOM_TIMEOUT
+
+The browser did not answer in `timeout` milliseconds, 30 seconds by default.
+
 ## Room errors
 
 ### REALTIME_AWARENESS_OWNERSHIP_CONFLICT

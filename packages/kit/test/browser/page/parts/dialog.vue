@@ -7,9 +7,9 @@ import {
   DialogDescription,
   DialogTitle,
   DialogTrigger,
-} from "@vite-hub/kit/dialog"
-import { Field, FieldLabel } from "@vite-hub/kit/field"
-import { Input } from "@vite-hub/kit/input"
+} from "@ui-sdk/vue/dialog"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
 import { XIcon } from "../icons"
 </script>
 

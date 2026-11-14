@@ -10,6 +10,7 @@ import { authFixture } from "./auth-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
+import { servedSkillsFixture } from "./served-skills-fixture.ts"
 import { siteFixture } from "./site-fixture.ts"
 
 const authReads = new Map<string, string>(Object.entries(authConsoleReadOperations).map(([read, operation]) => [operation, read]))
@@ -69,6 +70,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   if (channel) return channel
   const site = siteFixture(origin, payload.operation, input)
   if (site) return site
+  const servedSkills = servedSkillsFixture(payload.operation, input)
+  if (servedSkills) return servedSkills
   let route = fixtureRoutes[payload.operation]
   let method = "GET"
   let body: unknown
