@@ -5,7 +5,21 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
-  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org", "vite-hub/nuxt"],
+  // The site serves /_vitehub/rpc so that a ViteHub Console can link it. Only calls that the Console signs with the key
+  // in a VITEHUB_CONSOLE_KEY_<NAME> secret pass. Site access in that Console signs the team in to comment on pages
+  // (server/auth.ts).
+  vitehub: {
+    host: "cloudflare",
+    auth: true,
+    database: true,
+    // Comments without attachments: no R2 bucket, KV namespace, or Workspace for the docs.
+    blob: false,
+    kv: false,
+    workspace: false,
+    console: true,
+    publicUrl: "https://vitehub.dev",
+  },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
   docs: {
@@ -312,13 +326,6 @@ export default defineNuxtConfig({
         workers_dev: false,
         preview_urls: true,
         upload_source_maps: false,
-        d1_databases: [
-          {
-            binding: "DB",
-            database_id: "4a8731af-1899-4d41-ac8b-6870167ead95",
-            database_name: "vitehub-docs",
-          },
-        ],
         routes: [
           {
             pattern: "vitehub.dev",
