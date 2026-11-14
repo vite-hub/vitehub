@@ -206,7 +206,7 @@ pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --yes
 pnpm dlx vite-hub init my-app --host vercel --features email --option email.driver=resend --yes --json
 ```
 
-- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
+- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore` that ignores every `.env*` file except `.env.example`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
 - `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `host`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
