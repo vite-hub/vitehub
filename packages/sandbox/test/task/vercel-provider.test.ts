@@ -5,7 +5,8 @@ const { loadVercelSandbox, resolveVercelSandbox } = vi.hoisted(() => ({
   resolveVercelSandbox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
-vi.mock("../../src/internal/vercel.ts", () => ({ loadVercelSandbox, resolveVercelSandbox }))
+vi.mock("../../src/internal/vercel.ts", () => ({ resolveVercelSandbox }))
+vi.mock("../../src/vercel.ts", () => ({ loadVercelSandbox }))
 
 import { resolveVercelTaskSandbox } from "../../src/task/runtime/providers/vercel.ts"
 

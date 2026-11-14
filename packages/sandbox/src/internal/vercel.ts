@@ -21,7 +21,7 @@ export async function resolveVercelSandbox(
   );
 }
 
-export async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
+async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
   const { Sandbox } = await import("@vercel/sandbox");
   return async (createOptions: VercelSandboxCreateOptions) =>
     await Sandbox.create(

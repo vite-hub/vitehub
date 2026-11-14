@@ -1,6 +1,6 @@
 import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
-import { loadVercelSandbox, resolveVercelSandbox } from '../../../internal/vercel.ts'
-import type { VercelSandboxCreateOptions, VercelSandboxInstance } from '../../../vercel.ts'
+import { resolveVercelSandbox } from '../../../internal/vercel.ts'
+import { loadVercelSandbox, type VercelSandboxCreateOptions, type VercelSandboxInstance } from '../../../vercel.ts'
 import { readEnv } from '@vite-hub/internal/env'
 import { sandboxTaskErrorDiagnostics } from '../../error-diagnostics.ts'
 import { DEFAULT_SANDBOX_TASK_TIMEOUT_MS } from '../provider-resolution'
