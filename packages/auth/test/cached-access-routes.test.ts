@@ -181,7 +181,7 @@ describe("Auth access routes with cache route rules", () => {
 
   it("stops the build for a guard path with route pattern syntax", async () => {
     for (const route of ["'/reports/(drafts)/**'", "'/files/:name'", "'/files/*'"]) {
-      await expect(buildViteApp([route], { "/files/report": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_C0063" })
+      await expect(buildViteApp([route], { "/files/report": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_C0068" })
     }
   })
 
