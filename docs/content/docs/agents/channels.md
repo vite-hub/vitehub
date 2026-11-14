@@ -661,7 +661,7 @@ With the Console on, the Vite dev loop uses the Console's Invocation journal (th
 
 An authenticated replay uses the saved item, so it needs no provider signature. Live webhooks still verify signatures, and replayed input still passes the trigger schema.
 
-`replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end.
+`replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end. A `completed` item has the Agent's answer in `output`, such as the result of a [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) question. `vitehub channels replay` does not get `output`, because it can quote the message.
 
 ### How replay avoids duplicate runs
 

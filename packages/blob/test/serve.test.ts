@@ -72,6 +72,18 @@ describe("Blob response transforms", () => {
     expect(missing.headers.has("x-frame-options")).toBe(false)
   })
 
+  it("keeps the CORS headers of the headers option on error responses", async () => {
+    const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Range", "Cache-Control": "public, max-age=31536000, immutable" }
+    for (const [method, pathname, status] of [["GET", "audio/missing.mp3", 404], ["HEAD", "audio/missing.mp3", 404], ["GET", "audio/../x.mp3", 400], ["POST", "private/original", 405]] as const) {
+      const response = await storage.serve(request({}, method), pathname, { headers })
+      expect(response.status).toBe(status)
+      expect(response.headers.get("access-control-allow-origin")).toBe("*")
+      expect(response.headers.get("access-control-expose-headers")).toBe("Content-Range")
+      // An immutable policy on a 404 would keep the miss after the file is uploaded.
+      expect(response.headers.has("cache-control")).toBe(false)
+    }
+  })
+
   it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
     const app = new H3().all("/photo", event => storage.serve(event.req, "private/original"))
     const fetch = (request: Request) => app.fetch(request)
@@ -392,6 +404,16 @@ describe("Blob response transforms", () => {
     const response = await app.fetch(new Request("https://example.test/files/missing.txt"))
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "Blob not found." })
+  })
+
+  it.each(["POST", "PUT", "DELETE", "OPTIONS"])("answers %s with 405 and does not read the object", async (method) => {
+    const head = vi.spyOn(driver, "head")
+    const response = await storage.serve(request({ range: "bytes=0-3" }, method), "private/original", { headers: { "X-Frame-Options": "DENY" } })
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, HEAD")
+    expect(response.headers.has("x-frame-options")).toBe(false)
+    expect(await response.json()).toEqual({ error: `Blob serve() answers GET and HEAD, not ${method}.` })
+    expect(head).not.toHaveBeenCalled()
   })
 
   it("does not serve a cached derivative after the source is deleted", async () => {

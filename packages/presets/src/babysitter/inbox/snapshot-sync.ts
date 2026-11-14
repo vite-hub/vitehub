@@ -166,7 +166,7 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
 const OPEN_PULL_REQUESTS = `query BabysitterOpenPullRequests($owner:String!,$name:String!,$after:String) {
   repository(owner:$owner,name:$name) { pullRequests(states:OPEN,first:50,after:$after) {
     nodes { number title isDraft headRefOid headRefName baseRefName baseRefOid mergeable updatedAt url authorAssociation totalCommentsCount
-      author { login } headRepository { nameWithOwner } labels(first:100) { nodes { name } }
+      author { login __typename } headRepository { nameWithOwner } labels(first:100) { nodes { name } }
       commits(last:1) { nodes { commit { statusCheckRollup { state contexts(first:100) {
         nodes { __typename ... on CheckRun { databaseId status conclusion } ... on StatusContext { context state } }
         pageInfo { hasNextPage } } } } } }
@@ -179,7 +179,7 @@ const openPullRequestSchema = v.object({
   number: v.pipe(v.number(), v.integer(), v.minValue(1)), title: v.nullish(v.string()), isDraft: v.boolean(),
   headRefOid: v.string(), headRefName: v.string(), baseRefName: v.string(), baseRefOid: v.nullish(v.string()),
   mergeable: v.nullish(v.string()), updatedAt: v.string(), url: v.string(), authorAssociation: v.nullish(v.string()), totalCommentsCount: v.nullish(v.number()),
-  author: v.nullish(v.object({ login: v.string() })), headRepository: v.nullish(v.object({ nameWithOwner: v.string() })),
+  author: v.nullish(v.object({ login: v.string(), __typename: v.optional(v.string()) })), headRepository: v.nullish(v.object({ nameWithOwner: v.string() })),
   labels: v.object({ nodes: v.array(v.object({ name: v.string() })) }),
   commits: v.object({ nodes: v.array(v.object({ commit: v.object({ statusCheckRollup: v.nullish(v.object({ state: v.nullish(v.string()), contexts: nodes })) }) })) }),
   latestReviews: nodes, reviewThreads: nodes,
@@ -192,7 +192,7 @@ interface OpenPullRequestConnection { nodes: unknown[]; pageInfo?: { hasNextPage
 export interface OpenPullRequest {
   number: number; title?: string | null; isDraft: boolean; headRefOid: string; headRefName: string; baseRefName: string; baseRefOid?: string | null
   mergeable?: string | null; updatedAt: string; url: string; authorAssociation?: string | null; totalCommentsCount?: number | null
-  author?: { login: string } | null; headRepository?: { nameWithOwner: string } | null; labels: { nodes: Array<{ name: string }> }
+  author?: { login: string; __typename?: string } | null; headRepository?: { nameWithOwner: string } | null; labels: { nodes: Array<{ name: string }> }
   commits: { nodes: Array<{ commit: { statusCheckRollup?: { state?: string | null; contexts: OpenPullRequestConnection } | null } }> }
   latestReviews: OpenPullRequestConnection; reviewThreads: OpenPullRequestConnection
 }

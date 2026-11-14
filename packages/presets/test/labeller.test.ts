@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "@vite-hub/agent"
+import { gmail } from "@vite-hub/agent/channels"
+import { ask } from "@vite-hub/gateways"
 import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { cleanupLabeller, labeller } from "../src/labeller.ts"
+
+vi.mock("@vite-hub/agent/channels", async (original) => {
+  const channels = await original<typeof import("@vite-hub/agent/channels")>()
+  return { ...channels, gmail: vi.fn(channels.gmail) }
+})
 
 const message = {
   attachments: [],
@@ -87,7 +94,7 @@ describe("labeller preset", () => {
     }
   })
 
-  it.each(["dryRun", "hideUnmanagedLabels", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
+  it.each(["dryRun", "hideUnmanagedLabels", "relabel", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
     for (const value of ["false", "true", 0, 1, null, {}, []]) {
       expect(() => configured({ [policy]: value })).toThrow(/must be a boolean/)
     }
@@ -193,6 +200,46 @@ describe("labeller preset", () => {
     const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
     await finish({ message, result: { label: "Receipts", rule: "receipts" } })
     expect(calls).toEqual(["label:Receipts", "archive", "star"])
+  })
+
+  it("offers Jev only the labels with a description", () => {
+    const choice = vi.spyOn(ask, "choice")
+    configured({
+      labels: { GitHub: {}, Receipts: { description: "Purchases" } },
+      rules: { github: { from: "notifications@github.com", label: "GitHub" } },
+    })
+    expect(choice.mock.lastCall?.[1]).toEqual({ Receipts: "Purchases", none: "No declared label clearly fits this email." })
+    choice.mockRestore()
+  })
+
+  it("passes maxAttempts to the Gmail Channel", () => {
+    configured({ maxAttempts: 3 })
+    expect(vi.mocked(gmail).mock.lastCall?.[0]).toMatchObject({ maxAttempts: 3 })
+    configured()
+    expect(vi.mocked(gmail).mock.lastCall?.[0]).not.toHaveProperty("maxAttempts")
+    expect(() => configured({ maxAttempts: 0 })).toThrow(/maxAttempts must be a positive integer/)
+  })
+
+  it("removes the other declared labels with relabel, and all of them when no label fits", async () => {
+    const calls: unknown[] = []
+    const message = {
+      channel: "gmail",
+      label: async (name: string) => { calls.push(["label", name]) },
+      modify: async (input: unknown) => { calls.push(["modify", input]) },
+      archive: async () => { calls.push(["archive"]) },
+    }
+    const relabel = configured({ relabel: true, actions: { Work: { archive: true } } })
+    const finish = relabel.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.9 } } })
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.2 } } })
+    await finish({ message, result: { label: "none" } })
+    expect(calls).toEqual([
+      ["modify", { addLabels: ["Work"], removeLabels: ["Receipts"] }], ["archive"],
+      ["modify", { addLabels: [], removeLabels: ["Receipts", "Work"] }],
+      ["modify", { addLabels: [], removeLabels: ["Receipts", "Work"] }],
+    ])
+    expect(configured().options.relabel).toBe(false)
+    expect(() => configured({ relabel: "yes" })).toThrow(/relabel must be a boolean/)
   })
 
   it("keeps cleanup off until rules, apply, live mode, and trashEnabled are all set", async () => {

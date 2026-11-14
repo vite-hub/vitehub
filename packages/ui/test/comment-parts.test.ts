@@ -383,6 +383,18 @@ describe("composer attachments", () => {
     expect(wrapper.emitted("submit")?.at(-1)).toEqual([{ body: "", files: [shot], mentions: [] }]);
   });
 
+  it("marks a picture as an image, so the box can draw it as a thumbnail, and keeps its name for a screen reader", async () => {
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes] } }));
+    await flushPromises();
+    const [picture, file] = wrapper.findAll("[data-slot=attachment]");
+    expect(picture!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("image");
+    expect(picture!.get("img").attributes("alt")).toBe("shot.png");
+    expect(picture!.get("[data-slot=attachment-title]").text()).toBe("shot.png");
+    expect(picture!.get("[data-slot=attachment-actions] button").attributes("aria-label")).toBe("Remove shot.png");
+    expect(file!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("icon");
+    expect(file!.get("[data-slot=attachment-title]").text()).toBe("notes.txt");
+  });
+
   it("has no file button when attachments is off, or while editing", () => {
     expect(keep(mount(CommentComposer, { global, props: { attachments: false, autofocus: false } })).find("input[type=file]").exists()).toBe(false);
     expect(keep(mount(CommentComposer, { global, props: { autofocus: false, variant: "edit" } })).find("input[type=file]").exists()).toBe(false);

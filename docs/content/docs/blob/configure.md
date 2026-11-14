@@ -372,7 +372,7 @@ export default defineConfig({
 :::
 ::
 
-Use `serve.headers` for cache and security headers. Content headers such as `Content-Type`, `Content-Length`, and `ETag` always come from Blob metadata.
+Use `serve.headers` for cache, security, and CORS headers. Content headers such as `Content-Type`, `Content-Length`, and `ETag` always come from Blob metadata. A `400`, `404`, or `405` gets only the `Access-Control-` headers.
 
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`:
 

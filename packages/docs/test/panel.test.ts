@@ -8,6 +8,7 @@ import { createDocsManifest } from "../src/manifest.ts"
 import {
   docsIndexedPages,
   docsManifestPages,
+  docsPanelGroupWindow,
   docsPanelOf,
   docsPanelPages,
   docsPanelSidebarGroups,
@@ -115,5 +116,20 @@ describe("pages that search engines do not index", () => {
     expect(indexed).toContain("/docs/queue/diagnostics/queue_provider_failed")
     expect(indexed).not.toContain("/docs/queue/diagnostics/queue_disabled")
     expect(indexed).not.toContain("/docs/kv/diagnostics/kv_invalid_cursor")
+  })
+})
+
+describe("docsPanelGroupWindow", () => {
+  const pages = Array.from({ length: 200 }, (_, index) => ({ path: `/docs/agents/diagnostics/agent_r${String(index).padStart(4, "0")}` }))
+
+  it("renders the pages around the current one, and none in a group without it", () => {
+    const around = docsPanelGroupWindow(pages, "/docs/agents/diagnostics/agent_r0100/")
+    expect(around).toHaveLength(60)
+    expect(around[0]?.path).toBe("/docs/agents/diagnostics/agent_r0070")
+    expect(around.at(-1)?.path).toBe("/docs/agents/diagnostics/agent_r0129")
+    expect(docsPanelGroupWindow(pages, "/docs/agents/diagnostics/agent_r0001").map(page => page.path)).toEqual(pages.slice(0, 60).map(page => page.path))
+    expect(docsPanelGroupWindow(pages, "/docs/agents/diagnostics/agent_r0199").map(page => page.path)).toEqual(pages.slice(140).map(page => page.path))
+    expect(docsPanelGroupWindow(pages, "/docs/kv")).toEqual([])
+    expect(docsPanelGroupWindow(pages.slice(0, 10), "/docs/agents/diagnostics/agent_r0003")).toHaveLength(10)
   })
 })
