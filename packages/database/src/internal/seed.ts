@@ -6,6 +6,8 @@ import { isRecord } from "@vite-hub/internal/object"
 import { dirname, join, resolve } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+// Keep this static: a dynamic namespace shares Rolldown's Node helpers with the hosted D1 runtime.
+import { createCloudflareD1HttpDb } from "../runtime/d1-http.ts"
 import { describeExportTarget, resolveExportTarget } from "./export.ts"
 import { connectPostgres, readMigrationPlan } from "./migration-plan.ts"
 
@@ -91,7 +93,6 @@ async function connect(target: ExportTarget, relations: AnyRelations, options: S
     }
     case "d1":
     case "d1-proxy": {
-      const { createCloudflareD1HttpDb } = await import("../runtime/d1-http.ts")
       // `targetProblem()` checked the id, account, token, and proxy URL.
       const connection = target.kind === "d1"
         ? { token: target.token!, url: `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/raw` }
@@ -166,4 +167,3 @@ export async function seedDatabase(database: ResolvedDrizzleDatabaseConfig, file
   }
   return description
 }
-
