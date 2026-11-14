@@ -290,6 +290,24 @@ export function docsSidebarGroups<Page extends DocsAppPage = DocsPage>(section: 
   return sidebarGroups(docsPanelPages(section, null), section.fold)
 }
 
+/**
+ * How many links of a panel group the sidebar renders around the current page. A panel of a thousand codes would
+ * otherwise put every code in the HTML of each of its pages, which made each page about 240 KB larger.
+ */
+export const docsPanelWindow = 60
+
+/**
+ * The pages of a panel group that the sidebar renders before the reader asks for more: up to {@link docsPanelWindow}
+ * pages around the current one, or none in a group that does not hold it, because that group starts folded.
+ */
+export function docsPanelGroupWindow<Page extends Pick<DocsAppPage, "path">>(pages: readonly Page[], currentPath: string, size: number = docsPanelWindow): Page[] {
+  const index = pages.findIndex(page => normalizeDocsPath(page.path) === normalizeDocsPath(currentPath))
+  if (index < 0) return []
+  if (pages.length <= size) return [...pages]
+  const start = Math.max(0, Math.min(index - Math.floor(size / 2), pages.length - size))
+  return pages.slice(start, start + size)
+}
+
 /** Sidebar rows of a panel: its listed pages without its Overview, grouped like a section. Panels hold long lists, so their groups fold. */
 export function docsPanelSidebarGroups<Page extends DocsAppPage = DocsPage>(section: Pick<DocsSection<Page>, "pages">, panel: DocsAppPage): DocsSidebarGroup<Page>[] {
   return sidebarGroups(docsPanelPages(section, panel).filter(page => page.id !== panel.id), true)
