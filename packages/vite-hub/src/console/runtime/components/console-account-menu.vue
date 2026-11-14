@@ -71,7 +71,8 @@ const items = computed<DropdownMenuItem[][]>(() => {
     [
       { icon: "i-lucide-layout-grid", label: "All apps", onSelect: () => showConsoleAccountPage("home") },
       { icon: "i-lucide-users", label: "Members", onSelect: () => showConsoleAccountPage("team") },
-      { icon: "i-lucide-settings", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") },
+      { icon: "i-lucide-settings", label: "Team settings", onSelect: () => showConsoleAccountPage("team-settings") },
+      { icon: "i-lucide-circle-user", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") },
       ...appearanceItems.value,
       consoleDocsItem,
     ],

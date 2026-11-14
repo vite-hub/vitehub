@@ -5,6 +5,7 @@ import type { ConsolePasskey } from "../client/account";
 import { addConsolePasskey, deleteConsolePasskey, earlyConsoleSignInState, linkConsoleGitHub, loadConsoleSignInState, renameConsoleAccount } from "../client/account";
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
+import ConsoleSettingsCard from "./console-settings-card.vue";
 
 /** The account settings of an `account` Console: the name, GitHub sign-in, and passkeys. */
 const projects = useConsoleProjects();
@@ -105,26 +106,19 @@ function added(value: string | undefined): string {
 </script>
 
 <template>
-  <div class="grid max-w-2xl gap-10">
-    <p class="text-sm text-pretty text-muted">Your name and the ways you sign in. They are the same in every team.</p>
-
-    <section class="grid gap-3" aria-labelledby="vitehub-settings-name">
-      <h2 id="vitehub-settings-name" class="text-sm font-semibold text-highlighted">Name</h2>
-      <form class="grid gap-1.5" @submit.prevent="save">
-        <div class="flex flex-wrap gap-2">
-          <UInput v-model="name" autocomplete="name" aria-labelledby="vitehub-settings-name" aria-describedby="vitehub-settings-name-help" required class="min-w-0 flex-1 basis-56" />
-          <UButton type="submit" color="neutral" variant="outline" label="Save" class="justify-center max-sm:w-full" :loading="saving" :disabled="name.trim() === account?.user.name" />
-        </div>
-        <p id="vitehub-settings-name-help" class="text-xs text-muted">People in your teams see this name.</p>
+  <div class="grid max-w-190 gap-5">
+    <ConsoleSettingsCard title="Name" description="People in your teams see this name.">
+      <form id="vitehub-settings-name" @submit.prevent="save">
+        <UInput v-model="name" autocomplete="name" aria-label="Name" required class="w-full max-w-105" />
       </form>
-    </section>
+      <template #footer>The same in every team.</template>
+      <template #action>
+        <UButton type="submit" form="vitehub-settings-name" size="sm" label="Save" :loading="saving" :disabled="!name.trim() || name.trim() === account?.user.name" />
+      </template>
+    </ConsoleSettingsCard>
 
-    <section class="grid gap-3" aria-labelledby="vitehub-settings-sign-in">
-      <div class="flex items-center justify-between gap-2">
-        <h2 id="vitehub-settings-sign-in" tabindex="-1" class="text-sm font-semibold text-highlighted outline-none">Sign-in methods</h2>
-        <UButton v-if="passkeySupport" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Add a passkey" :loading="busy === 'passkey'" @click="run('passkey', addConsolePasskey, 'Passkey added')" />
-      </div>
-      <ul class="vitehub-account-list">
+    <ConsoleSettingsCard title="Sign-in methods" description="Use any of them to sign in to the Console." heading-id="vitehub-settings-sign-in">
+      <ul v-if="!passkeys || passkeys.length || githubAvailable || github" class="vitehub-account-list">
         <li v-if="githubAvailable || github" class="vitehub-account-list__row">
           <UIcon name="i-lucide-github" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           <span class="grid min-w-0 flex-1">
@@ -173,10 +167,14 @@ function added(value: string | undefined): string {
           </div>
         </template>
       </UModal>
-      <div v-if="loadProblem" role="alert" class="flex items-center gap-2 text-[13px] text-error">
+      <div v-if="loadProblem" role="alert" class="mt-3 flex items-center gap-2 text-[13px] text-error">
         The sign-in methods did not load.
         <UButton size="xs" color="neutral" variant="ghost" label="Retry" @click="load()" />
       </div>
-    </section>
+      <template #footer>The Console keeps at least one way to sign in.</template>
+      <template v-if="passkeySupport" #action>
+        <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" label="Add a passkey" :loading="busy === 'passkey'" @click="run('passkey', addConsolePasskey, 'Passkey added')" />
+      </template>
+    </ConsoleSettingsCard>
   </div>
 </template>

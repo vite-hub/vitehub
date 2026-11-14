@@ -58,6 +58,9 @@ const groups = computed(() =>
   })),
 );
 
+// Settings is a page of the app, not a section, so the route name marks it.
+const settingsOpen = computed(() => route.name === resolveConsoleRouteName(route.name, "vitehub-console-app-settings"));
+
 // The brand row leads to the apps of the team. An embedded Console has one app, so its home is the Overview.
 
 async function open(routeName: string): Promise<void> {
@@ -185,7 +188,8 @@ onBeforeUnmount(() => {
       <ConsoleProjectSwitcher :app="app" />
     </template>
 
-    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active && !settingsOpen" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Settings" icon="i-lucide-settings" :current="settingsOpen" @click="open('vitehub-console-app-settings')" />
     <ConsoleSidebarItem v-if="setup" :label="setup.label" :current="active === 'setup'" :shortcut="setup.shortcut" @click="open(setup.routeName)">
       <template #icon><ConsoleSectionIcon :icon="setup.icon" /></template>
     </ConsoleSidebarItem>

@@ -293,7 +293,18 @@ describe("account Console", () => {
     expect(state.navigate).toHaveBeenLastCalledWith("/")
   })
 
-  describe.each(["home", "team", "settings"] as const)("while %s is selected", (page) => {
+  it("opens the account page that the path names, such as /team-settings", async () => {
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    vi.doMock("../src/console/runtime/client/account.ts", () => ({ consoleInvitationOf: () => undefined, loadConsoleAccount: async () => session }))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", search: "", showPath: () => {} }
+    await module.startConsoleAccount({ ...boot, pathname: "/team-settings" })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "home", page: "team-settings" })
+    await module.startConsoleAccount({ ...boot, pathname: "/team-settings-old" })
+    expect(module.useConsoleProjects().gate.value).not.toEqual(expect.objectContaining({ kind: "home" }))
+  })
+
+  describe.each(["home", "team", "team-settings", "settings"] as const)("while %s is selected", (page) => {
     it.each([200, 401])("ignores a late %s app response", async (status) => {
       const pending = pendingResponse()
       const { module, state } = await account(() => pending.promise)

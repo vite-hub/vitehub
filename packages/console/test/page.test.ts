@@ -17,6 +17,7 @@ describe("consolePageBoot", () => {
   it("draws the team sidebar on its pages, and on the home path unless the last visit ended in an app", () => {
     expect(consolePageBoot(visit("/team", session))).toBe("shell")
     expect(consolePageBoot(visit("/settings/", "better-auth.session_token=abc"))).toBe("shell")
+    expect(consolePageBoot(visit("/team-settings", session))).toBe("shell")
     expect(consolePageBoot(visit("/", session))).toBe("shell")
     expect(consolePageBoot(visit("/?app=1", `${session}; vitehub-console-view=shell`))).toBe("shell")
     expect(consolePageBoot(visit("/", `vitehub-console-view=app; ${session}`))).toBe("app")
@@ -30,6 +31,7 @@ describe("renderConsolePage", () => {
 
   it("marks the view and the sidebar row of the request", () => {
     expect(renderConsolePage(html, visit("/team", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team"')
+    expect(renderConsolePage(html, visit("/team-settings", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team-settings"')
     expect(renderConsolePage(html, visit("/", session))).toContain('data-vitehub-boot="shell" data-vitehub-page=""')
     expect(renderConsolePage(html, visit("/"))).toContain('data-vitehub-boot="sign-in" data-vitehub-page=""')
   })

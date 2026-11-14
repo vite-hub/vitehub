@@ -237,6 +237,16 @@ export async function renameConsoleTeam(name: string): Promise<void> {
   if (error) throw failure(error, "The team was not renamed.")
 }
 
+/**
+ * Leave a team. The session then opens `next`, another team of the person. The last owner of a team cannot leave it,
+ * and the Console server refuses that.
+ */
+export async function leaveConsoleTeam(teamId: string, next?: string): Promise<void> {
+  const { error } = await auth().organization.leave({ organizationId: teamId })
+  if (error) throw failure(error, "You did not leave the team.")
+  if (next) await switchConsoleTeam(next)
+}
+
 /** A passkey of the signed-in account. */
 export interface ConsolePasskey {
   id: string
