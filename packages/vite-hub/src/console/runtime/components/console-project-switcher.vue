@@ -21,7 +21,7 @@ const teamName = computed(() => projects.account.value?.teams.find(team => team.
 const manage = computed(() => projects.account.value ? canManageConsoleProjects(projects.account.value) : false);
 
 const current = computed(() => projects.current.value);
-const name = computed(() => projects.info.value?.name || (current.value ? consoleProjectDisplayName(current.value) : "App"));
+const name = computed(() => current.value ? consoleProjectDisplayName(current.value) : projects.info.value?.name || "App");
 const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
 const monogram = computed(() => name.value.trim().charAt(0).toUpperCase() || "A");
 

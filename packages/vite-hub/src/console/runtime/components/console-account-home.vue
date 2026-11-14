@@ -5,6 +5,7 @@ import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/a
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleAccountRename from "./console-account-rename.vue";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
 
@@ -30,6 +31,20 @@ const unlinkOpen = ref(false);
 function askUnlink(app: ConsoleAccountProject): void {
   unlinking.value = app;
   unlinkOpen.value = true;
+}
+
+// The app whose Rename dialog is open.
+const renaming = shallowRef<ConsoleAccountProject>();
+const renameOpen = ref(false);
+
+function askRename(app: ConsoleAccountProject): void {
+  renaming.value = app;
+  renameOpen.value = true;
+}
+
+/** The name that an app reports, which the Console shows when the link has no label. */
+function reportedName(app: ConsoleAccountProject): string {
+  return projects.names.value[app.id] || consoleProjectHost(app);
 }
 
 const url = ref("");
@@ -138,12 +153,13 @@ async function link(): Promise<void> {
             <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
             <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           </a>
-          <UDropdownMenu v-if="manage" :items="[[{ icon: 'i-lucide-unlink', label: 'Unlink app', color: 'error', onSelect: () => askUnlink(app) }]]" :content="{ align: 'end' }">
+          <UDropdownMenu v-if="manage" :items="[[{ icon: 'i-lucide-pencil', label: 'Rename app', onSelect: () => askRename(app) }], [{ icon: 'i-lucide-unlink', label: 'Unlink app', color: 'error', onSelect: () => askUnlink(app) }]]" :content="{ align: 'end' }">
             <UButton class="me-2 shrink-0" icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="sm" :aria-label="`More actions for ${name(app)}`" />
           </UDropdownMenu>
         </li>
       </ul>
       <ConsoleAccountUnlink v-if="unlinking" v-model:open="unlinkOpen" :project-id="unlinking.id" :name="name(unlinking)" />
+      <ConsoleAccountRename v-if="renaming" v-model:open="renameOpen" :project-id="renaming.id" :label="renaming.label" :reported="reportedName(renaming)" />
     </section>
 
     <section v-if="!setupDone" aria-label="Setup steps">

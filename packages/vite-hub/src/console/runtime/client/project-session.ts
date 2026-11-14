@@ -170,7 +170,7 @@ function open(info: ConsoleProjectInfo): void {
   const current = projects.current.value
   if (current?.id) {
     projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
-    rememberProjectName(current.id, info.name)
+    rememberConsoleProjectName(current.id, info.name)
   }
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
@@ -258,7 +258,7 @@ export async function checkConsoleProjects(): Promise<void> {
     const probe = await probeConsoleProject(targetOf(projects, project)).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
-    if (probe.kind === "ready") rememberProjectName(project.id, probe.info.name)
+    if (probe.kind === "ready") rememberConsoleProjectName(project.id, probe.info.name)
   }))
 }
 
@@ -275,7 +275,8 @@ function readProjectNames(): Record<string, string> {
   }
 }
 
-function rememberProjectName(id: string, name: string | undefined): void {
+/** Keep the name that a project reports, so the Console can show it when the link has no label. */
+export function rememberConsoleProjectName(id: string, name: string | undefined): void {
   const projects = useState()
   const value = name?.trim()
   if (projects.mode !== "account" || !value || projects.names.value[id] === value) return
@@ -287,11 +288,21 @@ function rememberProjectName(id: string, name: string | undefined): void {
 }
 
 /**
- * The name that the Console shows for a project: the name that the app reports in `project.get`, else the label of the
- * link, else the host.
+ * The name that the Console shows for a project: the label that the person gave the link, else the name that the app
+ * reports in `project.get`, else the host. The app reports its `package.json` name, such as `acme-docs`, so the label
+ * wins.
  */
 export function consoleProjectDisplayName(project: { id: string, label?: string | null, url: string }): string {
-  return useState().names.value[project.id] || project.label || consoleProjectHost(project)
+  return project.label || useState().names.value[project.id] || consoleProjectHost(project)
+}
+
+/**
+ * The name of the open project. An `account` Console shows the label of the link first, like
+ * `consoleProjectDisplayName()`. Otherwise it is `reported`, the name that the app reports, else the name in `project.get`.
+ */
+export function consoleOpenProjectName(reported?: string): string | undefined {
+  const projects = useState()
+  return (projects.mode === "account" ? projects.current.value?.label : undefined) || reported || projects.info.value?.name
 }
 
 /** Only owners and admins of a team link and unlink its apps. */
@@ -455,6 +466,12 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
   const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined)
   rememberAccountProject(useState().account.value?.teamId, project.id)
   reloadConsoleAccount()
+}
+
+/** Rename an app of the active team. An empty label removes it, so the Console shows the name that the app reports. */
+export async function renameAccountProject(id: string, label: string): Promise<void> {
+  const { renameConsoleAccountProject } = await import("./account")
+  await renameConsoleAccountProject(id, label)
 }
 
 /** Load the Console again from its home page, such as after a sign-in, a team switch, or a new project. */

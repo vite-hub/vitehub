@@ -8,7 +8,7 @@ import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
-import { useConsoleProjects } from "../client/project-session";
+import { consoleOpenProjectName, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
@@ -35,7 +35,7 @@ const signedOut = ref(false);
 let unsubscribe: (() => void) | undefined;
 
 const projects = useConsoleProjects();
-const projectName = computed(() => navigation.value?.projectName || projects.info.value?.name || "ViteHub");
+const projectName = computed(() => consoleOpenProjectName(navigation.value?.projectName) || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);

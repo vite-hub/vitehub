@@ -21,6 +21,7 @@ import {
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
+import { consoleOpenProjectName } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -251,7 +252,7 @@ onBeforeUnmount(() => {
                 <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
                   <!-- The name comes with the sections, so a placeholder holds its line instead of a name that then changes. -->
                   <USkeleton v-if="loading" class="my-0.5 h-5 w-40" />
-                  <template v-else>{{ installedNavigation?.projectName || "ViteHub Console" }}</template>
+                  <template v-else>{{ consoleOpenProjectName(installedNavigation?.projectName) || "ViteHub Console" }}</template>
                 </h1>
                 <p class="text-sm text-muted">
                   {{ loading ? "Loading the enabled primitives…" : summary }}

@@ -84,6 +84,7 @@ The `/api/projects` routes and the forward need a session. They act on the sessi
 | `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
 | `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
+| `PATCH /api/projects/<id>` | Owners and admins rename a project: `{ "label": "Docs" }`. `{ "label": null }` removes the label, so the Console shows the name that the app reports. The key of the link does not change. |
 | `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 | `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |

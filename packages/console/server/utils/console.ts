@@ -126,6 +126,15 @@ export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Pro
   return consoleJson({ project }, 201)
 }
 
+/** Change the name of a project in the Console: `{ "label": "Docs" }`, or `{ "label": null }` to show the app's own name. */
+export async function renameProject(caller: ConsoleTeamCaller, id: string, body: unknown): Promise<Response> {
+  if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team rename projects.")
+  const label: unknown = body instanceof Object && "label" in body ? Reflect.get(body, "label") : undefined
+  if (label !== null && String(label) !== label) return consoleProblem(400, "CONSOLE_PROJECT_INVALID", "Send { \"label\": \"Docs\" }, or { \"label\": null } to remove the label.")
+  const project = await caller.projects.rename(id, label)
+  return project ? consoleJson({ project }) : consoleProblem(404, "CONSOLE_PROJECT_NOT_FOUND", "There is no such project.")
+}
+
 /** Unlink a project. The Console deletes the private key of the link, so no call can be signed for it again. */
 export async function unlinkProject(caller: ConsoleTeamCaller, id: string): Promise<Response> {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team unlink projects.")

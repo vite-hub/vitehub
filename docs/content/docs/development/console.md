@@ -78,6 +78,8 @@ To use the Console UI, deploy the app and link it as the next section shows.
 
 [console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in. The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
 
+The Console names each app by the **Name** you give it when you link it. Without one, it uses the name that the app reports, from its `package.json`. Owners and admins rename an app from the menu of its row on Home.
+
 The Console server keeps an Ed25519 key pair for each linked project, with the private key encrypted, and [signs](#sign-console-requests) each call to the project's Console endpoint with it. The signature names the person who calls. The app keeps only the public key, and the browser never sees the private key.
 
 To open a deployed app there:

@@ -6,7 +6,7 @@ import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/a
 import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { accountAppStatusLabels, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
-import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, openAccountProject, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
@@ -113,7 +113,10 @@ onMounted(() => {
   for (const app of apps.value) {
     status[app.id] = "checking";
     void checkConsoleAccountProject(app.id).then(
-      (result) => { status[app.id] = result.status; },
+      (result) => {
+        status[app.id] = result.status;
+        rememberConsoleProjectName(app.id, result.name);
+      },
       () => { status[app.id] = "unreachable"; },
     );
   }

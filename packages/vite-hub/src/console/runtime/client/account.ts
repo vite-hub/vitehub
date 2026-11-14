@@ -290,6 +290,8 @@ export interface ConsoleAccountCheck {
   status: ConsoleAccountAppStatus
   /** The HTTP status of the app's answer. */
   code: number
+  /** The name that a connected app reports in `project.get`. */
+  name?: string
 }
 
 // The codes of an app that has no public key for the link, or another one.
@@ -298,7 +300,10 @@ const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNK
 /** Whether the app keeps the public key of the link: the Console server calls the app with a signed request. */
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
-  if (result.linked) return { status: "connected", code: result.status }
+  if (result.linked) {
+    const name: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "name") : undefined
+    return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}) }
+  }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
   const code = String(answerCode)
   // The Console server answers for the app when it cannot reach it, with a `CONSOLE_FORWARD_` code.
@@ -309,6 +314,13 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
 /** Link an app to the active team. The answer names the variable and the public key to set on the app. */
 export async function linkConsoleAccountProject(url: string, label?: string): Promise<ConsoleAccountProject> {
   const { project } = await json<{ project: ConsoleAccountProject }>("/api/projects", { body: JSON.stringify({ url, ...(label ? { label } : {}) }), method: "POST" })
+  return project
+}
+
+/** Rename an app of the active team. An empty name removes the label, so the Console shows the name that the app reports. */
+export async function renameConsoleAccountProject(id: string, label: string): Promise<ConsoleAccountProject> {
+  const name = label.replace(/\s+/g, " ").trim()
+  const { project } = await json<{ project: ConsoleAccountProject }>(`/api/projects/${encodeURIComponent(id)}`, { body: JSON.stringify({ label: name || null }), method: "PATCH" })
   return project
 }
 
