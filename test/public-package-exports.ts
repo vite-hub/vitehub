@@ -55,7 +55,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/forms/vue", { "@formisch/vue": "both" }],
   ["@vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   // The Nuxt module loads @nuxt/kit. Its declarations do not import it.
-  ["@vite-hub/kit/nuxt", { "@nuxt/kit": "runtime" }],
+  ["@vite-hub/kit/nuxt", { "@nuxt/kit": "runtime", "@nuxt/schema": "declaration" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
