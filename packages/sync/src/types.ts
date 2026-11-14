@@ -81,6 +81,15 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
    * @experimental
    */
   subsets?: readonly (keyof TRow & string)[]
+  /**
+   * The caller's own account. Return the caller's user id when the app has its own sign-in, not ViteHub Auth. Queued
+   * writes belong to the account, and the server refuses writes of another account with `SYNC_SCOPE_CHANGED`. Without
+   * this option, the account is `user.id` from ViteHub Auth, else the scope of `where`, which changes when the caller
+   * joins or leaves a team. Return `null` for a caller without an account: the scope is then the account.
+   *
+   * @experimental
+   */
+  account?: (context: SyncContext) => string | null | Promise<string | null>
   /** Named writes with server logic, called from the browser as `todos.actions.<name>(args)`. */
   actions?: SyncActions<TRow, TArgs>
   /**

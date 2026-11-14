@@ -90,7 +90,7 @@ export function defineSync<const TTable, TArgs = Record<string, never>>(options:
   if (!options || typeof options !== "object") throw invalid("Pass an object with `table` and `where`.")
   const table = describeSyncTable(options.table)
   if (typeof options.where !== "function") throw invalid("`where` must be a function that returns the column values of the caller's rows, such as `({ user }) => user ? { ownerId: user.id } : false`. Return `{}` for every row.")
-  const { write, schema, database, actions, live, subsets } = options
+  const { write, schema, database, actions, live, subsets, account } = options
   if (write !== undefined && typeof write !== "boolean" && typeof write !== "function") throw invalid("`write` must be `true`, `false`, or a function that returns a boolean.")
   if (schema !== undefined) {
     const standard: unknown = Reflect.get(Object(schema), "~standard")
@@ -98,6 +98,7 @@ export function defineSync<const TTable, TArgs = Record<string, never>>(options:
   }
   if (database !== undefined && (typeof database !== "string" || !database)) throw invalid("`database` must be the name of a Database, such as `default`.")
   if (live !== undefined && typeof live !== "boolean") throw invalid("`live` must be `true` or `false`.")
+  if (account !== undefined && typeof account !== "function") throw invalid("`account` must be a function that returns the caller's user id, such as `({ request }) => getUserId(request)`.")
   if (subsets !== undefined) {
     const list: unknown = subsets
     if (!Array.isArray(list)) throw invalid("`subsets` must be an array of column names, such as `[\"issueId\"]`.")

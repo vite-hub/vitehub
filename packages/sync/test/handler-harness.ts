@@ -97,19 +97,19 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     return url
   }
 
-  async function pull(caller: Caller | string | null, query: Held & { where?: SyncValues } = {}) {
-    const response = await call(new Request(pullUrl(query), { headers: callerHeaders(caller) }))
+  async function pull(caller: Caller | string | null, query: Held & { where?: SyncValues } = {}, headers: Record<string, string> = {}) {
+    const response = await call(new Request(pullUrl(query), { headers: { ...callerHeaders(caller), ...headers } }))
     // SAFETY: the tests read the documented answer of a pull.
     return { status: response.status, headers: response.headers, body: await response.json() as SyncPullResponse & { code?: string, message?: string } }
   }
 
   /** What a client holds after a fresh pull. */
-  async function start(caller: Caller | string | null, where?: SyncValues) {
-    const { body } = await pull(caller, where ? { where } : {})
+  async function start(caller: Caller | string | null, where?: SyncValues, headers: Record<string, string> = {}) {
+    const { body } = await pull(caller, where ? { where } : {}, headers)
     return { scope: body.scope.id, cursor: body.cursor, version: body.version, account: body.account }
   }
 
-  async function push(caller: Caller | string, body: Held & { where?: SyncValues, mutations: unknown[] }, headers: Record<string, string> = {}) {
+  async function push(caller: Caller | string | null, body: Held & { where?: SyncValues, mutations: unknown[] }, headers: Record<string, string> = {}) {
     const response = await call(new Request(new URL(route, origin), {
       method: "POST",
       headers: { "content-type": "application/json", origin, ...callerHeaders(caller), ...headers },

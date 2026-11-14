@@ -154,8 +154,38 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   const [outside, values] = mergeSubset(whereValues, subset)
   if (outside !== undefined) return [fail(403, syncErrors.SYNC_OUT_OF_SCOPE({ column: outside })), undefined]
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
-  const account = context.user ? await fingerprint(`account\n${context.user.id}`) : scope.id
+  const id = await accountId(resolved, context, whereValues)
+  const account = id === null ? scope.id : await fingerprint(`account\n${id}`)
   return [undefined, { ...resolved, context, scope, account }]
+}
+
+/** The Sync names that warned about their account in this process. */
+const accountWarnings = new Set<string>()
+
+function isDevelopment(): boolean {
+  const mode = typeof process === "undefined" ? undefined : process.env.NODE_ENV
+  return mode !== undefined && mode !== "production"
+}
+
+/**
+ * The id of the caller's account: the `account` option, else `user.id` from ViteHub Auth. `null` makes the scope the
+ * account. Queued writes belong to the account, so it must not change when the caller joins or leaves a team.
+ */
+async function accountId(resolved: Resolved, context: SyncContext, where: SyncValues): Promise<string | null> {
+  const option = resolved.definition.options.account
+  if (option) {
+    const id: unknown = await option(context)
+    if (id !== null && (typeof id !== "string" || !id)) {
+      throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`account\` must return the caller's user id as text, or \`null\`.` })
+    }
+    return id
+  }
+  if (context.user) return context.user.id
+  if (Object.values(where).some(Array.isArray) && !accountWarnings.has(resolved.name) && isDevelopment()) {
+    accountWarnings.add(resolved.name)
+    console.warn(`[vitehub] server/sync/${resolved.name}: \`where\` returns a list, such as teams, and the app has no ViteHub Auth user, so the account of the queued writes is the scope. When the caller joins or leaves a team, the scope changes, and the browser holds back its queued writes. Return the caller's own user id from \`account\` in server/sync/${resolved.name}.ts, such as \`account: ({ request }) => getUserId(request)\`.`)
+  }
+  return null
 }
 
 function headQuery(db: SyncDatabase, name: string) {

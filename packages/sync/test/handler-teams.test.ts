@@ -1,7 +1,8 @@
 import { eq, sql } from "drizzle-orm"
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { fingerprint } from "../src/canonical.ts"
 import { syncChanges, syncState } from "../src/database.ts"
 import { defineSync } from "../src/define.ts"
 import { createSyncHandler, recordSyncChanges } from "../src/runtime.ts"
@@ -132,6 +133,59 @@ describe("team scopes", () => {
     const other = await app.push({ user: "bob", teams: ["a"] }, { ...as(before), mutations: [insert("m2", { id: "i2", teamId: "a", title: "x" })] })
     expect(other).toMatchObject({ status: 409, body: { code: "SYNC_SCOPE_CHANGED" } })
     expect((await app.rows()).map(row => row.id)).toEqual(["i1"])
+  })
+})
+
+describe("accounts of apps with their own sign-in", () => {
+  /** An app that reads the user and the teams from its own session: here, from headers. */
+  async function ownSignIn(name: string, account?: DefineSyncOptions<typeof issues>["account"]) {
+    const definition = defineSync({
+      table: issues,
+      where: ({ request }) => ({ teamId: (request.headers.get("x-app-teams") ?? "").split(",").filter(Boolean) }),
+      ...(account ? { account } : {}),
+    })
+    return await createHarness({ name, definition, ddl: [ddl] })
+  }
+  const session = (user: string, teams: string) => ({ "x-app-user": user, "x-app-teams": teams })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("keeps the account of the `account` option when the caller joins a team", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = await ownSignIn("own-account", ({ request }) => request.headers.get("x-app-user"))
+    const held = await app.start(null, undefined, session("u1", "a"))
+    expect(held.account).toBe(await fingerprint("account\nu1"))
+    const joined = await app.push(null, { ...as(held), cursor: held.cursor, mutations: [insert("m1", { id: "i1", teamId: "b", title: "In b" })] }, session("u1", "a,b"))
+    expect(joined.status).toBe(200)
+    expect(joined.body.results).toEqual([{ id: "m1", status: "applied" }])
+    expect(joined.body.pull).toMatchObject({ reset: true, account: held.account })
+    // Another user on the same device: the writes stay out.
+    expect(await app.push(null, { ...as(held), mutations: [insert("m2", { id: "i2", teamId: "a", title: "x" })] }, session("u2", "a"))).toMatchObject({ status: 409, body: { code: "SYNC_SCOPE_CHANGED" } })
+    // `null` makes the scope the account.
+    const anonymous = await ownSignIn("own-anonymous", () => null)
+    const { body } = await anonymous.pull(null, {}, session("", "a"))
+    expect(body.account).toBe(body.scope.id)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("warns once in development when a list scope stands for the account, because a team change holds back queued writes", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = await ownSignIn("own-scope")
+    const held = await app.start(null, undefined, session("u1", "a"))
+    expect(held.account).toBe(held.scope)
+    expect(await app.push(null, { ...as(held), mutations: [insert("m1", { id: "i1", teamId: "b", title: "In b" })] }, session("u1", "a,b"))).toMatchObject({ status: 409, body: { code: "SYNC_SCOPE_CHANGED" } })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain("Return the caller's own user id from `account` in server/sync/own-scope.ts")
+  })
+
+  it("refuses an `account` that is not a function or returns no text", async () => {
+    // @ts-expect-error `account` is a function.
+    expect(() => defineSync({ table: issues, where: () => ({}), account: "u1" })).toThrow("`account` must be a function")
+    // @ts-expect-error `account` returns text or `null`.
+    const app = await ownSignIn("own-number", () => 42)
+    await expect(app.pull(null, {}, session("u1", "a"))).rejects.toMatchObject({ code: "SYNC_INVALID_DEFINITION" })
   })
 })
 
