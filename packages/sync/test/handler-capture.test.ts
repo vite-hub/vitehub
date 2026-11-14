@@ -278,6 +278,40 @@ describe("replaced rows", () => {
   })
 })
 
+describe("unique columns", () => {
+  const people = sqliteTable("people", { id: text("id").primaryKey(), teamId: text("team_id").notNull(), email: text("email").notNull() })
+  const ddl = "CREATE TABLE `people` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `email` text NOT NULL)"
+  const byTeamPeople = defineSync({ table: people, where: ({ user }) => user ? { teamId: teamsOf(user) } : false, write: false })
+
+  it("sends a row that a replace through a NOCASE unique index removed to its old team as deleted", async () => {
+    const app = await createHarness({ name: "people", definition: byTeamPeople, ddl: [ddl, "CREATE UNIQUE INDEX `people_email` ON `people` (`email` COLLATE NOCASE)"] })
+    const a = await app.start(alice)
+    await app.client.execute("INSERT INTO `people` (`id`, `team_id`, `email`) VALUES ('p1', 'a', 'ada@example.com')")
+    const held = (await app.pull(alice, as(a))).body
+    await app.client.execute("INSERT OR REPLACE INTO `people` (`id`, `team_id`, `email`) VALUES ('p2', 'b', 'ADA@example.com')")
+    expect((await app.pull(alice, { ...as(a), cursor: held.cursor })).body).toMatchObject({ reset: false, rows: [], deleted: ["p1"] })
+  })
+
+  it("drops a column of a unique index with the statements of the docs, and adds the triggers again", async () => {
+    const app = await createHarness({ name: "people", definition: byTeamPeople, ddl: [ddl, "CREATE UNIQUE INDEX `people_email` ON `people` (`email`)"] })
+    const a = await app.start(alice)
+    await app.client.execute("DROP INDEX `people_email`")
+    await expect(app.client.execute("ALTER TABLE `people` DROP COLUMN `email`")).rejects.toThrow(/error in trigger vitehub_sync_people_replace_(?:insert|update) after drop column/)
+    await app.client.executeMultiple([
+      "DROP TRIGGER IF EXISTS vitehub_sync_people_insert",
+      "DROP TRIGGER IF EXISTS vitehub_sync_people_update",
+      "DROP TRIGGER IF EXISTS vitehub_sync_people_delete",
+      "DROP TRIGGER IF EXISTS vitehub_sync_people_replace_insert",
+      "DROP TRIGGER IF EXISTS vitehub_sync_people_replace_update",
+      "ALTER TABLE `people` DROP COLUMN `email`",
+    ].join(";\n"))
+    const slim = sqliteTable("people", { id: text("id").primaryKey(), teamId: text("team_id").notNull() })
+    const server = processOf(app, { people: defineSync({ table: slim, where: ({ user }) => user ? { teamId: teamsOf(user) } : false, write: false }) })
+    expect(await server.pull("people", alice, { cursor: a.cursor, scope: a.scope, version: a.version })).toMatchObject({ reset: true })
+    expect((await triggers(app)).map(trigger => trigger.name)).toHaveLength(5)
+  })
+})
+
 describe("generated columns", () => {
   it("records a move of a generated scope column when its source column changes", async () => {
     const tasks = sqliteTable("tasks", {

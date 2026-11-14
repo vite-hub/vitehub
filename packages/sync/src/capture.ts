@@ -37,6 +37,12 @@ function literal(value: string): string {
 /** Milliseconds since the epoch, in SQL. */
 const nowSql = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)"
 
+/** A column of a unique index, with the collation that the index compares it with. */
+interface UniqueColumn {
+  name: string
+  collation: string
+}
+
 /** A column of the table in the Database, with its declared type. */
 interface Column {
   name: string
@@ -59,7 +65,7 @@ function oldRowSql(columns: readonly Column[], row = "OLD"): string {
 }
 
 /** The `CREATE TRIGGER` statements of a table, in the order of `syncTriggerNames()`. `unique` has the columns of each unique index. */
-function syncTriggerStatements(table: string, key: Column, scope: readonly Column[], unique: readonly (readonly string[])[]): string[] {
+function syncTriggerStatements(table: string, key: Column, scope: readonly Column[], unique: readonly (readonly UniqueColumn[])[]): string[] {
   const [onInsert, onUpdate, onDelete, onReplaceInsert, onReplaceUpdate] = syncTriggerNames(table)
   const target = quote(table)
   const name = literal(table)
@@ -71,8 +77,8 @@ function syncTriggerStatements(table: string, key: Column, scope: readonly Colum
   const exit = (op: "delete" | "move", condition: string) => `${changes} SELECT ${name}, OLD.${k}, '${op}', ${old}, ${nowSql} WHERE ${condition};`
   const moved = scope.map(column => `OLD.${quote(column.name)} IS NOT NEW.${quote(column.name)}`).join(" OR ")
   const newKey = `OLD.${k} IS NOT NEW.${k}`
-  // `=`, not `IS`: a unique column takes many `NULL`s.
-  const conflict = unique.map(columns => `(${columns.map(column => `"t".${quote(column)} = NEW.${quote(column)}`).join(" AND ")})`).join(" OR ")
+  // `=`, not `IS`: a unique column takes many `NULL`s. Each comparison uses the collation of the index, such as `NOCASE`.
+  const conflict = unique.map(columns => `(${columns.map(({ name: column, collation }) => `"t".${quote(column)} = NEW.${quote(column)} COLLATE ${quote(collation)}`).join(" AND ")})`).join(" OR ")
   const replaced = (other: string) => `${changes} SELECT ${name}, "t".${k}, 'move', ${oldRowSql([key, ...scope], `"t"`)}, ${nowSql} FROM ${target} AS "t" WHERE ${other} AND (${conflict || "0"});`
   return [
     `CREATE TRIGGER ${quote(onInsert)} AFTER INSERT ON ${target} BEGIN ${put} END`,
@@ -120,15 +126,16 @@ export async function captureChanges(owner: object, db: SyncDatabase, table: str
       db.all<Column>(sql`SELECT name, type FROM pragma_table_xinfo(${table}) WHERE hidden <> 1`),
       // Every trigger of Sync on the table, also one of an older name, such as before the table was renamed.
       db.all<{ name: string, sql: string }>(sql`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ${table} AND name LIKE 'vitehub\\_sync\\_%' ESCAPE '\\'`),
-      db.all<{ index: string, column: string | null }>(sql`SELECT il.name AS "index", ii.name AS "column" FROM pragma_index_list(${table}) AS il JOIN pragma_index_info(il.name) AS ii WHERE il."unique" = 1 ORDER BY il.name, ii.seqno`),
+      // `xinfo`, not `info`: it has the collation of each column, such as `NOCASE`. `key` 0 is a column the index only stores.
+      db.all<{ index: string, column: string | null, collation: string }>(sql`SELECT il.name AS "index", ii.name AS "column", ii.coll AS "collation" FROM pragma_index_list(${table}) AS il JOIN pragma_index_xinfo(il.name) AS ii WHERE il."unique" = 1 AND ii."key" = 1 ORDER BY il.name, ii.seqno`),
     ])
     const types = new Map(shape.map(column => [column.name, column.type]))
     // A registered column that the table does not have yet, such as before its migration, stays out of the triggers.
     const scope = registered.map(row => row.column).filter(column => column !== key && types.has(column)).sort()
-    const unique = new Map<string, (string | null)[]>()
-    for (const { index, column } of indexes) unique.set(index, [...unique.get(index) ?? [], column])
+    const unique = new Map<string, (UniqueColumn | null)[]>()
+    for (const { index, column, collation } of indexes) unique.set(index, [...unique.get(index) ?? [], column === null ? null : { name: column, collation }])
     // An index on an expression has no column name. Its conflicts stay without an exit.
-    const uniqueColumns = [...unique.values()].filter((columns): columns is string[] => columns.every(column => column !== null))
+    const uniqueColumns = [...unique.values()].filter((columns): columns is UniqueColumn[] => columns.every(column => column !== null))
     const wanted = syncTriggerStatements(table, { name: key, type: types.get(key) ?? "text" }, scope.map(column => ({ name: column, type: types.get(column) ?? "" })), uniqueColumns)
     const current = new Map(existing.map(trigger => [trigger.name, trigger.sql]))
     if (existing.length === names.length && names.every((name, index) => current.get(name) === wanted[index])) {
