@@ -108,7 +108,7 @@ export default defineNuxtModule({
 | `parseBuildMeta(content)`, `buildIdentity(build)` | `{ repository, commit }`, or `undefined` when the value is missing or malformed. |
 | `buildMetaName` | `"vitehub:build"`. |
 
-The tag is a claim from the page. Check it against the Forge before you act on it, for example by finding a deployment of that commit at the page's origin. In GitHub Actions on a `pull_request` event, `GITHUB_SHA` is the test merge commit, not the head of the pull request.
+The tag is a claim from the page. Check it against the Forge before you act on it, for example by finding a deployment of that commit at the page's origin. In GitHub Actions on a `pull_request` event, `readForgeBuild` takes the head commit from the event payload, not `GITHUB_SHA`, which is the test merge commit.
 
 ## Public imports
 

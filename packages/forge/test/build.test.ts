@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -54,6 +54,14 @@ describe("readForgeBuild", () => {
   it("reads GitHub Actions and the pull request of the ref", async () => {
     const build = await readForgeBuild(empty, { GITHUB_SHA: sha, GITHUB_HEAD_REF: "feature", GITHUB_REPOSITORY: "acme/app", GITHUB_REF: "refs/pull/12/merge" })
     expect(build).toEqual({ commit: sha, branch: "feature", repository: "acme/app", pullRequest: 12 })
+  })
+
+  it("takes the head commit, not the test merge commit, on a pull_request event", async () => {
+    const event = join(empty, "event.json")
+    writeFileSync(event, JSON.stringify({ pull_request: { head: { sha } } }))
+    const build = await readForgeBuild(empty, { GITHUB_SHA: "1".repeat(40), GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: event, GITHUB_HEAD_REF: "feature", GITHUB_REPOSITORY: "acme/app" })
+    expect(build.commit).toBe(sha)
+    expect((await readForgeBuild(empty, { GITHUB_SHA: sha, GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event, GITHUB_REPOSITORY: "acme/app" })).commit).toBe(sha)
   })
 
   it("falls back to Git", async () => {
