@@ -68,7 +68,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=20"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=21"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
@@ -176,9 +176,26 @@ export interface ViteHubPageToolInfo {
   param?: string
 }
 
+/**
+ * The person who is signed in to the app, as the session route returns it. The pill shows them with a menu that signs
+ * them out. The route sends it only to a signed-in visitor who gets at least one tool.
+ */
+export interface ViteHubPageAccount {
+  /** The display name, such as `Ada Lovelace`. */
+  name: string
+  email?: string
+  /** An `https:` or `http:` URL of the person's picture. Without it, the pill shows their initials. */
+  image?: string
+  /** `console` when the ViteHub Console signed this browser in, through Site access. */
+  via?: "console"
+  /** The path that ends the app session with a `POST`, such as `/api/auth/sign-out`. It ends no other session. */
+  signOut: string
+}
+
 /** The answer of `GET /_vitehub/page/session`. */
 export interface ViteHubPageSession {
   tools: ViteHubPageToolInfo[]
+  account?: ViteHubPageAccount
 }
 
 function text(value: unknown): string | undefined {
@@ -199,8 +216,29 @@ function readTool(value: unknown): ViteHubPageToolInfo | undefined {
   return tool
 }
 
-/** The tools of a session answer. Entries without an id or a script are skipped. */
+/**
+ * An account from untrusted input, or `undefined` when it has no name or its `signOut` is not a path of this origin. The
+ * browser posts to `signOut` with the session cookie, so it never goes to another site.
+ */
+export function readViteHubPageAccount(value: unknown): ViteHubPageAccount | undefined {
+  if (value === null || typeof value !== "object") return undefined
+  const name = text(Reflect.get(value, "name"))
+  const signOut = text(Reflect.get(value, "signOut"))
+  if (!name || !signOut?.startsWith("/") || signOut.startsWith("//") || signOut.includes("\\")) return undefined
+  const account: ViteHubPageAccount = { name, signOut }
+  const email = text(Reflect.get(value, "email"))
+  if (email) account.email = email
+  const image = text(Reflect.get(value, "image"))
+  if (image && /^https?:\/\//i.test(image)) account.image = image
+  if (Reflect.get(value, "via") === "console") account.via = "console"
+  return account
+}
+
+/** The tools and the account of a session answer. Entries without an id or a script are skipped. */
 export function readViteHubPageSession(value: unknown): ViteHubPageSession {
   const tools: unknown = value !== null && typeof value === "object" ? Reflect.get(value, "tools") : undefined
-  return { tools: Array.isArray(tools) ? tools.map(readTool).filter((tool): tool is ViteHubPageToolInfo => Boolean(tool)) : [] }
+  const session: ViteHubPageSession = { tools: Array.isArray(tools) ? tools.map(readTool).filter((tool): tool is ViteHubPageToolInfo => Boolean(tool)) : [] }
+  const account = value !== null && typeof value === "object" ? readViteHubPageAccount(Reflect.get(value, "account")) : undefined
+  if (account) session.account = account
+  return session
 }

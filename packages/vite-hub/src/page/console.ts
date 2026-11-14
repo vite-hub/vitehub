@@ -9,7 +9,7 @@ import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tool
 /** Lucide `arrow-up-right`: the link opens a new tab. */
 const newTabIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10M7 17 17 7"/></svg>`
 
-const start: ViteHubPageToolModule["default"] = ({ bar, tool }) => {
+const start: ViteHubPageToolModule["default"] = ({ bar, tool, onOpen }) => {
   const base = consolePageBase(new URL(import.meta.url).pathname)
   // A page origin that the Console cannot open, such as `http:` on a LAN address, gets no segment.
   if (!consolePageLink(location.origin, base)) return
@@ -21,11 +21,14 @@ const start: ViteHubPageToolModule["default"] = ({ bar, tool }) => {
   button.title = "Open this app in the ViteHub Console, in a new tab"
   button.textContent = tool.label
   button.insertAdjacentHTML("beforeend", newTabIcon)
-  button.addEventListener("click", () => {
+  const open = () => {
     const fields = [...document.querySelectorAll("[data-content-field]")].map(element => element.getAttribute("data-content-field") ?? "")
     const href = consolePageLink(location.origin, base, fields)
     if (href) window.open(href, "_blank", "noopener")
-  })
+  }
+  button.addEventListener("click", open)
+  // The account menu of the pill opens the Console through the loader, as this button does.
+  onOpen(open)
   shadow.append(style, button)
 }
 

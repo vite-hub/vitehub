@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { registerViteHubPageTool, respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
 import { commentsRoleAllows } from "../../comments/src/index.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consolePageAuthUser } from "../src/console/runtime/server/page-auth.ts"
-import { consolePageToolAllowed } from "../src/console/runtime/server/page-tool.ts"
+import { consolePageToolAllowed, installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -168,5 +169,66 @@ describe("guests", () => {
     const late = String(Reflect.get(Object((await call("site.invite", { name: "Leo", grants: ["comments-read"], expiresInDays: 1 })).value), "url"))
     vi.useFakeTimers({ now: Date.now() + 25 * 60 * 60_000, toFake: ["Date"] })
     expect((await open(late)).response.status).toBe(401)
+  })
+})
+
+describe("the account in the pill", () => {
+  /** An app with the Console link and Comments for every reader, as generated output installs them with Auth. */
+  function pageApp(): object {
+    const nitroApp = {}
+    installConsolePageTool(nitroApp, { script: "/console.js", user: consolePageAuthUser })
+    registerViteHubPageTool(nitroApp, {
+      id: "comments",
+      label: "Comments",
+      icon: "i-lucide-message-square-text",
+      script: "/comments.js",
+      allowed: async ({ request }) => {
+        const user = (await signedIn(request.headers.get("cookie") ?? ""))?.user
+        return Boolean(user && commentsRoleAllows({ id: user.id, role: String(Reflect.get(user, "role")) }, "read"))
+      },
+    })
+    return nitroApp
+  }
+
+  async function pageSession(nitroApp: object, cookie = "") {
+    const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/session`, { headers: { cookie } }))
+    return readViteHubPageSession(await response.json())
+  }
+
+  it("names a Console member, says the Console signed them in, and signs them out of the app only", async () => {
+    const nitroApp = pageApp()
+    const { cookie } = await open(await link("site.link"))
+    const { tools, account } = await pageSession(nitroApp, cookie)
+    expect(tools.map(tool => tool.id)).toEqual(["console", "comments"])
+    expect(account).toEqual({ name: "Ada Lovelace", email: "ada@example.com", via: "console", signOut: "/api/auth/sign-out" })
+
+    // The browser posts to signOut, as the account menu does.
+    const response = await app.auth.handler(new Request(`${origin}${account!.signOut}`, { method: "POST", headers: { cookie, origin, "content-type": "application/json" }, body: "{}" }))
+    expect(response.status).toBe(200)
+    const cleared = response.headers.getSetCookie()
+    expect(cleared).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^better-auth\.session_token=; .*Max-Age=0/),
+      expect.stringMatching(/^vitehub_session=; .*Max-Age=0/),
+      "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax",
+    ]))
+    expect(await signedIn(cookie)).toBeNull()
+    expect(await pageSession(nitroApp, cookie)).toEqual({ tools: [] })
+  })
+
+  it("names a guest without the made-up email, and without the Console line", async () => {
+    const nitroApp = pageApp()
+    const { value } = await call("site.invite", { name: "Ana", grants: ["comments-write"] })
+    const { cookie } = await open(String(Reflect.get(Object(value), "url")))
+    const { tools, account } = await pageSession(nitroApp, cookie)
+    expect(tools.map(tool => tool.id)).toEqual(["comments"])
+    expect(account).toEqual({ name: "Ana", signOut: "/api/auth/sign-out" })
+  })
+
+  it("never names anyone to an anonymous visitor", async () => {
+    installConsoleAccess({ mode: "open" })
+    const nitroApp = {}
+    installConsolePageTool(nitroApp, { script: "/console.js", user: consolePageAuthUser })
+    registerViteHubPageTool(nitroApp, { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js", allowed: async () => true })
+    expect(await pageSession(nitroApp)).toEqual({ tools: [expect.objectContaining({ id: "comments" })] })
   })
 })

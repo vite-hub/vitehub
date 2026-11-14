@@ -1,11 +1,11 @@
 import { pageToolsHtmlTransform, scriptPolicyNonce } from "./page-tools-html.ts"
-import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsHintCookie, viteHubPageToolsInlineScript, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, viteHubPageToolsWanted, withViteHubBase } from "./page-tools-shared.ts"
+import { readViteHubPageAccount, viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsHintCookie, viteHubPageToolsInlineScript, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, viteHubPageToolsWanted, withViteHubBase } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
-import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
+import type { ViteHubPageAccount, ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 export { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase }
-export type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
+export type { ViteHubPageAccount, ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 /**
  * What the visitor check of a tool gets: the Request of the session route. In a ViteHub app, Nitro puts the Standard
@@ -48,7 +48,15 @@ interface PageToolsState {
   installed: WeakSet<object>
   bases: WeakMap<object, string>
   grants?: Map<string, ViteHubPageGrant>
+  // Optional: a copy of this module from an older release may have made the slot without it.
+  accounts?: WeakMap<object, ViteHubPageAccountReader>
 }
+
+/**
+ * Reads the person who is signed in to the app, for the account menu of the pill. It returns `undefined` for a visitor
+ * without a session. The owner of the app's Auth registers it, such as the Console of `vite-hub`.
+ */
+export type ViteHubPageAccountReader = (visitor: ViteHubPageToolVisitor) => Promise<ViteHubPageAccount | undefined>
 
 const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
 // SAFETY: This module owns the process slot. Owner packages bundle their own copy of it, so the registry and the
@@ -71,6 +79,26 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
   registry.set(tool.id, tool)
   const grants = state().grants ??= new Map()
   for (const grant of tool.grants ?? []) grants.set(grant.id, grant)
+}
+
+/** Registers the account reader of one Nitro app. A second call replaces it. */
+export function registerViteHubPageAccount(nitroApp: unknown, read: ViteHubPageAccountReader): void {
+  if (nitroApp === null || typeof nitroApp !== "object") return
+  const accounts = state().accounts ??= new WeakMap()
+  accounts.set(nitroApp, read)
+}
+
+/** The account of a visitor, or `undefined` without a reader, without a session, or when the reader fails. */
+async function readAccount(nitroApp: object, request: Request): Promise<ViteHubPageAccount | undefined> {
+  const read = state().accounts?.get(nitroApp)
+  if (!read) return undefined
+  try {
+    return readViteHubPageAccount(await read({ request }))
+  }
+  catch (error) {
+    console.error("[vitehub] The page tools could not read the signed-in person. The pill shows no account for this request.", error)
+    return undefined
+  }
 }
 
 /** The grants that the registered page tools declare, in registration order. */
@@ -124,7 +152,8 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
 /**
  * Answers `GET <base>/_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration
  * order. The app base is the part of the request path before the session path, as the Console finds its own base, and
- * each tool `script` path gets it. It sets the hint cookie to `1` when at least one tool is allowed, and to `0` when
+ * each tool `script` path gets it. When at least one tool is allowed, the answer also has the `account` of a signed-in
+ * visitor, from the reader of `registerViteHubPageAccount()`. An anonymous visitor never gets one. It sets the hint cookie to `1` when at least one tool is allowed, and to `0` when
  * none is, so a signed-in person without access does not ask again on each page. A tool whose check throws is not
  * allowed. Requests from other sites get 403 and run no check.
  */
@@ -153,7 +182,8 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
     .flatMap(({ allowed: _allowed, grants: _grants, ...tool }, index) => checks[index] === true || checks[index] === "lazy"
       ? [{ ...tool, ...(checks[index] === "lazy" ? { lazy: true } : {}), script: withViteHubBase(base, tool.script) }]
       : [])
-  return sessionResponse({ tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0) })
+  const account = tools.length > 0 ? await readAccount(nitroApp, request) : undefined
+  return sessionResponse(account ? { tools, account } : { tools }, { cookie: viteHubPageToolsHintCookie(tools.length > 0) })
 }
 
 /**
