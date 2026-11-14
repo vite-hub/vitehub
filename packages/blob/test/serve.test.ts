@@ -72,6 +72,18 @@ describe("Blob response transforms", () => {
     expect(missing.headers.has("x-frame-options")).toBe(false)
   })
 
+  it("keeps the CORS headers of the headers option on error responses", async () => {
+    const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Range", "Cache-Control": "public, max-age=31536000, immutable" }
+    for (const [method, pathname, status] of [["GET", "audio/missing.mp3", 404], ["HEAD", "audio/missing.mp3", 404], ["GET", "audio/../x.mp3", 400], ["POST", "private/original", 405]] as const) {
+      const response = await storage.serve(request({}, method), pathname, { headers })
+      expect(response.status).toBe(status)
+      expect(response.headers.get("access-control-allow-origin")).toBe("*")
+      expect(response.headers.get("access-control-expose-headers")).toBe("Content-Range")
+      // An immutable policy on a 404 would keep the miss after the file is uploaded.
+      expect(response.headers.has("cache-control")).toBe(false)
+    }
+  })
+
   it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
     const app = new H3().all("/photo", event => storage.serve(event.req, "private/original"))
     const fetch = (request: Request) => app.fetch(request)
