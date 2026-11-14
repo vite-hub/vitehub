@@ -31,7 +31,7 @@ async function flush(ms = 60): Promise<void> {
 }
 
 function definition(adapter: RealtimeDocumentDefinition["document"]): RealtimeDocumentDefinition {
-  return { document: adapter, editor: createStubEditor().editor }
+  return { access: "public", document: adapter, editor: createStubEditor().editor }
 }
 
 /** Two server instances of one app that share rooms over an in-memory bus. */
@@ -75,7 +75,7 @@ describe("rooms shared across instances", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const busA = network.bus()
     const a = createTestServer({ ...definition(memory.adapter), persistence: false }, { handler: { bus: () => busA } })
-    const b = createTestServer({ ...definition(memory.adapter), persistence: false, authorize: ({ mode }) => !readOnly || mode === "read" }, { handler: { bus: () => network.bus() } })
+    const b = createTestServer({ authorize: ({ mode }) => !readOnly || mode === "read", document: memory.adapter, editor: createStubEditor().editor, persistence: false }, { handler: { bus: () => network.bus() } })
     await a.connect("page")
     const stale = await b.connect("page")
     await flush()

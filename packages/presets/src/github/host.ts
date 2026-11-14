@@ -8,8 +8,9 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -143,9 +144,9 @@ function positiveInteger(value: string, name: string): number {
 export interface GitHubAppEnvironment {
   appId: number
   privateKey: string
-  /** Fixed installation. Without it, each repository resolves its own installation. */
+  /** Fixed installation of `owner`, which it needs. Repositories of other owners use `installations` or discovery. */
   installationId?: number
-  /** Owner authorized by the fixed installation; other owners are discovered. */
+  /** Repository owner of `installationId`. */
   owner?: string
   /** Explicit installation IDs by repository owner. */
   installations?: Record<string, number>
@@ -159,7 +160,12 @@ export interface GitHubAppEnvironment {
  * repository from the App, and the App's bot identity for commits. Results are cached.
  */
 export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
-  const configuredInstallations = new Map(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id]));
+  if (app.installationId !== undefined && !app.owner) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_OWNER_MISSING()
+  const routing = {
+    ...(app.installationId === undefined ? {} : { installationId: app.installationId }),
+    ...(app.owner ? { owner: app.owner.toLowerCase() } : {}),
+    installations: Object.fromEntries(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id])),
+  }
   const installations = new Map<string, number>()
   let identity: Promise<{ appId: number, login: string, email: string }> | undefined
   const client = githubAppCredentials(app)
@@ -177,9 +183,7 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
   return {
     async credentials(context: GitHubHostCredentialContext): Promise<GitHubHostCredentials> {
       if (!context.repository) return { token: app.token }
-      const repositoryOwner = owner(context.repository)
-      const configured = configuredInstallations.get(repositoryOwner) ?? (!app.owner || app.owner.toLowerCase() === repositoryOwner ? app.installationId : undefined)
-      const installationId = configured ?? await installation(context.repository, context.signal)
+      const installationId = githubInstallationFor(routing, context.repository) ?? await installation(context.repository, context.signal)
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
     /** Every repository that the App's installations can access. */

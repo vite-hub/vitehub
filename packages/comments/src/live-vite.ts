@@ -3,7 +3,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
-import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
@@ -176,13 +176,14 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
     if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || !factories.has(call.callee.name)) return
     const options = argumentExpression(call.arguments[0])
     if (options?.type !== "ObjectExpression") return
-    for (const property of objectProperties(options).reverse()) {
-      // A later spread or dynamic key may replace an earlier Database option.
-      if (property.key === undefined) return
-      if (property.key !== "database") continue
-      if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
-      return staticString(property.value)
-    }
+    const properties = objectProperties(options)
+    const last = properties.findLastIndex(property => property.key === "database")
+    if (last === -1) return
+    const property = properties[last]!
+    // A later spread or dynamic key may replace the Database option, so its value is not known at build time either.
+    const name = property.node.type === "Property" && property.node.kind === "init" && !property.node.method && property.value ? staticValue(property.value) : null
+    if (properties.slice(last + 1).some(later => later.key === undefined) || (name !== undefined && typeof name !== "string")) throw commentsErrorDiagnostics.COMMENTS_B0004({ file })
+    return name
   }
   if (defaultCall) return databaseOf(defaultCall)
   for (const statement of module.program.body) {
