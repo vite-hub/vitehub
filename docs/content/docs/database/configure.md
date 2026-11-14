@@ -116,7 +116,7 @@ export default defineDatabase({
 
 `schema` can be an object literal, an imported object, a namespace import such as `import * as schema from './schema'`, or a spread of several schemas. ViteHub loads the Definition and exports every Drizzle table and view in it, so `vitehub database generate` writes migrations for all of them. A schema key cannot be `schema`, `relations`, or `default`, because the generated module uses those export names.
 
-ViteHub loads the Definition with your Vite or Nuxt string aliases. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub database generate` fails instead, so a migration never drops a table silently.
+ViteHub loads the Definition with your Vite or Nuxt string aliases, such as `~~` and `#layers/<name>`. It also writes them to `.vitehub/database/tsconfig.json`, so drizzle-kit resolves the same imports in `vitehub database generate`. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub database generate` fails instead, so a migration never drops a table silently.
 
 ### Query related tables
 
