@@ -3,7 +3,7 @@ import { resolve } from "pathe"
 import { localPgliteDir } from "../runtime/local-path.ts"
 
 import type { PgliteOptions } from "../runtime/pglite.ts"
-import type { PostgresDatabaseDefaults } from "../runtime/postgres.ts"
+import type { PostgresDatabaseDefaults } from "../runtime/postgres-database.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 function renderConfigExpression(value: unknown) {
@@ -39,7 +39,7 @@ export function renderPostgresDatabaseExpression(name: string, config: ResolvedD
   const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
   if (database.connection?.url !== undefined) defaults.url = database.connection.url
   const definition = `{ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }`
-  if (!dev) return `createPostgresDatabase(${definition}, ${JSON.stringify(defaults)})`
+  if (!dev) return `${database.driver === "node-postgres" ? "createNodePostgresDatabase" : "createPostgresDatabase"}(${definition}, ${JSON.stringify(defaults)})`
   const pglite: PgliteOptions = { dataDir: resolve(config.rootDir, localPgliteDir(name)), migrationsDir: resolve(config.rootDir, database.migrationsDir) }
   return `await createDevPostgresDatabase(${definition}, ${JSON.stringify(defaults)}, ${JSON.stringify(pglite)})`
 }
@@ -51,6 +51,18 @@ export function pgliteDatabases(config: ResolvedDBViteConfig) {
 
 export function usesPostgres(config: ResolvedDBViteConfig) {
   return config.databaseNames.some(name => config.databases[name]?.dialect === "postgresql")
+}
+
+/**
+ * The imports of the production Postgres runtime: postgres.js for the Postgres Databases without `driver`, and
+ * node-postgres for `driver: "node-postgres"`. An app imports only the drivers that its Definitions use.
+ */
+export function renderPostgresRuntimeImports(config: ResolvedDBViteConfig, resolveModule: (module: "runtime/node-postgres" | "runtime/postgres") => string): string[] {
+  const drivers = new Set(config.databaseNames.filter(name => config.databases[name]?.dialect === "postgresql").map(name => config.databases[name]!.driver))
+  return [
+    ...[...drivers].some(driver => driver !== "node-postgres") ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveModule("runtime/postgres"))}`] : [],
+    ...drivers.has("node-postgres") ? [`import { createNodePostgresDatabase } from ${JSON.stringify(resolveModule("runtime/node-postgres"))}`] : [],
+  ]
 }
 
 export function usesD1ReadReplication(config: ResolvedDBViteConfig) {
