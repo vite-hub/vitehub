@@ -40,8 +40,9 @@ A value of `where` is one value, or a list that matches any of its values, such 
 Each definition has one route, `syncRoute(name)`: `/api/_vitehub/sync/<name>`. `protocol.ts` has the types of every request and answer.
 
 - `GET ?cursor=<n>&scope=<id>&version=<v>&where=<json>` pulls the changes since `cursor`. Without `cursor`, with another `scope` or `version`, or with a cursor that is older than the oldest kept change, the answer is a full snapshot with `reset: true`. A pull sends at most 500 changes, then `more: true`. Each pull has `account`, `version`, and `defaults`.
-- `GET ?live&...` with the same fields streams pulls as Server-Sent Events: an `event: pull` with `id: <cursor>` for each change that the caller can see. The server checks the change log each second, a write in the same process wakes the stream at once, and the stream ends after 25 seconds.
 - `POST` with `{ account, scope, version, cursor, where, mutations }` applies at most `syncPushLimit` (100) mutations in order and answers `{ results, pull }`. Each result is `applied` (with the `result` of an action), `duplicate`, or `rejected` with a `SYNC_*` error.
+
+The live stream of every definition has one route, `syncLiveRoute`: `/api/_vitehub/sync`. A tab sends one `POST` with `{ pulls: [{ name, where, cursor, scope, version }] }`, one item for each store, and gets Server-Sent Events: an `event: pull` with `{ name, where, pull }` for each change that the caller can see. The server checks each store as its pull, with the `where` of its definition. A store that the caller may not see gets an `event: error` with `{ name, where, error }`, and the other stores stream on. The server reads the change log once each second for the whole stream, a write in the same process wakes the stream at once, and the stream ends after 25 seconds.
 
 `where` in a pull or a push is a subset: single column values, such as `{ issueId }`, that narrow the scope. A subset outside the caller's `where` gets 403 `SYNC_OUT_OF_SCOPE`.
 
@@ -56,7 +57,7 @@ What the server guarantees:
 - A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams.
 - `POST` needs a JSON body of at most 1 MB from the app's own origin. Every answer has `Cache-Control: private, no-store`.
 
-Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify })` from your own route. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
+Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify })` from the route of each name, and `handleSyncLiveRequest({ todos, comments }, request, { db, identify })` from the live route. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
 
 ## Writes from server code
 

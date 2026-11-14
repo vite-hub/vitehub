@@ -16,7 +16,7 @@ import type { BatchItem } from "drizzle-orm/batch"
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { SyncDatabase } from "./database.ts"
 import type { SyncTable } from "./define.ts"
-import type { SyncKey, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
+import type { SyncKey, SyncLiveEvent, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
 import type { SyncActionContext, SyncContext, SyncDefinition, SyncUser } from "./types.ts"
 
 /** The most changes in one pull. A pull with more answers `more: true`. */
@@ -127,17 +127,23 @@ function rowJson(row: Record<string, unknown>): Record<string, unknown> {
   return parseRow(JSON.stringify(row, jsonReplacer))
 }
 
+/** A request that the server refuses before it reads or writes: the HTTP status and the error. */
+interface Stop {
+  status: number
+  error: Diagnostic
+}
+
 /**
- * Resolves the scope of the caller: the values of `where`, with the subset of the client. Answers 401 or 403 when
- * `where` refuses the caller, and 403 `SYNC_OUT_OF_SCOPE` when the subset is outside `where`.
+ * Resolves the scope of the caller: the values of `where`, with the subset of the client. Refuses with 401 or 403 when
+ * `where` refuses the caller, and with 403 `SYNC_OUT_OF_SCOPE` when the subset is outside `where`.
  */
-async function resolveScope(resolved: Resolved, request: Request, services: SyncServices, subset: SyncValues): Promise<[Response, undefined] | [undefined, Scoped]> {
+async function resolveScope(resolved: Resolved, request: Request, services: SyncServices, subset: SyncValues): Promise<[Stop, undefined] | [undefined, Scoped]> {
   const context = await callerContext(resolved, request, services)
   const where: unknown = await resolved.definition.options.where(context)
   if (where === false) {
     return context.user
-      ? [fail(403, syncErrors.SYNC_FORBIDDEN({ reason: "where" })), undefined]
-      : [fail(401, syncErrors.SYNC_UNAUTHORIZED()), undefined]
+      ? [{ status: 403, error: syncErrors.SYNC_FORBIDDEN({ reason: "where" }) }, undefined]
+      : [{ status: 401, error: syncErrors.SYNC_UNAUTHORIZED() }, undefined]
   }
   if (!where || typeof where !== "object" || Array.isArray(where)) {
     throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`where\` must return an object of column values, \`{}\`, or \`false\`.` })
@@ -147,11 +153,11 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   for (const name of Object.keys(subset)) {
     // A subset column needs an index, and a write that changes it must reach the subsets that held the row.
     if (!(name in whereValues) && !subsets.includes(name)) {
-      return [badRequest(`The subset column \`${name}\` is not in \`subsets\`. Add "${name}" to \`subsets\` in \`server/sync/${resolved.name}.ts\`, such as \`defineSync({ subsets: ["${name}"] })\`.`), undefined]
+      return [{ status: 400, error: syncErrors.SYNC_BAD_REQUEST({ message: `The subset column \`${name}\` is not in \`subsets\`. Add "${name}" to \`subsets\` in \`server/sync/${resolved.name}.ts\`, such as \`defineSync({ subsets: ["${name}"] })\`.` }) }, undefined]
     }
   }
   const [outside, values] = mergeSubset(whereValues, subset)
-  if (outside !== undefined) return [fail(403, syncErrors.SYNC_OUT_OF_SCOPE({ column: outside })), undefined]
+  if (outside !== undefined) return [{ status: 403, error: syncErrors.SYNC_OUT_OF_SCOPE({ column: outside }) }, undefined]
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
   const id = accountId(resolved, context, whereValues)
   const account = id === null ? scope.id : await fingerprint(`account\n${id}`)
@@ -766,72 +772,155 @@ function parseSubsetQuery(table: SyncTable, value: string | null): [string, unde
   return readSubset(table, input)
 }
 
-function liveStream(scoped: Scoped, held: Held, request: Request, services: SyncServices): Response {
-  const { db, name } = scoped
-  let synced = held
+/**
+ * Reads the JSON body of a `POST`: at most 1 MB, from the app's own origin. A cross-site page cannot send JSON without
+ * a preflight, and a browser always sends `Origin` on POST.
+ */
+async function readJson(request: Request, what: string, smaller: string): Promise<[Response, undefined] | [undefined, unknown]> {
+  const origin = request.headers.get("origin")
+  if (origin && origin !== forwardedRequestOrigin(request)) return [fail(403, syncErrors.SYNC_FORBIDDEN({ reason: "origin" })), undefined]
+  if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return [badRequest(`Send the ${what} as JSON.`, 415), undefined]
+  const text = await readText(request, maxBodyBytes)
+  if (text === undefined) return [badRequest(`The ${what} is larger than ${maxBodyBytes} bytes. ${smaller}`, 413), undefined]
+  try {
+    return [undefined, JSON.parse(text)]
+  }
+  catch {
+    return [badRequest("The body is not JSON."), undefined]
+  }
+}
+
+const liveSchema = v.object({
+  pulls: v.array(v.object({
+    name: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
+    where: v.optional(v.record(v.string(), v.unknown())),
+    cursor: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+    scope: v.optional(v.string()),
+    version: v.optional(v.string()),
+  })),
+})
+
+/** One store of a live stream. */
+interface LiveEntry {
+  scoped: Scoped
+  held: Held
+  /** The name and subset of the store, as the client sent them. Each event of the store has them. */
+  store: { name: string, where?: SyncValues }
+  /** `true` while the server has more changes for the store than its last pull had. */
+  more: boolean
+}
+
+/**
+ * Answers the live stream of several stores: `POST <base>api/_vitehub/sync` with a `SyncLiveRequest`. Each store is
+ * checked as its pull is, with the `where` of its definition. A store that the caller may not see gets an `error`
+ * event, and the others stream on. One read of the change log each interval serves every store of the stream.
+ */
+export async function handleSyncLiveRequest(definitions: Readonly<Record<string, Pick<SyncDefinition, "~sync">>>, request: Request, services: SyncServices): Promise<Response> {
+  const shape = "`{ pulls: [{ name, where?, cursor?, scope?, version? }] }`"
+  if (request.method !== "POST") return badRequest(`Open a live stream with POST and the JSON body ${shape}.`, 405, { allow: "POST" })
+  const [refused, raw] = await readJson(request, "live request", "Open fewer stores in one stream.")
+  if (refused) return refused
+  const body = v.safeParse(liveSchema, raw)
+  if (!body.success) return badRequest(`The body must be a \`SyncLiveRequest\`: ${shape}.`)
+  const db = resolveDb(services)
+  // The session of ViteHub Auth is read once for the request, not once for each store.
+  const { identify } = services
+  let caller: Promise<SyncCaller | null> | undefined
+  const once: SyncServices = identify ? { ...services, identify: request => caller ??= identify(request) } : services
+  const entries: LiveEntry[] = []
+  const refusals: SyncLiveEvent[] = []
+  for (const { name, where, cursor, scope, version } of body.output.pulls) {
+    const store = { name, ...(where ? { where } : {}) }
+    const refuse = (error: Diagnostic) => refusals.push({ type: "error", ...store, error: wire({ error }) })
+    const definition = Object.hasOwn(definitions, name) ? definitions[name] : undefined
+    if (!definition) {
+      refuse(syncErrors.SYNC_BAD_REQUEST({ message: `No Sync definition is named ${JSON.stringify(name)}.` }))
+      continue
+    }
+    const resolved = await resolve(name, definition, services, db)
+    if (resolved.definition.options.live === false) {
+      refuse(syncErrors.SYNC_BAD_REQUEST({ message: `The Sync definition "${name}" has \`live: false\`. Pull it with GET.` }))
+      continue
+    }
+    const [wrong, subset] = readSubset(resolved.table, where)
+    if (wrong !== undefined) {
+      refuse(syncErrors.SYNC_BAD_REQUEST({ message: wrong }))
+      continue
+    }
+    const [stopped, scoped] = await resolveScope(resolved, request, once, subset)
+    if (stopped) refuse(stopped.error)
+    else entries.push({ scoped, held: { cursor, scope, version }, store, more: false })
+  }
+  // The highest `seq` of the change log that the stream read.
+  let seen = 0
   return liveResponse({
     // `services.db`, not the Database of this request: a function makes a new Database object for each request.
     key: services.db,
-    name,
+    names: [...new Set(entries.map(entry => entry.scoped.name))],
     signal: request.signal,
     interval: services.live?.interval ?? 1000,
     seconds: services.live?.seconds ?? 25,
     async check(first) {
-      // The first check pulls, so a client with an old scope, version, or cursor gets its reset at once.
-      if (!first) {
-        const [head] = await headQuery(db, name)
-        if ((head?.seq ?? 0) <= (synced.cursor ?? 0)) return {}
+      if (!entries.length) return { events: refusals, end: true }
+      let due = entries
+      if (first) {
+        // The first check pulls every store, so a client with an old scope, version, or cursor gets its reset at once.
+        const [head] = await db.select({ seq: max(syncChanges.seq) }).from(syncChanges)
+        seen = head?.seq ?? 0
       }
-      const answer = await pull(scoped, synced)
-      synced = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version }
-      const changed = answer.reset || answer.rows.length > 0 || answer.deleted.length > 0
-      return { ...changed ? { event: { type: "pull", pull: answer } } : {}, again: answer.more }
+      else {
+        // One read for every store: the names with changes since the last check. `seq` is the primary key.
+        const changed = await db.select({ name: syncChanges.name, seq: max(syncChanges.seq) }).from(syncChanges).where(gt(syncChanges.seq, seen)).groupBy(syncChanges.name)
+        const names = new Set(changed.map(change => change.name))
+        for (const change of changed) seen = Math.max(seen, change.seq ?? 0)
+        due = entries.filter(entry => entry.more || names.has(entry.scoped.name))
+      }
+      // The refusals, then `open`, so the client knows which stores are live before their first pull.
+      const events: SyncLiveEvent[] = first ? [...refusals, { type: "open" }] : []
+      for (const entry of due) {
+        const answer = await pull(entry.scoped, entry.held)
+        entry.held = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version }
+        entry.more = answer.more
+        if (answer.reset || answer.rows.length || answer.deleted.length) events.push({ type: "pull", ...entry.store, pull: answer })
+      }
+      return { events, again: entries.some(entry => entry.more) }
     },
   })
+}
+
+/** Reads a Sync definition, and the table and version of the handler. */
+async function resolve(name: string, definition: unknown, services: SyncServices, db: SyncDatabase): Promise<Resolved> {
+  // The handler reads rows as plain objects. `where` and `write` get the rows that the table returns.
+  if (!isSyncDefinition(definition)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
+  const table = describeSyncTable(definition.options.table)
+  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table) }
 }
 
 /**
  * Answers one Sync request. See `protocol.ts` for the wire contract.
  *
  * - `GET ?cursor&scope&version&where` pulls the changes since `cursor`.
- * - `GET ?live&cursor&scope&version&where` streams pulls as Server-Sent Events.
  * - `POST` with a `SyncPushRequest` applies the writes in order and answers with the results and a pull.
+ *
+ * `handleSyncLiveRequest()` answers the live stream of every definition.
  */
 export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, definition: SyncDefinition<TTable, TRow, TArgs>, request: Request, services: SyncServices): Promise<Response> {
   if (request.method !== "GET" && request.method !== "POST") return badRequest("Use GET to pull and POST to push.", 405, { allow: "GET, POST" })
-  // The handler reads rows as plain objects. `where` and `write` get the rows that the table returns.
-  const loose: unknown = definition
-  if (!isSyncDefinition(loose)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
-  const table = describeSyncTable(definition.options.table)
-  const resolved: Resolved = { name, definition: loose, table, db: resolveDb(services), now: services.now?.() ?? Date.now(), version: await syncTableVersion(table) }
+  const resolved = await resolve(name, definition, services, resolveDb(services))
+  const { table } = resolved
   if (request.method === "GET") {
     const url = new URL(request.url)
-    const live = url.searchParams.has("live")
-    if (live && loose.options.live === false) return badRequest(`The Sync definition "${name}" has \`live: false\`. Pull with GET without \`live\`.`)
     const cursor = parseCursor(url.searchParams.get("cursor"))
     if (cursor === false) return badRequest("`cursor` must be the `cursor` of an earlier pull.")
     const [wrong, subset] = parseSubsetQuery(table, url.searchParams.get("where"))
     if (wrong !== undefined) return badRequest(wrong)
     const [stopped, scoped] = await resolveScope(resolved, request, services, subset)
-    if (stopped) return stopped
-    const held: Held = { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined }
-    if (live) return liveStream(scoped, held, request, services)
-    return json(200, await pull(scoped, held))
+    if (stopped) return fail(stopped.status, stopped.error)
+    return json(200, await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined }))
   }
 
-  // A cross-site page cannot send JSON without a preflight, and a browser always sends `Origin` on POST.
-  const origin = request.headers.get("origin")
-  if (origin && origin !== forwardedRequestOrigin(request)) return fail(403, syncErrors.SYNC_FORBIDDEN({ reason: "origin" }))
-  if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return badRequest("Send the push as JSON.", 415)
-  const text = await readText(request, maxBodyBytes)
-  if (text === undefined) return badRequest(`The push is larger than ${maxBodyBytes} bytes. Send fewer mutations in one push.`, 413)
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  }
-  catch {
-    return badRequest("The body is not JSON.")
-  }
+  const [refused, raw] = await readJson(request, "push", "Send fewer mutations in one push.")
+  if (refused) return refused
   const body = v.safeParse(pushSchema, raw)
   if (!body.success) return badRequest("The body must be a `SyncPushRequest`: `{ account, cursor?, scope?, version?, where?, mutations }`.")
   const { account, cursor, scope: clientScope, version, mutations: input } = body.output
@@ -846,7 +935,7 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
   const [wrong, subset] = readSubset(table, body.output.where)
   if (wrong !== undefined) return badRequest(wrong)
   const [stopped, scoped] = await resolveScope(resolved, request, services, subset)
-  if (stopped) return stopped
+  if (stopped) return fail(stopped.status, stopped.error)
   // Writes made for another account, such as before a sign-in as another user, must not apply with this caller's
   // rights. Writes of the same account apply under the current `where`, also after the caller joined or left a team.
   if (account !== scoped.account) return fail(409, syncErrors.SYNC_ACCOUNT_CHANGED())

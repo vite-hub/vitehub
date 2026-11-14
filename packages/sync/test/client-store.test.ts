@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { createMemoryStorage } from "../src/client/storage.ts"
 import { SyncError } from "../src/client/types.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
 import { accountOf, scopeIdOf } from "./client-fake-server.ts"
 import { createHarness, until } from "./client-harness.ts"
 
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { Harness, Todo } from "./client-harness.ts"
+import type { Harness, Tab, Todo } from "./client-harness.ts"
 
 let harness: Harness
 
@@ -23,9 +24,10 @@ function seed(h: Harness, rows: Todo[]): void {
   for (const row of rows) h.server.write({ ...row })
 }
 
-const posts = (h: Harness) => h.server.requests.filter(request => request.method === "POST")
-const pulls = (h: Harness) => h.server.requests.filter(request => request.method === "GET" && !request.url.searchParams.has("live"))
-const streams = (h: Harness) => h.server.requests.filter(request => request.url.searchParams.has("live"))
+const isLive = (input: unknown) => new URL(String(input), "http://app.test").pathname === syncLiveRoute
+const posts = (h: Harness) => h.server.requests.filter(request => request.method === "POST" && !isLive(request.url))
+const pulls = (h: Harness) => h.server.requests.filter(request => request.method === "GET")
+const streams = (h: Harness) => h.server.requests.filter(request => isLive(request.url))
 
 describe("start and pull", () => {
   it("pulls the caller's rows on start and shows them", async () => {
@@ -171,7 +173,7 @@ describe("writes", () => {
     const { store } = h.open({
       storage: slow,
       fetch: async (input, init) => {
-        if (init?.method === "POST") log.push("send")
+        if (init?.method === "POST" && !isLive(input)) log.push("send")
         return h.server.fetch(input, init)
       },
     })
@@ -191,7 +193,7 @@ describe("writes", () => {
     let most = 0
     const { store, browser } = h.open({
       fetch: async (input, init) => {
-        if (String(input).includes("live=1")) return h.server.fetch(input, init)
+        if (isLive(input)) return h.server.fetch(input, init)
         inFlight++
         most = Math.max(most, inFlight)
         await new Promise(resolve => setTimeout(resolve, 5))
@@ -791,14 +793,90 @@ describe("live", () => {
     return h
   }
 
+  /** Runs the timers of the tab, such as the pause before the stream opens again, until every store is in one stream. */
+  async function liveInOneStream(h: Harness, tab: Tab[]): Promise<void> {
+    await until(() => {
+      tab[0]!.browser.fire()
+      return tab.every(({ store }) => store.getState().live) && h.server.streams === 1
+    })
+  }
+
+  const listsOf = (h: Harness) => streams(h).at(-1)!.live!.pulls.map(pull => pull.where?.listId).sort()
+
+  it("streams the six stores of a tab in one stream, and gives each store its own changes", async () => {
+    const h = live()
+    const first = h.open({ where: { listId: "l0" } })
+    const tab = [first, ...Array.from({ length: 5 }, (_, index) => h.open({ tab: first, where: { listId: `l${index + 1}` } }))]
+    await Promise.all(tab.map(({ store }) => store.refresh()))
+    await liveInOneStream(h, tab)
+    expect(listsOf(h)).toEqual(["l0", "l1", "l2", "l3", "l4", "l5"])
+    // The first store opens the stream at once. The stores that join it later open it again once, after a pause.
+    expect(streams(h).length).toBeLessThanOrEqual(2)
+    h.server.write({ id: "x", ownerId: "ada", listId: "l3", title: "Only in l3" })
+    await until(() => tab[3]!.store.get("x") !== undefined)
+    expect(tab.filter(({ store }) => store.get("x")).length).toBe(1)
+    expect(h.server.streams).toBe(1)
+  })
+
+  it("opens the stream of the tab again when a store joins or leaves, and closes it after the last one", async () => {
+    const h = live()
+    const one = h.open({ where: { listId: "a" } })
+    const two = h.open({ tab: one, where: { listId: "b" } })
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    await liveInOneStream(h, [one, two])
+    const opened = streams(h).length
+
+    const three = h.open({ tab: one, where: { listId: "c" } })
+    await three.store.refresh()
+    // The open stream stays until the pause ends, so the stores in it stay live.
+    await until(() => one.browser.timers.length === 1)
+    expect(h.server.streams).toBe(1)
+    expect(one.store.getState().live).toBe(true)
+    one.browser.fire()
+    await liveInOneStream(h, [one, two, three])
+    expect(streams(h)).toHaveLength(opened + 1)
+    expect(listsOf(h)).toEqual(["a", "b", "c"])
+
+    two.store.destroy()
+    await until(() => one.browser.timers.length === 1)
+    one.browser.fire()
+    await liveInOneStream(h, [one, three])
+    expect(streams(h)).toHaveLength(opened + 2)
+    expect(listsOf(h)).toEqual(["a", "c"])
+
+    one.store.destroy()
+    three.store.destroy()
+    await until(() => h.server.streams === 0)
+    expect(one.browser.timers).toEqual([])
+  })
+
+  it("keeps the other stores live when the server refuses one store of the stream", async () => {
+    const h = live()
+    let teams = ["red", "blue"]
+    h.server.where = () => ({ teamId: teams })
+    const red = h.open({ where: { teamId: "red" } })
+    const blue = h.open({ tab: red, where: { teamId: "blue" } })
+    await Promise.all([red.store.refresh(), blue.store.refresh()])
+    await liveInOneStream(h, [red, blue])
+    // Ada leaves the blue team. The next stream refuses the blue store alone.
+    teams = ["red"]
+    h.server.endStreams()
+    await until(() => red.browser.timers.length === 1)
+    red.browser.fire()
+    await until(() => blue.store.getState().status === "error")
+    expect(blue.store.getState()).toMatchObject({ live: false, error: { code: "SYNC_OUT_OF_SCOPE" } })
+    await until(() => red.store.getState().live && h.server.streams === 1)
+    h.server.write({ id: "r1", ownerId: "ada", teamId: "red", title: "Still live" })
+    await until(() => red.store.get("r1") !== undefined)
+  })
+
   it("opens one stream after the first pull and shows other people's changes without a pull", async () => {
     const h = live()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
     const { store } = h.open({ interval: 30_000 })
     await store.refresh()
     await until(() => store.getState().live)
-    const stream = streams(h)[0]!.url.searchParams
-    expect([stream.get("cursor"), stream.get("version")]).toEqual(["1", "v1"])
+    expect(streams(h)[0]!.live!.pulls).toEqual([{ name: "todos", cursor: 1, scope: scopeIdOf({ name: "todos", ownerId: "ada" }), version: "v1" }])
     const count = pulls(h).length
     h.server.write({ id: "b", ownerId: "ada", title: "Eggs" })
     h.server.write({ id: "c", ownerId: "bob", title: "Not mine" })
@@ -866,11 +944,11 @@ describe("live", () => {
     let refuse = false
     const refusal = () => new Response(new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error: { code: "SYNC_UNAUTHORIZED", message: "Sign in." } })}\n\n`))
+        controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ name: "todos", error: { code: "SYNC_UNAUTHORIZED", message: "Sign in." } })}\n\n`))
         controller.close()
       },
     }), { headers: { "content-type": "text/event-stream" } })
-    const { store, browser } = h.open({ fetch: async (input, init) => refuse && String(input).includes("live=1") ? refusal() : h.server.fetch(input, init) })
+    const { store, browser } = h.open({ fetch: async (input, init) => refuse && isLive(input) ? refusal() : h.server.fetch(input, init) })
     await store.refresh()
     await until(() => store.getState().live)
     // The person signs out in another tab. The next stream gets an error event.
@@ -889,10 +967,11 @@ describe("live", () => {
     const encoder = new TextEncoder()
     let send: (pull: object) => void = () => undefined
     const fetch: typeof globalThis.fetch = async (input, init) => {
-      if (!String(input).includes("live=1")) return h.server.fetch(input, init)
+      if (!isLive(input)) return h.server.fetch(input, init)
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
-          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ pull })}\n\n`))
+          controller.enqueue(encoder.encode("event: open\ndata: {}\n\n"))
+          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ name: "todos", pull })}\n\n`))
         },
       })
       return new Response(body, { headers: { "content-type": "text/event-stream" } })
@@ -940,7 +1019,7 @@ describe("live streams of an old account or scope", () => {
     const { store } = h.open()
     await store.refresh()
     await until(() => store.getState().live)
-    const cursor = Number(streams(h)[0]!.url.searchParams.get("cursor"))
+    const cursor = streams(h)[0]!.live!.pulls[0]!.cursor
 
     // Bob signs in. The pull resets to his rows at the same cursor, while Ada's stream is still open.
     h.server.user = "bob"
@@ -992,11 +1071,12 @@ describe("live streams of an old account or scope", () => {
     let opened = 0
     let cancelled = 0
     const fetch: typeof globalThis.fetch = async (input, init) => {
-      if (!String(input).includes("live=1")) return h.server.fetch(input, init)
+      if (!isLive(input)) return h.server.fetch(input, init)
       opened++
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
-          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ pull })}\n\n`))
+          controller.enqueue(encoder.encode("event: open\ndata: {}\n\n"))
+          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ name: "todos", pull })}\n\n`))
         },
         cancel() {
           cancelled++

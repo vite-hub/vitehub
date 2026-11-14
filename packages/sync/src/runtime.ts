@@ -1,6 +1,6 @@
 import { describeSyncTable, isSyncDefinition } from "./define.ts"
 import { syncErrors } from "./errors.ts"
-import { handleSyncRequest, recordChanges } from "./handler.ts"
+import { handleSyncLiveRequest, handleSyncRequest, recordChanges } from "./handler.ts"
 import { wakeLiveStreams } from "./live.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
@@ -8,7 +8,7 @@ import type { SyncDatabase } from "./database.ts"
 import type { SyncCaller, SyncChanges, SyncServices } from "./handler.ts"
 import type { SyncDefinition } from "./types.ts"
 
-export { handleSyncRequest } from "./handler.ts"
+export { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
 export type { SyncCaller, SyncChanges, SyncServices } from "./handler.ts"
 
 /** What the generated route of a ViteHub app passes. */
@@ -54,8 +54,9 @@ function selectDatabase(db: unknown): SyncDatabase {
 }
 
 /**
- * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`. The generated Nitro handler of a
- * ViteHub app calls it with the definitions of `server/sync/` when the server starts.
+ * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`, and of their live stream at
+ * `<base>api/_vitehub/sync`. The generated Nitro handler of a ViteHub app calls it with the definitions of `server/sync/`
+ * when the server starts.
  */
 export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
   const definitions = new Map<string, SyncDefinition>()
@@ -72,20 +73,20 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
     definitions.set(name, definition)
   }
   const db = () => selectDatabase(options.db())
-  // One services object for each definition, so compaction runs at most once an hour for each name in this process,
-  // and its `db` function is the key that wakes the live streams of the name.
-  const services = new Map<string, SyncServices>()
-  for (const name of definitions.keys()) {
-    services.set(name, { db: () => db(), ...(options.session ? { identify: options.session } : {}) })
-  }
+  // One services object for every definition: compaction runs at most once an hour for each name in this process, and
+  // its `db` function is the key that wakes the live streams.
+  const services: SyncServices = { db: () => db(), ...(options.session ? { identify: options.session } : {}) }
+  const live = Object.fromEntries(definitions)
   const wake = (name: string) => {
-    const found = services.get(name)
-    if (found) wakeLiveStreams(found.db, name)
+    if (definitions.has(name)) wakeLiveStreams(services.db, name)
   }
   Reflect.set(globalThis, installedKey, { names: [...definitions.keys()].sort(), definition: name => definitions.get(name), db, wake } satisfies InstalledSync)
   return {
     async fetch(request) {
-      const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
+      const segments = new URL(request.url).pathname.split("/").filter(Boolean)
+      // A definition named "sync" has the route `.../_vitehub/sync/sync`.
+      if (segments.at(-2) === "_vitehub" && segments.at(-1) === "sync") return await handleSyncLiveRequest(live, request, services)
+      const segment = segments.at(-1) ?? ""
       let name = segment
       try {
         name = decodeURIComponent(segment)
@@ -98,7 +99,7 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
         const error = syncErrors.SYNC_UNKNOWN_NAME({ name })
         return new Response(JSON.stringify({ code: error.code, message: error.message, fix: error.fix, docs: error.docs }), { status: 404, headers: { "content-type": "application/json", "cache-control": "private, no-store" } })
       }
-      return await handleSyncRequest(name, definition, request, services.get(name)!)
+      return await handleSyncRequest(name, definition, request, services)
     },
   }
 }

@@ -1,9 +1,10 @@
 // An in-process Sync server for the client tests. It follows protocol.ts v2: a change log with `seq` cursors and exit
 // entries for rows that leave a scope, list values in `where`, subsets, a ledger of mutation ids, 409 for another
-// account, table versions and defaults, actions with results, resets below the compaction floor, and live streams.
-import { syncRoute } from "../src/protocol.ts"
+// account, table versions and defaults, actions with results, resets below the compaction floor, and live streams of
+// several stores at `syncLiveRoute`.
+import { syncLiveRoute, syncRoute } from "../src/protocol.ts"
 
-import type { SyncKey, SyncMutation, SyncMutationResult, SyncPullResponse, SyncPushRequest, SyncRow, SyncScope, SyncValues, SyncWireError } from "../src/protocol.ts"
+import type { SyncKey, SyncLivePull, SyncLiveRequest, SyncMutation, SyncMutationResult, SyncPullResponse, SyncPushRequest, SyncRow, SyncScope, SyncValues, SyncWireError } from "../src/protocol.ts"
 
 /** A `put` entry is the newest change of a key. An `exit` entry keeps a row as it was before it was deleted or moved. */
 type Change = { seq: number, key: SyncKey, op: "put" } | { seq: number, key: SyncKey, op: "exit", row: SyncRow }
@@ -25,7 +26,7 @@ export interface FakeSyncServer {
   /** The fingerprint of the table. A client with another one gets a reset. */
   version: string
   defaults: SyncRow
-  /** `false` answers live requests with 400, as `defineSync({ live: false })`. */
+  /** `false` refuses each store of a live stream with `SYNC_BAD_REQUEST`, as `defineSync({ live: false })`. */
   live: boolean
   actions: Record<string, (context: FakeActionContext, args: unknown) => unknown>
   /** `true` makes every request fail like a dropped connection, before the server reads it. */
@@ -40,7 +41,7 @@ export interface FakeSyncServer {
   pageSize: number
   readonly rows: Map<SyncKey, SyncRow>
   /** Every request that reached the server, in order. */
-  readonly requests: { method: string, url: URL, body?: SyncPushRequest }[]
+  readonly requests: { method: string, url: URL, body?: SyncPushRequest, live?: SyncLiveRequest }[]
   /** Every mutation that the server applied, in order. A replayed id is not here twice. */
   readonly applied: SyncMutation[]
   /** The live streams that are open now. */
@@ -123,6 +124,14 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     },
     async fetch(input, init) {
       const url = new URL(String(input), "http://app.test")
+      if (url.pathname === syncLiveRoute) {
+        const live = typeof init?.body === "string" ? JSON.parse(init.body) as SyncLiveRequest : undefined
+        if (server.offline) throw new TypeError("Failed to fetch")
+        server.requests.push({ method: init?.method ?? "GET", url, ...(live ? { live } : {}) })
+        if (server.failWith) return error(server.failWith, { code: "SYNC_BAD_REQUEST", message: "The server failed." })
+        if (init?.method !== "POST" || !live) return error(400, { code: "SYNC_BAD_REQUEST", message: "Open a live stream with POST." })
+        return stream(live.pulls, init.signal ?? undefined)
+      }
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as SyncPushRequest : undefined
       if (server.offline) throw new TypeError("Failed to fetch")
       server.requests.push({ method: init?.method ?? "GET", url, ...(body ? { body } : {}) })
@@ -137,10 +146,6 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
       if (init?.method !== "POST") {
         const query = url.searchParams
         const cursor = query.has("cursor") ? Number(query.get("cursor")) : undefined
-        if (query.has("live")) {
-          if (!server.live) return error(400, { code: "SYNC_BAD_REQUEST", message: "This Sync definition has no live stream." })
-          return stream(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined, init?.signal ?? undefined)
-        }
         return json(pull(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined))
       }
       if (!body) return error(400, { code: "SYNC_BAD_REQUEST", message: "No body." })
@@ -185,11 +190,21 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     return { ...base, cursor: page.at(-1)?.seq ?? cursor, reset: false, rows: [...changed.values()], deleted: [...deleted], more: later.length > page.length }
   }
 
-  function stream(scope: SyncScope, account: string, cursor: number | undefined, scopeId: string | undefined, version: string | undefined, signal: AbortSignal | undefined): Response {
+  /** A live stream of several stores. Each store is checked alone, as the real server does. */
+  function stream(pulls: SyncLivePull[], signal: AbortSignal | undefined): Response {
     const encoder = new TextEncoder()
-    let at = cursor
-    let held = scopeId
-    let heldVersion = version
+    const format = (type: string, data: object) => encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`)
+    const user = server.user
+    const refusals: Uint8Array[] = []
+    const entries: { store: { name: string, where?: SyncValues }, scope: SyncScope, account: string, at?: number | undefined, held?: string | undefined, heldVersion?: string | undefined }[] = []
+    for (const item of pulls) {
+      const store = { name: item.name, ...(item.where ? { where: item.where } : {}) }
+      const scope = !user ? { code: "SYNC_UNAUTHORIZED" as const, message: "Sign in to sync." }
+        : item.name !== name || !server.live ? { code: "SYNC_BAD_REQUEST" as const, message: "This Sync definition has no live stream." }
+          : resolve(server.where(user), item.where)
+      if ("code" in scope) refusals.push(format("error", { ...store, error: scope }))
+      else entries.push({ store, scope, account: accountOf(user!), at: item.cursor, held: item.scope, heldVersion: item.version })
+    }
     let closed = false
     let woken = false
     let stop = () => undefined as void
@@ -198,13 +213,15 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
       start(controller) {
         const send = () => {
           woken = false
-          if (closed || (at !== undefined && at >= seq && held === scope.id && heldVersion === server.version)) return
-          const next = pull(scope, account, at, held, heldVersion)
-          at = next.cursor
-          held = next.scope.id
-          heldVersion = next.version
-          if (!next.reset && !next.rows.length && !next.deleted.length) return
-          controller.enqueue(encoder.encode(`event: pull\nid: ${next.cursor}\ndata: ${JSON.stringify({ pull: next })}\n\n`))
+          if (closed) return
+          for (const entry of entries) {
+            if (entry.at !== undefined && entry.at >= seq && entry.held === entry.scope.id && entry.heldVersion === server.version) continue
+            const next = pull(entry.scope, entry.account, entry.at, entry.held, entry.heldVersion)
+            entry.at = next.cursor
+            entry.held = next.scope.id
+            entry.heldVersion = next.version
+            if (next.reset || next.rows.length || next.deleted.length) controller.enqueue(format("pull", { ...entry.store, pull: next }))
+          }
         }
         // One push or server write wakes the stream once, after it committed, as the real notifier does.
         const wake = () => {
@@ -232,6 +249,10 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
         enders.add(end)
         signal?.addEventListener("abort", abort)
         controller.enqueue(encoder.encode(": ping\n\n"))
+        for (const refusal of refusals) controller.enqueue(refusal)
+        // The stream ends when no store is left.
+        if (!entries.length) return end()
+        controller.enqueue(format("open", {}))
         send()
       },
       cancel() {

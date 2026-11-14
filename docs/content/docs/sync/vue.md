@@ -168,9 +168,10 @@ const todos = useSync('todos', {
 
 ## Live changes
 
-The rows of other people show within about a second. One tab of the app keeps a live stream open to the Sync route while it shows and is online. The other tabs get the changes from that tab. You do not have to turn anything on.
+The rows of other people show within about a second. Each tab that shows and is online keeps one live stream open for all its synced tables and subsets, so many `useSync()` calls use one connection. A table or subset that two tabs show streams in one of them, and the other tab gets its changes from that tab. You do not have to turn anything on.
 
-- `live` is `true` in the tab that holds the stream. When that tab hides, another tab that shows takes over.
+- `live` is `true` in the tab that streams the table or subset. When that tab hides, another tab that shows takes over.
+- When a component opens or closes a table or subset, the tab opens its stream again after a short pause, once for all the changes of that pause.
 - While the stream is open, the interval pull runs every 5 minutes at most. The client still pulls when the page shows again and when the network comes back.
 - The server ends a stream after about 25 seconds, and the client opens a new one at once. After a failure, it waits 1 second, doubling to 30 seconds.
 - A stream belongs to the account, scope and table version of the rows when it opens. When they change, such as after a sign-in or after the person left a team, the client ends the stream, drops its changes, and opens a new one.

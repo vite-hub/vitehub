@@ -31,23 +31,23 @@ const pingInterval = 15_000
 export interface LiveStream {
   /** The key of `wakeLiveStreams()`. */
   key: object
-  name: string
+  /** The Sync names whose writes in this process wake the stream. */
+  names: readonly string[]
   signal: AbortSignal
   /** Milliseconds between two checks of the change log. */
   interval: number
   /** Seconds until the stream ends. */
   seconds: number
   /**
-   * One check. `first` is `true` for the check when the stream opens. Returns the event to send, if any, and whether to
-   * check again at once, such as when a pull has `more`.
+   * One check. `first` is `true` for the check when the stream opens. Returns the events to send, whether to check
+   * again at once, such as when a pull has `more`, and whether the stream ends, such as when no store is left.
    */
-  check: (first: boolean) => Promise<{ event?: SyncLiveEvent, again?: boolean }>
+  check: (first: boolean) => Promise<{ events?: readonly SyncLiveEvent[], again?: boolean, end?: boolean }>
 }
 
 function format(event: SyncLiveEvent): string {
   const { type, ...data } = event
-  const id = type === "pull" ? `id: ${event.pull.cursor}\n` : ""
-  return `event: ${type}\n${id}data: ${JSON.stringify(data, jsonReplacer)}\n\n`
+  return `event: ${type}\ndata: ${JSON.stringify(data, jsonReplacer)}\n\n`
 }
 
 /**
@@ -78,7 +78,7 @@ export function liveResponse(stream: LiveStream): Response {
           finish()
         }
       }
-      const unlisten = listen(stream.key, stream.name, wake)
+      const unlisten = stream.names.map(name => listen(stream.key, name, wake))
       // Node sends the status and the headers with the first chunk of the body. Without this comment, a stream with
       // nothing to send has no answer until the first ping, and the client waits 15 seconds to know that it is live.
       send(": open\n\n")
@@ -88,7 +88,7 @@ export function liveResponse(stream: LiveStream): Response {
       function finish() {
         if (closed) return
         closed = true
-        unlisten()
+        for (const stop of unlisten) stop()
         clearInterval(ping)
         clearTimeout(deadline)
         stream.signal.removeEventListener("abort", finish)
@@ -109,9 +109,10 @@ export function liveResponse(stream: LiveStream): Response {
         try {
           while (!closed && Date.now() < end) {
             woken = false
-            const { event, again } = await stream.check(first)
+            const { events = [], again, end: last } = await stream.check(first)
             first = false
-            if (event) send(format(event))
+            for (const event of events) send(format(event))
+            if (last) break
             if (again) continue
             const left = end - Date.now()
             if (!woken && !closed && left > 0) {
@@ -129,7 +130,7 @@ export function liveResponse(stream: LiveStream): Response {
         }
         catch (error) {
           // The client opens a new stream after a pause, so a failed check ends this one.
-          console.error(`[vitehub] The live Sync stream of "${stream.name}" failed.`, error)
+          console.error(`[vitehub] The live Sync stream of ${stream.names.map(name => `"${name}"`).join(", ")} failed.`, error)
         }
         finish()
       })()

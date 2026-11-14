@@ -2,11 +2,12 @@ import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 
 import { syncTables } from "../src/database.ts"
-import { handleSyncRequest } from "../src/runtime.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
+import { handleSyncLiveRequest, handleSyncRequest } from "../src/runtime.ts"
 
 import type { InStatement } from "@libsql/client"
 import type { SyncDatabase } from "../src/database.ts"
-import type { SyncPullResponse, SyncPushResponse, SyncValues } from "../src/protocol.ts"
+import type { SyncLivePull, SyncPullResponse, SyncPushResponse, SyncValues } from "../src/protocol.ts"
 import type { SyncServices } from "../src/runtime.ts"
 import type { SyncDefinition, SyncUser } from "../src/types.ts"
 
@@ -45,6 +46,8 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
   name: string
   ddl: readonly string[]
   definition: SyncDefinition<TTable, TRow, TArgs>
+  /** More definitions for the live stream, by name. */
+  others?: Record<string, Pick<SyncDefinition, "~sync">>
   live?: SyncServices["live"]
 }) {
   const client = createClient({ url: ":memory:" })
@@ -87,9 +90,8 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
   const route = `/api/_vitehub/sync/${options.name}`
   const call = (request: Request, using: SyncServices = services) => handleSyncRequest(options.name, options.definition, request, using)
 
-  function pullUrl(query: Held & { where?: SyncValues, live?: boolean }): URL {
+  function pullUrl(query: Held & { where?: SyncValues }): URL {
     const url = new URL(route, origin)
-    if (query.live) url.searchParams.set("live", "1")
     if (query.cursor !== undefined) url.searchParams.set("cursor", String(query.cursor))
     if (query.scope) url.searchParams.set("scope", query.scope)
     if (query.version) url.searchParams.set("version", query.version)
@@ -119,13 +121,22 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     return { status: response.status, body: await response.json() as SyncPushResponse & { code?: string, message?: string } }
   }
 
-  async function live(caller: Caller | string | null, query: Held & { where?: SyncValues } = {}, using: SyncServices = services) {
+  const definitions = { [options.name]: options.definition, ...options.others }
+  const liveCall = (request: Request, using: SyncServices = services) => handleSyncLiveRequest(definitions, request, using)
+
+  /** Opens a live stream for these stores. A store without `name` is a store of this definition. */
+  async function live(caller: Caller | string | null, pulls: Partial<SyncLivePull>[] = [{}], using: SyncServices = services) {
     const controller = new AbortController()
-    const response = await call(new Request(pullUrl({ ...query, live: true }), { headers: callerHeaders(caller), signal: controller.signal }), using)
+    const response = await liveCall(new Request(new URL(syncLiveRoute, origin), {
+      method: "POST",
+      headers: { "content-type": "application/json", origin, ...callerHeaders(caller) },
+      body: JSON.stringify({ pulls: pulls.map(pull => ({ name: options.name, ...pull })) }),
+      signal: controller.signal,
+    }), using)
     return { response, abort: () => controller.abort() }
   }
 
-  return { client, db, clock, services, parameters, call, pull, start, push, live }
+  return { client, db, clock, services, parameters, call, pull, start, push, live, liveCall }
 }
 
 /** One event of a live stream, as the client parses it. */

@@ -1,10 +1,13 @@
 // Builds a Sync store over the fake server, an in-memory storage, and a fake browser: events, visibility, a cross-tab
 // bus, and a lock that tabs on one bus share.
+import { createSyncLive } from "../src/client/live.ts"
 import { createSyncStore } from "../src/client/store.ts"
 import { createMemoryStorage } from "../src/client/storage.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
 import { createFakeSyncServer } from "./client-fake-server.ts"
 
 import type { SyncEnvironment, SyncEvent, SyncMessage } from "../src/client/environment.ts"
+import type { SyncLive } from "../src/client/live.ts"
 import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
 import type { SyncOptimisticAction } from "../src/client/store.ts"
@@ -97,6 +100,8 @@ export function createFakeBrowser(bus: FakeBus = createFakeBus()): FakeBrowser {
 export interface Tab {
   store: SyncStore<Todo, TodoActions>
   browser: FakeBrowser
+  /** The live stream of the tab, which every store of the tab shares. */
+  live: SyncLive
 }
 
 export interface Todo {
@@ -122,13 +127,15 @@ export interface OpenOptions {
   storage?: SyncStorage
   where?: SyncValues
   actions?: SyncOptimisticActions<Todo, TodoActions>
+  /** Opens the store in this tab, with its browser and its live stream. Default: a new tab. */
+  tab?: Tab
 }
 
 export interface Harness {
   server: FakeSyncServer
   storage: SyncStorage
   bus: FakeBus
-  /** Opens the store in a new tab. Each tab has its own store over the shared storage. */
+  /** Opens the store in a new tab, or in `tab`. Each call makes its own store over the shared storage. */
   open: (options?: OpenOptions) => Tab
   /** Destroys every store that `open()` made. */
   close: () => void
@@ -144,19 +151,22 @@ export function createHarness(): Harness {
     storage,
     bus,
     open(options = {}) {
-      const browser = createFakeBrowser(bus)
+      const browser = options.tab?.browser ?? createFakeBrowser(bus)
+      const fetch = options.fetch ?? server.fetch
+      const live = options.tab?.live ?? createSyncLive({ url: syncLiveRoute, fetch, environment: browser })
       const store = createSyncStore<Todo, TodoActions>("todos", {
         url: "/api/_vitehub/sync/todos",
         ...(options.where ? { where: options.where } : {}),
         // SAFETY: each optimistic function takes the JSON arguments of its action.
         ...(options.actions ? { actions: options.actions as Record<string, SyncOptimisticAction> } : {}),
-        fetch: options.fetch ?? server.fetch,
+        fetch,
         storage: options.storage ?? storage,
         environment: browser,
+        live,
         interval: options.interval ?? false,
       })
       stores.push(store)
-      return { store, browser }
+      return { store, browser, live }
     },
     close() {
       for (const store of stores.splice(0)) store.destroy()

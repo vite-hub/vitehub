@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
 import { build } from "vite"
 
+import { syncLiveRoute } from "../../src/protocol.ts"
 import { createFakeSyncServer } from "../client-fake-server.ts"
 
 async function bundle(entry) {
@@ -175,7 +176,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       await two.waitForFunction(key => window.todos.getState().queued === 0 && window.todos.get(key)?.title === "Rye bread", key)
       assert.equal(server.applied.length - before, 2)
       // Without Web Locks both tabs may send a write. The server answers the second with `duplicate`.
-      if (secure) assert.equal(server.requests.filter(request => request.method === "POST").flatMap(request => request.body.mutations).filter(mutation => mutation.key === key || mutation.value?.id === key).length, 2)
+      if (secure) assert.equal(server.requests.filter(request => request.method === "POST" && request.url.pathname !== syncLiveRoute).flatMap(request => request.body.mutations).filter(mutation => mutation.key === key || mutation.value?.id === key).length, 2)
     })
 
     await t.test("clearSync() forgets the stored copy in every tab", async () => {

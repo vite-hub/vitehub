@@ -245,6 +245,19 @@ function randomUUID(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
+/** Whether a JSON value is a `SyncPullResponse`. */
+function isPull(value: unknown): value is SyncPullResponse {
+  if (!value || typeof value !== "object") return false
+  const scope: unknown = Reflect.get(value, "scope")
+  return typeof Reflect.get(value, "key") === "string"
+    && typeof Reflect.get(value, "cursor") === "number"
+    && typeof Reflect.get(value, "account") === "string"
+    && typeof Reflect.get(value, "version") === "string"
+    && Array.isArray(Reflect.get(value, "rows"))
+    && Array.isArray(Reflect.get(value, "deleted"))
+    && Boolean(scope) && typeof scope === "object" && typeof Reflect.get(scope as object, "id") === "string"
+}
+
 /** Milliseconds before retry number `attempt + 1`: 1 s doubling to 30 s, with a random wait in the upper half. */
 function backoffDelay(attempt: number, random: number): number {
   const ceiling = Math.min(30_000, 1000 * 2 ** attempt)
@@ -290,5 +303,5 @@ function toWireError(error: SyncError): SyncWireError {
   return { code, message: error.message, ...(error.issues ? { issues: error.issues } : {}) }
 }
 
-export { backoffDelay, buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
+export { backoffDelay, buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, isPull, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
 export type { SyncView, SyncViewContext }
