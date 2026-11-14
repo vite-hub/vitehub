@@ -13,11 +13,12 @@ export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
-import { byteRangeBounds } from "./internal/byte-range.ts"
+import { matchesETag, parseByteRange, selectByteRange } from "./internal/serve-request.ts"
+import { edgeCacheKey, keepInEdgeCache, matchEdgeCache } from "./internal/edge-cache.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
@@ -28,12 +29,6 @@ import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
-
-function matchesETag(condition: string | null, etag: string | undefined): boolean {
-  if (!condition) return false
-  if (condition.trim() === "*") return true
-  return Boolean(etag && condition.match(/(?:W\/)?"[^"]*"/g)?.some(tag => tag.replace(/^W\//, "") === etag.replace(/^W\//, "")))
-}
 
 /** Give a driver's multipart upload the `[error, value]` result contract. */
 export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: string): BlobMultipartUpload {
@@ -149,34 +144,6 @@ function guessContentType(pathname: string): string {
     ".webp": "image/webp",
   }
   return known[extension] || "application/octet-stream"
-}
-
-
-/** Reads one `Range: bytes=` spec. Returns `undefined` for no range, several ranges, or a malformed header. */
-function parseByteRange(header: string | null): BlobDriverByteRange | undefined {
-  if (!header) return
-  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim())
-  if (!match || (!match[1] && !match[2])) return
-  if (!match[1]) return { suffix: Number(match[2]) }
-  const offset = Number(match[1])
-  if (!match[2]) return { offset }
-  const end = Number(match[2])
-  return end < offset ? undefined : { offset, length: end - offset + 1 }
-}
-
-/**
- * Selects the bytes to send. Returns `undefined` to send the whole body: no range, several ranges, a stale `If-Range`,
- * or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
- */
-function selectByteRange(request: Request, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
-  // RFC 9110 section 14.2 requires ignoring Range on methods other than GET.
-  if (request.method !== "GET") return
-  const range = parseByteRange(request.headers.get("range"))
-  if (!range) return
-  const ifRange = request.headers.get("if-range")
-  // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
-  if (ifRange !== null && (!etag || ifRange !== etag)) return
-  return byteRangeBounds(range, size) ?? "unsatisfiable"
 }
 
 function notModified(headers: Headers): Response {
@@ -337,12 +304,21 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
     },
     async serve(request, pathname, options = {}) {
+      const { edgeCache } = options
+      if (edgeCache && (!Number.isSafeInteger(edgeCache.maxAge) || edgeCache.maxAge <= 0)) {
+        throw blobErrorDiagnostics.BLOB_R0047({ message: "`edgeCache.maxAge` must be a positive integer." })
+      }
       const decodedPath = decodePathname(pathname)
       const issue = pathnameIssue(decodedPath)
       if (issue) return blobErrorResponse(request, 400, `Invalid Blob pathname: it ${issue}.`)
       if (isReservedPath(decodedPath)) return blobErrorResponse(request, 404, "Blob not found.")
+      const edge = edgeCache && !options.variant && !options.transform
+        ? { key: edgeCacheKey(request, store, driver.canonicalPathname?.(decodedPath) ?? decodedPath), maxAge: edgeCache.maxAge }
+        : undefined
+      const kept = edge && await matchEdgeCache(request, edge.key)
+      if (kept) return keptResponse(kept, options, decodedPath)
       const [error, response] = await serveRequest(request, decodedPath, options)
-      if (!error) return response
+      if (!error) return edge ? keepInEdgeCache(request, edge.key, response, edge.maxAge) : response
       if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, 404, "Blob not found.")
       if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, 400, error.message)
       throw error
@@ -368,6 +344,24 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       headers.set("Content-Disposition", attachmentDisposition(options.download === true ? normalizedPath : options.download))
     }
     return headers
+  }
+  // The cache lookup applied Blob's range and `If-None-Match` rules using object metadata. Other headers come from this
+  // request's options, like a response that reads storage.
+  function keptResponse(kept: Response, options: BlobServeResponseOptions, normalizedPath: string): Response {
+    const headers = responseHeaders(options, normalizedPath)
+    const etag = kept.headers.get("etag")
+    if (etag) headers.set("ETag", etag)
+    const contentType = kept.headers.get("content-type") ?? undefined
+    sandboxActiveContent(headers, options, contentType)
+    if (kept.status === 304) return notModified(headers)
+    for (const name of ["content-length", "content-range"]) {
+      const value = kept.headers.get(name)
+      if (value !== null) headers.set(name, value)
+    }
+    headers.set("Accept-Ranges", "bytes")
+    if (contentType) headers.set("Content-Type", contentType)
+    headers.set("X-Content-Type-Options", "nosniff")
+    return new Response(kept.body, { headers, status: kept.status })
   }
   // A stored file can have any type that the uploader sent. Serve a type that a browser opens as a page in a CSP
   // sandbox, so it cannot run script on the app origin. The sandbox is added to a policy from the `headers` option.

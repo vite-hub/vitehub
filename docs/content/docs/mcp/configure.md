@@ -93,7 +93,9 @@ A request without a valid token gets `401` with `WWW-Authenticate: Bearer resour
 
 ## Make every tool public
 
-Set `mcp: { auth: false }` to let anyone who knows the URL call every tool, or to check callers in each handler. This works with or without `auth` in `vitehub()`. Then `caller` is always `undefined`, and `publicRoute` fails the build with [`MCP_B0003`](/docs/mcp/limits-and-errors#mcp_b0003).
+Set `mcp: { auth: false }` to let anyone who knows the URL call every tool, or to check callers in each handler. This works with or without `auth` in `vitehub()`. Without `resolveCaller`, `caller` is always `undefined`, and `publicRoute` fails the build with [`MCP_B0003`](/docs/mcp/limits-and-errors#mcp_b0003).
+
+To give the handlers the app's own identity, add `resolveCaller` in [`server/mcp.ts`](/docs/mcp/server-api#resolve-the-caller-and-log-tool-calls).
 
 ## Serve the app below a base path
 

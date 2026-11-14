@@ -1,3 +1,4 @@
+import { accessRouteSyntaxError } from "./application-path.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
@@ -45,9 +46,12 @@ function validateStringValue(value: unknown, label: string): void {
 
 function validateRouteValue(value: unknown, label: string): void {
   validateStringValue(value, label)
-  if (typeof value === "string" && !value.startsWith("/")) {
+  if (typeof value !== "string") return
+  if (!value.startsWith("/")) {
     throw authErrorDiagnostics.AUTH_C0027({ message: `\`defineAuth()\` ${label} must start with \`/\`.` })
   }
+  const syntaxError = accessRouteSyntaxError(value, label)
+  if (syntaxError) throw authErrorDiagnostics.AUTH_C0068({ message: syntaxError })
 }
 
 function validateAuthSignIn(value: AuthSignInConfiguration | undefined): void {

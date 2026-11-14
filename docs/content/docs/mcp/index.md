@@ -62,6 +62,8 @@ Use the MCP server when the app must give its own tools to Agents. Install `@vit
 
 `mcp: true` without `auth` fails the build with `VITE_HUB_R0141`. Set `mcp: { auth: false }` only when anyone may call every tool.
 
+Use `defineMcpHooks()` in `server/mcp.ts` to map the caller to the app's own user and to log tool calls.
+
 This is not the ViteHub MCP of the Console at `https://console.vitehub.dev/mcp`. Do not add an MCP SDK. Throw an error with a 4xx `status` to tell the Agent what to fix.
 
 Prove it with `vitehub inspect definitions --kind mcp-tool`, then with a real `tools/list` and `tools/call` request to `/mcp`.

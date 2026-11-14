@@ -120,5 +120,6 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0044: withFix("Set the env variable that the message names in the server environment, with the same value as at build time. The Blob config read it from `process.env` at build time, and ViteHub reads it again at runtime."),
     BLOB_R0045: withFix("Remove `access` from the `put()` options. `put()` cannot make one object private. Keep private files in a store that `blob.serve` does not serve, or serve it with `blob.serve.authorize: true`. On Vercel Blob, set `access` on the store in the Vite config."),
     BLOB_R0046: withFix("Remove `put.access`, `put.contentLength`, and `put.customMetadata` from `handleUpload({ direct: true })`. A signed `PUT` cannot carry them. Set access on the store, or store the metadata in your own record in `onCompleted`."),
+    BLOB_R0047: withFix("Pass `edgeCache.maxAge` in seconds as a positive integer, for example `blob.serve(request, pathname, { edgeCache: { maxAge: 3600 } })`."),
   },
 })

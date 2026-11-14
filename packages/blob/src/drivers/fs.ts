@@ -1,7 +1,7 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
@@ -501,6 +501,44 @@ async function listKeys(root: string, options: BlobListOptions, after: string): 
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
   const root = resolveRoot(options)
 
+  // Writes the payload to a temporary file, prepares its metadata, then publishes it with one rename.
+  // `write` creates the temporary file and returns the SHA-256 of its bytes.
+  async function publish(pathname: string, write: (temporary: string) => Promise<string>, metadata: FsBlobMetadata) {
+    const path = resolveBlobPath(root, pathname)
+    await assertNoSymlinkPath(root, path)
+    await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
+    await mkdir(dirname(path), { recursive: true })
+    let contentHash = ""
+    let written: BigIntStats | undefined
+    await writeAtomic(root, path, async (temporary) => {
+      contentHash = await write(temporary)
+    }, async (temporary) => {
+      const stats = written = await stat(temporary, { bigint: true })
+      const metadataPath = generationMetaPath(root, pathname, stats)
+      await assertNoSymlinkPath(root, metadataPath)
+      await mkdir(dirname(metadataPath), { recursive: true })
+      // Prepare immutable metadata before the only visible publication step:
+      // renaming the payload. Readers select metadata by that payload's inode.
+      await writeAtomic(root, metadataPath, JSON.stringify({
+        contentType: metadata.contentType,
+        customMetadata: metadata.customMetadata,
+        contentHash,
+        mtimeNs: String(stats.mtimeNs),
+        size: Number(stats.size),
+      }))
+    })
+    // Seed the hash cache so the read below does not hash the file again.
+    // Only when the published file is still the one written here.
+    const published = await stat(path, { bigint: true })
+    if (written && published.dev === written.dev && published.ino === written.ino && published.size === written.size && published.mtimeNs === written.mtimeNs) {
+      await writeHash(root, pathname, { contentHash, fileVersion: fileVersion(published) }).catch((error) => {
+        console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+      })
+    }
+    const entry = await readEntry(root, pathname)
+    return toBlobObject(entry!)
+  }
+
   function multipartUpload(uploadId: string, state: FsMultipartState): BlobDriverMultipartUpload {
     const dir = resolveMultipartDir(root, uploadId)
     return {
@@ -513,22 +551,45 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       async complete(parts) {
         await assertNoSymlinkPath(root, dir)
         const ordered = [...parts].sort((left, right) => left.partNumber - right.partNumber)
-        const chunks = await Promise.all(ordered.map(async (part) => {
-          const partPath = resolve(dir, String(part.partNumber))
-          await assertNoSymlinkPath(root, partPath)
-          const bytes = await readFile(partPath).catch((error: unknown) => {
-            if (isNotFound(error)) throw blobErrorDiagnostics.BLOB_R0032({ message: `Multipart upload ${uploadId} has no part ${part.partNumber}.` })
-            throw error
-          })
-          if (partEtag(bytes) !== part.etag) {
-            throw blobErrorDiagnostics.BLOB_R0032({ message: `Part ${part.partNumber} of multipart upload ${uploadId} does not match its etag.` })
+        // Copy each part into the final file in turn, so only one read buffer is in memory.
+        const object = await publish(state.pathname, async (temporary) => {
+          const contentHash = createHash("sha256")
+          const output = await open(temporary, "wx")
+          try {
+            for (const part of ordered) {
+              const partPath = resolve(dir, String(part.partNumber))
+              await assertNoSymlinkPath(root, partPath)
+              const input = await open(partPath, "r").catch((error: unknown) => {
+                if (isNotFound(error)) throw blobErrorDiagnostics.BLOB_R0032({ message: `Multipart upload ${uploadId} has no part ${part.partNumber}.` })
+                throw error
+              })
+              const etag = createHash("sha1")
+              try {
+                for await (const chunk of input.createReadStream({ autoClose: false })) {
+                  const bytes = chunk as Buffer
+                  etag.update(bytes)
+                  contentHash.update(bytes)
+                  for (let offset = 0; offset < bytes.length;) {
+                    const { bytesWritten } = await output.write(bytes, offset, bytes.length - offset)
+                    // Internal invariant: blobResult() returns a stalled filesystem write as the cause of BLOB_OPERATION_FAILED.
+                    if (bytesWritten === 0) throw new Error("Multipart output write made no progress.")
+                    offset += bytesWritten
+                  }
+                }
+              }
+              finally {
+                await input.close()
+              }
+              if (`"${etag.digest("hex")}"` !== part.etag) {
+                throw blobErrorDiagnostics.BLOB_R0032({ message: `Part ${part.partNumber} of multipart upload ${uploadId} does not match its etag.` })
+              }
+            }
           }
-          return bytes
-        }))
-        const object = await driver.put(state.pathname, new Blob(chunks), {
-          contentType: state.contentType,
-          customMetadata: state.customMetadata,
-        })
+          finally {
+            await output.close()
+          }
+          return contentHash.digest("hex")
+        }, { contentType: state.contentType, customMetadata: state.customMetadata })
         await rm(dir, { force: true, recursive: true })
         return object
       },
@@ -687,14 +748,13 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const path = resolveBlobPath(root, pathname)
-      await assertNoSymlinkPath(root, path)
+      await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
       await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
       const bytes = await bodyToBytes(body)
-      return publish(pathname, bytes, {
-        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        customMetadata: putOptions.customMetadata,
-      }, async () => sha256(bytes))
+      return await publish(pathname, async (temporary) => {
+        await writeFile(temporary, bytes, { flag: "wx" })
+        return sha256(bytes)
+      }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
     },
     // Copies the file, then writes the metadata of the source for the new file.
     async copy(from, to) {
@@ -702,32 +762,12 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       if (!source) return null
       const sourcePath = resolveBlobPath(root, from)
       await assertNoSymlinkPath(root, sourcePath)
-      return publish(to, temporary => copyFile(sourcePath, temporary, constants.COPYFILE_EXCL), source.meta, sha256File)
+      return publish(to, async (temporary) => {
+        await copyFile(sourcePath, temporary, constants.COPYFILE_EXCL)
+        return sha256File(temporary)
+      }, source.meta)
     },
   }
 
-  async function publish(pathname: string, content: AtomicContent, meta: FsBlobMetadata, contentHash: (temporary: string) => Promise<string>): Promise<BlobObject> {
-    const path = resolveBlobPath(root, pathname)
-    await assertNoSymlinkPath(root, path)
-    await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
-    await mkdir(dirname(path), { recursive: true })
-    await writeAtomic(root, path, content, async (temporary) => {
-      const stats = await stat(temporary, { bigint: true })
-      const metadataPath = generationMetaPath(root, pathname, stats)
-      await assertNoSymlinkPath(root, metadataPath)
-      await mkdir(dirname(metadataPath), { recursive: true })
-      // Prepare immutable metadata before the only visible publication step:
-      // renaming the payload. Readers select metadata by that payload's inode.
-      await writeAtomic(root, metadataPath, JSON.stringify({
-        contentType: meta.contentType,
-        customMetadata: meta.customMetadata,
-        contentHash: await contentHash(temporary),
-        mtimeNs: String(stats.mtimeNs),
-        size: Number(stats.size),
-      }))
-    })
-    const entry = await readEntry(root, pathname)
-    return toBlobObject(entry!)
-  }
   return driver
 }

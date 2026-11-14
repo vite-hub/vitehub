@@ -421,14 +421,15 @@ export function createGitHubPullRequestOperations(
 
   async function exactBaseSnapshot(): Promise<string> {
     if (!options.expectedBaseOid) throw new Error("This worker has no assigned base commit for CI comparison.")
-    const current = (await snapshot()).pullRequest.baseRefOid
-    if (current === options.expectedBaseOid) return options.expectedBaseOid
-    // A busy default branch moves every few minutes. CI evidence for the assigned commit stays valid while the base only moved forward from it.
-    if (current && /^[a-f\d]{40}$/i.test(current)) {
-      const { provider } = await forge()
-      const comparison = (await provider.request<unknown>("GET", `/repos/${repository}/compare/${options.expectedBaseOid}...${current}`, { query: { per_page: 1 }, signal })).data
-      if (isRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0) return options.expectedBaseOid
-    }
+    const { pullRequest } = await snapshot()
+    if (pullRequest.baseRefOid === options.expectedBaseOid) return options.expectedBaseOid
+    // A busy default branch moves every few minutes. CI evidence for the assigned commit stays valid while the
+    // base branch still contains it. Compare with the branch, not the PR's `baseRefOid`: GitHub stops moving that
+    // on a conflicted PR, while a conflict repair is assigned the live branch tip. On 2026-11-14, 17 conflicted
+    // vite-hub/vitehub PRs had a recorded base up to 45 commits behind it, and every repair pass was refused.
+    const { provider } = await forge()
+    const comparison = (await provider.request<unknown>("GET", `/repos/${repository}/compare/${options.expectedBaseOid}...${pullRequest.baseRefName}`, { query: { per_page: 1 }, signal })).data
+    if (isRecord(comparison) && (comparison.status === "ahead" || comparison.status === "identical") && comparison.behind_by === 0) return options.expectedBaseOid
     throw new Error("Pull request base changed; discard this base CI comparison.")
   }
 

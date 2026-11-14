@@ -308,7 +308,7 @@ App Auth loads Better Auth on demand. Nitro imports the Auth route on its first 
 Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback. The callback returns all the options in one object, and Auth does not merge it with other options. `defineAuth()` rejects the removed `runtime` option with `AUTH_C0039`. `access.routes` must be static route strings or `{ authorize, method, route }` objects, and `access.public` static route strings, so the Vite Integration can register Nitro middleware.
 
 
-`access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
+Each access route is a literal path, or a literal path that ends with `/**` to match the path and every path below it. Other pattern syntax (`*`, `:name`, `(`, `{`, `?`), also when percent-encoded such as `%3A`, and `.` or `..` segments fail with `AUTH_C0068`. A route with `method: "GET"` also guards `HEAD`, because H3 runs the GET handler for `HEAD`. The access middleware compares paths after the same normalization as the Nitro router: it decodes needless percent escapes and ignores one trailing slash in requests. Configured routes drop all trailing slashes, as router registration does. `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 `database` and `secondaryStorage` take Better Auth adapters only. In a static Definition, `database` takes only `authDatabase()`. `authDatabase("auth")` uses the Named Database `auth`:
 
@@ -500,6 +500,15 @@ The page guard decides where the browser goes. Protect data in server routes wit
 import { isGitHubOrgMember } from "@vite-hub/auth";
 
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
+```
+
+`checkGitHubOrgMember()` runs the same check and returns `[error, undefined]`, so the app can say why access failed. `error.code` is `AUTH_GITHUB_TOKEN_INVALID` (401 or no token), `AUTH_GITHUB_ORG_ACCESS_DENIED` (403, a missing `read:org` scope, or SAML single sign-on that the token is not authorized for), `AUTH_GITHUB_UNAVAILABLE` (network error, timeout, 429, 5xx, or rate limit), or `AUTH_GITHUB_NOT_ORG_MEMBER` (404 or a pending invitation). An empty `org` throws `AUTH_GITHUB_ORG_REQUIRED`.
+
+```ts fragment
+import { checkGitHubOrgMember } from "@vite-hub/auth";
+
+const [error] = await checkGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
+if (error?.code === "AUTH_GITHUB_TOKEN_INVALID") return redirectToSignIn();
 ```
 
 ## MCP OAuth

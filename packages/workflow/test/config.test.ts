@@ -43,21 +43,50 @@ describe("workflow config", () => {
     })
   })
 
-  it("defaults to vercel", () => {
+  it("runs inline without a host", () => {
     expect(normalizeWorkflowOptions(undefined)).toEqual({
       provider: "vercel",
     })
   })
 
+  it("infers vercel only from Vercel hosting", () => {
+    expect(normalizeWorkflowOptions({}, { hosting: "vercel" })).toEqual({ provider: "vercel" })
+  })
+
+  it.each(["node-server", "node", "docker", "deno-deploy", "bun"])("fails on %s hosting without OpenWorkflow storage", (hosting) => {
+    let error: unknown
+    try {
+      normalizeWorkflowOptions({}, { hosting })
+    }
+    catch (caught) {
+      error = caught
+    }
+    expect(error).toMatchObject({ code: "WORKFLOW_C0020" })
+    expect(String((error as Error).message)).toContain("workflow: { provider: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }")
+    expect(String((error as Error).message)).toContain("startOpenWorkflowWorker()")
+  })
+
+  it.each(["node-server", "docker", "deno-deploy"])("runs inline on %s hosting in vite dev and for Agent-only Workflow", (hosting) => {
+    expect(normalizeWorkflowOptions({}, { hosting, inline: true })).toEqual({ provider: "vercel" })
+  })
+
+  it("keeps explicit and storage-selected providers when inline runs are allowed", () => {
+    expect(normalizeWorkflowOptions({ provider: "openworkflow" }, { hosting: "node-server", inline: true })).toEqual({ provider: "openworkflow" })
+    expect(normalizeWorkflowOptions({ sqlite: { path: ".data/workflow.sqlite" } }, { hosting: "node-server", inline: true })).toEqual({ provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } })
+    expect(normalizeWorkflowOptions({}, { hosting: "cloudflare-module", inline: true })).toEqual({ provider: "cloudflare" })
+  })
+
+  it("infers openworkflow from storage on any host other than Cloudflare and Vercel", () => {
+    expect(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/vitehub" } }, { hosting: "deno-deploy" })).toEqual({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    expect(normalizeWorkflowOptions({ sqlite: { path: ".data/workflow.sqlite" } }, { hosting: "vercel" })).toEqual({ provider: "vercel" })
+  })
+
   it("does not infer Vercel for Netlify hosting", () => {
     expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
     expect(normalizeWorkflowOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
-  })
-
-  it("does not infer openworkflow from node hosting without Postgres config", () => {
-    expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
-      provider: "vercel",
-    })
   })
 
   it("infers openworkflow from node hosting with Postgres config", () => {
@@ -125,10 +154,26 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions(options as never)).toEqual({ provider: "cloudflare" })
   })
 
-  it("does not infer openworkflow from docker hosting without Postgres config", () => {
-    expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
-      provider: "vercel",
-    })
+  it("fails a Node build that turns Workflow on without a provider, and keeps dev and Agent-only Workflow inline", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-workflow-node-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const configHook = (plugin: ReturnType<typeof hubWorkflow>) => (plugin.config as { handler: (config: unknown, env: { command: string }) => Promise<unknown> }).handler
+
+    const dev = hubWorkflow({}, { hosting: "node-server" })
+    await configHook(dev)({ root }, { command: "serve" })
+    expect(dev.vitehub?.durability?.()).toMatchObject([{ input: { provider: "vercel" } }])
+
+    const agentOnly = hubWorkflow({}, { hosting: "node-server", implicitlyEnabled: true })
+    await configHook(agentOnly)({ root }, { command: "build" })
+    expect(agentOnly.vitehub?.durability?.()).toMatchObject([{ input: { provider: "vercel" } }])
+
+    const build = hubWorkflow({}, { hosting: "node-server" })
+    await expect(configHook(build)({ root }, { command: "build" })).rejects.toMatchObject({ code: "WORKFLOW_C0020" })
+    expect(() => build.vitehub?.durability?.()).toThrow(/cannot be inferred for "node-server" hosting/)
+
+    const durable = hubWorkflow({ sqlite: { path: ".vitehub/data/workflow.sqlite" } }, { hosting: "node-server" })
+    await configHook(durable)({ root }, { command: "build" })
+    expect(durable.vitehub?.durability?.()).toMatchObject([{ input: { provider: "openworkflow", sqlitePath: ".vitehub/data/workflow.sqlite" } }])
   })
 
   it("does not prepare a Vercel schedule runtime for Cloudflare workflows", async () => {

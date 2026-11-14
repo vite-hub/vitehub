@@ -54,7 +54,7 @@ Read [Preview deployments share data](/docs/development/provisioning#preview-dep
 
 Key prefixes are not tables. Use Database for constraints, joins, migrations, history, or complex queries.
 
-Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
+Do not build locks with `kv.get()` and `kv.set()`. Use [`kv.lock()`](/docs/kv/server-api#locks). The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 

@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import ts from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverMcpTools, hubMcp } from "../src/vite.ts"
@@ -155,6 +156,46 @@ describe("hubMcp", () => {
     expect(inspectors.map(inspector => inspector.kind)).toEqual(["mcp-tool", "mcp-prompt", "mcp-resource"])
     expect((await inspectors[1]?.list())?.map(entry => [entry.name, entry.file, entry.source])).toEqual([["review", "server/mcp/prompts/review.ts", "server/mcp/prompts"]])
     expect((await inspectors[2]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/mcp/public (resources with public: true)" })
+  })
+
+  it("passes the hooks of server/mcp.ts and types caller with what resolveCaller returns", () => {
+    const root = app({
+      "server/mcp.ts": "import { defineMcpHooks } from \"@vite-hub/mcp\"\n\nexport default defineMcpHooks({ resolveCaller: () => ({ teamId: \"t1\" }) })\n",
+      "server/mcp/tools/team.ts": [
+        "import { defineMcpTool } from \"@vite-hub/mcp\"",
+        "",
+        "export default defineMcpTool({ description: \"Team.\", handler: (_input, { caller }) => caller.teamId })",
+        "// @ts-expect-error The caller is the app identity, not the OAuth caller.",
+        "export const user = defineMcpTool({ description: \"User.\", handler: (_input, { caller }) => caller.user })",
+        "",
+      ].join("\n"),
+    })
+    configure(root)
+    const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    expect(entry).toContain(`import hooks from ${JSON.stringify(join(root, "server/mcp.ts"))}`)
+    expect(entry).toContain("  hooks,")
+
+    mkdirSync(join(root, "node_modules/@vite-hub"), { recursive: true })
+    symlinkSync(join(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/mcp"), "dir")
+    const program = ts.createProgram([join(root, ".vitehub/types/mcp.d.ts"), join(root, "server/mcp/tools/team.ts")], {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ESNext,
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  })
+
+  it("writes no caller type without server/mcp.ts, and allows one hooks module", () => {
+    const root = app({ "server/mcp/tools/add.ts": tool })
+    configure(root)
+    expect(readFileSync(join(root, ".vitehub/types/mcp.d.ts"), "utf8")).toBe("export {}\n")
+    expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).not.toContain("hooks")
+
+    const twice = app({ "app/mcp.ts": tool, "server/mcp.ts": tool })
+    expect(() => configure(twice, {}, { [VITEHUB_SERVER_DIRS]: [join(twice, "server"), join(twice, "app")] })).toThrow(expect.objectContaining({ name: "MCP_B0004" }))
   })
 
   it("rejects publicRoute without auth, because every tool on route is public then", () => {

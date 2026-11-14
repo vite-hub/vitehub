@@ -947,14 +947,15 @@ it("removes only a prior Workflow-owned Vercel function when the active host cha
   })
 })
 
-it("writes no Vercel function for an inferred Vercel provider on a Node host", async () => {
+it("writes no Vercel function for inline Workflow on a Node host", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-node-host-")
   const workflowFunction = join(rootDir, ".vercel", "output", "functions", "__server.func")
 
   await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
   expect(existsSync(workflowFunction)).toBe(true)
 
-  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", rootDir, workflow: {} })
+  await expect(generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", rootDir, workflow: {} })).rejects.toMatchObject({ code: "WORKFLOW_C0020" })
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", inline: true, rootDir, workflow: {} })
 
   expect(existsSync(workflowFunction)).toBe(false)
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)

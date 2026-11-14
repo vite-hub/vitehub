@@ -55,14 +55,14 @@ For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provid
 | Node or Docker with `postgres.url` or `sqlite.path` | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
 | Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's rules | Yes |
 | Vercel, normal handler | Inline | No | None | No |
-| Node or Docker without OpenWorkflow storage, and `vite dev` | Inline | No | None | No |
+| `vite dev` without a provider, and the Workflow that only `agent` turns on outside Cloudflare | Inline | No | None | No |
 
 Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow gets the same policy as `maximumAttempts: 3`, `initialInterval: '10 seconds'`, and `backoffCoefficient: 2`, so it makes 3 attempts in total.
 
 An inline run executes the handler in the current process, kept alive after the response by the host's `waitUntil()` if it has one. Steps run in order, but nothing saves their results, and an error fails the run with no retry. A finished inline run's result stays in memory for five minutes, up to 1,024 runs, and a restart loses it. If the request has no Cloudflare Workflow binding, the Workflow also runs inline.
 
 ::warning
-On Node or Docker, ViteHub picks OpenWorkflow only when you set its storage. Without `postgres.url` or `sqlite.path`, the provider is Vercel, which means inline runs off Vercel. The default SQLite path, `.vitehub/data/openworkflow.sqlite.db`, is lost when a container or function file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#select-openworkflow-storage) before production.
+On Node or Docker, ViteHub picks OpenWorkflow when you set its storage. A build without `provider`, `postgres.url`, or `sqlite.path` fails with `WORKFLOW_C0020`. The default SQLite path, `.vitehub/data/openworkflow.sqlite.db`, is lost when a container or function file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#select-openworkflow-storage) before production.
 ::
 
 ## Build the checkout Workflow in ViteHub
@@ -195,11 +195,11 @@ import { startWorkflow } from 'vite-hub/workflow'
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
   if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
-  return startWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
+  return startWorkflow('checkout', order, { id: `checkout-${order.orderId}` })
 })
 ```
 
-Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency key, so a double click does not start a second checkout. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
+Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency key, so a double click does not start a second checkout. Start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_` in the id, up to 100 characters, so it works on every provider. Cloudflare rejects other ids, and ViteHub fails the start with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` before it calls Cloudflare. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
 
 ## Inspect the run
 

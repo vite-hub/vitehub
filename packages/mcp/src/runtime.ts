@@ -6,7 +6,7 @@ import { mcpErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { McpContentBlock, McpPrompt, McpPromptArgument, McpPromptResult, McpResource, McpResourceContents, McpServerInfo, McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
-import type { McpPromptDefinition, McpResourceDefinition, McpResourceValue, McpServerInfoOptions, McpToolCaller, McpToolContext, McpToolDefinition } from "./index.ts"
+import type { McpHooks, McpPromptDefinition, McpResourceDefinition, McpResourceValue, McpServerInfoOptions, McpToolCaller, McpToolContext, McpToolDefinition } from "./index.ts"
 
 /** What `verifyMcpRequest()` of `vite-hub/auth/mcp` returns. */
 export type McpVerifyResult = readonly [{ code: string, message: string }, undefined] | readonly [undefined, McpToolCaller]
@@ -29,6 +29,8 @@ export interface McpHandlerOptions {
   instructions?: string
   /** The name, title, version, description, website, and icons that clients show. */
   serverInfo?: McpServerInfoOptions
+  /** The default export of `server/mcp.ts`. */
+  hooks?: McpHooks<unknown>
   /** Checks the access token of a request. Present when `mcpOAuth()` protects the server. */
   verify?: (request: Request) => Promise<McpVerifyResult>
 }
@@ -87,7 +89,30 @@ function listedTool(name: string, definition: McpToolDefinition): Omit<McpTool, 
   }
 }
 
-function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefinition, context: McpToolContext): McpTool {
+/** One request: its event, the context of the handlers, which `resolveCaller` makes once, and the hooks. */
+interface McpRequestScope {
+  event: H3Event
+  context: () => Promise<McpToolContext>
+  hooks: McpHooks<unknown> | undefined
+}
+
+async function runTool(name: string, definition: McpToolDefinition, input: unknown, scope: McpRequestScope): Promise<{ caller?: unknown, durationMs: number, error?: { value: unknown }, result: McpToolResult }> {
+  let caller: unknown
+  let started = performance.now()
+  try {
+    const context = await scope.context()
+    caller = context.caller
+    started = performance.now()
+    // SAFETY: The schema of the definition accepted the input, so it has the type that the handler declares.
+    const result = toMcpToolResult(await (definition.handler as (value: unknown, context: McpToolContext) => unknown)(input, context))
+    return { caller, durationMs: performance.now() - started, result }
+  }
+  catch (error) {
+    return { caller, durationMs: performance.now() - started, error: { value: error }, result: failure(name, error) }
+  }
+}
+
+function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefinition, scope: McpRequestScope): McpTool {
   const { name } = listed
   let input: unknown
   let validationFailure: { error: unknown } | undefined
@@ -107,14 +132,25 @@ function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefiniti
       }
     },
     async handler() {
-      try {
-        if (validationFailure) return failure(name, validationFailure.error)
-        // SAFETY: The schema of the definition accepted the input, so it has the type that the handler declares.
-        return toMcpToolResult(await (definition.handler as (value: unknown, context: McpToolContext) => unknown)(input, context))
+      if (validationFailure) return failure(name, validationFailure.error)
+      const call = await runTool(name, definition, input, scope)
+      if (scope.hooks?.onToolCall) {
+        try {
+          await scope.hooks.onToolCall({
+            name,
+            input,
+            caller: call.caller,
+            event: scope.event,
+            durationMs: call.durationMs,
+            result: call.result,
+            ...(call.error ? { error: call.error.value } : {}),
+          })
+        }
+        catch (error) {
+          console.error(`[vitehub] onToolCall failed for MCP tool ${name}:`, error)
+        }
       }
-      catch (error) {
-        return failure(name, error)
-      }
+      return call.result
     },
   }
 }
@@ -159,7 +195,7 @@ function listedPrompt(name: string, definition: McpPromptDefinition): Omit<McpPr
   }
 }
 
-function toMcpPrompt(listed: Omit<McpPrompt, "get">, definition: McpPromptDefinition, context: McpToolContext): McpPrompt {
+function toMcpPrompt(listed: Omit<McpPrompt, "get">, definition: McpPromptDefinition, scope: McpRequestScope): McpPrompt {
   const { name } = listed
   return {
     ...listed,
@@ -172,7 +208,7 @@ function toMcpPrompt(listed: Omit<McpPrompt, "get">, definition: McpPromptDefini
           input = result.value
         }
         // SAFETY: The schema of the definition accepted the input, so it has the type that the handler declares.
-        return toMcpPromptResult(await (definition.handler as (value: unknown, context: McpToolContext) => unknown)(input, context))
+        return toMcpPromptResult(await (definition.handler as (value: unknown, context: McpToolContext) => unknown)(input, await scope.context()))
       }
       catch (error) {
         throw methodFailure("prompt", name, error)
@@ -195,7 +231,7 @@ function toMcpResourceContents(uri: string, definition: McpResourceDefinition, v
   return value.contents
 }
 
-function toMcpResource(name: string, definition: McpResourceDefinition, context: McpToolContext): McpResource {
+function toMcpResource(name: string, definition: McpResourceDefinition, scope: McpRequestScope): McpResource {
   const fields = {
     name,
     ...(definition.title ? { title: definition.title } : {}),
@@ -210,7 +246,7 @@ function toMcpResource(name: string, definition: McpResourceDefinition, context:
       ? {
           list: async () => {
             try {
-              return (await list(context)).map(resource => ({ ...resource, name: resource.name ?? resource.uri }))
+              return (await list(await scope.context())).map(resource => ({ ...resource, name: resource.name ?? resource.uri }))
             }
             catch (error) {
               throw methodFailure("resource", name, error)
@@ -220,7 +256,7 @@ function toMcpResource(name: string, definition: McpResourceDefinition, context:
       : {}),
     async read(uri, variables) {
       try {
-        return toMcpResourceContents(uri, definition, await definition.handler(uri, { ...context, variables }))
+        return toMcpResourceContents(uri, definition, await definition.handler(uri, { ...await scope.context(), variables }))
       }
       catch (error) {
         throw methodFailure("resource", name, error)
@@ -284,13 +320,21 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       }
       caller = verified
     }
-    const context: McpToolContext = { caller, event }
+    const hooks = options.hooks
+    let context: Promise<McpToolContext> | undefined
+    const scope: McpRequestScope = {
+      event,
+      hooks,
+      // `resolveCaller` runs once per request, when the first handler needs the context, so `initialize` reads no app data.
+      // SAFETY: `McpCaller` is the type that `resolveCaller` returns, or the signed-in caller without it.
+      context: () => context ??= (async () => ({ event, caller: (hooks?.resolveCaller ? await hooks.resolveCaller({ caller, event }) : caller) as McpToolContext["caller"] }))(),
+    }
     return serveMcp(request, {
       instructions,
       serverInfo: resolveServerInfo(serverInfo, request),
-      tools: tools.map(tool => toMcpTool(tool.listed, tool.definition, context)),
-      prompts: prompts.map(prompt => toMcpPrompt(prompt.listed, prompt.definition, context)),
-      resources: resources.map(([name, definition]) => toMcpResource(name, definition, context)),
+      tools: tools.map(tool => toMcpTool(tool.listed, tool.definition, scope)),
+      prompts: prompts.map(prompt => toMcpPrompt(prompt.listed, prompt.definition, scope)),
+      resources: resources.map(([name, definition]) => toMcpResource(name, definition, scope)),
     })
   }
 }
