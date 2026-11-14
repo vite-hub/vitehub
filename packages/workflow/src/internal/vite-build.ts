@@ -601,22 +601,23 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
-function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
-  return normalizeWorkflowOptions(workflow, { hosting }) ?? false
+function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string, inline = false): false | ResolvedWorkflowOptions {
+  return normalizeWorkflowOptions(workflow, { hosting, inline }) ?? false
 }
 
 /**
  * The Provider Output that a build writes. Without a host, both outputs are written.
- * Only Vercel deploys the Vercel output, so other hosts skip it.
+ * Only Vercel deploys the Vercel output, so other hosts skip it. `inline` lets a host without an inferable provider
+ * run Workflows inline instead of failing, as in `vite dev` and for the Workflow that only the Agent turns on.
  */
-export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string): {
+export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string, inline = false): {
   cloudflare: false | ResolvedWorkflowOptions
   vercel: false | ResolvedWorkflowOptions
 } {
   if (!hosting) {
     return { cloudflare: resolveWorkflowConfig(workflow, "cloudflare"), vercel: resolveWorkflowConfig(workflow, "vercel") }
   }
-  const config = resolveWorkflowConfig(workflow, hosting)
+  const config = resolveWorkflowConfig(workflow, hosting, inline)
   return {
     cloudflare: config && config.provider === "cloudflare" ? config : false,
     vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
@@ -641,6 +642,8 @@ interface GenerateProviderOutputsOptions {
   bundleDefines?: Record<string, string>
   hosting?: string
   importBase?: string
+  /** Run Workflows inline when the host has no inferable provider. See `resolveWorkflowProviderOutputs()`. */
+  inline?: boolean
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
   vercelRuntimePackages?: VercelFunctionRuntimePackage[]
@@ -795,7 +798,8 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
 export async function createCloudflareWorkflowNitroConfig(options: CloudflareWorkflowNitroOptions): Promise<Record<string, unknown>> {
   const preset = String(options.nitro.preset || "")
   if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
-  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
+  // Only a Cloudflare result matters here. Other hosts report a missing provider in the Workflow build.
+  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset, inline: true })
   if (!config || config.provider !== "cloudflare") return options.nitro
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
@@ -1540,7 +1544,7 @@ async function generateProviderOutputsWithinLock(
     workspaceRuntime: options.workspaceRuntimeModule,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
+  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting, options.inline)
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined

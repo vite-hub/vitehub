@@ -114,6 +114,8 @@ beforeEach(() => {
   for (const name of [
     "VITEHUB_GITHUB_APP_ID",
     "VITEHUB_GITHUB_INSTALLATION_ID",
+    "VITEHUB_GITHUB_APP_OWNER",
+    "VITEHUB_GITHUB_APP_INSTALLATIONS",
     "VITEHUB_GITHUB_PRIVATE_KEY",
     "VITEHUB_GITHUB_PRIVATE_KEY_PATH",
     "VITEHUB_GITHUB_APP_ID",
@@ -481,13 +483,20 @@ describe("Forge capability", () => {
     )
   })
 
-  it.each([true, false])("mints a GitHub App token with explicit installation %s", async explicit => {
+  it.each([
+    { name: "the fixed installation of the owner", appId: "991", installation: "42", owner: "Acme", calls: ["POST"] },
+    { name: "the owner mapping", appId: "993", installation: "", owner: "", installations: "{\"acme\":42}", calls: ["POST"] },
+    { name: "a lookup without an installation", appId: "992", installation: "", owner: "", calls: ["GET", "POST"] },
+    { name: "a lookup when the fixed installation is another owner's", appId: "994", installation: "7", owner: "other", calls: ["GET", "POST"] },
+  ])("mints a GitHub App token with $name", async ({ appId, installation, owner, installations, calls }) => {
     const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
       .privateKey.export({ type: "pkcs8", format: "pem" })
       .toString()
-    vi.stubEnv("VITEHUB_GITHUB_APP_ID", explicit ? "991" : "992")
+    vi.stubEnv("VITEHUB_GITHUB_APP_ID", appId)
     vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", key)
-    vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", explicit ? "42" : "")
+    vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", installation)
+    vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", owner)
+    vi.stubEnv("VITEHUB_GITHUB_APP_INSTALLATIONS", installations ?? "")
     const fixture = fixtureFetch([
       {
         request: { method: "GET", url: "https://api.github.com/repos/acme/app/installation" },
@@ -504,7 +513,7 @@ describe("Forge capability", () => {
     vi.stubGlobal("fetch", fixture.fetch)
     await run(await tools(forge(base)), "read_thread", { number: 1 })
     expect(requests.at(-1)?.options.auth).toEqual({ type: "token", token: "installation-token" })
-    expect(fixture.calls.map(call => call.method)).toEqual(explicit ? ["POST"] : ["GET", "POST"])
+    expect(fixture.calls.map(call => call.method)).toEqual(calls)
   })
 
   it("validates input and explicit repository selection before requests", async () => {

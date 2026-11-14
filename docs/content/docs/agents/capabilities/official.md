@@ -27,6 +27,7 @@ Import factories from `vite-hub/agent/capabilities`. [Attach a Capability](/docs
 | Ability | Capability | Use it when |
 | --- | --- | --- |
 | Browser automation | [`browser()`](/docs/browser/agent-capability) | Give a Provider Agent a managed headless browser, browser guidance, and screenshot delivery. |
+| The person's page | [`page()`](/docs/agents/capabilities/page) | Read and change the page the person has open, through ui-sdk's agent bridge over Realtime. |
 | Workspace files | [`workspaceShell()`](/docs/workspace/agent-capability) | Read or edit Workspace files, or run configured commands. |
 | Git source history | [`git()`](/docs/agents/capabilities/git) | Read bounded Git history, or select a local Workspace Session's Git state. |
 | Skills file | [`skills()`](/docs/agents/capabilities/skills) | Require a Workspace skill file at run time. |

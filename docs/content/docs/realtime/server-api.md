@@ -18,9 +18,10 @@ icon: i-lucide-code-2
 | `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module, for a script on [another site](#from-another-site) that has no bundler. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
+| `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
-| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file ([Blob documents](#blob-documents)). |
+| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
 
 ViteHub generates `.vitehub/nitro/realtime/registry.mjs` and
@@ -71,6 +72,7 @@ import { useDatabase } from 'vite-hub/database'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
+  auth: true,
   document: {
     kind: 'pages',
     async load({ documentId }) {
@@ -141,8 +143,10 @@ loaded document recovers without a reset.
 ### Blob documents
 
 `blobDocument(store, { prefix, contentType })` stores each document's body as
-one private Blob file at `prefix + documentId`. The digest is the SHA-256 of
-the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
+one Blob file at `prefix + documentId`. To keep the drafts private, use a store
+that `blob.serve` does not serve, or serve it with `authorize: true`. On Vercel
+Blob, such a store also writes private objects. The digest
+is the SHA-256 of the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
 the document id stays a literal `%` in the Blob pathname, so `a%2Fb.md` and
 `a/b.md` are two files.
 
@@ -152,6 +156,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 import { blobDocument } from 'vite-hub/realtime/server'
 
 export default defineRealtime({
+  auth: true,
   document: blobDocument(blob, { prefix: 'drafts/' }),
 })
 ```
@@ -310,10 +315,13 @@ export default defineRealtime({
 })
 ```
 
+Each definition must say who can use its rooms. Set `auth: true`, `authorize()`, or both. Set `access: 'public'` only for rooms that each person can read and write. A definition without one of them fails with [`REALTIME_MISSING_ACCESS`](/docs/realtime/limits-and-errors#realtime_missing_access) when the first request loads it.
+
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403, unless `origins` accepts it. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
-| `origins({ origin, request, event, definition })` | Lets a page on another origin connect to a definition with `identify`, such as a script that sites load from your app. Return `true` to accept `origin`. A cross-site handshake carries cookies too, so `identify` must then trust only what the page sends, such as a ticket in `params`. See [From another site](#from-another-site). |
+| `access: 'public'` | Lets each person who can reach the app read and write each room, without a user. You cannot use it with `auth` or `authorize`. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect, such as a script that sites load from your app. Return `true` to accept `origin`. Without it, requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. A cross-site handshake carries cookies too, so `identify` and `authorize` must then trust only what the page sends, such as a ticket in `params`. With `auth: true` and no `identify`, `origins` is an error: the Auth session is a cookie. See [From another site](#from-another-site). |
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
@@ -405,6 +413,62 @@ room.onChange(change => reload(change))
 > [!WARNING]
 > The definition must check that context against the requested document before it grants access.
 
+### Requests to a browser
+
+Server code can ask the one browser in a room of a presence definition, and wait for its answer. The [page bridge](/docs/agents/capabilities/page) uses it so that an Agent works the person's page. Set `requests: true` on the definition:
+
+```ts [server/realtime/tabs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({ access: 'public', document: false, requests: true })
+```
+
+The browser answers with `onRequest()`. The value it returns goes back as JSON:
+
+```ts fragment
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+
+const tab = crypto.randomUUID()
+const room = connectRealtimeRoom('tabs', tab)
+room.onRequest(body => ({ title: document.title, asked: body }))
+```
+
+Server code asks it with `requestRealtimeRoom(definition, room, body, options?)`:
+
+```ts fragment
+import { requestRealtimeRoom } from 'vite-hub/realtime/server'
+
+const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' })
+if (error) console.warn(error.code, error.why)
+```
+
+- One browser answers. A room with two browsers returns `REALTIME_ROOM_CROWDED`, so give each tab its own random room id.
+- A room without a browser waits `wait` milliseconds, 5 seconds by default, for one to join, such as after a reload. Then it returns `REALTIME_ROOM_EMPTY`.
+- The browser has `timeout` milliseconds to answer, 30 seconds by default. `signal` stops the request.
+- An answer only counts from the browser that was asked. A browser that leaves fails its requests at once.
+- On Cloudflare the request goes to the Durable Object that holds the rooms. On Node it reaches the rooms of this process. With Redis or Postgres, a browser on another instance gives `REALTIME_ROOM_ELSEWHERE`.
+- The room id is the only key. Anyone who knows it can join the room of a public definition, so use a random id and keep it out of URLs and logs, or keep a room per person with `scope: "user"`.
+
+#### A room per person
+
+`scope: "user"` keys each room by the person who joins it, so the same room id for two people is two rooms:
+
+```ts [server/realtime/tabs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({ access: 'public', document: false, requests: true, scope: 'user' })
+```
+
+The person is the signed-in [Auth](/docs/auth) user of the tab. The definition reads the session when the app has Auth and does not require one: everyone without a session shares one anonymous scope. With `identify` or `auth: true`, those decide who the person is. Server code then names the person, and asks only their room:
+
+```ts fragment
+const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' }, { user: session.user.id })
+```
+
+`user: null` asks the anonymous room. A request without `user` returns `REALTIME_ROOM_REFUSED`. A tab joins with the identity it has when it connects, so a tab that signs in reaches its new scope after it reconnects. The [page bridge](/docs/agents/capabilities/page) keeps its rooms this way.
+
+[Room request errors](/docs/realtime/limits-and-errors#room-request-errors) lists every code.
+
 ### From another site
 
 A script that other sites load from your app, such as a review toolbar, joins rooms on your app with `origin`. Its definition lets those pages in with `origins` and identifies people by a ticket the script got from your app, never by cookies:
@@ -424,7 +488,7 @@ export default defineRealtime({
 })
 ```
 
-The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
+The app's own pages connect as before. `origins` is only asked about other origins.
 
 A script without a bundler loads the prebuilt client, `@vite-hub/realtime/client/browser.js`. It is one ES module with Yjs inside and no imports. Serve its text from your app with `Content-Type: text/javascript` and `Access-Control-Allow-Origin: *`, because a module from another origin needs CORS. Then import it when the script needs presence:
 

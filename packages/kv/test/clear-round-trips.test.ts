@@ -91,7 +91,7 @@ const targets: Record<string, () => Promise<Target>> = {
   async upstash() {
     const commands: string[] = []
     stubUpstashRest(commands)
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "test", url: "https://example.com", enableAutoPipelining: false, lib: { Redis: UpstashRedis } } as Parameters<typeof createUpstashKVDriver>[0])
+    const driver = createUpstashKVDriver({ driver: "upstash", base: "vitehub:kv:default", token: "test", url: "https://example.com", enableAutoPipelining: false, lib: { Redis: UpstashRedis } } as Parameters<typeof createUpstashKVDriver>[0])
     const storage = createKVStorage(driver) as unknown as RuntimeStorage
     return { storage, deletes: () => commands.filter(command => command === "unlink" || command === "del").length }
   },

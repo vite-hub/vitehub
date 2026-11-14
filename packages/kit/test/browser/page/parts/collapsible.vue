@@ -4,7 +4,7 @@ import {
   Collapsible,
   CollapsiblePanel,
   CollapsibleTrigger,
-} from "@vite-hub/kit/collapsible"
+} from "@ui-sdk/vue/collapsible"
 
 const items = [
   { name: "Linen shirt", price: "$48.00" },

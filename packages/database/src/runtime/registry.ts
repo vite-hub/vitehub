@@ -103,6 +103,14 @@ type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
   ? "default"
   : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
 
+/**
+ * The default export of a seed file, which `vitehub database seed` runs. Name the database for its tables:
+ * `export default (async ({ db, schema }) => { ... }) satisfies DatabaseSeed<"analytics">`.
+ */
+export type DatabaseSeed<Name extends keyof RuntimeDatabaseLookup = "default"> = (
+  context: Pick<RuntimeDatabaseLookup[Name], "db" | "schema">,
+) => Promise<void> | void
+
 /** Returns the default or only Database without a name; unknown or ambiguous names throw with the available choices. */
 export function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
   ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []

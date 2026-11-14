@@ -9,7 +9,7 @@
         "nuxt-safe-runtime-config"
       ],
       "report": [
-        "skips empty values as || did"
+        "Env treats an empty variable as unset"
       ]
     }
   },

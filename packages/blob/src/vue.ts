@@ -19,7 +19,10 @@ export interface UseMultipartUploadResult {
   abort: () => Promise<void>
 }
 
-/** Upload files to a route that returns the result of `blob.handleUpload()`. */
+/**
+ * Upload files to a route that returns the result of `blob.handleUpload()`. With `direct: true`, each file goes
+ * straight to storage with a signed `PUT`, for a route that calls `handleUpload(event, { direct: true })`.
+ */
 export function useUpload(apiBase: string, options?: UseUploadOptions & { multiple?: true }): (input: UploadInput) => Promise<SerializedBlobObject[]>
 export function useUpload(apiBase: string, options: UseUploadOptions & { multiple: false }): (input: UploadInput) => Promise<SerializedBlobObject | undefined>
 export function useUpload(apiBase: string, options: UseUploadOptions = {}): (input: UploadInput) => Promise<SerializedBlobObject[] | SerializedBlobObject | undefined> {

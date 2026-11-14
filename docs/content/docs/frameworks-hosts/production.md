@@ -56,6 +56,8 @@ The [Console](/docs/development/console) can show stored KV values, prompts, mod
 
 The Console endpoint takes only [signed requests](/docs/development/console#sign-console-requests) from the ViteHub Console and the CLI. `console: { auth: false }` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console call runs it after the signature check and before it reads data.
 
+Set `vitehub({ sameOriginWrites: true })` when browsers call your API with cookies. It refuses writes with cookies from other origins, sibling subdomains included, before any route runs. Behind a proxy that ends TLS, also set `trustProxy: true`. See [Run behind a reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
+
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.
 
 ## Verify retries and shutdown
