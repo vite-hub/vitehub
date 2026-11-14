@@ -1,5 +1,7 @@
 import { formatDiagnostic } from "nostics"
 
+import type { Diagnostic } from "nostics"
+
 import type { Plugin, PluginOption } from "vite"
 
 /** Vite prints a `config` or `configResolved` error with all its fields, so it shows the fix already. */
@@ -7,7 +9,7 @@ const printedByVite = new Set(["config", "configResolved"])
 const printed = new WeakSet<object>()
 
 /** A nostics diagnostic from any bundled copy of nostics: an error with a code and a fix or docs link. */
-function isDiagnostic(error: unknown): error is Error & { code: string, docs?: string, fix?: string } {
+function isDiagnostic(error: unknown): error is Diagnostic {
   return error instanceof Error
     && typeof Reflect.get(error, "code") === "string"
     && (typeof Reflect.get(error, "fix") === "string" || typeof Reflect.get(error, "docs") === "string")

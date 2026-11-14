@@ -6,6 +6,8 @@ import { defineDiagnostics } from "nostics"
 import { build } from "vite"
 import { afterEach, expect, it, vi } from "vitest"
 
+import type { Plugin } from "vite"
+
 import { withPrintedDiagnostics } from "../src/hook-errors.ts"
 
 const diagnostics = defineDiagnostics({
@@ -22,7 +24,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true })
 })
 
-function buildWith(plugin: object) {
+function buildWith(plugin: Plugin) {
   const root = mkdtempSync(join(tmpdir(), "vitehub-hook-errors-"))
   roots.push(root)
   writeFileSync(join(root, "main.js"), "export const value = 1\n")
@@ -44,7 +46,7 @@ it("prints the fix and docs link of an error that a build hook throws", async ()
 it("prints the fix of a rejected async hook with a filter, once", async () => {
   const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
   const error = diagnostics.VITE_HUB_TEST()
-  const plugin = { name: "throws", transform: { filter: { id: /main\.js$/ }, async handler() { throw error } } }
+  const plugin: Plugin = { name: "throws", transform: { filter: { id: /main\.js$/ }, async handler() { throw error } } }
 
   await expect(buildWith(plugin)).rejects.toThrow("Blob is disabled")
 
@@ -54,7 +56,7 @@ it("prints the fix of a rejected async hook with a filter, once", async () => {
 
 it("leaves plain errors and the plugin objects as they are", async () => {
   const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
-  const plugin = { name: "plain", buildStart() { throw new Error("plain failure") } }
+  const plugin: Plugin = { name: "plain", buildStart() { throw new Error("plain failure") } }
 
   expect(withPrintedDiagnostics([plugin])[0]).toBe(plugin)
   await expect(buildWith(plugin)).rejects.toThrow("plain failure")
