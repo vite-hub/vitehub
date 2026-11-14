@@ -1,4 +1,5 @@
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
+import commentMarks from "@vite-hub/ui/comment-marks.css?inline"
 
 import { fieldElementOf } from "../anchor.ts"
 import { normalizeCommentPage } from "../page.ts"
@@ -23,7 +24,11 @@ function style(text: string): HTMLStyleElement {
 class CommentsOverlay extends HTMLElement {
   /** The page tools context that started the overlay. */
   context?: ViteHubPageToolContext
-  private readonly documentStyle = style(documentStyles)
+  /**
+   * The highlights of commented text, and edit mode. The marks stay in the components layer, as `@vite-hub/ui/styles.css`
+   * puts them, so the page's own rules win over them.
+   */
+  private readonly documentStyle = style(`@layer components {\n${commentMarks}\n}\n${documentStyles}`)
   /** The areas of threads, under the page's floating controls. See `areaStyles`. */
   private readonly areas = document.createElement("vitehub-comment-areas")
   private readonly toolbar = document.createElement("div")
@@ -61,7 +66,7 @@ class CommentsOverlay extends HTMLElement {
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
     const areaRoot = this.areas.shadowRoot ?? this.areas.attachShadow({ mode: "open" })
-    areaRoot.replaceChildren(style(areaStyles))
+    areaRoot.replaceChildren(style(commentMarks + areaStyles))
     this.areas.setAttribute("data-comments-ui", "")
     document.documentElement.append(this.areas)
     this.cleanups.push(() => this.areas.remove())

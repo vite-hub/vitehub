@@ -302,7 +302,39 @@ Or set the tokens on your own class:
 
 The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
 
-`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so an area shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
+
+## Comment marks without Vue
+
+`@vite-hub/ui/comment-marks.css` draws the pins, the areas, and the text highlights of comments with plain CSS. `styles.css` includes it, so `CommentLayer` needs nothing more. A page or a frame without Vue loads it on its own and sets data attributes. It works in the page and in a shadow root:
+
+```ts
+import marks from "@vite-hub/ui/comment-marks.css?raw";
+
+const host = document.createElement("page-comments");
+const root = host.attachShadow({ mode: "open" });
+root.innerHTML = `<style>${marks}</style>`;
+// The highlights draw on the page's own text, so the page needs the file too.
+document.head.append(Object.assign(document.createElement("style"), { textContent: marks }));
+```
+
+| Element | Attributes | Look |
+| --- | --- | --- |
+| `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
+| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px blue line at half strength with no fill. Active is full blue with a tint, resolved is dashed and grey, and a draft is 2px with a fill. |
+| `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
+| A pin or an area | `data-leaving="true"` | It shrinks and fades in 180ms. Remove it after that. With reduced motion, it only fades. |
+
+Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
+
+```ts
+CSS.highlights.set("vh-comment", new Highlight(...openRanges));
+CSS.highlights.set("vh-comment-resolved", new Highlight(...resolvedRanges));
+CSS.highlights.set("vh-comment-active", new Highlight(activeRange));
+CSS.highlights.set("vh-comment-draft", new Highlight(draftRange));
+```
+
+The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
 
 ## Sizes
 

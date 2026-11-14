@@ -102,7 +102,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await bar.waitFor({ timeout: 5000 })
     await bar.getByRole("button", { name: /Comment/ }).click()
     await composer.waitFor({ timeout: 5000 })
-    assert.equal((await highlights(page))["vitehub-comment-active"], 1)
+    assert.equal((await highlights(page))["vh-comment-draft"], 1)
     await composer.fill("Say which airport")
     // The bubble takes ViteHub's theme, as Drop does: no focus ring around it, a neutral send button, and Geist first.
     const bubble = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").evaluate((element) => {
@@ -112,7 +112,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     })
     assert.deepEqual({ ...bubble, font: bubble.font.split(",")[0] }, { outline: "none", neutral: true, font: "\"Geist Variable\"" })
     await composer.press("Enter")
-    await page.waitForFunction(() => CSS.highlights.get("vitehub-comment")?.size === 1, undefined, { timeout: 5000 })
+    await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 5000 })
     const [thread] = await api.threads()
     assert.equal(thread.anchor.kind, "text")
     assert.match(thread.anchor.exact, /^Most of you/)
@@ -182,7 +182,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("This paragraph is too long")
     await composer.press("Enter")
-    await page.waitForFunction(() => document.querySelector("vitehub-comment-areas")?.shadowRoot.querySelector(".area"), undefined, { timeout: 5000 })
+    await page.waitForFunction(() => document.querySelector("vitehub-comment-areas")?.shadowRoot.querySelector("[data-slot='comment-mark-area']"), undefined, { timeout: 5000 })
     const threads = await api.threads()
     assert.equal(threads.length, 2)
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
@@ -193,13 +193,13 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.mouse.move(5, 5)
     // Once no thread is open or hovered, its area is a 1px line with no fill. The fill fades out in 120ms.
     await page.waitForFunction(() => {
-      const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")
+      const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")
       const style = getComputedStyle(area)
       return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
     }, undefined, { timeout: 5000 })
     // The line is the comment blue, as in Drop, not grey or black.
     const [red, green, blue] = await page.evaluate(() => {
-      const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")).borderTopColor
+      const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")).borderTopColor
       const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
       context.fillStyle = color
       context.fillRect(0, 0, 1, 1)
@@ -533,7 +533,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await touch.evaluate(() => addEventListener("pointerdown", () => getSelection().removeAllRanges(), { capture: true }))
       await button.tap()
       await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
-      assert.equal((await highlights(touch))["vitehub-comment-active"], 1)
+      assert.equal((await highlights(touch))["vh-comment-draft"], 1)
     }
     finally {
       await touch.close()
