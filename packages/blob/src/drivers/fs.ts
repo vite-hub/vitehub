@@ -571,6 +571,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
                   contentHash.update(bytes)
                   for (let offset = 0; offset < bytes.length;) {
                     const { bytesWritten } = await output.write(bytes, offset, bytes.length - offset)
+                    // Internal invariant: blobResult() returns a stalled filesystem write as the cause of BLOB_OPERATION_FAILED.
                     if (bytesWritten === 0) throw new Error("Multipart output write made no progress.")
                     offset += bytesWritten
                   }
