@@ -21,6 +21,7 @@ import {
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
+import ConsoleCommentOnSite from "./console-comment-on-site.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -91,6 +92,7 @@ const notEnabledPrimitives = computed(() =>
     : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
+const commentsEnabled = computed(() => sections.value.includes("comments"));
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -213,7 +215,11 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel id="console-home">
       <template #header>
-        <UDashboardNavbar title="Overview" :toggle="false" :ui="{ root: 'border-0' }" />
+        <UDashboardNavbar title="Overview" :toggle="false" :ui="{ root: 'border-0' }">
+          <template v-if="commentsEnabled" #right>
+            <ConsoleCommentOnSite />
+          </template>
+        </UDashboardNavbar>
       </template>
 
       <template #body>

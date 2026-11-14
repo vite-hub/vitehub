@@ -18,6 +18,7 @@ import ConsoleState from "./console-state.vue";
 
 // The thread panel brings the comment parts of `@vite-hub/ui`, so it loads when a section asks for it.
 const ConsoleCommentThread = defineAsyncComponent(() => import("./console-comment-thread.vue"));
+const ConsoleCommentOnSite = defineAsyncComponent(() => import("./console-comment-on-site.vue"));
 
 /**
  * A section that lists the result of an operation. The call runs over the Console RPC as the signed-in Console user, so
@@ -109,6 +110,11 @@ function selectThread(id: string): void {
   selectedId.value = id;
 }
 
+// Comment on site can open a page that has threads. The list already holds them, so this needs no other request.
+const threadPages = computed(() => detail.value?.kind === "comment-thread"
+  ? items.value.flatMap(item => operationValue(item, "subject.kind") === "page" ? [String(operationValue(item, "subject.id"))] : [])
+  : []);
+
 /** Reload through the operation so its filters, ordering, and pagination still apply after a mutation. */
 function refreshItems(): void {
   void load();
@@ -135,6 +141,7 @@ onBeforeUnmount(() => controller?.abort());
             <UTooltip text="Refresh">
               <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="load" />
             </UTooltip>
+            <ConsoleCommentOnSite v-if="detail?.kind === 'comment-thread'" :pages="threadPages" size="xs" />
           </template>
         </ConsolePageHeader>
         <ConsolePageToolbar>

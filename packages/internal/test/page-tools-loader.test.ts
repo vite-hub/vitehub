@@ -736,13 +736,39 @@ describe("loadViteHubPageTools", () => {
     expect(pill().segments).toEqual([["vitehub-tool", "comments", true], ["vitehub-tool", "console", false]])
   })
 
-  it("opens the tool that ?vitehub=<id> names", async () => {
-    page("/?vitehub=console")
+  it("opens the tool that ?vitehub=<id> names, tells it that a link picked it, and drops the query", async () => {
+    page("/guide?vitehub=console&tab=2#intro")
     session({ tools: [comments, consoleTool] })
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
-    expect(started.map(context => [context.tool.id, context.open])).toEqual([["comments", false], ["console", true]])
+    expect(started.map(context => [context.tool.id, context.open, context.linked])).toEqual([["comments", false, false], ["console", true, true]])
     expect(started[1]!.tool.hotkey).toBe("k")
+    expect(location.pathname + location.search + location.hash).toBe("/guide?tab=2#intro")
+  })
+
+  it("keeps a tool's own link parameter in the address for the tool, and drops ?vitehub", async () => {
+    page("/guide?vitehub=comments&comment=3")
+    session({ tools: [{ ...comments, param: "comment" }, consoleTool] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    expect(started.map(context => [context.tool.id, context.open, context.linked])).toEqual([["comments", true, true], ["console", false, false]])
+    expect(location.pathname + location.search).toBe("/guide?comment=3")
+  })
+
+  it("keeps ?vitehub when the session route allows no tool", async () => {
+    page("/guide?vitehub=comments")
+    session({ tools: [] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(location.search).toBe("?vitehub=comments")
+  })
+
+  it("does not call a restored tool linked", async () => {
+    page("/")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:comments", "true")
+    session({ tools: [comments] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    expect(started.map(context => [context.open, context.linked])).toEqual([[true, false]])
   })
 
   it("stops every tool, removes the pill and the query on exit, and keeps the hint cookie", async () => {

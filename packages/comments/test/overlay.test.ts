@@ -332,6 +332,34 @@ describe("the Comments overlay on the comment parts", () => {
     expect(shadow.querySelector('[data-slot="comment-thread"]')!.textContent).toContain("Second, resolved")
     expect(composer(shadow, "Reply")).toBeNull()
     expect(first!.n).not.toBe(second!.n)
+    // The link has done its work: the address drops it, and the thread stays open.
+    await vi.waitFor(() => expect(location.pathname + location.search).toBe("/pricing"))
+    expect(shadow.querySelector(`[aria-label="Comment ${second!.n}"][data-slot="comment-thread"]`)).not.toBeNull()
+  })
+
+  it("keeps the ?comment=<n> link and the other query in the address until the threads load", async () => {
+    const server = await serveComments({ identify: () => ada })
+    const [, thread] = await server.comments.create({ page: "/pricing", anchor, body: "Linked", author: ada })
+    let answer!: () => void
+    const answered = new Promise<void>(resolve => (answer = resolve))
+    const list = server.fetch.getMockImplementation()!
+    let held = false
+    server.fetch.mockImplementation(async (input, init) => {
+      if (new URL(String(input), location.href).pathname.endsWith("/threads")) {
+        held = true
+        await answered
+      }
+      return await list(input, init)
+    })
+    history.replaceState(null, "", `/pricing?plan=pro&comment=${thread!.n}#faq`)
+    const { shadow } = await startOverlay(pageTools({ linked: true }))
+    await vi.waitFor(() => expect(held).toBe(true))
+    expect(location.search).toBe(`?plan=pro&comment=${thread!.n}`)
+    answer()
+    await vi.waitFor(() => expect(shadow.querySelector(`[aria-label="Comment ${thread!.n}"][data-slot="comment-thread"]`)).not.toBeNull())
+    await vi.waitFor(() => expect(location.pathname + location.search + location.hash).toBe("/pricing?plan=pro#faq"))
+    // The thread opens, not comment mode.
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
   })
 
   it("uploads files through comments.upload and sends their keys", async () => {
@@ -651,6 +679,31 @@ describe("the Comments segment, as in Drop", () => {
     await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).toBeNull())
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
     expect(commentsButton(bar)!.textContent).toBe("Comments1")
+  })
+
+  it("turns comment mode on at once when a ?vitehub=comments link picked the tool", async () => {
+    await serveComments({ identify: () => ada })
+    const tools = pageTools({ linked: true })
+    await startOverlay(tools)
+    await vi.waitFor(() => expect(commentsButton(tools.bar)?.textContent).toBe("Click anywhere"))
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
+    expect(tools.context.createWindow).not.toHaveBeenCalled()
+  })
+
+  it("opens the list, as a tool restored from an earlier page does, without comment mode", async () => {
+    await serveComments({ identify: () => ada })
+    const tools = pageTools({ open: true })
+    await startOverlay(tools)
+    await vi.waitFor(() => expect(tools.context.createWindow).toHaveBeenCalled())
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
+  })
+
+  it("opens the list for a reader that a ?vitehub=comments link brought", async () => {
+    await serveComments({ identify: () => ada, authorize: ({ action }) => action === "read" })
+    const tools = pageTools({ linked: true })
+    await startOverlay(tools)
+    await vi.waitFor(() => expect(tools.context.createWindow).toHaveBeenCalled())
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
   })
 
   it("opens the list from Comments for a person who may only read", async () => {
