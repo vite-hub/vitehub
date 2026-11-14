@@ -502,6 +502,15 @@ import { isGitHubOrgMember } from "@vite-hub/auth";
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
 ```
 
+`checkGitHubOrgMember()` runs the same check and returns `[error, undefined]`, so the app can say why access failed. `error.code` is `AUTH_GITHUB_TOKEN_INVALID` (401 or no token), `AUTH_GITHUB_ORG_ACCESS_DENIED` (403, a missing `read:org` scope, or SAML single sign-on that the token is not authorized for), `AUTH_GITHUB_UNAVAILABLE` (network error, timeout, 429, 5xx, or rate limit), or `AUTH_GITHUB_NOT_ORG_MEMBER` (404 or a pending invitation). An empty `org` throws `AUTH_GITHUB_ORG_REQUIRED`.
+
+```ts fragment
+import { checkGitHubOrgMember } from "@vite-hub/auth";
+
+const [error] = await checkGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
+if (error?.code === "AUTH_GITHUB_TOKEN_INVALID") return redirectToSignIn();
+```
+
 ## MCP OAuth
 
 `@vite-hub/auth/forward` signs people in through a trusted reverse proxy, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. `forwardAuth({ header, verify })` is a Better Auth plugin. On each Better Auth request with the header, which includes every `getSession()` call and guard, it calls `verify({ value, headers, request })`. Auth never trusts the header by itself: `verify` must prove it, for example by calling the provider with the token, checking a JWT signature, or comparing a secret that only the proxy sends, and return `{ providerId, accountId, email, name, emailVerified, image?, accessToken? }` or `null`. An identity signs in as the Better Auth account `providerId:accountId`, with Better Auth's account linking rules, and the request sees the session at once. The session of the cookie, or a session that the process made for the same identity, is reused. `null` ignores the header. `forwardAuth()` without `header` or `verify` fails with `AUTH_C0067`, and a `verify` result that is not an identity fails the request with `AUTH_R0022`.

@@ -272,7 +272,7 @@ The store is the verification table of Better Auth, so the app needs [Auth with 
 
 The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages, with Comments and the **Console** link, shows to people the app knows. With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
 
-- **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none.
+- **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own.
 - **Link a phone** shows a QR code. The phone's camera opens the link, and the phone is signed in as you. The code works for 10 minutes.
 - **Invite someone** makes a link for a guest. You give them a name, which becomes the author of their comments, and pick what they can do, such as **Write comments**. The link works once, in one browser, for 1, 7, or 30 days. It signs the browser in as a new app user with that name. Guests never get the **Console** link, and the Console never lets them in.
 
