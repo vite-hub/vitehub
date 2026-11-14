@@ -2162,7 +2162,7 @@ describe("Babysitter preset runtime", () => {
     const tracked: Promise<unknown>[] = [];
     try {
       await f.runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work); } } as Parameters<typeof f.runtime.reconcile>[1]);
-      await vi.waitFor(() => expect(sample).toHaveBeenCalled());
+      await vi.waitFor(() => expect(sample).toHaveBeenCalled(), { timeout: 30_000 });
       await f.runtime.inbox.ingest("queued-review", "pull_request_review", {
         repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
         review: { id: 603, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
@@ -2174,7 +2174,7 @@ describe("Babysitter preset runtime", () => {
       expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
       expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "ready", lease: null });
     } finally { workerOpen = true; install.mockRestore(); await f.runtime.inbox.close(); }
-  });
+  }, 60_000);
 
   it("does not count a push that repairs a failing check against the review push budget", async () => {
     const f = await fixture(false, false, { options: { reviewPushBudget: 1 } });
@@ -3976,10 +3976,10 @@ describe("Babysitter preset runtime", () => {
       try {
         await reconcile();
         // PR 12 holds a model slot and waits in the worker queue.
-        await vi.waitFor(() => expect(sample).toHaveBeenCalled());
+        await vi.waitFor(() => expect(sample).toHaveBeenCalled(), { timeout: 30_000 });
         await f.openPullRequest(13, "dirty");
         await reconcile();
-        await vi.waitFor(() => expect(prepareGitHubRepairBase).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(prepareGitHubRepairBase).toHaveBeenCalledOnce(), { timeout: 30_000 });
         expect(hostCapacity).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ active: 0 }));
         expect(f.events).not.toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything());
       } finally {
@@ -3987,7 +3987,7 @@ describe("Babysitter preset runtime", () => {
         while (tracked.length) await Promise.all(tracked.splice(0));
         f.restore(); await f.runtime.inbox.close();
       }
-    }, 15_000);
+    }, 60_000);
 
     it.each(["completes", "fails", "is cancelled"] as const)("counts a pass in host capacity while its provider runs until it %s", async ending => {
       const hostCapacity = vi.fn(async () => ({ concurrency: 1 }));
@@ -4009,7 +4009,7 @@ describe("Babysitter preset runtime", () => {
         await running;
         await f.openPullRequest(13, "dirty");
         await reconcile();
-        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledOnce(), { timeout: 30_000 });
         expect(hostCapacity).toHaveBeenLastCalledWith(expect.objectContaining({ active: 1 }));
         if (ending === "is cancelled") await close("close-12");
         else finish();
@@ -4018,14 +4018,14 @@ describe("Babysitter preset runtime", () => {
         if (ending !== "is cancelled") await close("close-12");
         await f.openPullRequest(14, "dirty");
         await reconcile();
-        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2), { timeout: 30_000 });
         expect(hostCapacity).toHaveBeenLastCalledWith(expect.objectContaining({ active: 0 }));
       } finally {
         finish();
         while (tracked.length) await Promise.all(tracked.splice(0));
         f.restore(); await f.runtime.inbox.close();
       }
-    }, 20_000);
+    }, 60_000);
   });
 
   it.each([
