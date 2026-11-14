@@ -76,6 +76,9 @@ describe("types", () => {
     defineAuth({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) })
     // @ts-expect-error A callback cannot return `runtime` either.
     defineAuth(() => ({ appName: "ViteHub", runtime: () => ({ secret: "runtime-secret" }) }))
+    expectTypeOf(defineAuth({ database: "memory" }).options.database).toEqualTypeOf<"memory">()
+    // @ts-expect-error A static Definition takes `authDatabase()` or "memory", not another string.
+    defineAuth({ database: "postgres" })
     expectTypeOf<AuthRuntimeEnv>().toMatchTypeOf<Record<string, unknown>>()
   })
 

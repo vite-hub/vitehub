@@ -1189,3 +1189,158 @@ describe("@vite-hub/shell analyzer", () => {
     })
   })
 })
+
+describe("shell timeout policy", () => {
+  function timeoutProvider(enforcedBy: "provider" | "runtime", exec: ShellExecutionProvider["exec"], startProcess?: ShellExecutionProvider["startProcess"]): ShellExecutionProvider {
+    return {
+      boundary: {
+        cwd: true, env: true, filesystem: { writable: false }, network: false,
+        processes: { background: Boolean(startProcess), interactive: false }, streaming: false,
+        timeout: { enforcedBy, supported: true },
+      },
+      exec,
+      ...(startProcess ? { startProcess } : {}),
+    }
+  }
+
+  it.each([
+    { policy: 1_000, requested: undefined, timeout: 1_000 },
+    { policy: 1_000, requested: 60_000, timeout: 1_000 },
+    { policy: 1_000, requested: 200, timeout: 200 },
+    { policy: undefined, requested: 200, timeout: 200 },
+    { policy: undefined, requested: undefined, timeout: undefined },
+  ])("passes the lower of policy $policy and exec $requested to the provider", async ({ policy, requested, timeout }) => {
+    let execTimeout: number | undefined
+    let processTimeout: number | undefined
+    const provider = timeoutProvider("provider", async (command, options) => {
+      execTimeout = options?.timeout
+      return { command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }
+    }, async (command, options) => {
+      processTimeout = options?.timeout
+      return { id: "worker", command, async stop() { return stoppedProcessObservation(command) } }
+    })
+    const session = createShellRuntime({ provider, policy: { timeout: policy } }).createSession()
+    try {
+      await session.exec("run", { timeout: requested })
+      await session.startProcess("worker", { timeout: requested })
+      expect(execTimeout).toBe(timeout)
+      expect(processTimeout).toBe(timeout)
+    }
+    finally { await session.dispose() }
+  })
+
+  it("enforces the timeout when the provider declares runtime enforcement", async () => {
+    let aborted = false
+    const provider = timeoutProvider("runtime", (command, options) => new Promise((resolve) => {
+      options?.signal?.addEventListener("abort", () => {
+        aborted = true
+        resolve({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "late" })
+      })
+    }))
+    const runtime = createShellRuntime({ provider, policy: { timeout: 20 } })
+    await expect(runtime.exec("hang", { cwd: "/workspace", timeout: 60_000 })).resolves.toMatchObject({
+      command: "hang",
+      cwd: "/workspace",
+      event: "command_timed_out",
+      exitCode: null,
+      stderr: "[vitehub] Shell command timed out after 20ms.\n",
+      stdout: "",
+      timedOut: true,
+    })
+    expect(aborted).toBe(true)
+  })
+
+  it("stops a background process when the runtime enforces the timeout", async () => {
+    let stopped = 0
+    const provider = timeoutProvider("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), async command => ({
+      id: "worker",
+      command,
+      async stop() {
+        stopped += 1
+        return stoppedProcessObservation(command)
+      },
+    }))
+    const session = createShellRuntime({ provider, policy: { timeout: 20 } }).createSession()
+    await session.startProcess("worker", { timeout: 60_000 })
+    await vi.waitFor(() => expect(stopped).toBe(1))
+    await expect(session.listProcesses()).resolves.toEqual([])
+    await session.dispose()
+    expect(stopped).toBe(1)
+  })
+
+  it.each(["timeout", "dispose"] as const)("keeps %s cancellation authoritative when the provider settles on abort", async (cancellation) => {
+    for (const settlement of ["resolve", "reject"] as const) {
+      let stopped = 0
+      const provider = timeoutProvider("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), (command, options) => new Promise((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          if (settlement === "reject") reject(new DOMException("Provider aborted", "AbortError"))
+          else resolve({
+            id: "worker",
+            command,
+            async stop() {
+              stopped += 1
+              return stoppedProcessObservation(command)
+            },
+          })
+        }, { once: true })
+      }))
+      const session = createShellRuntime({ provider, policy: { timeout: cancellation === "timeout" ? 10 : 60_000 } }).createSession()
+      const rejected = expect(session.startProcess("worker")).rejects.toThrow(cancellation === "timeout" ? "Shell process start timed out after 10ms" : "Shell session is disposed")
+      if (cancellation === "dispose") await session.dispose()
+      await rejected
+      if (settlement === "resolve") await vi.waitFor(() => expect(stopped).toBe(1))
+      else expect(stopped).toBe(0)
+      await expect(session.listProcesses()).resolves.toEqual([])
+      await session.dispose()
+    }
+  })
+
+  it("counts process startup time against the runtime timeout", async () => {
+    let stopped = 0
+    let startSignal: AbortSignal | undefined
+    const provider = timeoutProvider("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), async (command, options) => {
+      startSignal = options?.signal
+      await new Promise(resolve => setTimeout(resolve, 70))
+      return {
+        id: "worker",
+        command,
+        async stop() {
+          stopped += 1
+          return stoppedProcessObservation(command)
+        },
+      }
+    })
+    const session = createShellRuntime({ provider, policy: { timeout: 20 } }).createSession()
+    const started = Date.now()
+    await expect(session.startProcess("worker", { timeout: 60_000 })).rejects.toThrow("[vitehub] Shell process start timed out after 20ms.")
+    expect(Date.now() - started).toBeLessThan(60)
+    expect(startSignal?.aborted).toBe(true)
+    await vi.waitFor(() => expect(stopped).toBe(1))
+    await expect(session.listProcesses()).resolves.toEqual([])
+    await session.dispose()
+    expect(stopped).toBe(1)
+  })
+
+  it("bounds a process startup that never resolves", async () => {
+    const provider = timeoutProvider("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), () => new Promise(() => {}))
+    const session = createShellRuntime({ provider, policy: { timeout: 20 } }).createSession()
+    await expect(session.startProcess("worker")).rejects.toThrow("[vitehub] Shell process start timed out after 20ms.")
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+  })
+
+  it("does not block disposal on a pending runtime-timed startup", async () => {
+    let startSignal: AbortSignal | undefined
+    const provider = timeoutProvider("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), (_command, options) => {
+      startSignal = options?.signal
+      return new Promise(() => {})
+    })
+    const session = createShellRuntime({ provider, policy: { timeout: 60_000 } }).createSession()
+    const starting = session.startProcess("worker")
+    const rejected = expect(starting).rejects.toThrow("Shell session is disposed")
+    const started = Date.now()
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    expect(Date.now() - started).toBeLessThan(1_000)
+    await rejected
+    expect(startSignal?.aborted).toBe(true)
+  })
+})

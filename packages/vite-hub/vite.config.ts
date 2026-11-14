@@ -60,6 +60,7 @@ const runtimeEntries = [
   "src/_internal/auth/internal/server.ts",
   "src/_internal/auth/runtime/server.ts",
   "src/_internal/runtime/internal/h3.ts",
+  "src/_internal/runtime/request-policy.ts",
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
@@ -352,6 +353,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-agent-session.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-page-changes.vue",
           to: "dist/console/runtime/components",
         },
         {

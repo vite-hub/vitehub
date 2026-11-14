@@ -1,4 +1,4 @@
-import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -42,8 +42,10 @@ export interface BlobListResult {
   hasMore: boolean
 }
 
+/**
+ * Options of one write. Access is not one of them: who can read an object depends on the store and on `blob.serve`.
+ */
 export interface BlobPutOptions {
-  access?: "private" | "public"
   addRandomSuffix?: boolean
   contentLength?: string
   contentType?: string
@@ -53,9 +55,9 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
-export type BlobOperation = "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
+export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
- * `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder.
+ * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, or the removal of a non-empty folder.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
 export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
@@ -125,6 +127,11 @@ export interface BlobDriverAdapter<TOptions> {
   canonicalPathname?(pathname: string): string
   name: string
   options: TOptions
+  /**
+   * Copy an object with its content type and custom metadata, in the provider when it can. Returns `null` when `from`
+   * does not exist. Without it, `copy()` reads the object and writes it again.
+   */
+  copy?(from: string, to: string): Promise<BlobObject | null>
   createMultipartUpload?(pathname: string, options: BlobMultipartOptions): Promise<BlobDriverMultipartUpload>
   delete(pathnames: string | string[]): Promise<void>
   get(pathname: string): Promise<Blob | null>
@@ -142,14 +149,17 @@ export interface BlobDriverAdapter<TOptions> {
   sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
-/** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
-export type BlobUploadEvent = ViteHubContext
+/**
+ * What `handleUpload()` reads: a web Request, or a request event such as the event of a Nitro 3, H3, or `nuxt/server`
+ * handler.
+ */
+export type BlobUploadEvent = Request | ViteHubContext | HostRequestEvent
 
 /**
- * A request event that `handleMultipartUpload()` reads: its Standard Context request, and the `action` and `pathname`
- * route params in `context.params`.
+ * A request event that `handleMultipartUpload()` reads: its request, and the `action` and `pathname` route params in
+ * `context.params`. The event of a Nitro 3, H3, or `nuxt/server` handler has both.
  */
-export type BlobMultipartEvent = ViteHubContext<{ context: { params?: Record<string, string | undefined> } }>
+export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context: { params?: Record<string, string | undefined> } }
 
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
@@ -165,6 +175,12 @@ export interface BlobUploadOptions {
 export interface BlobMultipartHandlerOptions {
   /** Options for `createMultipartUpload()`. The client sends only the content type. */
   create?: BlobMultipartOptions
+  /**
+   * Limit the upload. `create` checks `types` against the content type, and `maxSize` against the size that the client
+   * declares. `upload` rejects a larger part, and `complete` deletes an object whose size or stored content type
+   * fails the policy.
+   */
+  ensure?: BlobEnsureOptions
 }
 
 /** What `handleMultipartUpload()` returns for each action. */
@@ -283,9 +299,22 @@ export interface BlobMedia {
   variants(pathname: string): Promise<Result<MediaVariantEntry[], BlobErrorCode>>
 }
 
+/** Options of `blob.copy()`. */
+export interface BlobCopyOptions {
+  /** Replace an object at `to`. Defaults to `false`: the copy fails with `BLOB_CONFLICT`, as `media.move()` does. */
+  overwrite?: boolean
+}
+
 export interface BlobStorage {
   /** Media records, folders, and image variants. */
   readonly media: BlobMedia
+  /**
+   * Copy an object to `to` in the same store, with its content type and custom metadata. Returns the new object.
+   * `from` must exist (`BLOB_NOT_FOUND`), and `to` must be empty unless `overwrite` is set (`BLOB_CONFLICT`).
+   * `to` follows the rules of `put()`. The provider copies the bytes when it can: S3 and Vercel Blob copy on the server,
+   * the `fs` driver copies the file. R2 streams the object from the binding. Netlify Blobs reads and writes it.
+   */
+  copy(from: string, to: string, options?: BlobCopyOptions): Promise<Result<BlobObject, BlobErrorCode>>
   /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
   delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
@@ -494,20 +523,35 @@ export interface BlobStoreRegistry {}
 /** A key of `blob.stores`. Before ViteHub writes the generated types, any name type checks. */
 export type BlobStoreName = [keyof BlobStoreRegistry] extends [never] ? "default" | (string & {}) : Extract<keyof BlobStoreRegistry, string>
 
-export type BlobServeOptions = boolean | {
-  /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
-  authorize?: boolean
-  /**
-   * Also runs the `authorize` export for signed-out callers, with `session` and `user` set to `null`.
-   * Requires `authorize: true` and an `authorize` export (type `BlobServeAnonymousAuthorize`).
-   */
-  anonymous?: boolean
+interface BlobServeRouteOptions {
   headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
   /** A key of `blob.stores`. Defaults to `"default"`. */
   store?: string
 }
+
+/** Serves every object of the store to anyone who has its URL, without sign-in. */
+export interface BlobPublicServeOptions extends BlobServeRouteOptions {
+  access: "public"
+  anonymous?: never
+  authorize?: never
+}
+
+/** Serves an object only when the request passes Auth, and the `authorize` export of `server/blob.ts` when it exists. */
+export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
+  /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
+  authorize: true
+  /**
+   * Also runs the `authorize` export for signed-out callers, with `session` and `user` set to `null`.
+   * Requires an `authorize` export (type `BlobServeAnonymousAuthorize`).
+   */
+  anonymous?: boolean
+  access?: never
+}
+
+/** The serve route. Choose `access: "public"` or `authorize: true`: ViteHub does not pick public access for you. */
+export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
 export type BlobServeAuthorize = AccessAuthorize
@@ -516,6 +560,7 @@ export type BlobServeAuthorize = AccessAuthorize
 export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
 
 export interface BlobServeConfig {
+  access?: "public"
   anonymous?: true
   authorize?: true
   headers?: Record<string, string>
@@ -527,7 +572,7 @@ export interface BlobServeConfig {
 interface BlobModuleBaseOptions {
   /** Image variants of served objects. Set `false` to always serve originals. */
   images?: false | BlobImagesOptions
-  serve?: BlobServeOptions
+  serve?: false | BlobServeOptions
 }
 
 export interface BlobStoresConfig extends BlobModuleBaseOptions {
