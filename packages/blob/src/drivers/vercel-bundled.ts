@@ -1,4 +1,4 @@
-import { BlobNotFoundError, completeMultipartUpload, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
+import { BlobNotFoundError, completeMultipartUpload, copy, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
@@ -144,6 +144,24 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
     async resumeMultipartUpload(pathname, uploadId) {
       return multipartUpload(pathname, decodeMultipartState(uploadId))
     },
+    // Vercel Blob copies on the server, but does not keep the content type, so it reads it first.
+    async copy(from, to) {
+      try {
+        const source = await head(from, auth)
+        const result = await copy(source.url, to, {
+          ...auth,
+          access: options.access,
+          addRandomSuffix: false,
+          allowOverwrite: options.allowOverwrite ?? true,
+          contentType: source.contentType,
+        })
+        return toBlobObject(await head(result.url, auth))
+      }
+      catch (error) {
+        if (isMissingBlobError(error)) return null
+        throw error
+      }
+    },
     async delete(pathnames) {
       await del(pathnames, auth)
     },
@@ -184,7 +202,7 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       }
       const result = await put(pathname, body as Parameters<typeof put>[1], {
         ...auth,
-        access: putOptions.access || options.access,
+        access: options.access,
         addRandomSuffix: false,
         allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType,

@@ -148,6 +148,35 @@ Definition, apply its migrations, and pass
 Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
 
+`database` is a Drizzle database, or a function that returns one. In a
+Workspace Definition, pass `() => useDatabase("history").db`. The Store calls
+the function on first use, because the build loads the Workspace Definition
+without the app's Databases. Do not pass the Database Definition: it holds
+options only, and `useDatabase()` gives the database with the migrations and
+relations of the build.
+
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from "@vite-hub/database"
+import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+
+export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
+```
+
+```ts [server/workspaces/drop.ts]
+import { blob } from "@vite-hub/blob"
+import { useDatabase } from "@vite-hub/database"
+import { defineWorkspace } from "@vite-hub/workspace"
+import { createBlobDatabaseWorkspaceStore } from "@vite-hub/workspace/blob-database"
+
+export default defineWorkspace({
+  store: createBlobDatabaseWorkspaceStore({
+    blob: blob.store("workspace-history"),
+    database: () => useDatabase("history").db,
+    workspace: "drop-123",
+  }),
+})
+```
+
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
@@ -312,6 +341,14 @@ export default defineWorkspace({
 
 The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
 placement, materialization, sync, and access rules. Source owns retrieval.
+
+Without a `mount` path, the Source kind picks the mount, not the import. A file
+Source (`file()` or `markdown()` from either package, or the `"README.md"` and
+`{ path }` shorthands) puts its one file at its own key, so
+`readme: file("README.md")` appears at `README.md`. `fetch()` also puts its one
+file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
+`readme: { source: file("README.md"), mount: "docs" }` appears at
+`docs/README.md`.
 Content also accepts the definition with `defineContent({ source: docs })` and
 opens a new reader for each refresh.
 

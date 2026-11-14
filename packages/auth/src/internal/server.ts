@@ -235,40 +235,32 @@ function toRequest(request: AuthRequest): Request {
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
-  runtimeOptions: AuthRuntimeOptions = {},
   event?: ViteHubContext,
 ): AuthRuntimeOptions {
+  return resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) }).requestRuntimeOptions
+}
 
-
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).requestRuntimeOptions}
-
-export function createAuth(
-  definition: AuthDefinition,
-  runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth {
-  return withSessionMarker(withClientAddress(betterAuth(createBetterAuthOptions(definition, runtimeOptions)))) as ViteHubAuth
+export function createAuth(definition: AuthDefinition): ViteHubAuth {
+  return withSessionMarker(withClientAddress(betterAuth(createBetterAuthOptions(definition)))) as ViteHubAuth
 }
 
 export function createAuthForRequest(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
-  runtimeOptions?: AuthRuntimeOptions,
   event?: ViteHubContext,
 ): ViteHubAuth {
-
-
-  return withSessionMarker(withClientAddress(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions))) as ViteHubAuth}
+  return withSessionMarker(withClientAddress(betterAuth(resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) }).providerOptions))) as ViteHubAuth
+}
 
 export function handleAuthRequest(
   definition: AuthDefinition,
   input: AuthRequestInput,
-  runtimeOptions?: AuthRuntimeOptions,
   event: ViteHubContext = authRequestEvent(input),
 ): Promise<Response> {
   const request = unwrapAuthRequest(input)
   // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
-  const auth = requestProvider(definition, resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }))
+  const auth = requestProvider(definition, resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) }))
   return auth.handler(setRequestClientAddress(toRequest(request), address))
 }
 
@@ -278,17 +270,14 @@ export function toAuthRequest(input: AuthRequestInput): AuthRequest {
 }
 
 /** Create a handler whose optional host context supplies the peer address, never a client-sent header. */
-export function createAuthHandler(
-  definition: AuthDefinition,
-  runtimeOptions?: AuthRuntimeOptions,
-) {
-  const auth = createAuth(definition, runtimeOptions)
+export function createAuthHandler(definition: AuthDefinition) {
+  const auth = createAuth(definition)
   return (request: Request, host?: { clientAddress?: string }): Promise<Response> =>
     auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
-export function getAuth(runtimeOptions?: AuthRuntimeOptions): RegisteredAuth {
-  return getAuthForDefinition(resolveDefaultDefinition(), runtimeOptions) as RegisteredAuth
+export function getAuth(): RegisteredAuth {
+  return getAuthForDefinition(resolveDefaultDefinition()) as RegisteredAuth
 }
 
 /**
@@ -297,7 +286,7 @@ export function getAuth(runtimeOptions?: AuthRuntimeOptions): RegisteredAuth {
  * type-checks when `server/auth.ts` uses `admin()`.
  */
 export function useAuth(event: AuthRequestInput): RegisteredAuth {
-  return authForRequest(unwrapAuthRequest(event), undefined, authRequestEvent(event))
+  return authForRequest(unwrapAuthRequest(event), authRequestEvent(event))
 }
 
 export async function assertAuthOrigin(
@@ -306,18 +295,15 @@ export async function assertAuthOrigin(
 ): Promise<RegisteredAuth> {
   const origin = request.headers.get("origin")
   if (!origin) throw authErrorDiagnostics.AUTH_R0006({ message: "The request origin is required." })
-  const auth = authForRequest(request, undefined, event)
+  const auth = authForRequest(request, event)
   if (!(await auth.$context).isTrustedOrigin(origin)) {
     throw authErrorDiagnostics.AUTH_R0007({ message: "The request origin is not trusted." })
   }
   return auth
 }
 
-export function handleAuth(
-  input: AuthRequestInput,
-  runtimeOptions?: AuthRuntimeOptions,
-): Promise<Response> {
-  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions)
+export function handleAuth(input: AuthRequestInput): Promise<Response> {
+  return handleAuthRequest(resolveDefaultDefinition(), input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -937,8 +923,9 @@ async function checkAuthAccessRequest(
 export function createAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
   definition?: AuthDefinition,
+  publicRoutes: readonly string[] = [],
 ): (input: AuthRequestInput) => Promise<Response | undefined> {
-  const match = createAuthAccessRouteMatcher(routes)
+  const match = createAuthAccessRouteMatcher(routes, publicRoutes)
 
   return async (input) => {
     const matched = match(input)

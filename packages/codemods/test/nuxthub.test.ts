@@ -88,7 +88,7 @@ describe("nuxthub", () => {
       "",
       "export default defineDatabase({",
       "  connection: {",
-      "    url: process.env.TURSO_DATABASE_URL,",
+      "    url: process.env.TURSO_DATABASE_URL || undefined,",
       "    authToken: process.env.TURSO_AUTH_TOKEN,",
       "  },",
       "  schema,",
@@ -281,6 +281,46 @@ describe("nuxthub", () => {
     const migrate = async (name: string, files: Record<string, string>) => (await runCodemod("nuxthub", { cwd: await app(name, files), dryRun: true })).result
     const definitionOf = (result: Awaited<ReturnType<typeof migrate>>) => result.edits.find(edit => edit.path === "server/databases/default/index.ts")?.after
     const messages = (result: Awaited<ReturnType<typeof migrate>>) => result.followUps.map(followUp => followUp.message)
+
+    it("keeps explicit D1 HTTP configuration despite unused Turso templates", async () => {
+      const result = await migrate("d1-turso-template", {
+        "nuxt.config.ts": nuxtConfig("{ driver: 'd1-http', connection: { databaseId: 'production-d1-id' } }"),
+        "server/db/schema.ts": "export {}\n",
+        ".env.example": "TURSO_DATABASE_URL=\nTURSO_AUTH_TOKEN=\n",
+      })
+      expect(definitionOf(result)).toContain('databaseId: "production-d1-id"')
+      expect(definitionOf(result)).toContain("http: true")
+      expect(definitionOf(result)).not.toContain("TURSO_DATABASE_URL")
+      expect(messages(result).join("\n")).toContain("CLOUDFLARE_API_TOKEN")
+    })
+
+    it.each(["layer", "existing", "collision"])("reports resource options when a %s prevents Definition generation", async (reason) => {
+      for (const dialect of ["sqlite", "postgresql"]) {
+        const result = await migrate(`skipped-${reason}-${dialect}`, {
+          "nuxt.config.ts": nuxtConfig(dialect === "sqlite"
+            ? "{ driver: 'd1-http', connection: { databaseId: 'existing-d1-id' } }"
+            : "{ dialect: 'postgresql', connection: { hyperdriveId: 'existing-hyperdrive-id' } }"),
+          [reason === "layer" ? "layers/base/server/db/schema.ts" : "server/db/schema.ts"]: "export {}\n",
+          ...(reason === "existing" ? { "server/databases/default.ts": "export default {}\n" } : {}),
+          ...(reason === "collision" ? { "server/databases/default/schema.ts": "export {}\n" } : {}),
+        })
+        expect(definitionOf(result)).toBeUndefined()
+        const report = messages(result).join("\n")
+        expect(report).toContain(dialect === "sqlite" ? 'databaseId: "existing-d1-id"' : 'cloudflare.hyperdriveId: "existing-hyperdrive-id"')
+        expect(report).toContain(dialect === "sqlite" ? "CLOUDFLARE_API_TOKEN" : "POSTGRES")
+        if (dialect === "sqlite") expect(report).toContain("http: true")
+      }
+    })
+
+    it.each(["sqlite", "postgresql"])("preserves bracket environment references for %s", async (dialect) => {
+      const result = await migrate(`bracket-${dialect}`, {
+        "nuxt.config.ts": nuxtConfig(dialect === "sqlite"
+          ? "{ driver: 'd1-http', connection: { databaseId: process.env['CF-D1-ID'] } }"
+          : "{ dialect: 'postgresql', connection: { hyperdriveId: process.env['CF-HYPERDRIVE-ID'] } }"),
+        "server/db/schema.ts": "export {}\n",
+      })
+      expect(definitionOf(result)).toContain(dialect === "sqlite" ? 'process.env["CF-D1-ID"]' : 'process.env["CF-HYPERDRIVE-ID"]')
+    })
 
     it("keeps the Postgres URL variables, the PGlite folder, and migrations at start", async () => {
       const result = await migrate("postgres-url", {

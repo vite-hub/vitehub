@@ -101,6 +101,11 @@
       "import": "./dist/media.js",
       "default": "./dist/media.js"
     },
+    "./nuxt-image": {
+      "types": "./dist/nuxt-image.d.ts",
+      "import": "./dist/nuxt-image.js",
+      "default": "./dist/nuxt-image.js"
+    },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",

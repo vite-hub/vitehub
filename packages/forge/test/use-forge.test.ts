@@ -123,11 +123,36 @@ describe("useForge() with a GitHub App", () => {
     expect(github.count("POST", "/app/installations/42/access_tokens")).toBe(2)
   })
 
-  it("uses VITEHUB_GITHUB_INSTALLATION_ID without a lookup", async () => {
-    const forge = useForge({ baseUrl: github.url, env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "7" }) })
+  it("uses VITEHUB_GITHUB_INSTALLATION_ID for VITEHUB_GITHUB_APP_OWNER without a lookup", async () => {
+    const forge = useForge({ baseUrl: github.url, env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "7", VITEHUB_GITHUB_APP_OWNER: "Acme" }) })
 
     await expect(forge.token()).resolves.toMatchObject([undefined, { token: "ghs_7_1" }])
+    await expect(forge.token({ repository: "acme/web" })).resolves.toMatchObject([undefined, { token: "ghs_7_1" }])
     expect(github.count("GET", "/repos/acme/web/installation")).toBe(0)
+  })
+
+  it("routes each repository owner to its installation", async () => {
+    github.installations.set("third/app", 11)
+    const forge = useForge({
+      baseUrl: github.url,
+      env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "7", VITEHUB_GITHUB_APP_OWNER: "acme", VITEHUB_GITHUB_APP_INSTALLATIONS: "{\"Other\":9}" }),
+    })
+
+    await expect(forge.token({ repository: "acme/web" })).resolves.toMatchObject([undefined, { token: "ghs_7_1" }])
+    await expect(forge.token({ repository: "other/api" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_9_/) }])
+    // An owner without a configured installation uses GitHub's lookup, not the fixed installation of `acme`.
+    await expect(forge.token({ repository: "third/app" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_11_/) }])
+    expect(github.count("GET", "/repos/third/app/installation")).toBe(1)
+    expect(github.count("GET", "/repos/other/api/installation")).toBe(0)
+  })
+
+  it("looks up owners whose names are Object properties", async () => {
+    github.installations.set("constructor/app", 12)
+    github.installations.set("__proto__/app", 13)
+    const forge = useForge({ baseUrl: github.url, env: appEnv({ VITEHUB_GITHUB_APP_INSTALLATIONS: "{\"__proto__\":14}" }) })
+
+    await expect(forge.token({ repository: "constructor/app" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_12_/) }])
+    await expect(forge.token({ repository: "__proto__/app" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_14_/) }])
   })
 
   it("reads an escaped key, a key file, and the FORGES_ names", async () => {
@@ -201,8 +226,14 @@ describe("useForge() with a GitHub App", () => {
       .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The github Forge has no credentials. It reads VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH." }))
     expect(() => useForge({ env: { VITEHUB_GITHUB_PRIVATE_KEY: github.privateKey } }))
       .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The github Forge has no credentials. It reads VITEHUB_GITHUB_APP_ID." }))
-    expect(() => useForge({ env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "acme" }) }))
+    expect(() => useForge({ env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "acme", VITEHUB_GITHUB_APP_OWNER: "acme" }) }))
       .toThrow(expect.objectContaining({ code: "FORGE_INVALID_ENV" }))
+    expect(() => useForge({ env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "7" }) }))
+      .toThrow(expect.objectContaining({ code: "FORGE_INVALID_ENV", why: expect.stringContaining("VITEHUB_GITHUB_INSTALLATION_ID needs VITEHUB_GITHUB_APP_OWNER") }))
+    for (const value of ["[7]", "{\"acme\":0}", "not json"]) {
+      expect(() => useForge({ env: appEnv({ VITEHUB_GITHUB_APP_INSTALLATIONS: value }) }))
+        .toThrow(expect.objectContaining({ code: "FORGE_INVALID_ENV" }))
+    }
     await expect(useForge({ baseUrl: github.url, env: appEnv() }).token())
       .rejects.toMatchObject({ code: "FORGE_MISSING_INSTALLATION" })
     await expect(useForge({ env: { VITEHUB_GITHUB_APP_ID: "1", VITEHUB_GITHUB_PRIVATE_KEY_PATH: "/missing/app.pem" } }).token({ repository: "acme/web" }))

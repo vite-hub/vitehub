@@ -52,6 +52,8 @@ export default defineConfig({
 })
 ```
 
+`blob.copy(from, to, { overwrite? })` copies a file in the same store with its content type and custom metadata, and returns the new `BlobObject`. A missing source returns `BLOB_NOT_FOUND`, and a file at `to` returns `BLOB_CONFLICT` unless `overwrite` is `true`. S3-compatible stores and Vercel Blob copy on the server, `fs` copies the file, R2 streams the object from the binding, and Netlify Blobs reads and writes it.
+
 ## Vite Integration
 
 Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code. Nitro is the only host output. `hubBlob()` adds its runtime plugin to the Nitro config, and Nitro bundles it into the server output for each host. On a Cloudflare host, it also adds the R2 bucket bindings to Nitro's `wrangler.json`.
@@ -93,7 +95,8 @@ export default defineConfig({
 
 With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare-r2` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
-Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
+Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route uses `/api/_vitehub/blob` as a safe namespaced API route by default. Use `serve.route` for product-facing paths such as `/assets`.
+`put()` has no `access` option. One object cannot be private in a public store, so `put()` with `access` throws `BLOB_R0045`. Keep private files in a store that the route does not serve, or serve that store with `authorize: true`. On Vercel Blob, `access` on the store sets the provider access. It defaults to `"private"`, or to `"public"` when `serve: { access: "public" }` serves the store, and `access: "public"` on a store that `authorize: true` serves fails with `BLOB_C0022`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
 `servedBlobUrl(pathname, store?)` from `@vite-hub/blob/served` returns the same URL for a pathname from the generated Blob config, without loading the Blob runtime, so code such as `contentHead()` can link a stored image. It returns `undefined` when the store is not served, and in the browser, where the config is not loaded.
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
@@ -101,7 +104,7 @@ A stored file has the content type that the uploader sent. `serve()` and the ser
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`: the browser keeps its copy and revalidates on each use, so the check still runs and an unchanged object answers `304` with no body. `no-store` downloads the full object on every visit.
 
 Application routes can call `blob.serve(request, pathname, { cacheControl, transform: { key, run } })` after their own authorization or database lookup. Pass the `Request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. `serve()` returns a `Response` with the final status and headers, so the route returns it as it is: `200`, `206` or `416` for a range, `304`, `400` with `{ error }` for an unsafe pathname such as `dir/..%2Fpackage.json`, and `404` for a missing object or a reserved path (`_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/` on every driver). A storage failure throws its `ViteHubError`. The generated serving route is a Fetchable, `{ fetch(request) }`, that returns that `Response`. When Nitro mounts it, it uses the raw catch-all pathname from the Request context, also behind a `baseURL`. Direct calls read the URL after `serve.route` at the URL root. `run` receives the original `Blob` and returns a response `Blob`. ViteHub stores the derived result in a reserved namespace in the same store, using the store's configured access, leaves the original unchanged, and invalidates the cache when the source or transform key changes. Source changes replace each cached variant on its next request; `blob.delete(originalPath)` clears all its variants. Version the key when the transformation changes and include output variants such as size or format. The method handles conditional GET and HEAD requests. Without a `transform`, it also answers one `Range: bytes=` request with `206` and `Content-Range`, or `416` when the range starts past the end, so media can seek. See [the server API](https://vitehub.dev/docs/blob/server-api#serve-a-transformed-object) for cache lifetimes, an example, and failure behavior.
-The serve route is public by default. Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`. A `Cache-Control` that middleware set before the route does not replace it.
+Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`. A `Cache-Control` that middleware set before the route does not replace it.
 For files shared by public link, add `serve.anonymous: true`. Then signed-out requests also run the `authorize` export (type `BlobServeAnonymousAuthorize`), with `session` and `user` set to `null`, and `false` returns `401` for them. This needs an explicit option because a callback written for `authorize: true` can expect a user.
 
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
@@ -124,6 +127,7 @@ export default defineConfig({
   plugins: [hubBlob({
     driver: "fs",
     serve: {
+      access: "public",
       route: "/assets",
       headers: {
         "Cache-Control": "public, max-age=300",
@@ -142,6 +146,8 @@ With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, an
 
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
 
+Filesystem listings sort keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. The cursor holds the last listed key, so a key added or removed between pages does not repeat or skip another key. A listing reads only the directories on the `prefix` path and the directories that the page reaches.
+
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
 ## Read-only handles
@@ -159,11 +165,11 @@ The mode limits this API, not the host. The R2 binding or provider token keeps f
 
 ## Uploads
 
-`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does.
+`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. `event` is a Nitro, H3, or `nuxt/server` event, or a web `Request`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does. With `multiple: false` and `ensure.maxSize`, a `Content-Length` above `maxSize` plus 64 KB of form framing gets an H3 413 error before the body is read.
 
-`blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
+`blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`. Pass `ensure` (`types`, `maxSize`) to limit an upload: `create` checks the content type and the size the client declares, `upload` rejects a larger part, and `complete` deletes an object whose size or stored content type fails the policy.
 
-Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names as written, without URL-decoding.
+Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, `%` followed by two hex digits, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). So each pathname that `put()` or `list()` returns targets the same object when you pass it back. `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names without URL-decoding, and replaces the `%` of each `%XX` sequence with `_`, adding a UUID suffix before the extension to avoid overwriting a different file.
 
 Browser clients:
 
@@ -212,6 +218,8 @@ export async function storeCover(file: Blob) {
 The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `transformer: "photon"` uses `@cf-wasm/photon` (optional peer), a WebAssembly image library that runs on Workers and Node without a binding. `@vite-hub/blob/media` exports the browser-safe helpers.
 
 `responsiveImage()` uses the same default size list for its `srcset` widths. If you set `blob.images.sizes`, pass that list as `responsiveImage(record, { imageSizes })` so the width descriptors match the served variants.
+
+`@vite-hub/blob/nuxt-image` is a `@nuxt/image` provider for the serve route. It maps `width`, `height`, `fit`, `format`, `quality`, and a `crop` modifier to the variant parameters, and snaps sizes like the server. `vite-hub/nuxt` registers it as `vitehub` when the app uses `@nuxt/image` and sets `blob.serve`.
 
 ## Signed requests
 

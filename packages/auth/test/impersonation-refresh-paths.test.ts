@@ -1,10 +1,10 @@
 import { getMigrations } from "better-auth/db/migration";
 import { admin, bearer } from "better-auth/plugins";
 import { afterEach, describe, expect, it } from "vitest";
-import { defineAuth } from "../src/index.ts";
 import type { AuthDefinitionOptions } from "../src/types.ts";
 import { createBetterAuthOptions, getAuthForDefinition } from "../src/internal/server.ts";
 import { eventDatabase } from "./event-helpers.ts";
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
@@ -54,17 +54,15 @@ type Setup = Pick<AuthDefinitionOptions, "session" | "databaseHooks"> & { second
 async function impersonating(setup: Setup = {}) {
   const database = eventDatabase();
   closers.push(() => database.sqlite.close());
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins: [admin(), bearer()],
     session: setup.session,
     databaseHooks: setup.databaseHooks,
-    runtime: {
-      database: database.sqlite,
-      secondaryStorage: setup.secondaryStorage ? memoryStorage() : undefined,
-      secret: "impersonation-refresh-paths-secret-abcdefghijklmnopqrstuvwxyz",
-      baseURL: origin,
-    },
+    database: database.sqlite,
+    secondaryStorage: setup.secondaryStorage ? memoryStorage() : undefined,
+    secret: "impersonation-refresh-paths-secret-abcdefghijklmnopqrstuvwxyz",
+    baseURL: origin,
   });
   await (await getMigrations(createBetterAuthOptions(definition))).runMigrations();
   const auth = getAuthForDefinition(definition);

@@ -103,18 +103,24 @@ async function usesTursoVariables(cwd: string): Promise<boolean> {
  */
 export async function moveSchema(cwd: string, dialect: Dialect, options: HubDatabaseOptions = { migrationsDuringBuild: true }): Promise<SchemaMove> {
   const result: SchemaMove = { moved: new Map(), edits: [], followUps: [] }
+  const skipped = () => {
+    const value = (item: StaticValue) => item.kind === "env" ? `process.env[${JSON.stringify(item.name)}]` : JSON.stringify(item.value)
+    if (options.hyperdriveId) result.followUps.push({ file: definitionFile, message: `No Definition was generated. Move hub.db.connection.hyperdriveId to cloudflare.hyperdriveId: ${value(options.hyperdriveId)} in your Database Definition. Keep cloudflare.binding: "POSTGRES" or rename the Hyperdrive binding to HYPERDRIVE.` })
+    if (options.d1Http) result.followUps.push({ file: definitionFile, message: `No Definition was generated. Move hub.db.driver: "d1-http" to cloudflare: { http: true, databaseId: ${options.d1Http.databaseId ? value(options.d1Http.databaseId) : "process.env.CLOUDFLARE_D1_DATABASE_ID"} } in your Database Definition. Rename NUXT_HUB_CLOUDFLARE_ACCOUNT_ID to CLOUDFLARE_ACCOUNT_ID, NUXT_HUB_CLOUDFLARE_API_TOKEN to CLOUDFLARE_API_TOKEN, and NUXT_HUB_CLOUDFLARE_DATABASE_ID to CLOUDFLARE_D1_DATABASE_ID if using the implicit ID.` })
+    return result
+  }
   const schema = await findSchema(cwd, dialect)
   for (const other of schema.others) {
     result.followUps.push({ file: other, message: `The codemod moved the ${dialect} schema only and left this file. Move it to server/databases/default/ by hand if the app uses it.` })
   }
   if (!schema.files.length) {
     result.followUps.push({ file: "server/db", message: `The codemod found no schema in server/db/. Write the Drizzle tables in a Database Definition at ${definitionFile} with defineDatabase({ schema }) from "vite-hub/database".` })
-    return result
+    return skipped()
   }
   const [existingDefinition] = await glob(["server/databases/default.{ts,mts,js,mjs}", "server/databases/default/index.{ts,mts,js,mjs}"], { cwd })
   if (existingDefinition) {
     result.followUps.push({ file: existingDefinition, message: `${existingDefinition} already exists, so the codemod did not move the schema in ${schema.files.join(", ")}. Add its tables to this Definition by hand.` })
-    return result
+    return skipped()
   }
   const targetOf = (file: string) => schema.folder
     ? file.replace(/^server\/db\/schema\//, "server/databases/default/schema/")
@@ -123,7 +129,7 @@ export async function moveSchema(cwd: string, dialect: Dialect, options: HubData
   const taken = targets.find(target => existsSync(join(cwd, target)))
   if (taken) {
     result.followUps.push({ file: taken, message: `${taken} already exists, so the codemod did not move the schema. Move it to server/databases/default/ and write ${definitionFile} by hand.` })
-    return result
+    return skipped()
   }
   const oldFiles = new Set(schema.files)
   const allFiles = new Set(await glob(["**/*.{ts,mts,js,mjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"] }))
@@ -178,10 +184,12 @@ export async function moveSchema(cwd: string, dialect: Dialect, options: HubData
     result.oldModule = schema.files[0]!.replace(scriptExtension, "")
   }
   const semicolon = style.semicolons ? ";" : ""
-  const turso = dialect === "sqlite" && await usesTursoVariables(cwd)
+  const tursoVariables = dialect === "sqlite" && await usesTursoVariables(cwd)
+  const turso = tursoVariables && !options.d1Http
+  if (tursoVariables && options.d1Http) result.followUps.push({ file: definitionFile, message: "The codemod preserved the explicit D1 HTTP resource. Env files also declare TURSO_DATABASE_URL and TURSO_AUTH_TOKEN. If both are truthy in the active environment, NuxtHub selected Turso instead; replace cloudflare with connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN } to keep that deployment on Turso." })
   if (turso) result.followUps.push({ file: definitionFile, message: "An env file of the app sets TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, which NuxtHub read on its own. The codemod set connection to these variables. Without them, the Database uses the local SQLite file." })
   const indent = style.indent
-  const value = (item: StaticValue) => item.kind === "env" ? `process.env.${item.name}` : quoteString(item.value, style)
+  const value = (item: StaticValue) => item.kind === "env" ? (/^[A-Za-z_$][\w$]*$/.test(item.name) ? `process.env.${item.name}` : `process.env[${quoteString(item.name, style)}]`) : quoteString(item.value, style)
   const cloudflare: string[] = []
   if (dialect === "postgresql" && options.hyperdriveId) {
     cloudflare.push(`hyperdriveId: ${value(options.hyperdriveId)}`)
@@ -204,7 +212,7 @@ export async function moveSchema(cwd: string, dialect: Dialect, options: HubData
     ...(turso
       ? [
           `${style.indent}connection: {`,
-          `${style.indent}${style.indent}url: process.env.TURSO_DATABASE_URL,`,
+          `${style.indent}${style.indent}url: process.env.TURSO_DATABASE_URL || undefined,`,
           `${style.indent}${style.indent}authToken: process.env.TURSO_AUTH_TOKEN,`,
           `${style.indent}},`,
         ]
