@@ -275,6 +275,28 @@ describe("app MCP hooks", () => {
     expect(resolveCaller).toHaveBeenCalledTimes(3)
   })
 
+  it("accepts another bearer token through verifyToken and gives its caller to resolveCaller", async () => {
+    const notOAuth = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Budget script", scopes: [], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "fin_valid" ? keyCaller : undefined)
+    const resolveCaller = vi.fn(({ caller }: { caller: McpToolCaller | undefined }) => ({ team: `team-of-${caller?.user.id}` }))
+    const options = { hooks: { resolveCaller, verifyToken }, tools: { team }, verify: notOAuth }
+
+    const { body } = await rpc(options, "tools/call", { name: "team" }, { authorization: "Bearer fin_valid" })
+    expect(body.result.content).toEqual([{ text: "Team team-of-u2", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "fin_valid" })
+    expect(resolveCaller).toHaveBeenCalledWith(expect.objectContaining({ caller: keyCaller }))
+
+    const refused = await rpc(options, "tools/list", undefined, { authorization: "Bearer fin_revoked" })
+    expect(refused.response.status).toBe(401)
+    expect(refused.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+
+    // A request without a token, or with an access token of mcpOAuth(), never reaches verifyToken.
+    expect((await rpc({ ...options, verify: async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "No token." }, undefined] as const }, "tools/list")).response.status).toBe(401)
+    expect((await rpc({ ...options, verify }, "tools/list", undefined, { authorization: "Bearer jwt" })).response.status).toBe(200)
+    expect(verifyToken).toHaveBeenCalledTimes(2)
+  })
+
   it("refuses the call with the message of a 4xx error from resolveCaller", async () => {
     const handler = vi.fn(() => "never")
     const resolveCaller = () => { throw new HTTPError({ message: "Join a team first.", status: 403 }) }

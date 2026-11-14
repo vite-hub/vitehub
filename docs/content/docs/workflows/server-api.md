@@ -47,7 +47,7 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 | `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. |
 
-`WorkflowStartOptions` accepts `id`.
+`WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
 
 The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
 
@@ -75,6 +75,8 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `result` | `TResult` | The value that the handler returned, as JSON, when completed. A `Response` when the handler returned one. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |
+| `createdAt`, `startedAt`, `completedAt` | `Date` | Run times. OpenWorkflow and native Vercel runs set them. |
+| `steps` | `WorkflowRunStep[]` | One entry per step, with its latest `attempt`, `status`, times, and error `message`. OpenWorkflow and native Vercel runs set it in `getWorkflowRun()`. |
 
 Every provider uses the same statuses. A run that sleeps, waits, or waits between step retries reports `running`. A run that does not exist reports `unknown`. On Cloudflare, `waiting`, `waitingForPause`, and `paused` report `running`, and `terminated` reports `cancelled`. `metadata.status` keeps the Cloudflare status.
 
