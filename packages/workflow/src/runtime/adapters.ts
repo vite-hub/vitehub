@@ -122,16 +122,21 @@ function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): {
   return { id }
 }
 
+// Cloudflare `waiting` (a sleep, an event wait, or a retry delay), `waitingForPause`, and `paused` are not finished, so
+// they report `running` like a sleeping OpenWorkflow or Vercel run. `terminated` is a user cancellation.
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   cancelled: "cancelled",
   complete: "completed",
   completed: "completed",
   errored: "failed",
   failed: "failed",
+  paused: "running",
   queued: "queued",
   running: "running",
   success: "completed",
-  terminated: "failed",
+  terminated: "cancelled",
+  waiting: "running",
+  waitingforpause: "running",
 }
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
@@ -150,6 +155,18 @@ function ownSerializedOutput(metadata: unknown) {
   return isSerializedResponse(output) ? output : undefined
 }
 
+/** Cloudflare `get(id)` rejects with `instance.not_found` when no instance has the id. */
+function isCloudflareInstanceNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+  try {
+    const message: unknown = Reflect.get(error, "message")
+    return typeof message === "string" && message.includes("instance.not_found")
+  }
+  catch {
+    return false
+  }
+}
+
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
@@ -165,7 +182,16 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async get({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       if (binding) {
-        const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
+        const instance = await runWorkflowProviderOperation("cloudflare", "get", async () => {
+          try {
+            return await binding.get(id)
+          }
+          catch (error) {
+            if (isCloudflareInstanceNotFound(error)) return undefined
+            throw error
+          }
+        })
+        if (!instance) return { id, provider: "cloudflare", status: "unknown" }
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
         const output = ownSerializedOutput(metadata)
         return {
