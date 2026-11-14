@@ -1,10 +1,13 @@
-// A small IndexedDB storage for Sync, with no dependency. One database holds every Sync route of the origin:
-// `rows` by [route, key], `meta` by route, and `outbox` in insertion order. Each change is one transaction.
+// A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
+// [store, key], `meta` by store, and `outbox` in insertion order. Each change is one transaction. A store is a route
+// plus a subset, such as `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
 import type { SyncKey, SyncRow } from "../protocol.ts"
 import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored } from "./storage.ts"
 
 const databaseName = "vitehub-sync"
-const format = 1
+// Format 2 (Sync v2) adds the account, the table version and the defaults to the meta, and tags each write with its
+// account instead of its scope. The upgrade drops the stored rows and keeps the outbox.
+const format = 2
 
 interface MetaRecord extends SyncMeta {
   name: string
@@ -35,14 +38,33 @@ function done(transaction: IDBTransaction): Promise<void> {
   })
 }
 
+/** Moves a format 1 outbox to format 2. A write keeps the scope id that it was made for as its account. */
+function upgradeOutbox(outbox: IDBObjectStore): void {
+  const cursor = outbox.openCursor()
+  cursor.onsuccess = () => {
+    const current = cursor.result
+    if (!current) return
+    const { scope, ...write } = current.value as OutboxRecord & { scope?: string | null }
+    current.update({ ...write, account: write.account ?? scope ?? null })
+    current.continue()
+  }
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(databaseName, format)
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const database = request.result
-      database.createObjectStore("rows", { keyPath: ["name", "key"] })
-      database.createObjectStore("meta", { keyPath: "name" })
-      database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
+      if (event.oldVersion === 0) {
+        database.createObjectStore("rows", { keyPath: ["name", "key"] })
+        database.createObjectStore("meta", { keyPath: "name" })
+        database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
+        return
+      }
+      const transaction = request.transaction!
+      transaction.objectStore("rows").clear()
+      transaction.objectStore("meta").clear()
+      upgradeOutbox(transaction.objectStore("outbox"))
     }
     request.onsuccess = () => {
       const database = request.result
@@ -57,7 +79,7 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function readMeta(record: MetaRecord | undefined): SyncMeta | undefined {
   if (!record || record.format !== format) return undefined
-  return { scope: record.scope, key: record.key, cursor: record.cursor }
+  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults }
 }
 
 function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {
@@ -136,7 +158,13 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
         else finish()
       }
       for (const seq of change.remove ?? []) outbox.delete(seq)
-      for (const write of change.update ?? []) outbox.put({ ...write, name: id } satisfies OutboxRecord)
+      // A write that a push or another tab removed meanwhile stays removed.
+      for (const write of change.update ?? []) {
+        const existing = outbox.get(write.seq)
+        existing.onsuccess = () => {
+          if (existing.result) outbox.put({ ...write, name: id } satisfies OutboxRecord)
+        }
+      }
       for (const write of change.add ?? []) {
         const added = outbox.add({ ...write, name: id })
         added.onsuccess = () => seqs.push(added.result as number)

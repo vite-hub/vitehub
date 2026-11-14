@@ -6,21 +6,29 @@ interface SyncMeta {
   /** The primary key column. */
   key: string
   cursor: number
+  /** The account that the writes of the client belong to. */
+  account: string
+  /** The fingerprint of the table that the stored rows have. */
+  version: string
+  /** The static column defaults, for optimistic inserts. */
+  defaults: SyncRow
 }
 
 /**
- * A write in the outbox. `seq` is its place in the queue. `scope` is the scope id when it was made, or `null` before
- * the first pull. An insert keeps the caller's value: the key and the scope values go in when it is sent.
+ * A write in the outbox. `seq` is its place in the queue. `account` is the account of the pull when it was made, or
+ * `null` before the first pull. Writes of another account wait in the outbox until that account comes back. An insert
+ * keeps the caller's value: the key and the scope values go in when it is sent. An action keeps its name and arguments,
+ * and `key` is its mutation id.
  */
 type SyncQueuedWrite = {
   seq: number
   /** The mutation id. */
   id: string
-  scope: string | null
+  account: string | null
   key: SyncKey
   /** Set when the server refused the write. It then stays out of `rows` and is not sent. */
   error?: SyncWireError
-} & ({ op: "insert", value: SyncRow } | { op: "update", patch: SyncRow } | { op: "delete" })
+} & ({ op: "insert", value: SyncRow } | { op: "update", patch: SyncRow } | { op: "delete" } | { op: "action", name: string, args: unknown })
 
 /** A write before the storage gave it a `seq`. */
 type SyncNewWrite = SyncQueuedWrite extends infer TWrite ? TWrite extends unknown ? Omit<TWrite, "seq"> : never : never
@@ -42,7 +50,7 @@ interface SyncStorageChange {
   delete?: SyncKey[]
   /** Adds writes at the end of the outbox. */
   add?: SyncNewWrite[]
-  /** Replaces writes with the same `seq`. */
+  /** Replaces writes with the same `seq`. A write that is gone stays gone. */
   update?: SyncQueuedWrite[]
   /** Removes writes by `seq`. */
   remove?: number[]

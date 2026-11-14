@@ -1,5 +1,5 @@
 /** A page event that the store reacts to. */
-type SyncEvent = "online" | "offline" | "visible"
+type SyncEvent = "online" | "offline" | "visible" | "hidden"
 
 /** A message between tabs. `change` tells that the stored copy of a Sync route changed. */
 type SyncMessage = { type: "change", id: string } | { type: "clear" }
@@ -11,6 +11,11 @@ interface SyncEnvironment {
   isOnline: () => boolean
   /** Runs `task` while this tab holds the lock `name`, so one tab at a time sends. */
   lock: <T>(name: string, task: () => Promise<T>) => Promise<T>
+  /**
+   * Runs `task` once this tab is the leader for `name`, so one tab of the browser does it at a time. The tab stays the
+   * leader until `task` ends. The returned function gives up: it aborts the signal of `task`, or stops waiting.
+   */
+  lead: (name: string, task: (signal: AbortSignal) => Promise<void>) => () => void
   post: (message: SyncMessage) => void
   receive: (listener: (message: SyncMessage) => void) => () => void
   /** Runs `task` after `ms`. Returns a function that cancels it. */
@@ -33,9 +38,7 @@ function createBrowserEnvironment(): SyncEnvironment {
     listen(listener) {
       const online = () => listener("online")
       const offline = () => listener("offline")
-      const visibility = () => {
-        if (document.visibilityState === "visible") listener("visible")
-      }
+      const visibility = () => listener(document.visibilityState === "hidden" ? "hidden" : "visible")
       window.addEventListener("online", online)
       window.addEventListener("offline", offline)
       document.addEventListener("visibilitychange", visibility)
@@ -50,6 +53,15 @@ function createBrowserEnvironment(): SyncEnvironment {
     lock(name, task) {
       const locks = navigator.locks
       return locks ? locks.request(name, task) : task()
+    },
+    lead(name, task) {
+      const controller = new AbortController()
+      const run = () => controller.signal.aborted ? Promise.resolve() : task(controller.signal)
+      // Without Web Locks, as on a LAN address over HTTP, each tab leads.
+      const locks = navigator.locks
+      if (locks) locks.request(name, { signal: controller.signal }, run).catch(() => undefined)
+      else void run()
+      return () => controller.abort()
     },
     post(message) {
       channel?.postMessage(message)
