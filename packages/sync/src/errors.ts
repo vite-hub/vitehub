@@ -82,6 +82,10 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
       why: ({ name }: { name: string }) => `The Sync store ${JSON.stringify(name)} was destroyed.`,
       fix: "Do not use a store after `destroy()`. Call `createSync()` or `useSync()` again to get a new one.",
     },
+    SYNC_LOCAL_CLOSED: {
+      why: "An optimistic action changed `local` after it returned, such as after an `await`.",
+      fix: "Change `local` before the optimistic function returns, without `await`. The server action does the async work.",
+    },
     SYNC_UNKNOWN_FAILURE: {
       why: "This failure is not in the Sync store. It was retried or dismissed before.",
       fix: "Pass a failure from the current `failures` of the store.",

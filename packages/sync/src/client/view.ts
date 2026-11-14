@@ -1,4 +1,5 @@
 // Pure decisions of the Sync client. The store calls them and does the side effects.
+import { syncErrors } from "../errors.ts"
 import { SyncError } from "./types.ts"
 
 import type { SyncErrorCode, SyncKey, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncValues, SyncWireError } from "../protocol.ts"
@@ -149,18 +150,18 @@ function buildView(confirmed: ReadonlyMap<SyncKey, SyncRow>, writes: readonly Sy
     const local: SyncLocal<SyncRow> = {
       get: key => (view ?? confirmed).get(key),
       insert(value) {
-        if (!open) throw new Error("An optimistic action must change `local` before it returns.")
+        if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
         const given = value[keyColumnOf(meta)]
         const key = typeof given === "string" && given ? given : actionKey(write.id, inserted++)
         apply({ ...write, op: "insert", key, value })
         return key
       },
       update(key, patch) {
-        if (!open) throw new Error("An optimistic action must change `local` before it returns.")
+        if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
         apply({ ...write, op: "update", key, patch })
       },
       delete(key) {
-        if (!open) throw new Error("An optimistic action must change `local` before it returns.")
+        if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
         apply({ ...write, op: "delete", key })
       },
     }

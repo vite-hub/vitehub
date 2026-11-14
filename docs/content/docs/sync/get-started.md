@@ -146,7 +146,7 @@ export default defineSync({
 })
 ```
 
-Each person now sees only their own todos. A new todo gets `ownerId` from the server, and the browser shows it with that value at once. Call `clearSync()` when a person signs out, so the next person on the device does not see the rows. See [Vue](/docs/sync/vue#sign-out).
+Each person now sees only their own todos. A new todo gets `ownerId` from the server, and the browser shows it with that value at once. Call `clearSync()` when a person signs out, so the next person on the device does not see the rows. See [Vue](/docs/sync/vue#accounts-and-sign-out).
 
 ::
 

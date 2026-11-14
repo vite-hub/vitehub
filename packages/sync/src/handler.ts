@@ -505,6 +505,7 @@ function httpStatus(error: unknown): number | undefined {
 }
 
 /** What `refuse()` of an action throws. Its message is meant for the caller. */
+// Internal invariant: `refuse()` throws it, and `actionRefusal()` in this module catches it as SYNC_ACTION_REFUSED.
 class ActionRefusal extends Error {}
 
 /**
