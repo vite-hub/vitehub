@@ -18,7 +18,7 @@ The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/d
 
 ## Errors
 
-A wrong route, a wrong tool file name, or a `publicRoute` without sign-in fails the build. A tool that sets `public` without a `publicRoute` fails the server.
+A wrong route, a wrong tool file name, or a `publicRoute` without sign-in fails the build. A tool that sets `public` without a `publicRoute` fails the server. A second hooks module also fails the build.
 
 ### MCP_B0001
 
@@ -39,3 +39,7 @@ A tool sets `public`, but the MCP server has no `mcp.publicRoute`. The error nam
 ### SOURCE_B0010
 
 [Content](/docs/content/seo#page-mcp-server) also serves an MCP server at `/mcp` when `server/content.ts` sets `seo: { mcp: true }`. One route serves one MCP server, so the build stops. Give the app MCP server another `route` or `publicRoute`, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or set `seo: { mcp: false }`.
+
+### MCP_B0004
+
+More than one server directory has an `mcp.ts` hooks module, such as `server/mcp.ts` and `app/mcp.ts`. Keep one `defineMcpHooks()` module.
