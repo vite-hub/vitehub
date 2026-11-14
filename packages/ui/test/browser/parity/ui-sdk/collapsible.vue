@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@vite-hub/kit/collapsible";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/vue/collapsible";
 </script>
 
 <template>

@@ -8,7 +8,7 @@ import {
   FileInputList,
   FileInputTrigger,
   formatFileSize,
-} from "@vite-hub/kit/file-input"
+} from "@ui-sdk/vue/file-input"
 </script>
 
 <template>

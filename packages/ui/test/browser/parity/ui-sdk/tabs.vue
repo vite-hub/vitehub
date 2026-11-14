@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Tabs, TabsList, TabsPanel, TabsTab } from "@vite-hub/kit/tabs";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs";
 
 const tabs = ["Files", "Terminal", "Preview"];
 </script>

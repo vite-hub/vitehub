@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createToaster, Toast, ToastAction, ToastClose, ToastRegion, ToastTitle } from "@vite-hub/kit/toast";
+import { createToaster, Toast, ToastAction, ToastClose, ToastRegion, ToastTitle } from "@ui-sdk/vue/toast";
 
 // As in the Console toaster: one queue, and a labelled region at the bottom right in a portal, where toasts swipe right.
 // F8 focuses the region, as in Reka. ui-sdk defaults to F6.

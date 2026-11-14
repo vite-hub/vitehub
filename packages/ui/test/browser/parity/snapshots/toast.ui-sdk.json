@@ -1,6 +1,6 @@
 {
   "component": "toast",
-  "engine": "kit",
+  "engine": "ui-sdk",
   "steps": [
     {
       "step": "load",
