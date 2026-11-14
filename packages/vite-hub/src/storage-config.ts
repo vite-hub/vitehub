@@ -57,6 +57,21 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
 }
 
 /**
+ * On the node host, a default Agent journal without `databaseUrl` goes next to a `file:` Agent State database, so one
+ * writable directory holds both. Other hosts and remote State keep the default journal.
+ */
+export function withAgentJournalBesideState(options: ViteHubOptions): ViteHubOptions {
+  const agent = options.agent
+  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return options
+  const state = agent.providers?.state
+  if (!state || (state.driver && !["auto", "sqlite", "libsql"].includes(state.driver)) || typeof state.url !== "string") return options
+  const path = /^file:([^?#]*)/i.exec(state.url.trim())?.[1]
+  if (!path || path === ":memory:") return options
+  const databaseUrl = `file:${path.slice(0, path.lastIndexOf("/") + 1)}agent-invocations.sqlite`
+  return { ...options, agent: { ...agent, invocations: { ...agent.invocations, databaseUrl } } }
+}
+
+/**
  * The D1 binding of the Database primitive on Cloudflare, where the default Agent Invocation journal lives.
  * Read the binding of the default or only Database Definition before integration defaults.
  */
