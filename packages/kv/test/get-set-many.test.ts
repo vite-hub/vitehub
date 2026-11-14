@@ -104,10 +104,11 @@ describe("Redis", () => {
 
 describe("Upstash", () => {
   it("reads with one MGET", async () => {
-    const mget = vi.fn(async (...keys: string[]) => keys.map(key => key === "a" ? "1" : null))
+    const mget = vi.fn(async (...keys: string[]) => keys.map(key => key === "app:a" ? "1" : null))
     const get = vi.fn()
     const storage = createKVStorage(createUpstashKVDriver({
       driver: "upstash",
+      base: "app",
       token: "test",
       url: "https://example.com",
       // @ts-expect-error The test injects the Upstash library, which the store config does not type.
