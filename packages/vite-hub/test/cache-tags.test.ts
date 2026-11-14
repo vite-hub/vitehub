@@ -177,6 +177,40 @@ describe.each([
     expect(await getPost()).toBe(2)
   })
 
+  it.each(["function", "handler"])("fences overlapping %s calls after invalidation", async (kind) => {
+    let version = "old"
+    let runs = 0
+    let release = () => {}
+    let started = () => {}
+    const running = new Promise<void>(done => (started = done))
+    const compute = async () => {
+      const value = version
+      if (++runs === 1) {
+        started()
+        await new Promise<void>(done => (release = done))
+      }
+      return value
+    }
+    const options = { maxAge: 3600, name: "overlap", tags: ["posts"], waitUntil }
+    const fn = defineCachedFunction(compute, options)
+    const app = new H3().get("/", defineCachedHandler(compute, options))
+    const call = () => kind === "function" ? fn() : app.fetch(new Request("http://test/")).then(response => response.text())
+    const first = call()
+    await running
+    tick()
+    version = "new"
+    await invalidateTag("posts")
+    tick()
+    const second = call()
+    release()
+    expect(await first).toBe("old")
+    expect(await second).toBe("new")
+    await settle()
+    tick()
+    expect(await call()).toBe("new")
+    expect(runs).toBe(2)
+  })
+
   it("caches a tagged handler response, runs it again after invalidateTag(), and hides the tag header", async () => {
     let tagged = 0
     let untagged = 0

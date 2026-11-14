@@ -34,7 +34,7 @@ export function defineCachedFunction<T, ArgsT extends unknown[] = unknown[]>(
   // ocache gives the check before the function runs and the check before the write the same context object.
   // The first check marks the start, so a tag invalidated while the function runs keeps its result out of the cache.
   const startedAt = new WeakMap<object, number>()
-  return defineNitroCachedFunction(fn, {
+  const create = () => defineNitroCachedFunction(fn, {
     ...options,
     validate: async (entry, context) => {
       let start = startedAt.get(context)
@@ -42,6 +42,13 @@ export function defineCachedFunction<T, ArgsT extends unknown[] = unknown[]>(
       const valid = validate ? await validate(entry, context) !== false : entry.value !== undefined
       return valid && await isNewerThanTags(await resolveTags(tags, context.args), Math.min(entry.mtime ?? start, start))
     },
+  })
+  const select = tagGeneration(create)
+  const initial = create()
+  return Object.assign(async (...args: ArgsT) => (await select(await resolveTags(tags, args)))(...args), {
+    resolveKeys: initial.resolveKeys,
+    invalidate: async (...args: ArgsT) => (await select(await resolveTags(tags, args))).invalidate(...args),
+    expire: async (...args: ArgsT) => (await select(await resolveTags(tags, args))).expire(...args),
   })
 }
 
@@ -70,8 +77,9 @@ export function defineCachedHandler(handler: EventHandler, opts: CachedHandlerOp
       return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
     },
   }
-  const cached = defineNitroCachedHandler(handler, tagged)
+  const select = tagGeneration(() => defineNitroCachedHandler(handler, tagged))
   return defineHandler(async (event) => {
+    const cached = await select(await resolveTags(tags, [event]))
     const response = await cached(event)
     if (response instanceof Response) response.headers.delete(tagHeader)
     return response
@@ -114,4 +122,22 @@ function readTagHeader(value: string | undefined): { start: number, tags: string
   if (!value) return undefined
   const [start, tags = ""] = value.split(" ")
   return { start: Number(start), tags: tags ? tags.split(",").map(decodeURIComponent) : [] }
+}
+
+// Pending work belongs to an ocache instance. Rotate that instance when the persisted tag
+// generation changes, keeping storage keys stable while separating pre-invalidation work.
+// Keep only the latest instance; active calls retain their own instance until they finish.
+function tagGeneration<T>(create: () => T): (tags: readonly string[]) => Promise<T> {
+  let generation: string | undefined
+  let current: T
+  return async (tags) => {
+    const storage = useKV("cache")
+    const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
+    const next = JSON.stringify([tags, times])
+    if (next !== generation) {
+      current = create()
+      generation = next
+    }
+    return current
+  }
 }
