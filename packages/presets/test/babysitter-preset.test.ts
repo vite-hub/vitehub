@@ -1977,6 +1977,7 @@ describe("Babysitter preset runtime", () => {
     expect(defineAgent({ extends: babysitter, options: {} }).ignoreFeedbackAuthors).toEqual(["pkg-pr-new[bot]", "vercel[bot]", "cloudflare-workers-and-pages[bot]", "netlify[bot]"]);
     expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["preview[bot]"] } }).ignoreFeedbackAuthors).toEqual(["preview[bot]"]);
     expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [] } }).ignoreFeedbackAuthors).toEqual([]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [...babysitter.options.ignoreFeedbackAuthors, "review[bot]"] } }).ignoreFeedbackAuthors).toHaveLength(5);
   });
 
   it("validates the throughput options when the Agent is defined", () => {
