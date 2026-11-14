@@ -3964,6 +3964,31 @@ describe("Babysitter preset runtime", () => {
       } finally { f.restore(); await f.runtime.inbox.close(); }
     });
 
+    it("admits one conflict preparation when two overlapping samples allow one", async () => {
+      let release!: () => void;
+      const barrier = new Promise<void>(resolve => { release = resolve; });
+      const hostCapacity = vi.fn(async () => { await barrier; return { concurrency: 1 }; });
+      const f = await conflictOnly({ concurrency: 2, hostCapacity });
+      // Hold the first preparation open so the second admission sees it.
+      let finish!: () => void;
+      const held = new Promise<void>(resolve => { finish = resolve; });
+      vi.mocked(prepareGitHubRepairBase).mockImplementation(async () => { await held; return { conflicted: ["src/a.ts"], resolved: [], remaining: ["src/a.ts"] }; });
+      const tracked: Promise<unknown>[] = [];
+      const reconcile = () => f.runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work); } } as Parameters<typeof f.runtime.reconcile>[1]);
+      try {
+        await f.openPullRequest(13, "dirty");
+        await reconcile();
+        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2), { timeout: 30_000 });
+        release();
+        await vi.waitFor(() => expect(f.events).toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything()), { timeout: 30_000 });
+        expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
+      } finally {
+        release(); finish();
+        while (tracked.length) await Promise.all(tracked.splice(0));
+        f.restore(); await f.runtime.inbox.close();
+      }
+    }, 60_000);
+
     it("samples host capacity without the passes that still wait for a worker slot", async () => {
       let workerOpen = false;
       const sample = vi.fn(() => ({ concurrency: workerOpen ? 1 : 0 }));

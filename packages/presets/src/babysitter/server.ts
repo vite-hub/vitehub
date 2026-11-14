@@ -2077,7 +2077,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             const running = executingModelPasses + activeHostPreparations;
             const sample = await options.hostCapacity({ active: running, signal: passSignal })
               .catch((error: unknown) => ({ concurrency: 0, reason: `sample-error: ${error instanceof Error ? error.message : String(error)}` }));
-            if (sample.concurrency <= running) {
+            // Other owners may have been admitted while this sample ran; compare with the live count.
+            if (sample.concurrency <= executingModelPasses + activeHostPreparations) {
               modelWorkParked = true;
               outcome = "waiting";
               const reason = sample.reason ?? "waiting for capacity";
