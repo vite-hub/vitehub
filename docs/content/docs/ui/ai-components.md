@@ -1,13 +1,12 @@
 ---
-title: ViteHub UI
-description: "Console-ready Vue components for chat, sessions, Agent runs, and code views."
-navigation.title: Overview
-navigation.order: 1
-navigation.group: Start
+title: AI components
+description: "Console-ready Vue components for chat, sessions, Agent runs, and code views, from the @vite-hub/ui package."
+navigation.order: 6
+navigation.group: AI components
 icon: i-lucide-layout-grid
 ---
 
-`@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. Start with a full Console block, then connect your data.
+`@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. They are built on Nuxt UI. Start with a full Console block, then connect your data.
 
 The package draws the UI. Your app sends and stores data and checks access. Every example uses fake data, makes no network requests, and shows its source below.
 
@@ -22,7 +21,7 @@ Select a session to read and reply. This example uses the default styles and lay
 
 ## Components
 
-::page-list{exclude="Start"}
+::page-list{exclude="Start, AI components"}
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
 - **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block), [Copy button](/docs/ui/copy-button), [Status](/docs/ui/status)
 - **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Markdown Editor](/docs/ui/markdown-editor), [Prompt input](/docs/ui/prompt-input), [Filter search](/docs/ui/filter-search), [Chat session](/docs/ui/chat-session), [Agent session](/docs/ui/agent-session)
