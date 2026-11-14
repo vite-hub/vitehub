@@ -6,7 +6,7 @@ navigation.group: Agents and tools
 icon: i-lucide-square-function
 ---
 
-An operation is a named action of your app, such as `content.publish` or `invocations.list`. Define it once with `defineOperation()`, and the Console, the `vitehub` CLI, agent tools, and the [ViteHub MCP](/docs/console/mcp) all call that one definition.
+An **operation** is one named action of your app, such as `content.publish` or `invocations.list`. Define it once with `defineOperation()`, and every surface calls that same definition:
 
 | Surface | How it calls the operation |
 | --- | --- |
@@ -41,20 +41,19 @@ export const reportOperations = [
 
 | Field | Meaning |
 | --- | --- |
-| `name` | `<section>.<verb>`, in lower case. It is unique in the app. |
-| `description` | One sentence. It is the CLI help line and the tool description. |
-| `section` | The Console section that grants access, such as `content`. `false` lets any Console user call it. A function reads the section from the input. |
-| `kind` | `read` never changes state. `write` changes state. `destructive` deletes or publishes. |
-| `input` | A Standard Schema. This repository uses Valibot. Its JSON Schema makes the CLI options and the tool input. |
+| `name` | `<section>.<verb>` in lower case, unique in the app. |
+| `description` | One sentence, used as the CLI help line and the tool description. |
+| `section` | The Console section that grants access, such as `content`. `false` lets any Console user call it, and a function reads it from the input. |
+| `kind` | `read` never changes state, `write` changes state, `destructive` deletes or publishes. |
+| `input` | A Standard Schema, such as Valibot. Its JSON Schema makes the CLI options and the tool input. |
 | `output` | Optional. A Standard Schema of the result. |
-| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists input keys passed without a flag. `default: true` makes `vitehub <namespace>` run it when no command is named. `format` prints a readable result. Without it the CLI prints JSON. |
-| `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
-| `mcp` | Optional. `false` keeps the operation out of MCP. `{ title, format }` sets the short title that MCP clients show, and `format(output)` the text that the Agent reads. The result stays the structured content. Without `format`, the text is the result as JSON. |
-| `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips confirmation, and an agent runs it without approval. Without it, every `destructive` call asks. |
-| `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |
-| `run` | Does the work. It gets the checked input and the context. |
-
-`run` gets this context:
+| `cli` | Optional. `namespace` and `command` rename the command, `positional` lists input keys passed without a flag, `default: true` runs it for a bare `vitehub <namespace>`, and `format` prints a readable result instead of JSON. |
+| `maxRequestBytes` | Optional. Raises the 64 KiB request limit. A lower value fails with `INTERNAL_R0020`. |
+| `mcp` | Optional. `false` keeps it out of MCP. `{ title, format }` sets the title that MCP clients show and, with `format(output)`, the text that the Agent reads instead of the JSON result. The structured content stays the result. |
+| `readOnlyWhen` | Optional. `(input) => boolean`, true for a call that only reads, such as a dry run. The CLI then skips confirmation and an agent needs no approval. Without it, every `destructive` call asks. |
+| `user` | Optional. `false` says that `run` never reads `context.user`, so the Console skips the session lookup. |
+| `invoke` | Optional. `true` for an operation that runs app code, such as a workflow, a task or a schedule. |
+| `run` | Does the work with the checked input and this context: |
 
 ```ts
 import type { OperationAccess, OperationActor, OperationUser } from 'vite-hub/operations'
@@ -71,17 +70,13 @@ interface OperationContext {
 }
 ```
 
-An operation with `invoke: true` runs app code: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`. The Console registers it only when `console.invoke` is on. That is the default in development, and off in a production build. With `console.invoke` off, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch, so `schedule run --url` can run with a dispatch key and no Console credentials.
+Before `run`, the shared access path checks the section against [`console.authorize`](/docs/console/access), so every surface agrees, and a call outside the allowed sections gets `403`. A `'<section>:read'` grant allows only `read` operations and `readOnlyWhen` reads, so an operation that reads and writes under one name, such as `documents.action`, sets `readOnlyWhen` to keep its reads open. The section check only decides who reaches the operation: check your own policy inside `run`, as `content.*` does with `content.can()` for each document.
 
-The generated commands call the Console RPC. `vitehub()` installs it. Standalone `hubKV()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
-
-`console.authorize` grants a section as `'kv'` (every operation) or `'kv:read'` (only `kind: 'read'` operations and calls that `readOnlyWhen` marks as reads). The check runs once, in the shared access path, so the Console RPC, the CLI with `--url`, agent tools, and MCP agree. An operation that both reads and writes under one name, such as `documents.action`, sets `readOnlyWhen` so a read-only role keeps its reads.
-
-Check your own package's policy inside `run`. The section check only decides who can reach the operation. For example, `content.*` operations call `content.can()` for each document.
+An `invoke: true` operation exists only while `console.invoke` is on, which is the default in development and off in a production build. With it off, no surface can call the operation, whatever `authorize` grants. The built-in ones are `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run` and `schedule.start`.
 
 ## Contribute it
 
-A Vite plugin adds operations through its metadata. `vite-hub` collects them from every plugin and installs them in the Console server plugin.
+A Vite plugin adds operations through its `vitehub.operations` metadata, and `vite-hub` installs them from every plugin:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -138,11 +133,8 @@ export default defineConfig({ plugins: [vitehub({ host: 'node' }), reports] })
 :::
 ::
 
-A library that does not install `vite-hub` imports `defineOperation` and the same types from `@vite-hub/runtime/operations`.
 
-The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.
-
-Run `vitehub inspect definitions --kind operation` to list the app's operations.
+`module` is a specifier that your app can import, and `export` names one operation or a list. A library without `vite-hub` imports `defineOperation` and its types from `@vite-hub/runtime/operations`. Two operations with one name fail every build with `INTERNAL_B0048`, also without a `console` option, and the message names both plugins. `vitehub inspect definitions --kind operation` lists them all.
 
 ## Call it
 
@@ -152,13 +144,15 @@ pnpm vitehub reports list --help
 pnpm vitehub reports list acme --url https://app.example.com --json
 ```
 
-See [Run any operation](/docs/development/cli#run-any-operation) for `--json`, `--yes`, `--url`, and credentials. A `kind: 'destructive'` operation asks for confirmation, or needs `--yes`.
+Each input key becomes a flag, except the reserved `url`, `timeout`, `json`, `yes` and `input`, which fail with `INTERNAL_R0020`. Two operations on the same `vitehub <namespace> <command>` fail the build with `INTERNAL_B0049`, so rename one with `cli.namespace` or `cli.command`. See [Run any operation](/docs/development/cli#run-any-operation) for `--json`, `--yes`, `--url` and credentials.
 
-Confirmation uses the schema's defaults and transforms. If the server parses the input as destructive after the CLI treated it as a read, the call fails with `INTERNAL_R0026`. Check the call and run it again with `--yes`.
+A `destructive` operation asks for confirmation, or needs `--yes`. The CLI applies the schema's defaults and transforms first, and if the server still parses a call as destructive that the CLI treated as a read, it fails with `INTERNAL_R0026`; check the call and pass `--yes`.
 
-Each input schema key becomes a flag. `url`, `timeout`, `json`, `yes`, and `input` are reserved for the CLI, and using one fails with `INTERNAL_R0020`. Two operations that map to the same `vitehub <namespace> <command>` fail the build with `INTERNAL_B0049`. Set `cli.namespace` or `cli.command` on one of them.
+::note
+The generated commands call the Console RPC that `vitehub()` installs. Standalone `hubKV()`, `hubBlob()`, `hubEmail()` and `hubRateLimit()` install a local development RPC for their storage commands, while other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
+::
 
-To let an agent call operations, add the capability:
+To let an Agent call operations, add the capability:
 
 ```ts [server/agents/editor.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -170,19 +164,15 @@ export default defineAgent({
 })
 ```
 
-Each operation becomes a tool with dots as underscores: `reports.list` is `reports_list`. Channel conversations are private. An Agent reads them only with `operations({ conversations: 'participant' | 'all' })`, as [Who can read a conversation](/docs/agents/channels#who-can-read-a-conversation) describes.
+Each operation becomes a tool with dots as underscores, so `reports.list` is `reports_list`. `approve` picks the calls that wait for approval: `'write'` (the default, for write and destructive operations), `'destructive'`, `'all'`, `'never'`, a list of names or a function. `readOnlyWhen` reads never wait.
 
-`approve` sets which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as a read never waits.
-
-The agent acts for the Auth user its Invoker stands for (`auth.user(invoker)`, or the `user` option), so `context.user` and `context.actor` are set. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections. A read-only grant (`'<section>:read'`) offers only reads and `readOnlyWhen` dry runs, and the run still refuses a write.
+The Agent acts for its Invoker's Auth user (`auth.user(invoker)`, or the `user` option), which sets `context.user` and `context.actor`. The capability runs `console.authorize` for that user, with a request without headers, and offers only operations in allowed sections, or only reads for a read-only grant.
 
 ::warning
-Without `console.authorize`, nothing filters by section, and `include` is the only gate. List only what the agent may do.
+Without `console.authorize`, nothing filters by section, and `include` is the only gate. List only what the Agent may do.
 ::
 
-`content.save`, `content.remove`, and `content.restore` reject `lease: 'override'` from an agent or MCP client, unless you create the capability with `operations({ overrideLeases: true })`. When a person holds the lease, the error names them and tells the model to wait, not how to override.
-
-The server installs the operation registry at start, so the tools need no earlier RPC call.
+An Agent reads private Channel conversations only with `operations({ conversations: 'participant' | 'all' })`, as [Who can read a conversation](/docs/agents/channels#who-can-read-a-conversation) describes. `content.save`, `content.remove` and `content.restore` refuse `lease: 'override'` from an Agent or MCP client unless the capability sets `overrideLeases: true`, and when a person holds the lease, the error tells the model to wait.
 
 ## Errors
 
@@ -194,16 +184,14 @@ An operation fails by throwing an error with these fields:
 | `message` | What went wrong. |
 | `fix` | What to do. Optional. |
 | `docs` | A link. Optional. |
-| `details` | JSON for a program, such as per-field issues. Kept for status below 500. |
+| `details` | JSON for a program, such as per-field issues. Kept for a status below 500. |
 | `status` | An HTTP status from 400 to 599. Defaults to 500. |
 
-Every surface reports the same fields. The RPC answers `{ ok: false, code, message, fix, status }`. The CLI prints the code, message, and fix on stderr, and exits with `1`. An agent tool returns `{ ok: false, error }` for a status below 500, so the model can act on it.
-
-Core error codes:
+Every surface reports them. The RPC answers `{ ok: false, code, message, fix, status }`, the CLI prints the code, message and fix on stderr and exits with `1`, and an Agent tool returns `{ ok: false, error }` for a status below 500, so the model can act on it.
 
 | Code | When |
 | --- | --- |
-| `INTERNAL_R0020` | The definition is not valid: a bad name, a reserved input key, a `maxRequestBytes` below 64 KiB. |
+| `INTERNAL_R0020` | The definition is not valid: a bad name, a reserved input key, or a `maxRequestBytes` below 64 KiB. |
 | `INTERNAL_R0021` | The app has no operation with that name. |
 | `INTERNAL_R0022` | The input does not match the schema. The message lists the fields. |
 | `INTERNAL_R0023` | The access lacks the operation's section, or only reads it (`'<section>:read'`) and the call writes. |
@@ -212,31 +200,23 @@ Core error codes:
 | `INTERNAL_R0026` | The server parsed a destructive call that the generated CLI command did not confirm. Review the call and pass `--yes`. |
 | `INTERNAL_B0048` | Two operations have the same name. |
 | `INTERNAL_B0049` | Two operations are the same CLI command. |
-| `INTERNAL_B0050` | Two operations are the same [MCP](/docs/console/mcp) tool name, such as `content.publish` and `content_publish`. |
-
-## Access
-
-The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, and takes only [signed requests](/docs/console/signed-requests). In `vite dev` without a `console` option, every section is open to this machine only. See [Development server](/docs/console/development).
-
-Duplicate operation names fail every build, also without a `console` option. An app without `server/content.ts` has no Content operations.
+| `INTERNAL_B0050` | Two operations are the same MCP tool name, such as `content.publish` and `content_publish`. |
 
 ## Call format
 
-Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
+A `POST /_vitehub/rpc` request carries one birpc message as JSON: `m` is the operation, `a` holds its input, and the reply repeats the id `i`.
 
 ```json [Request]
 { "m": "sections.list", "a": [{}], "t": "q", "i": "V1StGXR8_Z5jdHi6B-myT" }
 ```
 
-The response carries one reply. `r` holds the value. The HTTP status is `200`, or the status that the operation sets, such as `202`:
+The reply holds the value in `r`, with HTTP status `200` or the one that the operation sets, such as `202`:
 
 ```json [Response]
 { "t": "s", "i": "V1StGXR8_Z5jdHi6B-myT", "r": { "sections": ["agents", "kv"] } }
 ```
 
-A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
-
-Each call is one stateless request, so hosts such as Cloudflare Workers can send consecutive calls to different instances.
+A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `docs` or `details` when present, and never a stack. Its HTTP status matches `status`. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Unknown names get `404` with `Console operation not found.` Each call is stateless, so a host such as Cloudflare Workers can route consecutive calls to different instances.
 
 ## Built-in operations
 
@@ -254,8 +234,6 @@ Each call is one stateless request, so hosts such as Cloudflare Workers can send
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-- `blob.put`, `blob.delete`, `kv.set`, and `kv.delete` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/console/access#read-only-grants)).
-- `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
-- The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
-- Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
-- The Workspace operations read a Workspace's kept history and run as `vitehub workspace history`, `refs`, and `show`.
+`blob.put`, `blob.delete`, `kv.set` and `kv.delete` write, so a read-only role needs `'blob:read'` or `'kv:read'`. `databases.browse` and `databases.tables` run as `vitehub database rows` and `tables`, and the Workspace operations, which read kept history, as `vitehub workspace history`, `refs` and `show`. An app without `server/content.ts` has no Content operations.
+
+The task operations exist only when the app has tasks, and `task.run` is `destructive`, so the CLI asks for `--yes` and Agents need approval. The Console shows no `tasks` section, but `authorize` can grant it by name. Queue has no peek, because the provider-independent Queue contract cannot read a backlog.

@@ -7,34 +7,28 @@ navigation.group: Start
 icon: i-lucide-rocket
 ---
 
-## Choose the console option
+Turn the Console on, deploy, and link the app in [console.vitehub.dev](https://console.vitehub.dev) with the public key that it gives you.
 
-The `console` option of `vitehub()` has three states:
+## Choose the console option
 
 | `console` | Development server | Production build |
 | --- | --- | --- |
-| Not set | The [Operations endpoint](/docs/console/development) answers this machine, so `vitehub <command>` works. | Nothing under `/_vitehub`. |
-| `false` | Nothing under `/_vitehub`. | Nothing under `/_vitehub`. |
-| `true` or an object | The Console endpoint with the configured access policy. | The Console endpoint with the configured access policy. `auth: false` is refused. |
-
-With `console: false`, ViteHub registers no Console RPC route, Console Nitro plugin, or Console public asset path, also on a development server. Commands such as `vitehub kv` and `vitehub schedule run` then cannot reach the development server. Remove the option to get the development endpoint back.
+| Not set | The [Operations endpoint](/docs/console/development), for this machine only. | Nothing under `/_vitehub`. |
+| `false` | Nothing under `/_vitehub`, so `vitehub kv`, `vitehub schedule run` and the other commands cannot reach it. | Nothing under `/_vitehub`. |
+| `true` or an object | The Console endpoint with your access policy. | The same. `auth: false` is refused. |
 
 ## In development
-
-The Console calls each app from its server, so it cannot reach a `vite dev` server on your machine. During development, use the [`vitehub` commands](/docs/development/cli). They call the Operations endpoint of the dev server:
 
 ```bash [Terminal]
 pnpm vitehub project info
 pnpm vitehub kv list
 ```
 
-To use the Console UI, deploy the app and link it.
+The Console calls each app from its own server, so it cannot reach a `vite dev` server on your machine. Until you deploy, the [`vitehub` commands](/docs/development/cli) call the dev server's Operations endpoint instead.
 
 ## Link a deployed app
 
-1. Set `console: true` and deploy.
-2. Open [console.vitehub.dev](https://console.vitehub.dev) and sign in. **Get started** asks for the app URL. Later, select **+** next to **Apps** in the sidebar.
-3. The Console shows a variable and its value, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`. Set it on the server, deploy, and select **Check connection**.
+Turn the Console on and deploy:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -76,20 +70,24 @@ export default defineConfig({
 :::
 ::
 
-Each link has its own variable, so the app can keep other keys next to it, such as the key of the CLI. To unlink a project, unlink it in the Console and remove its variable from the app.
+Sign in to the Console and enter the app URL in **Get started**, or later with **+** next to **Apps**. Set the variable that it shows on the server, deploy again, and select **Check connection**:
 
-The Console server keeps an Ed25519 key pair for each linked project, with the private key encrypted, and [signs](/docs/console/signed-requests) each call to the project with it. The signature names the person who calls. The app keeps only the public key, and the browser never sees the private key.
+```txt
+VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>
+```
 
-An app under a base path keeps every Console route under that base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), else a root-relative Vite `base`. With `base: '/portal/'`, the route is `/portal/_vitehub/rpc`, and you link the app as `https://app.example.com/portal`.
+The Console keeps the private key of each link encrypted and [signs](/docs/console/signed-requests) every call with it. Your app and the browser never see it. Each link has its own variable, so the app can keep other keys, such as the CLI's, beside it. To unlink, unlink the app in the Console and remove its variable.
 
-To limit who may use which section, see [Console access](/docs/console/access). The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to get the **Comments** section.
+Under a base path, from Nuxt `app.baseURL` or a root-relative Vite `base`, every Console route moves too. With `base: '/portal/'` the route is `/portal/_vitehub/rpc`, and you link `https://app.example.com/portal`.
+
+::note
+The Console does not turn on [Comments](/docs/comments): add `server/comments.ts` or set `comments: true` to get its section. To limit who may use each section, see [Console access](/docs/console/access).
+::
 
 ## Teams and members
 
-Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in.
-
-The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
+You sign in with GitHub or a passkey. Each account has a personal team, and you can create more teams and invite people under **Members**, so the team's apps open wherever a member signs in. **Settings** holds your name, GitHub sign-in and passkeys. Invitations are links that you send yourself, because the Console sends no email.
 
 ## Self-host the Console
 
-The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite, or on Cloudflare Workers with D1. Its README shows how to build, configure, and deploy it.
+The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console) package. It runs on Node.js with SQLite or on Cloudflare Workers with D1, and its README shows how to build, configure and deploy it.

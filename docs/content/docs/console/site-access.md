@@ -7,54 +7,49 @@ navigation.group: Use the Console
 icon: i-lucide-door-open
 ---
 
+From the Console you can open your app already signed in, sign in a phone and invite guests. One-time links open drafts and impersonation on your app's own origin, and your pages can link back to the Console.
+
 ## Sign browsers in
 
-The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages, with Comments and the **Console** link, shows to people the app knows. With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
+With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
 
-- **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none.
-- **Link a phone** shows a QR code. The phone's camera opens the link, and the phone is signed in as you. The code works for 10 minutes.
-- **Invite someone** makes a link for a guest. You give them a name, which becomes the author of their comments, and pick what they can do, such as **Write comments**. The link works once, in one browser, for 1, 7, or 30 days. It signs the browser in as a new app user with that name. Guests never get the **Console** link, and the Console never lets them in.
+| Action | What it does |
+| --- | --- |
+| **Open site** | Opens the app in a new tab as the app user with your Console account's email, and creates that user if needed. |
+| **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
+| **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-The people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
+Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
-- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool.
-- A guest gets the `guest` role and the roles that you picked. Comments offers `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`, and [checks them](/docs/comments/configure#roles-from-site-access).
+A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out; for a guest, it also deletes the user, and their comments keep the name.
 
-A guest user has no password and a placeholder email, `guest-<id>@guests.invalid`. Better Auth runs your `databaseHooks.user.create` for them, so a hook that closes sign-up refuses guests too.
-
-Each Site access link is a one-time link, made by the `site.link` or `site.invite` operation.
-
-**Revoke** next to a browser in **Site access**, or `site.revoke-session`, signs it out. A guest has one browser, so revoking it also deletes the guest. Their comments keep their name. A guest is an app user with a session, so routes of your app that let in any signed-in user let them in too: check the role there.
+::warning
+A guest is an app user with a session, so routes that let in any signed-in user let guests in too. Check the role there.
+::
 
 | Operation | Does |
 | --- | --- |
-| `site.link` | Returns a one-time link that signs the browser in as you, then opens `path`, or the app home. `qr: true` makes it last 10 minutes. |
-| `site.invite` | Returns a one-time link that signs a guest in with `name` and the roles in `grants`. `expiresInDays` is 1, 7 (the default), or 30. |
-| `site.invites` and `site.revoke-invite` | List the invites that nobody opened yet, and revoke one. |
-| `site.sessions` and `site.revoke-session` | List the browsers of members and guests, and sign one out. |
+| `site.link` | Returns a one-time link that signs the browser in as you and opens `path`, or the app home. `qr: true` makes it last 10 minutes. |
+| `site.invite` | Returns a one-time link that signs a guest in with `name` and the roles in `grants`. `expiresInDays` is 1, 7 (the default) or 30. |
+| `site.invites`, `site.revoke-invite` | List unopened invites, and revoke one. |
+| `site.sessions`, `site.revoke-session` | List the browsers of members and guests, and sign one out. |
 | `site.grants` | Lists the roles that Site access gives. |
 
 ## One-time links
 
-Content preview, impersonation, and Site access need your app's origin: the page renders the draft, or the app sets its own session cookie. The Console page runs on another origin, so it opens them with a one-time link:
-
-1. The Console calls an operation with a signed request, such as `documents.preview` or `auth.impersonate`. The operation checks the section, the grant, and the target, as any operation does.
-2. The operation returns `{ url, expiresAt }`. `url` is `GET /_vitehub/rpc?ticket=<ticket>` on your app.
-3. The Console opens `url` in a new tab. Your app redeems the ticket once and answers with the page: the draft preview, or a redirect to the app home with the session cookies.
+A draft preview needs your app's origin to render, and a sign-in needs it to set the session cookie, but the Console runs on another origin. So it calls an operation with a signed request, which checks the section, the grant and the target, and gets back `{ url, expiresAt }`. It opens `url`, a `GET /_vitehub/rpc?ticket=<ticket>` on your app, in a new tab, and the app redeems the ticket once and answers with the draft or with a redirect home and the session cookies.
 
 | Operation | Opens | The app checks at redemption |
 | --- | --- | --- |
-| `documents.preview` | The page of a document with its saved draft. | The person may read the document. The page renders the draft through the [preview frame](/docs/content/preview). |
-| `auth.impersonate` | The app home as the user. See [impersonation](/docs/auth/console#changes-and-limits). | The browser's app session has the email of the person and Better Auth's `impersonate` permission. |
+| `documents.preview` | A document's page with its saved draft, through the [preview frame](/docs/content/preview). | The person may read the document. |
+| `auth.impersonate` | The app home as the user. See [impersonation](/docs/auth/console#changes-and-limits). | The browser's app session has the person's email and Better Auth's `impersonate` permission. |
 | `auth.stop-impersonating` | The app home as the administrator again. | The browser impersonates for the person. |
 
-A ticket is 32 random bytes. Your app keeps only its SHA-256, with the purpose, the app origin and mount, the person, the target, and the expiry. Redemption takes it out of the store first, so each ticket works once, also when two instances get it at the same time. A ticket works for 60 seconds. A used, expired, or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`. A ticket that another app made, or that reaches a browser signed in to the app as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
+A ticket works for 60 seconds and only once, even when two instances get it at the same time. A used, expired or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`, and one from another app, or in a browser signed in as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
 
-The store is the verification table of Better Auth, so the app needs [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). A development server without one keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+Tickets live in Better Auth's verification table, so production needs [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database) or refuses them with `500` and `CONSOLE_TICKET_STORE_MISSING`. A development server without one keeps them in memory.
 
 ## Link to the Console
-
-`hostedConsoleUrl()` from `vite-hub/runtime` builds a link to one page of a project in the Console. `consoleInvocationUrl()` and GitHub pull request comments use it. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
 
 ```ts
 import { hostedConsoleUrl } from 'vite-hub/runtime'
@@ -63,22 +58,21 @@ hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
 // https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fsupport%2Finvocations%2Fabc
 ```
 
-- `project` is the app origin, with its base path if it has one, such as `https://app.example.com/portal`.
-- `path` is the page in the Console, such as `/kv` or `/agents/<agent>/invocations/<id>`. It must start with one `/`.
+`hostedConsoleUrl()` builds a link to one Console page of a project, as `consoleInvocationUrl()` and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both, and throws a `TypeError` for a URL or path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
-The Console opens that page of the app of your team whose URL is `project`. When your team has not linked the app, the link opens Home. A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
+The link opens that page of your team's app with that URL, or Home when your team has not linked it.
 
 ## Open the Console from your pages
 
-With `console` set, the tools pill on your app's pages has a **Console** segment. It is a link. It opens your app in [console.vitehub.dev](https://console.vitehub.dev) in a new tab, with `hostedConsoleUrl()`, the page origin, and the app base. When the page shows one Content document, through [`contentField()`](/docs/content/server-api#field-addresses) attributes, the link opens that document. Otherwise it opens the project overview. The app does not need Comments for this.
+With `console` set, the [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your pages gets a **Console** segment. It opens the app in [console.vitehub.dev](https://console.vitehub.dev) in a new tab, at the Content document that the page shows through [`contentField()`](/docs/content/server-api#field-addresses) attributes, or at the project overview. Comments is not required.
 
-The link gives no access. The Console checks the person and the team when it opens the link. The pill still keeps the link away from the app's other users:
+The link grants nothing, because the Console checks the person and the team when it opens. The pill still hides it from the app's other users:
 
 | Where | Who sees **Console** |
 | --- | --- |
 | Development server | Every visitor. |
-| Production, with [`console.authorize`](/docs/console/access) | Visitors for whom `authorize` returns `true`, or `{ sections }` with one section or more. `authorize` gets `via: 'page'`, the session request of the page, and the app's Auth `user` when someone signed in. |
-| Production, without `authorize` | App Auth users with the admin role of Better Auth's `admin()` plugin, or the `console` role that Site access gives. [Give the first admin role](/docs/auth/configure#give-the-first-admin-role) with `VITEHUB_ADMINS` or a claim code. Without app Auth, nobody. |
+| Production, with [`console.authorize`](/docs/console/access) | Visitors for whom `authorize` returns `true` or a non-empty `{ sections }`. It gets `via: 'page'`, the page's session request, and the app's Auth `user` when someone signed in. |
+| Production, without `authorize` | App Auth users with the `admin()` admin role or the Site access `console` role. [Give the first admin role](/docs/auth/configure#give-the-first-admin-role) with `VITEHUB_ADMINS` or a claim code. Without app Auth, nobody. |
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
@@ -91,6 +85,6 @@ export default defineConsoleAuthorize((context) => {
 })
 ```
 
-An `authorize` that returns `true` for every context also shows the link to every visitor. Check `context.via` first.
+An `authorize` that returns `true` for every context shows the link to every visitor, so check `context.via` first.
 
-The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. On a development server without Auth, open a page with `?vitehub` once. A page on `http:` with a host that is not `localhost` or a loopback address, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. Without Auth on a development server, open a page with `?vitehub` once. A page on `http:` with a non-loopback host, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
