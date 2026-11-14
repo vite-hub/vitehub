@@ -436,6 +436,10 @@
   --vh-primitive-icon-motion: translateX(1.5px);
 }
 
+.vh-primitive-icon[data-icon="cli"] {
+  --vh-primitive-icon-opacity: 0;
+}
+
 .vh-primitive-icon[data-icon="cms"] {
   --vh-primitive-icon-motion: translate(-1px, -1px);
 }

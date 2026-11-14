@@ -71,7 +71,7 @@ pnpm vitehub agent invocations --help
 
 The Agent integration contributes `info`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
 
-See the [complete command index](https://vitehub.dev/docs/development/cli#commands) for command availability and the task each command performs.
+See the [complete command index](https://vitehub.dev/docs/cli/reference#commands) for command availability and the task each command performs.
 
 ## Run the CLI from code
 
@@ -110,4 +110,4 @@ CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. C
 
 Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config. After a rename, status defers deletion guidance if a current declaration's resource cannot be verified against config, including when the new key already has a stale id. Verify D1 and KV ids against provider resource names and bindings before deleting anything. `provision run` refreshes R2 and Queue identities for comparison with config. R2 resource identities include jurisdiction; older entries with only a bucket name require checking the jurisdiction manually and receive no deletion guidance while an R2 Store remains declared.
 
-Read the [CLI guide](https://vitehub.dev/docs/development/cli) for every public command, examples, and troubleshooting.
+Read the [CLI guide](https://vitehub.dev/docs/cli) for every public command, examples, and troubleshooting.

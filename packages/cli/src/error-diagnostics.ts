@@ -7,7 +7,7 @@ const dynamicError = {
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // Retired codes. Do not reuse them: SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/cli/diagnostics",
   codes: {
     CLI_R0001: dynamicError,
     CLI_R0002: dynamicError,

@@ -266,7 +266,7 @@ With the function form, pass the Agent name: `resolvePublicUrl({ agentName: "bot
 
 ### Register webhooks at the public URL
 
-When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels history` use it as the default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` you type. See [Synchronize Channel webhooks](/docs/development/cli#synchronize-channel-webhooks).
+When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels history` use it as the default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` you type. See [Synchronize Channel webhooks](/docs/cli/channels#synchronize-channel-webhooks).
 
 ### Serve a Cloudflare Worker on its custom domain
 

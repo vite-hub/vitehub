@@ -202,7 +202,7 @@ pnpm vitehub task list
 pnpm vitehub task run db:seed '{"title":"First note"}' --yes
 ```
 
-`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.
+`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/cli/jobs#run-app-tasks) for payload options and limits.
 
 ## Configure TypeScript
 
@@ -306,7 +306,7 @@ Add `authorize: "./server/console-authorize.ts"` to decide who may use the Conso
 
 Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/console/mcp-client).
 
-`invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/development/cli#run-a-schedule-on-demand).
+`invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/cli/jobs#run-a-schedule-on-demand).
 
 `impersonation: true` adds the `auth.impersonate` and `auth.stop-impersonating` operations. Each returns a one-time link, `GET /_vitehub/rpc?ticket=<ticket>`, that the browser opens on the app. The browser's app session must belong to the email of the signed Console person and have Better Auth's `impersonate` permission. It is off by default. It needs app Auth with Better Auth's admin plugin and `events.store`. The session lasts one hour by default and cannot create credentials.
 

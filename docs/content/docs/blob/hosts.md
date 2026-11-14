@@ -34,7 +34,7 @@ pnpm vitehub blob variants avatars/ada.png
 - `put` sends the file as base64 JSON, so `put` and `get` handle files up to 8 MiB.
 - The commands do not print blob URLs.
 
-Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/development/cli#read-and-write-blobs) for every option.
+Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/cli/storage#read-and-write-blobs) for every option.
 
 ## Cloudflare R2 bucket
 

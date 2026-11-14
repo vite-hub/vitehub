@@ -375,7 +375,7 @@ describe("vitehub status", () => {
     expect(json).toEqual({
       error: {
         code: "SETUP_NOT_A_PROJECT",
-        docs: "https://vitehub.dev/docs/development/diagnostics/setup_not_a_project",
+        docs: "https://vitehub.dev/docs/cli/diagnostics/setup_not_a_project",
         fix: "Run the command in the folder of your Vite or Nuxt app, where its package.json is.",
         message: `${root} has no package.json, vite.config, or nuxt.config file.`,
         why: `${root} has no package.json, vite.config, or nuxt.config file.`,

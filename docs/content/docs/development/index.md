@@ -2,7 +2,7 @@
 title: Local development
 description: Run ViteHub locally, inspect generated files, and verify the behavior you changed.
 navigation.order: 30
-navigation.group: Local tools
+navigation.group: Build state
 icon: i-lucide-terminal
 ---
 
@@ -16,7 +16,7 @@ and in production builds.
 | Tool | Use it for | Output to inspect |
 | --- | --- | --- |
 | Vite dev server | Definition discovery, server imports, Agent streams, and local providers | Terminal output and responses from your routes |
-| [ViteHub CLI](/docs/development/cli) | Package-owned commands such as `inspect`, `agent dev`, `agent eval`, and `provision` | Exit code, terminal output, and optional JSON |
+| [ViteHub CLI](/docs/cli) | Package-owned commands such as `inspect`, `agent dev`, `agent eval`, and `provision` | Exit code, terminal output, and optional JSON |
 | [ViteHub Console](/docs/console) | Discovered Agents, retained sessions, invocation events, and stored data | [console.vitehub.dev](https://console.vitehub.dev), which calls your app |
 | [Generated files](/docs/development/generated-files) | Registries, generated types, Provision State, and host output | `.vitehub/**` and the host's output directory |
 | [Bundle reports](/docs/bundle) | Client and server size, startup code, and why each package is in a production build | `vitehub bundle` and `.vitehub/bundle/` |
@@ -50,7 +50,7 @@ pnpm vitehub inspect definitions
 pnpm vitehub inspect output
 ```
 
-Use [`vitehub agent dev`](/docs/development/cli#talk-to-an-agent-during-development)
+Use [`vitehub agent dev`](/docs/cli/agents#talk-to-an-agent-during-development)
 to talk to an Agent through the running dev server. Open the app in the
 [Console](/docs/console) when you need session search and
 invocation events in a browser.
@@ -68,7 +68,7 @@ does not cover.
 
 ## Next steps
 
-- Open [CLI](/docs/development/cli) for every command and flag.
+- Open [CLI](/docs/cli) for every command and flag.
 - Open [Generated files](/docs/development/generated-files) when a registry or host output looks wrong.
 - Open [Troubleshooting](/docs/development/troubleshooting) when a check fails.
 - Open [Errors and diagnostics](/docs/reference/errors-diagnostics) for failure families.

@@ -227,7 +227,7 @@ pnpm vitehub channels sync --stage development \
   --apply --confirm-origin https://your-tunnel.trycloudflare.com
 ```
 
-It reads the token and secret from the environment, checks that the route is live at that origin, and calls Telegram's `setWebhook`. It never prints the secrets. See [Synchronize Channel webhooks](/docs/development/cli#synchronize-channel-webhooks) for other flags.
+It reads the token and secret from the environment, checks that the route is live at that origin, and calls Telegram's `setWebhook`. It never prints the secrets. See [Synchronize Channel webhooks](/docs/cli/channels#synchronize-channel-webhooks) for other flags.
 
 Send the bot a direct message, and it replies to your message. In a group, mention it: `@acme_assistant_bot what is ViteHub?`.
 

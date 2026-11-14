@@ -25,11 +25,11 @@ pnpm dlx vite-hub init <dir> --host <preset> --features <id,id,...> [--option fe
 - A saved selection of host, features, and options is a _stack_. `init` writes the command that reproduces the stack into the `README.md` stack block, and `vitehub status --json` returns it as `stack.command`. Run that command to make the same project again.
 - When the developer gives a `--console <pendingId>:sha256:<hex>` value from console.vitehub.dev, pass it to `init` unchanged. See [Link and deploy](sandboxes-hosts.md#link-and-deploy).
 
-See [Create a project](https://vitehub.dev/raw/docs/development/cli.md#create-a-project).
+See [Create a project](https://vitehub.dev/raw/docs/cli/project.md#create-a-project).
 
 ## Create the files with `vitehub add`
 
-Run `vitehub status --json`, then `vitehub add <feature> --dry-run` for each feature the shape needs, and apply with `--yes`. Pass `--name <name>` where the shape lists a Definition, so the starter file lands in the discovery path that the build reads. Write a file or config key by hand only when `add` prints a manual `snippet`, or for files that `add` does not create, such as application routes. See [Add a feature](https://vitehub.dev/raw/docs/development/cli.md#add-a-feature).
+Run `vitehub status --json`, then `vitehub add <feature> --dry-run` for each feature the shape needs, and apply with `--yes`. Pass `--name <name>` where the shape lists a Definition, so the starter file lands in the discovery path that the build reads. Write a file or config key by hand only when `add` prints a manual `snippet`, or for files that `add` does not create, such as application routes. See [Add a feature](https://vitehub.dev/raw/docs/cli/project.md#add-a-feature).
 
 ## Coherent shapes
 

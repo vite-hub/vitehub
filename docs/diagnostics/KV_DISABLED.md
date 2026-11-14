@@ -46,6 +46,6 @@ Restart the dev server. Then run `vitehub kv list` from another terminal. It lis
 - [KV configuration](/docs/kv/configure)
 - [Enable KV](/docs/kv/get-started#enable-kv)
 - [KV limits and errors](/docs/kv/limits-and-errors)
-- [Read and write KV keys](/docs/development/cli#read-and-write-kv-keys)
+- [Read and write KV keys](/docs/cli/storage#read-and-write-kv-keys)
 - [`KV_STORE_NOT_FOUND`](/docs/kv/diagnostics/kv_store_not_found)
 - [`KV_INVALID_CONFIG`](/docs/kv/diagnostics/kv_invalid_config)

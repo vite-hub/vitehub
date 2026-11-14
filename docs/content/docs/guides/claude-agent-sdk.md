@@ -164,7 +164,7 @@ pnpm vitehub agent info --agent coder --url http://localhost:3000
 pnpm vitehub agent dev --agent coder --url http://localhost:3000 -p "Which tools can you use?"
 ```
 
-`agent info` shows the Driver, its execution authority, tools, and instructions, without running Claude Code. See [Talk to an Agent during development](/docs/development/cli#talk-to-an-agent-during-development).
+`agent info` shows the Driver, its execution authority, tools, and instructions, without running Claude Code. See [Talk to an Agent during development](/docs/cli/agents#talk-to-an-agent-during-development).
 
 ### Connect a Channel
 
@@ -211,7 +211,7 @@ For a long-lived server:
 Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 - `agent.status()` checks that Claude Code is installed and signed in, and reads its quota if reported. It sends no prompt. See [Provider status](/docs/agents/provider-status).
-- `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
+- `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 - The [Console](/docs/console) shows the trace, tool calls, and usage of each Invocation.
 
 ## Where the Claude Agent SDK can run

@@ -14,7 +14,7 @@ Your app serves no Console page, MCP or sign-in of its own. It serves one route,
 | Client | Use it to |
 | --- | --- |
 | Console | Browse sessions, data and Definitions, and edit Content. |
-| [`vitehub` CLI](/docs/development/cli) | Run the same actions from a terminal or CI, also against a development server. |
+| [`vitehub` CLI](/docs/cli) | Run the same actions from a terminal or CI, also against a development server. |
 | [ViteHub MCP](/docs/console/mcp) | Let a coding agent run them with your Console account. |
 
 Each action is an **operation**, such as `kv.list` or `content.publish`, so an operation that you define becomes a Console action, a CLI command and an MCP tool at once.
