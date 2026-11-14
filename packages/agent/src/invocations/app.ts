@@ -70,6 +70,8 @@ export interface DefaultAgentJournalLocation {
   libsql?: DefaultAgentInvocationsLibsql
   /** The ViteHub project root. The default journal file and relative `file:` URLs resolve from it. */
   projectRoot: string
+  /** A `file:` Agent State URL. The default journal without a `databaseUrl` goes next to the State database. */
+  stateUrl?: string
 }
 
 type DatabaseStoreModule = {
@@ -208,7 +210,7 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     if (globalThis.process?.env?.VITEHUB_CONSOLE_DATABASE_URL?.trim()) {
       throw agentDiagnostics.AGENT_R1032({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
     }
-    const { d1, libsql, projectRoot } = options.journal
+    const { d1, libsql, projectRoot, stateUrl } = options.journal
     const key = JSON.stringify({
       d1: d1?.binding,
       databaseUrl: setting?.databaseUrl,
@@ -217,10 +219,12 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
       projectRoot,
       retention: setting?.retention,
       runtimeUrl: globalThis.process?.env?.[defaultAgentInvocationsUrlEnv]?.trim(),
+      stateUrl,
+      runtimeStateUrl: globalThis.process?.env?.VITEHUB_AGENT_STATE_URL?.trim(),
     })
     // Keep one journal per location and options when development reloads the generated plugin.
     if (state[defaultInvocationsKey]?.key === key) return
-    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot }), key }
+    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot, stateUrl }), key }
     return
   }
   const key = JSON.stringify(setting)

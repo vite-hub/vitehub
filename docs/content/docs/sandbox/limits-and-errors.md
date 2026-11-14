@@ -9,6 +9,7 @@ icon: i-lucide-circle-alert
 ## Limits
 
 - A timeout limits one attempt after the provider starts. It covers package setup, staging, and execution. Queueing, Sandbox startup, and retry delays can make the full `runSandboxTask()` call take longer.
+- On Vercel, the Sandbox session gets the task timeout plus 30 seconds. The session clock starts before Sandbox setup, so this extra time lets ViteHub end the run at the task timeout with `SANDBOX_TASK_TIMEOUT`. Keep the task timeout 30 seconds below the Vercel plan maximum.
 - To cancel a run, pass an `AbortSignal` to `runSandboxTask()`. Cancellation stops provider work that can stop and keeps your abort reason. The task timeout still applies to each attempt on its own.
 - Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a new Sandbox for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes the run's files after each attempt, caches prepared projects by digest, and runs calls with the same ID one at a time in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.

@@ -98,6 +98,27 @@ export const examples: readonly Example[] = [
     startPath: "server/agents/calories/agent.ts",
   },
   {
+    slug: "email-labeller",
+    name: "Email labeller",
+    description:
+      "Label new Gmail with your own rules first. When no rule matches, Jev picks one of your labels from its description and says how sure it is. Runs on Cloudflare Workers or in one Docker container.",
+    builtWith: ["Agent Definitions", "Channels", "Gateways", "Schedule", "KV"],
+    kind: "template",
+    status: "published",
+    preview: {
+      kind: "screenshot",
+      src: "/examples/email-labeller.svg",
+      alt: "Email labeller banner: labels new Gmail with your rules first and Jev for the rest.",
+      source: "https://github.com/vite-hub/email-labeller/blob/main/.github/banner.svg",
+    },
+    action: {
+      kind: "use",
+      label: "Use template",
+      to: "https://github.com/vite-hub/email-labeller/generate",
+    },
+    startPath: "labeller.config.ts",
+  },
+  {
     slug: "my-pull-requests",
     name: "My Pull Requests",
     description:

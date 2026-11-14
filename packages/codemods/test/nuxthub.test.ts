@@ -60,6 +60,37 @@ describe("nuxthub", () => {
     }
   })
 
+  it("reports NuxtHub hooks in local modules and layers, studio external media, and packages that need NuxtHub", async () => {
+    const hook = (name: string) => `export default defineNuxtModule({ setup(_, nuxt) { nuxt.hook('${name}', () => {}) } })\n`
+    const directory = await app("module-follow-ups", {
+      "nuxt.config.ts": "export default defineNuxtConfig({\n  modules: ['@nuxthub/core'],\n  extends: ['./base', 'github:org/remote-layer'],\n  hub: { db: 'sqlite' },\n  hooks: { 'hub:db:schema:extend': () => {} },\n  studio: { media: { external: true } },\n})\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "@evlog/nuxthub": "^1.0.0", "uses-hub": "^1.0.0", "plain": "^1.0.0" } }, null, 2),
+      "server/db/schema.ts": "export {}\n",
+      "modules/history.ts": hook("hub:db:migrations:dirs"),
+      "layers/reports/nuxt.config.ts": "export default defineNuxtConfig({ hooks: { [`hub:db:queries:paths`]: () => {} } })\n",
+      "base/modules/nested/tables.mjs": hook("hub:db:schema:extend"),
+      // Not a module or layer config: the codemod does not run it as a Nuxt hook.
+      "server/utils/names.ts": "export const name = 'hub:db:schema:extend'\n",
+      "node_modules/@evlog/nuxthub/package.json": JSON.stringify({ name: "@evlog/nuxthub", peerDependencies: { "@nuxthub/core": "^0.10.12" } }),
+      "node_modules/@evlog/nuxthub/modules/x.ts": hook("hub:db:schema:extend"),
+      "node_modules/uses-hub/package.json": JSON.stringify({ name: "uses-hub", dependencies: { "@nuxthub/core": "^0.10.12" } }),
+      "node_modules/plain/package.json": JSON.stringify({ name: "plain", peerDependencies: { "@nuxthub/kv": "^1.0.0" } }),
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    const followUps = run.result.followUps.filter(followUp => /NuxtHub's (?:hub:db|module APIs)/.test(followUp.message))
+    expect(followUps.map(({ file, line, message }) => [file, line, message.slice(0, 40)])).toEqual([
+      ["base/modules/nested/tables.mjs", 1, "NuxtHub's hub:db:schema:extend hook adds"],
+      ["layers/reports/nuxt.config.ts", 1, "NuxtHub's hub:db:queries:paths hook adds"],
+      ["modules/history.ts", 1, "NuxtHub's hub:db:migrations:dirs hook ad"],
+      ["nuxt.config.ts", 5, "NuxtHub's hub:db:schema:extend hook adds"],
+      ["nuxt.config.ts", 6, "nuxt-studio uploads external media only "],
+      ["package.json", 4, "@evlog/nuxthub needs @nuxthub/core (peer"],
+      ["package.json", 5, "uses-hub needs @nuxthub/core (dependency"],
+    ])
+    expect(followUps.find(followUp => followUp.file === "modules/history.ts")?.message).toContain("vitehub.dev/docs/database/configure#contribute-tables-from-a-nuxt-module")
+    expect(followUps.at(-1)?.message).toContain("vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub")
+  })
+
   it("reports legacy Drizzle relations at the moved schema", async () => {
     const directory = await app("relations", {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
