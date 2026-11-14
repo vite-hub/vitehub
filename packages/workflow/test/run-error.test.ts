@@ -1,3 +1,6 @@
+import { createRequire } from "node:module"
+import { pathToFileURL } from "node:url"
+
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
@@ -84,7 +87,15 @@ it("reports the error of a failed OpenWorkflow run", async () => {
 it("reports the error of a failed native Vercel run", async () => {
   const native = Object.assign(async () => "done", { workflowId: "workflow//checkout" })
   const cause = Object.assign(new Error("payment API returned 503"), { code: "PAYMENT_UNAVAILABLE" })
-  const failure = Object.assign(new Error("Workflow run \"run-1\" failed: payment API returned 503"), { cause, errorCode: "USER_ERROR", name: "WorkflowRunFailedError" })
+  // Exercise the same SDK Error serialization boundary as a persisted native run.
+  const workflowRequire = createRequire(import.meta.resolve("workflow/package.json"))
+  const coreRequire = createRequire(workflowRequire.resolve("@workflow/core"))
+  const commonUrl = new URL("./serialization/reducers/common.js", pathToFileURL(workflowRequire.resolve("@workflow/core")))
+  const { getCommonReducers, getCommonRevivers } = await import(commonUrl.href)
+  const { parse, stringify } = await import(pathToFileURL(coreRequire.resolve("devalue")).href)
+  const hydratedCause = parse(stringify(cause, getCommonReducers()), getCommonRevivers())
+  expect(hydratedCause.code).toBeUndefined()
+  const failure = Object.assign(new Error("Workflow run \"run-1\" failed: payment API returned 503"), { cause: hydratedCause, errorCode: "USER_ERROR", name: "WorkflowRunFailedError" })
   const returnValue = Promise.reject(failure)
   returnValue.catch(() => {})
   const run: VercelRun = {
@@ -107,7 +118,7 @@ it("reports the error of a failed native Vercel run", async () => {
   const inspected = await inspectVercelWorkflowRun("checkout", { handler: native, options: { native } }, "run-1")
 
   expect(inspected).toMatchObject({ status: "failed" })
-  expect(inspected.error).toEqual({ code: "PAYMENT_UNAVAILABLE", message: "payment API returned 503" })
+  expect(inspected.error).toEqual({ message: "payment API returned 503" })
 })
 
 it("adds no error to a run that did not fail", async () => {

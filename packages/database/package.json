@@ -130,6 +130,7 @@
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "get-tsconfig": "^4.14.3",
     "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
