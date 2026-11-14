@@ -2166,6 +2166,31 @@
     opacity: 0.6;
   }
 
+  /* While comments are hidden, a pin that stops showing, such as a comment just sent, pops out: it shrinks and fades. */
+  [data-slot="comment-layer-item"][data-leaving="true"] > * {
+    animation: vh-comment-leave 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
+    pointer-events: none;
+  }
+
+  @keyframes vh-comment-leave {
+    to {
+      opacity: 0;
+      scale: 0.6;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-layer-item"][data-leaving="true"] > * {
+      animation-name: vh-comment-fade;
+    }
+  }
+
+  @keyframes vh-comment-fade {
+    to {
+      opacity: 0;
+    }
+  }
+
   /* Floating surfaces take the layered shadow of the theme, which draws their hairline too. Without the theme, the hairline stays. */
   [data-slot="comment-layer-popover"] {
     background: var(--vh-bg);

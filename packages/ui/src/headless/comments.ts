@@ -1,6 +1,7 @@
 import {
   computed,
   getCurrentInstance,
+  isRef,
   onBeforeUnmount,
   onMounted,
   provide,
@@ -31,6 +32,7 @@ import {
   type CreateAnchorOptions,
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
 import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
@@ -108,6 +110,13 @@ export interface UseCommentsOptions {
   autoStart?: boolean;
   /** What the signed-in user may do, such as your app's sharing rules. Defaults to `defaultCommentCan()`. */
   can?: CommentCan;
+  /**
+   * Which comments show on the page. Default `"all"`. Pass a ref to keep the reader's choice, such as one saved in
+   * `localStorage`: the state reads and writes it.
+   */
+  visibility?: CommentVisibility | Ref<CommentVisibility>;
+  /** How long a comment or reply that was just sent shows while comments are hidden. Default `2500`. */
+  flashMs?: number;
 }
 
 export interface CommentsState {
@@ -139,6 +148,18 @@ export interface CommentsState {
   readonly listOpen: Ref<boolean>;
   /** Goes up when a composer with text stopped a click or a key. The composer shakes by itself. */
   readonly blocked: Ref<number>;
+  /** Which comments show. Writing or opening a comment never changes it. */
+  readonly visibility: Ref<CommentVisibility>;
+  /**
+   * The ids of the threads of this page that get a pin or a mark: all of them, or while comments are hidden, the open
+   * thread and each one that was just sent or replied to. The draft always shows.
+   */
+  readonly shown: ComputedRef<ReadonlySet<string>>;
+  /** The ids of threads that stopped showing while comments are hidden, for 180 ms. Their marks play the pop-out. */
+  readonly leaving: ComputedRef<ReadonlySet<string>>;
+  isShown: (id: string) => boolean;
+  /** Shows the thread for `flashMs` while comments are hidden. `send()`, `create()`, and `reply()` call it. */
+  flash: (id: string) => void;
   enter: () => void;
   exit: () => void;
   toggle: () => void;
@@ -252,6 +273,28 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   });
   const opened = computed(() => threads.value.find(thread => thread.id === openId.value));
 
+  const visibility = isRef(options.visibility) ? options.visibility : ref<CommentVisibility>(options.visibility ?? "all");
+  const seen = createCommentVisibility({ visibility: visibility.value, flashMs: options.flashMs });
+  const seenChanges = ref(0);
+  seen.subscribe(() => seenChanges.value++);
+  watch(visibility, value => seen.set(value), { flush: "sync" });
+  watch(openId, id => seen.open(id), { flush: "sync" });
+  // The open thread keeps its pin even when a filter would hide it.
+  const marked = computed(() => {
+    const ids = new Set(pageThreads.value.map(thread => thread.id));
+    if (opened.value && onPage(opened.value)) ids.add(opened.value.id);
+    return ids;
+  });
+  const shown = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set([...marked.value].filter(id => seen.isShown(id)));
+  });
+  const leaving = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set(seen.leaving.filter(id => marked.value.has(id)));
+  });
+  const flash = (id: string): void => seen.flash(id);
+
   const root = (): ParentNode => toValue(options.root) ?? document;
   const uiRoot = (): ParentNode => toValue(options.uiRoot) ?? document;
 
@@ -350,6 +393,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
         ...(attachments.length > 0 ? { attachments } : {}),
       });
       current.busy = false;
+      flash(thread.id);
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
       return thread;
     } catch (error) {
@@ -521,6 +565,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resizes?.disconnect();
       clearTimeout(revealTimer);
       if (frame) cancelAnimationFrame(frame);
+      seen.stop();
     });
 
     stops.push(watch(positions, follow, { flush: "post" }));
@@ -593,6 +638,11 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     opened,
     listOpen,
     blocked,
+    visibility,
+    shown,
+    leaving,
+    isShown: id => shown.value.has(id),
+    flash,
     enter,
     exit,
     toggle,
@@ -601,10 +651,16 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     send,
     open,
     close,
-    create: ({ anchor = { kind: "page" }, attachments, body, mentions }) =>
-      client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
-    reply: (threadId, body, mentions, attachments) =>
-      client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
+    create: async ({ anchor = { kind: "page" }, attachments, body, mentions }) => {
+      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) });
+      flash(thread.id);
+      return thread;
+    },
+    reply: async (threadId, body, mentions, attachments) => {
+      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) });
+      flash(threadId);
+      return thread;
+    },
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
     remove: async (threadId, messageId) => {
       const next = await client.delete({ threadId, messageId });
