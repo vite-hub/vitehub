@@ -71,7 +71,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `provider` | `WorkflowProvider` | Provider of the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
 | `result` | `TResult` | Result, when completed. |
-| `payload` | `TPayload` | Original payload when the provider returns it. |
+| `payload` | `TPayload` | Original payload when the provider returns it. A start with the id of an existing run returns that run: OpenWorkflow and inline runs report the stored payload, and Cloudflare reports none, because it does not return the payload of an instance. |
 | `metadata` | `unknown` | Provider metadata. |
 
 Every provider uses the same statuses. A run that sleeps, waits, or waits between step retries reports `running`. A run that does not exist reports `unknown`. On Cloudflare, `waiting`, `waitingForPause`, and `paused` report `running`, and `terminated` reports `cancelled`. `metadata.status` keeps the Cloudflare status.

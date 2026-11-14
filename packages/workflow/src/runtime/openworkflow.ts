@@ -308,7 +308,9 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
       metadata: serialized.status === "failed"
         ? serialized.metadata
         : { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
-      payload,
+      // A start with the id of an existing run returns that run, so report the payload that it stored.
+      // SAFETY: OpenWorkflow stores the payload of this Workflow Definition as the run input.
+      payload: handle.workflowRun.input as TPayload,
     }
   })
 }

@@ -177,7 +177,7 @@ function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
 }
 
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
-  return {
+  const adapter: WorkflowRuntimeAdapter = {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
@@ -205,14 +205,20 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 
       return await inlineAdapter(config).get({ event, id, name })
     },
-    async run({ definition, event, id, name, options, payload }) {
+    async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, options, payload }: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>> {
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         resolveDispatchObserver(event)?.()
+        // `createBatch` skips an id that already has an instance and returns no instance for it.
+        let created = false
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
-          async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
+          async () => {
+            const [instance] = await binding.createBatch([{ id, params: payload }])
+            created = instance !== undefined
+            return normalizeCloudflareWorkflowStart(instance || await binding.get(id), id)
+          },
           { acknowledgementUnknown: (_error, status) => status === undefined },
         )
         const instance = await start().catch(async (firstError) => {
@@ -224,6 +230,9 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
             throw retryError
           }
         })
+        // Cloudflare does not return the payload of an existing instance, so report its state without a payload.
+        // SAFETY: The existing instance belongs to this Workflow Definition, so it has its payload and result types.
+        if (!created) return await adapter.get({ event, id, name }) as WorkflowRun<TPayload, TResult>
         return {
           id: instance.id,
           payload,
@@ -236,6 +245,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     },
     resume: () => unsupportedOperation("cloudflare", "signals"),
   }
+  return adapter
 }
 
 function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
