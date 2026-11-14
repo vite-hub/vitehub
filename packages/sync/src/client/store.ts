@@ -3,7 +3,7 @@ import { syncPushLimit } from "../protocol.ts"
 import { readEvents } from "./live.ts"
 import { applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, buildView, clientError, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
+import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
@@ -43,8 +43,15 @@ interface PendingWrite {
   settle: (state: "applied" | "rejected", value: unknown) => void
 }
 
-/** How a live stream ended. */
-type StreamEnd = "ended" | "failed" | "refused" | "aborted"
+/** A pull of the live stream, with the generation of the rows that the stream opened with. */
+interface LivePull {
+  base: number
+  generation: string
+  pull: SyncPullResponse
+}
+
+/** How a live stream ended. `stale` means that its pulls belong to rows that the store does not show now. */
+type StreamEnd = "ended" | "failed" | "refused" | "aborted" | "stale"
 
 /** Milliseconds between pulls while the live stream is open. The stream brings the changes, so this is a fallback. */
 const livePullInterval = 300_000
@@ -204,7 +211,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let liveRefused = false
   // Live streams that failed or ended at once in a row. The next stream waits for the backoff of this count.
   let liveFailures = 0
-  let livePulls: { base: number, pull: SyncPullResponse }[] = []
+  let livePulls: LivePull[] = []
+  // The generation of the open live stream. An object, so a stream that ended late does not clear the next one.
+  let streamGeneration: { value: string } | undefined
 
   function addActions(actions: Record<string, SyncOptimisticAction | undefined> | undefined): void {
     for (const [action, run] of Object.entries(actions ?? {})) {
@@ -397,6 +406,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     if (!change.reset) changedKeys.push(...change.put?.map(([key]) => key) ?? [])
     writes = applyQueueChange(writes, change, [])
     version++
+    followGeneration()
     publish()
     environment.post({ type: "change", id })
   }
@@ -416,6 +426,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       loaded = true
       if (status === "idle") status = "loading"
       version++
+      followGeneration()
       publish()
       return
     }
@@ -528,9 +539,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
    */
   async function applyLivePulls(): Promise<void> {
     while (livePulls.length) {
-      const { base, pull: next } = livePulls.shift()!
-      if (meta && !next.reset && next.cursor <= meta.cursor) continue
-      if (meta && (next.reset ? next.cursor < meta.cursor : base !== meta.cursor)) {
+      const { base, generation: from, pull: next } = livePulls.shift()!
+      // A stream of another account, scope or table version. A new stream follows the rows that the store shows.
+      if (!meta || from !== generationOf(meta, subset)) continue
+      if (!next.reset && next.cursor <= meta.cursor) continue
+      if (next.reset ? next.cursor < meta.cursor : base !== meta.cursor) {
         livePulls = []
         wantPull = true
         return
@@ -638,9 +651,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     })
   }
 
-  /** Opens one live stream and queues its pulls until it ends. */
+  /**
+   * Opens one live stream and queues its pulls until it ends. The stream belongs to the generation of the rows when it
+   * opens. A pull of another generation ends it, such as after the session changed on the server.
+   */
   async function stream(signal: AbortSignal): Promise<StreamEnd> {
     let cursor = meta!.cursor
+    const opened = generationOf(meta!, subset)
     let response: Response
     try {
       response = await options.fetch(`${url}${pullQuery({ live: "1" })}`, { method: "GET", headers: { accept: "text/event-stream" }, cache: "no-store", signal })
@@ -657,15 +674,19 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       await response.body?.cancel().catch(() => undefined)
       return "refused"
     }
+    const own = { value: opened }
+    streamGeneration = own
     setLive(true)
     try {
       for await (const event of readEvents(response.body)) {
+        if (signal.aborted) return "aborted"
         if (event.type === "error") return "failed"
         if (event.type !== "pull") continue
         const data: unknown = JSON.parse(event.data)
         const next: unknown = data && typeof data === "object" ? Reflect.get(data, "pull") : undefined
         if (!isPull(next)) continue
-        livePulls.push({ base: cursor, pull: next })
+        if (generationOf(next, subset) !== opened || !meta || generationOf(meta, subset) !== opened) return "stale"
+        livePulls.push({ base: cursor, generation: opened, pull: next })
         cursor = next.cursor
         void schedule(false)
       }
@@ -673,7 +694,23 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     catch {
       return signal.aborted ? "aborted" : "failed"
     }
+    finally {
+      if (streamGeneration === own) streamGeneration = undefined
+    }
     return signal.aborted ? "aborted" : "ended"
+  }
+
+  /**
+   * Ends a live stream whose generation is not the one of the stored rows, such as after a pull of another account or
+   * scope, and opens one for the new generation. Its pulls that wait are dropped.
+   */
+  function followGeneration(): void {
+    const open = streamGeneration?.value
+    if (open === undefined || (meta && generationOf(meta, subset) === open)) return
+    livePulls = livePulls.filter(item => meta && item.generation === generationOf(meta, subset))
+    streamGeneration = undefined
+    stopLive()
+    startLive()
   }
 
   /**
@@ -685,9 +722,17 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       if (liveFailures) await wait(backoffDelay(liveFailures - 1, environment.random()), signal)
       if (signal.aborted) return
       const opened = Date.now()
+      const from = meta && generationOf(meta, subset)
       const end = await stream(signal)
       setLive(false)
       if (end === "aborted") return
+      if (end === "stale") {
+        // A pull shows the rows of the new generation, then the next stream opens for them.
+        wantPull = true
+        await schedule(false)
+        if (!meta || generationOf(meta, subset) === from) liveFailures++
+        continue
+      }
       if (end === "refused") {
         liveRefused = true
         return

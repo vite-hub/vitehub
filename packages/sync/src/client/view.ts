@@ -63,6 +63,14 @@ function isOwnFailure(write: SyncNewWrite, account: string | undefined): boolean
   return Boolean(write.error) && (write.account === null || account === undefined || write.account === account)
 }
 
+/**
+ * The rows that a pull or a meta describes: the account, the scope, the table version and the subset. A live stream
+ * delivers pulls of the generation that it opened with. When the generation of the store changes, those pulls are old.
+ */
+function generationOf(value: { account: string, scope: { id: string }, version: string }, subset: string): string {
+  return JSON.stringify([value.account, value.scope.id, value.version, subset])
+}
+
 type RowWrite = Extract<SyncNewWrite, { op: "insert" | "update" | "delete" }>
 
 /** The row of an insert on the wire: the single scope values, then the caller's value, then the key. */
@@ -274,5 +282,5 @@ function toWireError(error: SyncError): SyncWireError {
   return { code, message: error.message, ...(error.issues ? { issues: error.issues } : {}) }
 }
 
-export { backoffDelay, buildView, cleanWhere, clientError, insertedRow, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
+export { backoffDelay, buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
 export type { SyncView, SyncViewContext }

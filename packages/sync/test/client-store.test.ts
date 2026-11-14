@@ -771,6 +771,99 @@ describe("live", () => {
   })
 })
 
+describe("live streams of an old account or scope", () => {
+  function live(): Harness {
+    const h = setup()
+    h.server.live = true
+    return h
+  }
+
+  it("drops a pull of the stream of the previous account, at the same cursor", async () => {
+    const h = live()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Ada's" }, { id: "b", ownerId: "bob", title: "Bob's" }])
+    const { store } = h.open()
+    await store.refresh()
+    await until(() => store.getState().live)
+    const cursor = Number(streams(h)[0]!.url.searchParams.get("cursor"))
+
+    // Bob signs in. The pull resets to his rows at the same cursor, while Ada's stream is still open.
+    h.server.user = "bob"
+    await store.refresh()
+    expect(store.getState().rows.map(row => row.id)).toEqual(["b"])
+    expect(Number(pulls(h).at(-1)!.url.searchParams.get("cursor"))).toBe(cursor)
+
+    // Server code changes a row of Ada. Her stream would bring it on top of Bob's cursor.
+    h.server.write({ id: "c", ownerId: "ada", title: "Ada's private" })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(store.getState().rows.map(row => row.id)).toEqual(["b"])
+    await until(() => store.getState().live && h.server.streams === 1)
+    expect(streams(h)).toHaveLength(2)
+
+    // The new stream is Bob's, and a write after it goes out with his account.
+    h.server.write({ id: "d", ownerId: "bob", title: "Bob's new" })
+    await until(() => store.get("d") !== undefined)
+    await store.insert({ title: "Bob's write" })
+    expect(posts(h).at(-1)!.body!.account).toBe(accountOf("bob"))
+  })
+
+  it("drops the rows of a team that the caller left, after the store moved to another team", async () => {
+    const h = live()
+    let teams = ["red"]
+    h.server.where = () => ({ teamId: teams })
+    seed(h, [{ id: "r1", ownerId: "ada", teamId: "red", title: "Red" }, { id: "b1", ownerId: "ada", teamId: "blue", title: "Blue" }])
+    const { store } = h.open()
+    await store.refresh()
+    await until(() => store.getState().live)
+    expect(store.getState().rows.map(row => row.id)).toEqual(["r1"])
+
+    // Ada leaves the red team and joins the blue one. The account stays, the scope changes.
+    teams = ["blue"]
+    await store.refresh()
+    expect(store.getState().rows.map(row => row.id)).toEqual(["b1"])
+    h.server.write({ id: "r2", ownerId: "ada", teamId: "red", title: "Red private" })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(store.getState().rows.map(row => row.id)).toEqual(["b1"])
+    h.server.write({ id: "b2", ownerId: "ada", teamId: "blue", title: "Blue new" })
+    await until(() => store.get("b2") !== undefined)
+    expect(store.getState().rows.map(row => row.id)).toEqual(["b1", "b2"])
+  })
+
+  it("ends a stream whose pull has another account, and pulls instead", async () => {
+    const h = live()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Ada's" }])
+    const encoder = new TextEncoder()
+    let send: (pull: object) => void = () => undefined
+    let opened = 0
+    let cancelled = 0
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (!String(input).includes("live=1")) return h.server.fetch(input, init)
+      opened++
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ pull })}\n\n`))
+        },
+        cancel() {
+          cancelled++
+        },
+      })
+      return new Response(body, { headers: { "content-type": "text/event-stream" } })
+    }
+    const { store, browser } = h.open({ fetch })
+    await store.refresh()
+    await until(() => store.getState().live)
+    const count = pulls(h).length
+    // A proxy reuses a stream of another session: its pull is on top of the local cursor, but for Bob.
+    send({ key: "id", scope: { id: scopeIdOf({ name: "todos", ownerId: "bob" }), values: { ownerId: "bob" } }, account: accountOf("bob"), version: "v1", defaults: {}, cursor: 2, reset: false, rows: [{ id: "x", ownerId: "bob", title: "Bob's" }], deleted: [], more: false })
+    // The pull still says Ada, so the next stream waits for backoff.
+    await until(() => pulls(h).length > count && browser.timers.length === 1)
+    expect(cancelled).toBe(1)
+    browser.fire()
+    await until(() => opened === 2 && store.getState().live)
+    expect(store.get("x")).toBeUndefined()
+    expect(store.getState().rows.map(row => row.id)).toEqual(["a"])
+  })
+})
+
 describe("persistence and tabs", () => {
   it("keeps an offline insert after a reload, and sends it when online (farm.js: lost queue)", async () => {
     const h = setup()
