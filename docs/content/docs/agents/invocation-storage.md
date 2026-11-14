@@ -52,7 +52,7 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 
 | Host | Default journal |
 | --- | --- |
-| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root |
+| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
