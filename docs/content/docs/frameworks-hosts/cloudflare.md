@@ -245,16 +245,7 @@ export default defineConfig({
 :::
 ::
 
-With `EXECUTOR_URL=https://executor.example.com` and `LABELLER_DRY_RUN=false` in `.env`, the build writes:
-
-```json [.output/server/wrangler.json]
-{
-  "vars": {
-    "EXECUTOR_URL": "https://executor.example.com",
-    "LABELLER_DRY_RUN": "false"
-  }
-}
-```
+With `EXECUTOR_URL=https://executor.example.com` and `LABELLER_DRY_RUN=false` in `.env`, the build writes `"vars": { "EXECUTOR_URL": "https://executor.example.com", "LABELLER_DRY_RUN": "false" }`. `EXECUTOR_API_KEY` stays out.
 
 - ViteHub reads the process environment and the `.env` files that Vite loads for the build mode. `.env.development` never applies to `vite build`.
 - Each value keeps the name that holds it, in the order Server Env reads names at runtime. `VITEHUB_EXECUTOR_URL` wins over `EXECUTOR_URL`.
