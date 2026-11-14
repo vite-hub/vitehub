@@ -302,6 +302,11 @@
       "import": "./dist/connections/google.js",
       "default": "./dist/connections/google.js"
     },
+    "./connections/operations": {
+      "types": "./dist/connections/operations.d.ts",
+      "import": "./dist/connections/operations.js",
+      "default": "./dist/connections/operations.js"
+    },
     "./connections/server": {
       "types": "./dist/connections/server.d.ts",
       "import": "./dist/connections/server.js",
