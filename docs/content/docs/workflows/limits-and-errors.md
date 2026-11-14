@@ -33,7 +33,21 @@ Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON
 
 A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses the same policy: `limit: 3`, `delay: '10 seconds'`, and `backoff: 'exponential'`. A Vercel `native` entry follows the Workflow DevKit rules. An inline run does not retry. [What ViteHub stores on each host](/docs/guides/durable-execution#what-vitehub-stores-on-each-host) shows what each provider does with the policy.
 
-ViteHub has no portable sleep. A `setTimeout` in a handler is not durable. On Cloudflare and OpenWorkflow, `context.step.sleep(name, duration)` calls the durable sleep of the provider, with a duration such as `'10 minutes'`. A Vercel `native` entry uses `sleep()` from Workflow DevKit. Inline runs and normal Vercel handlers have no `context.step`.
+A `setTimeout` in a handler is not durable. Only a folder Workflow can sleep. Its `index.ts` calls `context.step.sleep(name, duration)` between steps, with a duration such as `'1 day'`. The run sleeps on Cloudflare and OpenWorkflow. A Vercel `native` entry uses `sleep()` from Workflow DevKit. Inline runs and normal Vercel handlers have no `context.step` in a folder Workflow.
+
+```ts [server/workflows/remind-user/index.ts] fragment
+import { defineWorkflow } from 'vite-hub/workflow'
+
+export default defineWorkflow('remind-user', async (payload: { email: string }, { step, steps }) => {
+  await steps.sendWelcome(payload)
+  await step?.sleep?.('wait-a-day', '1 day')
+  await steps.sendReminder(payload)
+})
+```
+
+After a sleep, the provider runs `index.ts` again from the start. Completed step files return their stored results and do not run again, so put each side effect in a numbered step file.
+
+A single-file Workflow, such as `server/workflows/remind-user.ts`, runs as one root step. A replay after a sleep would run the code before the sleep again. So `context.step.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. Move the Workflow to a folder to fix it.
 
 ## Production checks
 
