@@ -113,8 +113,11 @@ interface McpRequestScope {
   event: H3Event
   context: () => Promise<McpToolContext>
   hooks: McpHooks<unknown> | undefined
-  /** For a request without a token on an optional route, the tool error that asks the person to sign in. */
-  signIn?: (tool: string, scopes: readonly string[]) => McpToolResult
+  /**
+   * On an optional route, the tool error that asks the person to sign in, or to approve more scopes, before the tool
+   * runs. `undefined` lets the call run.
+   */
+  refuse?: (tool: string, definition: McpToolDefinition) => McpToolResult | undefined
 }
 
 async function runTool(name: string, definition: McpToolDefinition, input: unknown, scope: McpRequestScope): Promise<{ caller?: unknown, durationMs: number, error?: { value: unknown }, result: McpToolResult }> {
@@ -135,8 +138,8 @@ async function runTool(name: string, definition: McpToolDefinition, input: unkno
 
 function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefinition, scope: McpRequestScope): McpTool {
   const { name } = listed
-  const signIn = definition.public ? undefined : scope.signIn
-  if (signIn) return { ...listed, handler: async () => signIn(name, definition.scopes ?? []) }
+  const refused = scope.refuse?.(name, definition)
+  if (refused) return { ...listed, handler: async () => refused }
   let input: unknown
   let validationFailure: { error: unknown } | undefined
   return {
@@ -317,12 +320,21 @@ function scopeChallenge(request: Request, route: string, description: string, sc
 }
 
 /**
- * The answer to a call of a tool that needs sign-in, from a request without a token. ChatGPT reads the challenge in
+ * On an optional route, the answer to a call that needs sign-in or more scopes. ChatGPT reads the challenge in
  * `_meta["mcp/www_authenticate"]` and asks the person to connect their account. Other clients show the text.
  */
-function signInResult(request: Request, route: string, tool: string, scopes: readonly string[]): McpToolResult {
-  const text = `Sign in to call ${tool}. Ask the user to connect their account.`
+function signInResult(request: Request, route: string, text: string, scopes: readonly string[]): McpToolResult {
   return { content: [{ type: "text", text }], isError: true, _meta: { "mcp/www_authenticate": [scopeChallenge(request, route, text, scopes)] } }
+}
+
+/** Whether an optional route refuses a call: a tool without `public` needs a token with its `scopes`. */
+function refusal(request: Request, route: string, caller: McpToolCaller | undefined, tool: string, definition: McpToolDefinition): McpToolResult | undefined {
+  if (definition.public) return undefined
+  const scopes = definition.scopes ?? []
+  if (!caller) return signInResult(request, route, `Sign in to call ${tool}. Ask the user to connect their account.`, scopes)
+  const missing = scopes.filter(entry => !caller.scopes.includes(entry))
+  if (missing.length) return signInResult(request, route, `Sign in again and approve ${missing.join(" ")} to call ${tool}. Ask the user to reconnect their account.`, scopes)
+  return undefined
 }
 
 /** The `401` that starts the OAuth flow of an MCP client, with the location of the protected resource metadata. */
@@ -372,6 +384,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       caller = verified
     }
     const hooks = options.hooks
+    const signedIn = caller
     let context: Promise<McpToolContext> | undefined
     const scope: McpRequestScope = {
       event,
@@ -379,7 +392,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       // `resolveCaller` runs once per request, when the first handler needs the context, so `initialize` reads no app data.
       // SAFETY: `McpCaller` is the type that `resolveCaller` returns, or the signed-in caller without it.
       context: () => context ??= (async () => ({ event, caller: (hooks?.resolveCaller ? await hooks.resolveCaller({ caller, event }) : caller) as McpToolContext["caller"] }))(),
-      ...(anonymous ? { signIn: (tool: string, scopes: readonly string[]) => signInResult(request, options.route, tool, scopes) } : {}),
+      ...(optional ? { refuse: (tool: string, definition: McpToolDefinition) => refusal(request, options.route, signedIn, tool, definition) } : {}),
     }
     // A caller without a token sees every tool, so the client knows what sign-in unlocks, but only public prompts and resources.
     const visible = <T extends { definition: { public?: boolean } }>(entries: T[]) => anonymous ? entries.filter(entry => entry.definition.public) : entries
@@ -389,7 +402,8 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       tools: tools.map(tool => toMcpTool(tool.listed, tool.definition, scope)),
       prompts: visible(prompts).map(prompt => toMcpPrompt(prompt.listed, prompt.definition, scope)),
       resources: visible(resources).map(({ name, definition }) => toMcpResource(name, definition, scope)),
-      ...(caller ? { scopes: caller.scopes, challenge: async (missing: readonly string[]) => scopeChallenge(request, options.route, `Sign in again and approve ${missing.join(" ")}.`, missing) } : {}),
+      // An optional route answers missing scopes with a tool result instead, which ChatGPT reads.
+      ...(caller && !optional ? { scopes: caller.scopes, challenge: async (missing: readonly string[]) => scopeChallenge(request, options.route, `Sign in again and approve ${missing.join(" ")}.`, missing) } : {}),
     })
   }
 }

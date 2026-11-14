@@ -171,7 +171,8 @@ export default defineMcpTool({
 - A request without a token lists every tool, with `securitySchemes` that tell ChatGPT which tools need sign-in: `[{ type: 'noauth' }, { type: 'oauth2' }]` for a public tool, `[{ type: 'oauth2', scopes }]` for another.
 - A call of `show_lesson` without a token runs with `caller` set to `undefined`.
 - A call of `create_lesson` without a token does not run the handler. It returns a tool error with an `insufficient_scope` challenge in `_meta["mcp/www_authenticate"]`, and ChatGPT shows the sign-in.
-- A request with an invalid token gets `401`, as with `auth: true`. A signed-in caller whose token lacks `scopes` does not see the tool.
+- A signed-in caller whose token lacks the `scopes` of a tool gets the same kind of tool error, so ChatGPT asks the person to approve them.
+- A request with an invalid token gets `401`, as with `auth: true`.
 - Prompts and resources without `public: true` are hidden from a request without a token. Set `public: true` on the `ui://` resource of a public MCP App tool.
 
 ### A second address for other clients

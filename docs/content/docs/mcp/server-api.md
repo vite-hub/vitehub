@@ -31,7 +31,7 @@ export default defineMcpTool({
 | `annotations` | The MCP tool annotations that clients read before a call: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. |
 | `_meta` | Metadata that `tools/list` shows for the client, not the model, such as `{ ui: { resourceUri } }`. See [Show a UI in the chat](#show-a-ui-in-the-chat). |
 | `public` | Set `true` to let anyone call the tool without sign-in, with `mcp.auth: 'optional'` or on `mcp.publicRoute`. Without one of them, the server fails with `MCP_R0001`. See [Public tools](/docs/mcp/configure#let-anyone-call-some-tools). |
-| `scopes` | The OAuth scopes that a signed-in caller needs, such as `['lessons:write']`. A caller without them does not see the tool, and a call gets `403` with an `insufficient_scope` challenge. |
+| `scopes` | The OAuth scopes that a signed-in caller needs, such as `['lessons:write']`. With `auth: true`, a caller without them does not see the tool, and a call gets `403` with an `insufficient_scope` challenge. With `auth: 'optional'`, a call gets a tool error with that challenge. |
 | `handler` | Runs the call. |
 
 The server checks the arguments with `input` before the handler runs. Invalid arguments are a tool error for protocol `2025-11-25`, or JSON-RPC `-32602` for `2025-06-18`.

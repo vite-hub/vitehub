@@ -63,8 +63,9 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
    */
   public?: boolean
   /**
-   * The OAuth scopes that a signed-in caller needs, such as `["lessons:write"]`. A caller without them does not see the
-   * tool, and a call answers `403` with an `insufficient_scope` challenge. `tools/list` shows them in `securitySchemes`.
+   * The OAuth scopes that a signed-in caller needs, such as `["lessons:write"]`. `tools/list` shows them in
+   * `securitySchemes`. With `auth: true`, a caller without them does not see the tool and a call answers `403` with an
+   * `insufficient_scope` challenge. With `auth: "optional"`, a call returns a tool error with that challenge.
    */
   scopes?: readonly string[]
   /**

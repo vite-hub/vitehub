@@ -38,6 +38,7 @@ interface Answer {
     contents?: unknown
     instructions?: string
     isError: boolean
+    _meta?: Record<string, string[]>
     messages?: unknown
     prompts?: unknown
     resourceTemplates?: unknown
@@ -332,14 +333,24 @@ describe("optional sign-in on one route", () => {
     expect((await rpc({ ...options, verify: invalid }, "tools/list")).response.status).toBe(401)
   })
 
-  it("gives a signed-in caller the tools that its scopes allow", async () => {
+  it("asks a signed-in caller without the scopes of a tool to approve them, in a tool result", async () => {
     const verify = async () => [undefined, signedIn] as const
-    expect((await rpc({ ...options, verify }, "tools/list")).body.result.tools).toEqual([expect.objectContaining({ name: "show_lesson" })])
+    expect((await rpc({ ...options, verify }, "tools/list")).body.result.tools).toHaveLength(2)
     expect((await rpc({ ...options, verify }, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello Ada", type: "text" }])
     const { body, response } = await rpc({ ...options, verify }, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
+    expect(response.status).toBe(200)
+    expect(body.result).toMatchObject({ content: [{ text: "Sign in again and approve lessons:write to call create_lesson. Ask the user to reconnect their account.", type: "text" }], isError: true })
+    expect(body.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"insufficient_scope\"")
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("hides a tool from a caller without its scopes and answers a call with 403 when sign-in is required", async () => {
+    const verify = async () => [undefined, signedIn] as const
+    const required = { tools: { create_lesson: createLesson }, verify }
+    expect((await rpc(required, "tools/list")).body.result.tools).toEqual([])
+    const { body, response } = await rpc(required, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
     expect(response.status).toBe(403)
     expect(body.error?.code).toBe(-32001)
-    expect(response.headers.get("www-authenticate")).toContain("error=\"insufficient_scope\"")
     expect(response.headers.get("www-authenticate")).toContain("scope=\"lessons:write\"")
   })
 
