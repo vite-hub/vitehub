@@ -4,6 +4,7 @@ import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
 import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
+import { findRedisKVSource } from "./kv-env.ts"
 import { rewriteSources } from "./sources.ts"
 import { findNuxtHubModuleFollowUps } from "./modules.ts"
 import { findGlobalH3Overrides } from "./overrides.ts"
@@ -61,7 +62,7 @@ function dataFollowUps(run: string, input: { database?: DatabasePlan, d1: boolea
 
 async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
-  const plan = readHub(config)
+  const plan = readHub(config, await findRedisKVSource(cwd, config.fileName, config.code))
   const { features } = plan
   const wranglerFile = findWranglerFile(cwd)
   const configResult = editConfig(config, plan, wranglerFile, await readCloudflareResourceOptions(cwd, wranglerFile, plan.bindings))
@@ -101,7 +102,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
-    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
+    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,

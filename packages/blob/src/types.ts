@@ -240,6 +240,14 @@ export interface BlobServeResponseOptions {
    * segment of the pathname as the file name. A string sets the file name.
    */
   download?: boolean | string
+  /**
+   * On Cloudflare, keep the object in the cache of the location that runs the Worker for `maxAge` seconds, and answer
+   * the next `GET` requests there from that cache, without reading storage. A later write to the pathname is not seen
+   * until the entry expires, so give a long `maxAge` only to pathnames that are never written again. Call `serve()` after
+   * your own authorization: a cached object is served to whoever reaches the call. Other hosts, `HEAD` requests,
+   * `variant`, and `transform` read storage each time.
+   */
+  edgeCache?: { maxAge: number }
   /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**

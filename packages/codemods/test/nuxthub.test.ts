@@ -239,6 +239,28 @@ describe("nuxthub", () => {
     ])
   })
 
+  it("keeps NuxtHub's Redis KV with an explicit driver", async () => {
+    const config = (kv: string) => `export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: ${kv} } })\n`
+    const migrate = async (name: string, files: Record<string, string>) => {
+      const run = await runCodemod("nuxthub", { cwd: await app(name, files), dryRun: true })
+      return { config: run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after, followUps: run.result.followUps.map(followUp => followUp.message) }
+    }
+
+    const redisUrl = await migrate("redis-url", { "nuxt.config.ts": config("true"), ".env": "REDIS_URL=redis://localhost:6379\n" })
+    expect(redisUrl.config).toBe("export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {\n  host: 'node',\n  kv: { driver: 'redis' }\n} })\n")
+    expect(redisUrl.followUps).toContain(".env has REDIS_URL, so NuxtHub kept KV in Redis. ViteHub does not select Redis on its own, so the codemod set kv: { driver: 'redis' }. If that Redis belongs to another service, such as BullMQ, set kv: true.")
+    expect(redisUrl.followUps.some(message => message.includes(".data/kv"))).toBe(false)
+
+    expect((await migrate("kv-url", { "nuxt.config.ts": config("true"), ".env.production": "KV_URL=\"rediss://default:secret@example.com:6380\"\n" })).config).toContain("kv: { driver: 'redis', url: 'env:KV_URL' }")
+    expect((await migrate("config-reference", { "nuxt.config.ts": `${config("true")}// queue: process.env.REDIS_URL\n` })).config).toContain("kv: { driver: 'redis' }")
+    expect((await migrate("driver", { "nuxt.config.ts": config("{ driver: 'redis' }") })).config).toContain("kv: { driver: 'redis' }")
+
+    // NuxtHub selected Upstash before Redis, a plain KV_URL is not Redis, and Workers have no Redis client.
+    expect((await migrate("upstash-first", { "nuxt.config.ts": config("true"), ".env": "REDIS_URL=redis://localhost:6379\nKV_REST_API_URL=https://example.upstash.io\nKV_REST_API_TOKEN=token\n" })).config).toContain("kv: true")
+    expect((await migrate("plain-kv-url", { "nuxt.config.ts": config("true"), ".env": "KV_URL=redis://localhost:6379\n" })).config).toContain("kv: true")
+    expect((await migrate("redis-cloudflare", { "nuxt.config.ts": config("true"), ".env": "REDIS_URL=redis://localhost:6379\n", "wrangler.jsonc": "{}" })).config).not.toContain("redis")
+  })
+
   it("stops for MySQL and leaves the app unchanged", async () => {
     const directory = await app("mysql", { "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'mysql' } })\n" })
     await expect(runCodemod("nuxthub", { cwd: directory, dryRun: true })).rejects.toThrow("ViteHub does not support MySQL")

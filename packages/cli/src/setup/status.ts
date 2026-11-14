@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
-import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -100,11 +100,11 @@ export function setsOption(project: SetupProject, option: string): boolean {
   return !!options && typeof options === "object" && !Array.isArray(options) && key in options
 }
 
-function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }): string | undefined {
+function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }, providerChosen: boolean): string | undefined {
   const install = installCommand(project.packageManager, missing.prod, missing.dev)
   if (install) return install
   if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another host than ${host}.`
-  if (support.level === "explicit" && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
+  if (support.level === "explicit" && !providerChosen && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
 }
 
 /** What the project enables, on which host, and what each enabled feature still needs. Reads the config without running it. */
@@ -145,7 +145,11 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
-      const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing) : undefined
+      // A feature that only an implication turns on and that runs inline there needs no provider option. Outside
+      // Netlify, Workflow storage options select OpenWorkflow without `workflow.provider`.
+      const providerChosen = state.reason === "implied" && host.name !== "unknown" && impliedInline(id, on, host.name)
+        || id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
+      const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing, providerChosen) : undefined
       return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }
     }),
     framework: project.framework,
