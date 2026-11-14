@@ -5,13 +5,14 @@ import { docsSeoProblems, docsSitemapPaths, readDocsSeoPage } from "../src/seo-a
 const origin = "https://acme.dev"
 const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ")
 
-function html(options: { title?: string, description?: string, canonical?: string, robots?: string, refresh?: boolean, body?: string } = {}) {
+function html(options: { title?: string, description?: string, canonical?: string, robots?: string, refresh?: boolean, og?: false, body?: string } = {}) {
   const head = [
     options.title === undefined ? "<title>Key-value storage for apps · Acme</title>" : `<title>${options.title}</title>`,
     options.description === undefined ? "<meta name=\"description\" content=\"Store small values by key, read them back from a route, and choose the driver of each host.\">" : `<meta name="description" content="${options.description}">`,
     options.canonical ? `<link rel="canonical" href="${options.canonical}">` : "",
     options.robots ? `<meta name="robots" content="${options.robots}">` : "",
     options.refresh ? "<meta http-equiv=\"refresh\" content=\"0; url=/learn\">" : "",
+    options.og === false ? "" : "<meta property=\"og:title\" content=\"KV\"><meta property=\"og:type\" content=\"article\"><meta property=\"og:image\" content=\"https://acme.dev/og.png\"><meta property=\"og:url\" content=\"https://acme.dev/docs/kv\">",
   ].join("")
   return `<!DOCTYPE html><html><head>${head}</head><body>${options.body ?? `<h1>KV</h1><p>${words(200)}</p><a href="/">Home</a>`}</body></html>`
 }
@@ -104,5 +105,19 @@ describe("docsSeoProblems", () => {
     const lesson = page("/learn/kv", { canonical: "https://acme.dev/docs/kv" })
     const draft = page("/docs/draft", { robots: "noindex, follow", title: "Draft" })
     expect(docsSeoProblems([home, page("/docs/kv"), lesson, draft], [])).toEqual([])
+  })
+
+  it("names pages over the size limit, links to redirects and endpoints, and incomplete Open Graph tags", () => {
+    const big = page("/docs/codes", { body: `<h1>Codes</h1><p>${words(200)}</p><table>${"<tr><td class=\"py-3 px-4 text-sm\">x</td></tr>".repeat(60_000)}</table>` })
+    expect(big.bytes).toBeGreaterThan(2 * 1024 * 1024)
+    const guides = page("/guides", { refresh: true })
+    const links = page("/docs/links", { body: `<h1>Links</h1><p>${words(200)}</p><a href="/guides">Guides</a><a href="/mcp">MCP</a><a href="/">Home</a>` })
+    const bare = page("/docs/bare", { og: false })
+    expect(bare.openGraphMissing).toEqual(["og:title", "og:type", "og:image", "og:url"])
+    const problems = docsSeoProblems([home, big, guides, links, bare], [], { endpoints: ["/mcp"] })
+    expect(problems).toContain("/docs/codes has 2.6 MiB of HTML, and crawlers read only the first 2.0 MiB. Split the page, or show long lists with a component that renders less markup than a Markdown table.")
+    expect(problems).toContain("/docs/links links to /guides, which redirects. Link to the page that it redirects to.")
+    expect(problems).toContain("/docs/links links to /mcp, an endpoint that answers a browser with an error. Write the URL as code, or link to the page that explains it.")
+    expect(problems).toContain("/docs/bare has no og:title, og:type, og:image, og:url tag. Share previews need og:title, og:type, og:image, og:url: set `seo.image` instead of `false` for the image, and keep `site.url` set for the URL.")
   })
 })

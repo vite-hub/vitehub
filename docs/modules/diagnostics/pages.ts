@@ -132,12 +132,13 @@ function overviewPage(section: string, title: string, codes: DiagnosticCode[], g
     "",
   ]
   for (const [group, groupCodes] of groups) {
-    lines.push(`## ${group}`, "", "| Code | What happened |", "| --- | --- |")
+    // The site draws the compact list, a tenth of the HTML of a table. The table stays in the Markdown copy for agents.
+    lines.push(`## ${group}`, "", `::page-list{group="${group}" compact}`, "| Code | What happened |", "| --- | --- |")
     for (const code of groupCodes) {
       const guide = guides[code.code] ? " (guide)" : ""
       lines.push(`| [\`${code.code}\`](${diagnosticPath(section, code.code)})${guide} | ${tableCell(diagnosticSummary(code) ?? "See the page of the code.")} |`)
     }
-    lines.push("")
+    lines.push("::", "")
   }
   return lines.join("\n")
 }

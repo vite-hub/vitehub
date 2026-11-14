@@ -25,7 +25,7 @@ export function useDocsSeo(input: DocsSeoInput): void {
   // A section's own Overview names the section already.
   const section = input.section && input.section.path !== path ? input.section : null
   const description = input.description ?? site.description ?? undefined
-  useSeoMeta({ title: input.title, ogTitle: input.title, description, ogDescription: description })
+  useSeoMeta({ title: input.title, ogTitle: input.title, description, ogDescription: description, ogType: input.type === "article" ? "article" : "website" })
 
   if (input.image === false) {
     // Null overrides inherited head tags before Unhead removes them from the rendered page.
