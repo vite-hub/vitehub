@@ -122,7 +122,7 @@
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "@vite-hub/agent": "^0.1.0"
   },
   "peerDependenciesMeta": {
