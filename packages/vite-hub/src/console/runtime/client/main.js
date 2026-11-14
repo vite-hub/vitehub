@@ -34,7 +34,7 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, openConsoleProject, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
+import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
@@ -81,7 +81,9 @@ if (account) {
   const projects = useConsoleProjects();
   // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
   // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
-  if (projects.gate.value.kind === "opening") {
+  // A `/_vitehub` link goes back to the app as soon as the app answers. The page shows that it is opening the app.
+  if (projects.gate.value.kind === "site") void openConsoleSite();
+  else if (projects.gate.value.kind === "opening") {
     await Promise.race([openConsoleProject().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 2_500))]);
   }
   // The next visit to the home path draws the frame that this one shows: an open app, or the team sidebar.
