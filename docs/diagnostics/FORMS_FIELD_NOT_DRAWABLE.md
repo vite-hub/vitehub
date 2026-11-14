@@ -1,6 +1,6 @@
 ---
 description: "Fix FORMS_FIELD_NOT_DRAWABLE in ViteHub. A surface cannot draw a field of the form schema, such as a nested object in a Slack modal. Keep the form flat."
-seo.title: "FORMS_FIELD_NOT_DRAWABLE: a surface cannot draw this form field"
+seo.title: "FORMS_FIELD_NOT_DRAWABLE: field cannot render"
 ---
 
 `formFields()`, `toElicitation()`, `toChatModal()`, or `AutoForm` throws `FORMS_FIELD_NOT_DRAWABLE`. One field of the form schema has a shape that the surface cannot draw. The message names the field, its shape, and the surface.
