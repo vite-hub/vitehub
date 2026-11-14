@@ -751,7 +751,7 @@ function deploymentNitroModule(
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
-  cloudflareVars: () => Record<string, string>,
+  cloudflareVars: () => ReturnType<typeof cloudflareServerEnvVars>,
 ) {
   return (nitro: {
     hooks: {
@@ -1054,7 +1054,7 @@ function deploymentPlugins(
             const viteRoot = resolve(config.root ?? process.cwd())
             const cloudflareVars = () => {
               const envPlugin = deploymentEnvPlugin.current
-              if (plan.host !== "cloudflare" || !options.cloudflare?.vars || !envPlugin) return {}
+              if (plan.host !== "cloudflare" || !options.cloudflare?.vars || !envPlugin) return []
               // Read the build environment the way the Env plugin does, so `.env.development` never applies.
               const buildEnv = { ...loadEnv(environment.mode, envPlugin.api.resolveProjectRoot(viteRoot), ""), ...process.env }
               return cloudflareServerEnvVars(envPlugin.api.getServerEnvRegistry(), buildEnv)

@@ -730,13 +730,13 @@ describe("built-in host integration", () => {
         "GMAIL_ACCOUNT=acc_conventional",
         "DRY_RUN=false",
         "PUBSUB_TOPIC=",
-        "PAYMENT_LINK=https://pay.example.com/from-env",
+        "VITEHUB_PAYMENT_LINK=https://pay.example.com/from-env",
         "",
       ].join("\n"))
       await writeFile(join(root, ".env.development"), "LOG_LEVEL=debug\n")
       await writeFile(join(root, "wrangler.json"), JSON.stringify({
         vars: { PAYMENT_LINK: "https://pay.example.com/from-wrangler" },
-        env: { staging: { vars: { DRY_RUN: "true" } } },
+        env: { staging: { vars: { DRY_RUN: "true" } }, production: { vars: { PAYMENT_LINK: "https://pay.example.com/production" } } },
       }))
       const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
       const builder = await createBuilder({
@@ -778,7 +778,8 @@ describe("built-in host integration", () => {
       }
       expect(wrangler).toHaveProperty("vars", expected)
       // Named environments do not inherit vars, and keep their own.
-      expect(wrangler).toHaveProperty("env.staging.vars", { ...expected, DRY_RUN: "true", PAYMENT_LINK: "https://pay.example.com/from-env" })
+      expect(wrangler).toHaveProperty("env.staging.vars", { EXECUTOR_URL: expected.EXECUTOR_URL, VITEHUB_GMAIL_ACCOUNT: expected.VITEHUB_GMAIL_ACCOUNT, DRY_RUN: "true", VITEHUB_PAYMENT_LINK: "https://pay.example.com/from-env" })
+      expect(wrangler).toHaveProperty("env.production.vars", { ...expected, PAYMENT_LINK: "https://pay.example.com/production" })
     }
     finally {
       await rm(root, { force: true, recursive: true })
