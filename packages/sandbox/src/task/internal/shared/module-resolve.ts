@@ -1,6 +1,5 @@
 import { resolveModule } from 'local-pkg'
 import { resolvePathSync } from 'mlly'
-import { sandboxTaskErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export type ModuleResolveResult =
   | [error: null, path: string]
@@ -34,7 +33,8 @@ export function tryResolveModule(id: string, options: { paths?: string[] } = {})
 
   const runtimeResolved = tryResolveFromRuntime(id)
   if (runtimeResolved === false)
-    return [sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0050({ message: `Unable to resolve module "${id}" using the active runtime resolver` }), undefined]
+    // Internal invariant: callers only check whether resolution failed, so this error never leaves ViteHub.
+    return [new Error(`Unable to resolve module "${id}" using the active runtime resolver`), undefined]
   if (runtimeResolved)
     return [null, runtimeResolved]
 
@@ -51,9 +51,10 @@ export function tryResolveModule(id: string, options: { paths?: string[] } = {})
     }
   }
 
-  return [sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0051({ message: paths.length > 0
-      ? `Unable to resolve module "${id}" from ${paths.join(', ')}`
-      : `Unable to resolve module "${id}" without explicit resolution paths` }), undefined]
+  // Internal invariant: callers only check whether resolution failed, so this error never leaves ViteHub.
+  return [new Error(paths.length > 0
+    ? `Unable to resolve module "${id}" from ${paths.join(', ')}`
+    : `Unable to resolve module "${id}" without explicit resolution paths`), undefined]
 }
 
 const resolveCache = new Map<string, boolean>()

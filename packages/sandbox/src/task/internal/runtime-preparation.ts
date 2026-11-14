@@ -296,7 +296,8 @@ async function writeSandboxTaskArtifactsLocked(
         : stableDst
       const contents = artifact.contents ?? await artifact.getContents?.(emitted, { dst, stableDst })
       if (typeof contents !== 'string')
-        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0043({ message: `[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.` })
+        // Internal invariant: the plan comes from ViteHub's Sandbox Task feature, and each of its artifacts returns a string.
+        throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
 
       emitted.set(artifact.key, { ...artifact, contents, dst, stableDst })
     }
@@ -313,7 +314,8 @@ async function writeSandboxTaskArtifactsLocked(
     const activeFacadeFile = resolveSandboxTaskRuntimeFacadeImportBase(runtimeDir, generationFacadeFile, platform)
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     if (!registryArtifact)
-      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0044({ message: '[vitehub] Sandbox runtime plan did not emit a registry artifact.' })
+      // Internal invariant: ViteHub's Sandbox Task feature always adds the registry artifact and its alias to the plan.
+      throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
     const providerLoaderArtifact = emitted.get('sandbox-task-provider-loader')
     // The facade loads from the generation folder or through the `runtime` link. An absolute path reaches the
     // provider loader from both. On Windows the facade is a copy in the `runtime` folder.

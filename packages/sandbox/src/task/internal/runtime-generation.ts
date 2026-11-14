@@ -508,7 +508,8 @@ export async function withSandboxTaskRuntimeGenerationLock<T>(
   if (cleanupErrors.length > 1)
     throw new AggregateError(cleanupErrors, `[vitehub] Failed to clean up the Sandbox runtime generation lock in ${generatedDir}.`)
   if (!operationResult)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0040({ message: `[vitehub] Sandbox runtime preparation completed without a result in ${generatedDir}.` })
+    // Internal invariant: the operation either sets operationResult or sets operationFailed, which returns above.
+    throw new Error(`[vitehub] Sandbox runtime preparation completed without a result in ${generatedDir}.`)
   return operationResult.value
 }
 

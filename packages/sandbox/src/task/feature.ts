@@ -300,7 +300,8 @@ export async function createSandboxTaskFeaturePlan(
           return createSandboxTaskRegistryContents(location.dst, sandboxTaskDefinitions.map((definition) => {
             const artifact = emitted.get(definition.definitionArtifactKey)
             if (!artifact)
-              throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0014({ message: `[vitehub] Missing generated sandbox definition module for "${definition.name}".` })
+              // Internal invariant: the plan emits each Definition artifact before this registry artifact.
+              throw new Error(`[vitehub] Missing generated sandbox definition module for "${definition.name}".`)
             return {
               name: definition.name,
               definitionModulePath: artifact.dst,
