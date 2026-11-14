@@ -126,6 +126,12 @@ before you write them. In development, the local `fs-lite` store ignores
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
+NuxtHub moved KV to Redis on its own when the build had `REDIS_URL`. ViteHub
+does not, because that variable often belongs to another service. If your KV
+used Redis, set `kv: { driver: "redis" }`. The codemod does this when an env
+file or `nuxt.config` names `REDIS_URL`, and the build warns when it finds
+`REDIS_URL` without a KV driver.
+
 NuxtHub keeps Redis and Upstash keys at the root of the database. ViteHub keeps
 them under `vitehub:kv:<store>`, such as `vitehub:kv:default:settings`. Before
 the switch, move the keys once with the Redis or Upstash client:

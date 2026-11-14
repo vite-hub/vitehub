@@ -101,7 +101,8 @@ vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
   resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
 }))
-vi.mock("@vite-hub/blob/vite", () => ({
+vi.mock("@vite-hub/blob/vite", async () => ({
+  hasS3BlobEnv: (await vi.importActual<typeof import("../../blob/src/config.ts")>("../../blob/src/config.ts")).hasS3BlobEnv,
   hubBlob: integrationMocks.hubBlob,
   resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
 }))
@@ -2003,6 +2004,20 @@ describe("vitehub", () => {
       expect.objectContaining({ driver }),
       { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
+  })
+
+  it.each(["cloudflare", "netlify", "node", "vercel"] as const)("lets NuxtHub S3 env pick the Blob driver on the %s host", (preset) => {
+    vi.stubEnv("S3_ACCESS_KEY_ID", "test-key")
+    vi.stubEnv("S3_SECRET_ACCESS_KEY", "test-secret")
+    vi.stubEnv("S3_BUCKET", "assets")
+    try {
+      integrationMocks.hubBlob.mockClear()
+      vitehub({ host: preset, blob: true })
+      expect(integrationMocks.hubBlob.mock.lastCall?.[0]).not.toHaveProperty("driver")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it.each([
