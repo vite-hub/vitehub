@@ -1165,7 +1165,7 @@ function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: Abort
     async kill(signal?: string) {
       // kill() signals the local Crabbox CLI with SIGTERM. The CLI does not forward a chosen signal to the remote command.
       if (signal !== undefined && signal.toUpperCase().replace(/^SIG/, "") !== "TERM")
-        throw sandboxErrorDiagnostics.SANDBOX_R0165({ message: `[vitehub] Crabbox Sandbox can only send SIGTERM, not ${JSON.stringify(signal)}.` })
+        throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Crabbox", signal: String(signal) })
       child.kill()
       await wait.catch(() => undefined)
     },

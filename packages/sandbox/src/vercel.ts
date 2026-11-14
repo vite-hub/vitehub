@@ -494,6 +494,6 @@ function vercelSignal(signal: string | undefined): VercelSandboxSignal | undefin
   const name = `SIG${signal.toUpperCase().replace(/^SIG/, "")}`;
   const known = vercelSignalNames.find(value => value === name);
   if (!known)
-    throw sandboxErrorDiagnostics.SANDBOX_R0165({ message: `[vitehub] Vercel Sandbox cannot send ${JSON.stringify(signal)} by name. Use ${vercelSignalNames.join(", ")}, or a signal number.` });
+    throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Vercel", signal: String(signal) });
   return known;
 }

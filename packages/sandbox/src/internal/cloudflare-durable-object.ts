@@ -251,7 +251,7 @@ export function createCloudflareSandboxDurableObject(
 
     async exec(command: string, options: CloudflareExecOptions = {}) {
       const container = await this.#running();
-      if (options.id && this.#cancelled.delete(options.id)) throw new Error("Command was cancelled before it started.");
+      if (options.id && this.#cancelled.delete(options.id)) throw new DOMException("Command was cancelled before it started.", "AbortError");
       let timedOut = false;
       const timer = options.timeout ? setTimeout(() => { timedOut = true; }, options.timeout) : undefined;
       try {
