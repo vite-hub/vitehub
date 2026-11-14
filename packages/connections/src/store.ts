@@ -25,6 +25,8 @@ export interface ConnectionState {
 
 export interface ConnectionAuthorization {
   chatgpt?: { clientId: string, nonce: string, subject?: string }
+  /** The client that ViteHub registered and that built the authorization URL. The code exchange uses the same client. */
+  client?: { id: string, key: string }
   actor: string
   expiresAt: number
   name: string
@@ -73,6 +75,7 @@ export interface ConnectionStore {
 const identifier = v.pipe(v.string(), v.minLength(1), v.maxLength(512))
 const chatgptStateSchema = v.object({ clientId: v.string(), expiresAt: v.optional(v.number()) })
 const chatgptAuthorizationSchema = v.object({ clientId: v.string(), nonce: v.string(), subject: v.optional(v.string()) })
+const authorizationClientSchema = v.object({ id: v.string(), key: v.string() })
 const stateRow = v.object({
   chatgpt: v.nullable(v.string()),
   account_email: v.nullable(v.string()),
@@ -86,6 +89,7 @@ const stateRow = v.object({
 })
 const authorizationRow = v.object({
   chatgpt: v.nullable(v.string()),
+  client: v.nullable(v.string()),
   actor: identifier,
   expires_at: v.number(),
   name: identifier,
@@ -195,11 +199,11 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         sql`CREATE TABLE IF NOT EXISTS vitehub_connection_approvals (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, trace_id TEXT, invocation_id TEXT, created_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT, error TEXT, execution_expires_at TEXT)`,
       )
       await db.run(sql`CREATE TABLE IF NOT EXISTS vitehub_connection_refresh_leases (name TEXT PRIMARY KEY, owner TEXT NOT NULL, revision TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
-      for (const table of ["vitehub_connection_state", "vitehub_connection_authorizations"]) {
+      for (const [table, name] of [["vitehub_connection_state", "chatgpt"], ["vitehub_connection_authorizations", "chatgpt"], ["vitehub_connection_authorizations", "client"]]) {
         const hasMetadata = async () => (await db.all(sql.raw(`PRAGMA table_info(${table})`)))
-          .some(column => v.parse(v.object({ name: v.string() }), column).name === "chatgpt")
+          .some(column => v.parse(v.object({ name: v.string() }), column).name === name)
         if (!await hasMetadata()) {
-          try { await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN chatgpt TEXT`)) }
+          try { await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${name} TEXT`)) }
           catch (error) { if (!await hasMetadata()) throw error }
         }
       }
@@ -329,14 +333,14 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
       async put(authorization) {
         await initialize()
         await db.run(sql`DELETE FROM vitehub_connection_authorizations WHERE expires_at <= ${Date.now()}`)
-        await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at, chatgpt) VALUES (${authorization.state}, ${authorization.name}, ${authorization.actor}, ${authorization.verifier}, ${authorization.redirectUri}, ${authorization.expiresAt}, ${authorization.chatgpt ? JSON.stringify(authorization.chatgpt) : null})`)
+        await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at, chatgpt, client) VALUES (${authorization.state}, ${authorization.name}, ${authorization.actor}, ${authorization.verifier}, ${authorization.redirectUri}, ${authorization.expiresAt}, ${authorization.chatgpt ? JSON.stringify(authorization.chatgpt) : null}, ${authorization.client ? JSON.stringify(authorization.client) : null})`)
       },
       async take(state) {
         await initialize()
-        const row = (await db.all(sql`DELETE FROM vitehub_connection_authorizations WHERE state = ${state} RETURNING state, name, actor, verifier, redirect_uri, expires_at, chatgpt`))[0]
+        const row = (await db.all(sql`DELETE FROM vitehub_connection_authorizations WHERE state = ${state} RETURNING state, name, actor, verifier, redirect_uri, expires_at, chatgpt, client`))[0]
         if (row === undefined) return undefined
         const stored = v.parse(authorizationRow, row)
-        return { ...(stored.chatgpt ? { chatgpt: v.parse(chatgptAuthorizationSchema, parseJson(stored.chatgpt)) } : {}), actor: stored.actor, expiresAt: stored.expires_at, name: stored.name, redirectUri: stored.redirect_uri, state: stored.state, verifier: stored.verifier }
+        return { ...(stored.chatgpt ? { chatgpt: v.parse(chatgptAuthorizationSchema, parseJson(stored.chatgpt)) } : {}), ...(stored.client ? { client: v.parse(authorizationClientSchema, parseJson(stored.client)) } : {}), actor: stored.actor, expiresAt: stored.expires_at, name: stored.name, redirectUri: stored.redirect_uri, state: stored.state, verifier: stored.verifier }
       },
     },
     approvals: {

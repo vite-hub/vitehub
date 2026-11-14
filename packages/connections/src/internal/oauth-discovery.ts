@@ -53,6 +53,20 @@ function withoutTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
+/** The `resource_metadata` URL in the `WWW-Authenticate` challenge of an MCP endpoint (RFC 9728, section 5.1). */
+async function challengeMetadataUrl(mcp: string, request: typeof fetch): Promise<string | undefined> {
+  try {
+    const response = await request(mcp, { headers: { accept: "application/json, text/event-stream" }, redirect: "manual", signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) })
+    await response.body?.cancel()
+    if (response.status !== 401) return undefined
+    const url = /\bresource_metadata="([^"]+)"/i.exec(response.headers.get("www-authenticate") ?? "")?.[1]
+    return url && isSafeEndpoint(url) ? url : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
 /** Protected resource metadata URLs of a resource: the path inserted, then the root (RFC 9728, section 3.1). */
 function resourceMetadataUrls(resource: string): string[] {
   const url = new URL(resource)
@@ -98,7 +112,9 @@ async function readJson(request: typeof fetch, url: string, init: RequestInit = 
 export async function discoverAuthorizationServer(mcp: string, request: typeof fetch, connection: string): Promise<AuthorizationServer> {
   let issuer: string | undefined
   let resource = mcp
-  for (const url of resourceMetadataUrls(mcp)) {
+  // The `resource_metadata` of the `401` challenge comes first, then the well-known URLs (MCP authorization spec).
+  const advertised = await challengeMetadataUrl(mcp, request)
+  for (const url of [...(advertised ? [advertised] : []), ...resourceMetadataUrls(mcp)]) {
     const response = await readJson(request, url)
     const metadata = response && response.status < 300 ? v.safeParse(resourceMetadataSchema, response.body) : undefined
     if (!metadata?.success) continue
@@ -144,6 +160,8 @@ export interface ClientRegistrations {
   client: (server: AuthorizationServer, input: { clientName: string, connection: string, redirectUri: string, scopes: readonly string[] }) => Promise<RegisteredClient & { key: string }>
   /** Forget a client that the authorization server rejected, so the next sign-in registers a new one. */
   forget: (key: string, clientId: string) => Promise<void>
+  /** The client stored under `key`, if any. */
+  stored: (key: string) => Promise<RegisteredClient | undefined>
 }
 
 /** Registered clients, sealed in the Connections secret store under `connections-client/<hash>`. */
@@ -208,6 +226,7 @@ export function clientRegistrations(options: { now: () => number, request: typeo
         return { ...winner.client, key }
       }
     },
+    stored: async key => (await read(key)).client,
     async forget(key, clientId) {
       const current = await read(key)
       if (current.client?.clientId !== clientId || current.revision === null) return
