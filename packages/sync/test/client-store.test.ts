@@ -887,6 +887,34 @@ describe("persistence and tabs", () => {
     expect(h.server.applied).toHaveLength(1)
   })
 
+  it("stores a write that the store took just before destroy(), and the next store sends it", async () => {
+    const h = setup()
+    const first = h.open()
+    await first.store.refresh()
+    const write = first.store.insert({ title: "Milk" })
+    first.store.destroy()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toMatchObject([{ id: expect.any(String), key: write.key, op: "insert" }])
+    expect(write.state).toBe("queued")
+
+    const second = h.open()
+    await second.store.refresh()
+    expect(second.store.getState().queued).toBe(0)
+    expect(h.server.rows.get(write.key)).toMatchObject({ title: "Milk", ownerId: "ada" })
+  })
+
+  it("sends from an open store the writes that a destroyed store stored", async () => {
+    const h = setup()
+    const other = h.open()
+    const first = h.open()
+    await Promise.all([other.store.refresh(), first.store.refresh()])
+    // A component unmounts, or moves to another subset, in the tick of its write.
+    const write = first.store.insert({ title: "Eggs" })
+    first.store.destroy()
+    await until(() => h.server.rows.has(write.key))
+    await until(() => other.store.getState().queued === 0 && other.store.get(write.key) !== undefined)
+  })
+
   it("keeps an insert made before the first pull, and sends it with the scope of that pull", async () => {
     const h = setup()
     h.server.offline = true

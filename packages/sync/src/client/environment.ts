@@ -1,8 +1,11 @@
 /** A page event that the store reacts to. */
 type SyncEvent = "online" | "offline" | "visible" | "hidden"
 
-/** A message between tabs. `change` tells that the stored copy of a Sync route changed. */
-type SyncMessage = { type: "change", id: string } | { type: "clear" }
+/**
+ * A message between tabs. `change` tells that the stored copy of a Sync route changed. `queued` tells that it has writes
+ * that the sender does not send, since its store stopped, so a store that gets the message sends them.
+ */
+type SyncMessage = { type: "change", id: string, queued?: true } | { type: "clear" }
 
 /** What the store needs from the browser. Tests pass a fake one. */
 interface SyncEnvironment {
@@ -64,7 +67,9 @@ function createBrowserEnvironment(): SyncEnvironment {
       return () => controller.abort()
     },
     post(message) {
-      channel?.postMessage(message)
+      if (channel) channel.postMessage(message)
+      // A stopped store still tells the other stores of the page and the other tabs about the writes that it stored.
+      else postOnce(message)
     },
     receive(listener) {
       if (typeof BroadcastChannel !== "function") return () => undefined
@@ -86,12 +91,17 @@ function createBrowserEnvironment(): SyncEnvironment {
   }
 }
 
-/** Tells the other tabs that every store was cleared. */
-function postClear(): void {
+/** Posts one message on a channel of its own, so every open channel gets it. */
+function postOnce(message: SyncMessage): void {
   if (typeof BroadcastChannel !== "function") return
   const channel = new BroadcastChannel(channelName)
-  channel.postMessage({ type: "clear" } satisfies SyncMessage)
+  channel.postMessage(message)
   channel.close()
+}
+
+/** Tells the other tabs that every store was cleared. */
+function postClear(): void {
+  postOnce({ type: "clear" })
 }
 
 export { createBrowserEnvironment, postClear }

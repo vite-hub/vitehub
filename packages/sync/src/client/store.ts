@@ -352,10 +352,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     return handle
   }
 
-  /** Stores the writes of this tick in one change, then sends them in one push. */
+  /**
+   * Stores the writes of this tick in one change, then sends them in one push. It runs also after `destroy()`, so each
+   * write that the store took reaches storage. Another store of the name sends it then.
+   */
   function flush(): void {
     flushQueued = false
-    if (destroyed || (!local.length && !removals.length)) return
+    if (!local.length && !removals.length) return
     const batch = local.filter(write => !busy.has(write.id)).map(write => write.account === null && meta ? { ...write, account: meta.account } : write)
     const removed = removals
     removals = []
@@ -372,7 +375,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       writes = [...writes, ...stored.filter(write => !known.has(write.id))]
       version++
       publish()
-      environment.post({ type: "change", id })
+      environment.post(destroyed ? { type: "change", id, queued: true } : { type: "change", id })
       void schedule(false)
     }, (cause: unknown) => {
       for (const write of batch) busy.delete(write.id)
@@ -784,7 +787,12 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   })
   const stopMessages = environment.receive((message) => {
     if (message.type === "clear") forget()
-    else if (message.id === id) void reload()
+    // A store that stopped stored writes that it does not send, so this one sends them.
+    else if (message.id === id) {
+      void reload().then(() => {
+        if (message.queued) void schedule(false)
+      })
+    }
   })
   tick()
   void schedule(true)
@@ -866,6 +874,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     destroy() {
       if (destroyed) return
       destroyed = true
+      // The writes of this tick go to storage now, and another store of the name sends them.
+      if (flushQueued) flush()
       stopEvents()
       stopMessages()
       stopLive()

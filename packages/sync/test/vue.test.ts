@@ -139,6 +139,19 @@ describe("useSync", () => {
     app.unmount()
   })
 
+  it("keeps a write of a component that unmounts in the same tick, and the next one sends it", async () => {
+    const server = createFakeSyncServer()
+    server.live = false
+    const first = mountTodos(server)
+    await until(() => first.todos().status === "ready")
+    const write = first.todos().insert({ title: "Milk" })
+    first.app.unmount()
+    const second = mountTodos(server)
+    await until(() => server.rows.has(write.key))
+    await until(() => second.root.querySelectorAll("li").length === 1)
+    second.app.unmount()
+  })
+
   it("shows pending rows, the live stream, and optimistic actions", async () => {
     const server = createFakeSyncServer()
     server.write({ id: "a", ownerId: "ada", title: "Milk", done: false })
