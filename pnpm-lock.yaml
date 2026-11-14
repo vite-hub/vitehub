@@ -1248,6 +1248,9 @@ importers:
       rou3:
         specifier: ^1.0.0
         version: 1.0.0
+      unrouting:
+        specifier: ^0.3.2
+        version: 0.3.2
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)

@@ -177,6 +177,7 @@ type NuxtLike = {
     buildDir: string
     dev?: boolean
     experimental?: {
+      extraPageMetaExtractionKeys?: string[]
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{

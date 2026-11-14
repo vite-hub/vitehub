@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
+import { assertNoCachedPageGuards, type NuxtPageLike } from "./page-guard-cache.ts"
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
 
 import { authAbilitiesCandidates } from "./discovery.ts"
@@ -35,6 +36,9 @@ type NuxtLike = {
     app?: {
       baseURL?: string
     }
+    experimental?: {
+      extraPageMetaExtractionKeys?: string[]
+    }
     imports?: {
       imports?: Array<{ from: string, name: string }>
     }
@@ -43,8 +47,12 @@ type NuxtLike = {
       plugins?: string[]
     }
     rootDir?: string
+    router?: {
+      options?: { sensitive?: boolean }
+    }
     serverDir?: string
     srcDir?: string
+    ssr?: boolean
     vite?: {
       define?: Record<string, unknown>
       plugins?: unknown[]
@@ -75,6 +83,12 @@ const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
 const manifestRegistered = new WeakSet<object>()
+const pageCacheCheckRegistered = new WeakSet<object>()
+
+type NitroBuild = {
+  hooks: { hook: (name: "build:config", callback: () => Promise<void> | void) => void }
+  options: { routeRules: Parameters<typeof assertNoCachedPageGuards>[1] }
+}
 
 /** Better Auth's Vue client file, which `createAuthClient()` imports on first use. */
 function resolveBetterAuthVueClient(): string | undefined {
@@ -214,6 +228,24 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       const key = client && Object.keys(manifest).find(id => resolve(root, id) === client)
       if (!key) return
       for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => id !== key)
+    })
+  }
+
+  if (authOptions !== false && !pageCacheCheckRegistered.has(nuxt) && nuxt.hook) {
+    pageCacheCheckRegistered.add(nuxt)
+    // Nuxt reads a `definePageMeta()` key into the page at build time only when the key is in this list or
+    // `experimental.extractSerializablePageMeta` is on.
+    nuxt.options.experimental ??= {}
+    const extractionKeys = nuxt.options.experimental.extraPageMetaExtractionKeys ??= []
+    if (!extractionKeys.includes("auth")) extractionKeys.push("auth")
+    let pages: readonly NuxtPageLike[] = []
+    ;(nuxt.hook as unknown as (name: "pages:resolved", handler: (resolved: NuxtPageLike[]) => void) => void)("pages:resolved", (resolved) => {
+      pages = resolved
+    })
+    // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the check
+    // reads the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there.
+    ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
+      nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules, { sensitive: nuxt.options.router?.options?.sensitive }))
     })
   }
 

@@ -152,6 +152,7 @@
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "rou3": "^1.0.0",
+    "unrouting": "^0.3.2",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
