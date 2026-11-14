@@ -156,10 +156,10 @@ describe("KV Vite output", () => {
   })
 
   it("resolves its runtime files next to the built package entry", async () => {
-    const { kvNitroCacheDriver } = await import(new URL(`../${"dist"}/vite.js`, import.meta.url).href) as typeof import("../src/vite.ts")
+    const { kvStorageDriver } = await import(new URL(`../${"dist"}/vite.js`, import.meta.url).href) as typeof import("../src/vite.ts")
 
-    expect(kvNitroCacheDriver).toBe(fileURLToPath(new URL("../dist/runtime/nitro-cache.js", import.meta.url)))
-    expect(existsSync(kvNitroCacheDriver)).toBe(true)
+    expect(kvStorageDriver).toBe(fileURLToPath(new URL("../dist/runtime/unstorage-driver.js", import.meta.url)))
+    expect(existsSync(kvStorageDriver)).toBe(true)
   })
 
   it("runs an fs-lite server bundle without the optional Upstash peer", async () => {
@@ -222,7 +222,7 @@ describe("KV Vite output", () => {
     await expect(worker.default()).resolves.toBeNull()
   })
 
-  it("bundles the Nitro cache driver over the app's Cloudflare KV store", async () => {
+  it("bundles the unstorage driver over the app's Cloudflare KV store", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
     const [{ build }, { hubKV }] = await Promise.all([
@@ -231,10 +231,10 @@ describe("KV Vite output", () => {
     ])
     await writeFile(entry, [
       `import { kv } from "@vite-hub/kv"`,
-      // The built driver, as `kvNitroCacheDriver` from the built `@vite-hub/kv/vite` returns it.
-      `import createKVCacheDriver from ${JSON.stringify(fileURLToPath(new URL("../dist/runtime/nitro-cache.js", import.meta.url)))}`,
+      // The built driver, as `kvStorageDriver` from the built `@vite-hub/kv/vite` returns it.
+      `import createKVStorageDriver from ${JSON.stringify(fileURLToPath(new URL("../dist/runtime/unstorage-driver.js", import.meta.url)))}`,
       `export default async () => {`,
-      `  await createKVCacheDriver().setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
+      `  await createKVStorageDriver({ base: "nitro-cache" }).setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
       `  const [error, value] = await kv.get("nitro-cache:nitro:functions:stars.json")`,
       `  if (error) throw error`,
       `  return value`,
@@ -445,7 +445,7 @@ describe("KV Vite output", () => {
       reader: object
       writer: object
     }
-    expect(Object.keys(worker.reader).sort()).toEqual(["get", "has", "keys", "list"])
+    expect(Object.keys(worker.reader).sort()).toEqual(["get", "getMany", "has", "keys", "list"])
     expect("set" in worker.writer).toBe(true)
     for (const mode of ["readonly", null]) {
       expect(() => worker.badMode(mode)).toThrow(expect.objectContaining({ code: "KV_INVALID_STORE_MODE" }))

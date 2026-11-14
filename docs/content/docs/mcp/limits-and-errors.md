@@ -34,3 +34,7 @@ A file in `server/mcp/tools/` has a name that MCP does not allow as a tool name.
 ### MCP_R0001
 
 A tool sets `public`, but the MCP server has no `mcp.publicRoute`. The error names the tools. Set `mcp: { route: '/mcp/account', publicRoute: '/mcp' }` to serve them without sign-in, or remove `public` from the tools.
+
+### SOURCE_B0010
+
+[Content](/docs/content/seo#page-mcp-server) also serves an MCP server at `/mcp` when `server/content.ts` sets `seo: { mcp: true }`. One route serves one MCP server, so the build stops. Give the app MCP server another `route` or `publicRoute`, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or set `seo: { mcp: false }`.

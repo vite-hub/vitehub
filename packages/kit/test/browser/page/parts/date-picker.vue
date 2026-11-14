@@ -13,7 +13,7 @@ import {
   DatePickerHint,
   DatePickerInput,
   DatePickerTrigger,
-} from "@vite-hub/kit/date-picker"
+} from "@ui-sdk/vue/date-picker"
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "../icons"
 </script>
 

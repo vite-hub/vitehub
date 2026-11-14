@@ -35,6 +35,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -48,6 +49,7 @@ import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOpti
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
@@ -87,6 +89,7 @@ export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
+export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
@@ -460,6 +463,21 @@ export interface ViteHubOptions {
    * unless the app configures Worker routing.
    */
   publicUrl?: string | ((agentName: string) => string)
+  /**
+   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
+   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
+   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
+   * you run sets the header. Default: `false`.
+   */
+  trustProxy?: boolean
+  /**
+   * Refuse browser writes from other origins that carry cookies, with 403, before any middleware or route runs. A
+   * request is refused when its method is not GET, HEAD, or OPTIONS, it has a `Cookie` header, and its
+   * `Sec-Fetch-Site` is `same-site` or `cross-site`, or its `Origin` is not the app's origin. Requests without cookies,
+   * such as bearer-token clients and webhooks, pass. `exclude` lists path prefixes that take writes from other sites.
+   * Default: `false`.
+   */
+  sameOriginWrites?: boolean | SameOriginWritesOptions
   agent?: boolean | AgentOptions
   auth?: boolean | AuthOptions
   blob?: boolean | BlobOptions
@@ -1054,7 +1072,7 @@ function deploymentPlugins(
             }
           }
           if (options.cache) {
-            const cacheStorage = resolveCacheStorage(options.cache, plan.host, options.kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvNitroCacheDriver : undefined)
+            const cacheStorage = resolveCacheStorage(options.cache, plan.host, options.kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvStorageDriver : undefined)
             nitro = applyCacheStorage(nitro, cacheStorage)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
@@ -1393,6 +1411,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (options.trustProxy || options.sameOriginWrites) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
 
@@ -1402,6 +1421,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
+    // The `page()` Capability reaches the page through Realtime.
+    realtime: options.realtime ? "vite-hub/realtime/agent" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1596,9 +1617,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/realtime",
       // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
-      // Other hosts keep one Content editor at a time and show comments without presence.
+      // Other hosts keep one Content editor at a time and show comments without presence. Agents get a room for each
+      // page, which the `page()` Capability asks.
       contribute: async (context) => {
-        const [content, comments] = await Promise.all([
+        const [content, comments, agentPages] = await Promise.all([
           ownerModules.contentVite?.contributeContentRealtime({
             ...context,
             contentImport: "vite-hub/content/realtime",
@@ -1606,9 +1628,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...(configuredConsole ? { console: { module: generatedModules.consoleSections, section: "content" } } : {}),
           }),
           commentsPlugin?.api.contributeRealtime(context),
+          options.agent ? ownerModules.agentVite?.contributeAgentPageRealtime(context) : undefined,
         ])
         return {
-          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? [], ...agentPages?.definitions ?? []],
           plugins: content?.plugins ?? [],
         }
       },
@@ -1693,6 +1716,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
+  // The skills of `server/skills.ts`, listed and turned on and off with `vitehub served-skills` and the Console.
+  plugins.push(viteHubServedSkillsPlugin())
   // A Node server prints where each primitive keeps its state, and fails at boot when several instances would split it.
   if (plan.host === "node") plugins.push(viteHubDurabilityPlugin(options.node))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

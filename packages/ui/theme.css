@@ -26,37 +26,53 @@
  * The shadcn/ui neutral palette. Hierarchy comes from four text tones, not from size: highlighted for names, default
  * for body text, muted for descriptions, and dimmed for meta. Every tone keeps at least 4.5:1 (WCAG AA) on the page and
  * on the neutral surfaces.
+ *
+ * The colors that shadcn/ui has a name for are set under that name, and the Nuxt UI and ViteHub tokens read them. An app
+ * changes one by setting the shadcn/ui name after this file: on `:root` for light, and on `:root.dark` for dark. The
+ * steps that shadcn/ui has no name for, such as `--ui-text` and `--ui-bg-muted`, keep their values on the Nuxt UI token.
+ * The dark blocks repeat the Nuxt UI tokens, so each token keeps the specificity of its color mode selector.
  */
 :root {
   color-scheme: light;
-  --ui-bg: oklch(1 0 0);
-  --ui-bg-muted: oklch(0.985 0 0);
-  --ui-bg-elevated: oklch(0.97 0 0);
-  --ui-bg-accented: oklch(0.94 0 0);
-  --ui-bg-inverted: oklch(0.205 0 0);
-  --ui-border: oklch(0.922 0 0);
-  --ui-border-muted: oklch(0.96 0 0);
-  --ui-border-accented: oklch(0.87 0 0);
-  --ui-border-inverted: oklch(0.205 0 0);
-  --ui-text: oklch(0.371 0 0);
-  --ui-text-toned: oklch(0.439 0 0);
-  --ui-text-muted: oklch(0.5 0 0);
-  --ui-text-dimmed: oklch(0.52 0 0);
-  --ui-text-highlighted: oklch(0.205 0 0);
-  --ui-text-inverted: oklch(1 0 0);
-  /*
-   * Nuxt UI multiplies this base: rounded-sm is 1x, rounded-md 1.5x, rounded-lg 2x, rounded-xl 3x. At 0.25rem, buttons,
-   * inputs, and tabs get 6px, cards and code panels 8px, and menus and dialogs 12px (Geist).
-   */
-  --ui-radius: 0.25rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --border: oklch(0.922 0 0);
   /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
-  --ui-primary: oklch(0.205 0 0);
+  --primary: oklch(0.205 0 0);
+  /* Menus, popovers, and tooltips: a translucent surface over the page, with the Geist layered shadow. */
+  --popover: rgb(255 255 255 / 92%);
   /*
    * Blue marks focus, and the areas drawn for comments (`--vh-comment-mark` in styles.css), so it stands apart from the
    * black and white buttons. Sky 600 keeps 3:1 on white. An area in the text color would vanish on a white image in a
    * dark page.
    */
-  --vh-focus: oklch(0.588 0.158 241.966);
+  --ring: oklch(0.588 0.158 241.966);
+  /*
+   * Nuxt UI multiplies this base: rounded-sm is 1x, rounded-md 1.5x, rounded-lg 2x, rounded-xl 3x. At 0.25rem, buttons,
+   * inputs, and tabs get 6px, cards and code panels 8px, and menus and dialogs 12px (Geist). It is the base step, as in
+   * the tokens of @vite-hub/kit, not the card radius of shadcn/ui.
+   */
+  --radius: 0.25rem;
+  --ui-bg: var(--background);
+  --ui-bg-muted: oklch(0.985 0 0);
+  --ui-bg-elevated: var(--muted);
+  --ui-bg-accented: oklch(0.94 0 0);
+  --ui-bg-inverted: var(--foreground);
+  --ui-border: var(--border);
+  --ui-border-muted: oklch(0.96 0 0);
+  --ui-border-accented: oklch(0.87 0 0);
+  --ui-border-inverted: var(--foreground);
+  --ui-text: oklch(0.371 0 0);
+  --ui-text-toned: oklch(0.439 0 0);
+  --ui-text-muted: var(--muted-foreground);
+  --ui-text-dimmed: oklch(0.52 0 0);
+  --ui-text-highlighted: var(--foreground);
+  --ui-text-inverted: var(--background);
+  --ui-radius: var(--radius);
+  --ui-primary: var(--primary);
+  --vh-focus: var(--ring);
   /*
    * Status colors as text. Nuxt UI draws text and dots with the same 500 shade, which reaches only 2.1:1 (amber) to
    * 3.8:1 (red) on white. These shades keep 4.5:1 on the page and on a 10% tint of the same color.
@@ -65,8 +81,7 @@
   --vh-text-info: var(--ui-color-info-700);
   --vh-text-success: var(--ui-color-success-700);
   --vh-text-warning: var(--ui-color-warning-800);
-  /* Menus, popovers, and tooltips: a translucent surface over the page, with the Geist layered shadow. */
-  --vh-floating: rgb(255 255 255 / 92%);
+  --vh-floating: var(--popover);
   --vh-shadow-floating: 0 0 0 1px var(--ui-border), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 6%);
   --vh-shadow-dialog: 0 0 0 1px var(--ui-border), 0 8px 16px -4px rgb(0 0 0 / 4%), 0 24px 32px -8px rgb(0 0 0 / 6%);
   --vh-scrollbar: oklch(0.87 0 0);
@@ -81,30 +96,38 @@
 /* Dark is its own palette, not an inversion: the page is near black, and surfaces are white at low alpha. */
 :root.dark {
   color-scheme: dark;
-  --ui-bg: oklch(0.145 0 0);
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --muted: rgb(255 255 255 / 5%);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: rgb(255 255 255 / 10%);
+  --primary: oklch(0.985 0 0);
+  /* Dark floating surfaces sit one step above the page instead of matching it. */
+  --popover: rgb(23 23 23 / 92%);
+  /* Sky 400 keeps 3:1 on the dark page. */
+  --ring: oklch(0.746 0.16 232.661);
+  --ui-bg: var(--background);
   --ui-bg-muted: oklch(0.178 0 0);
-  --ui-bg-elevated: rgb(255 255 255 / 5%);
+  --ui-bg-elevated: var(--muted);
   --ui-bg-accented: rgb(255 255 255 / 8%);
-  --ui-bg-inverted: oklch(0.985 0 0);
-  --ui-border: rgb(255 255 255 / 10%);
+  --ui-bg-inverted: var(--foreground);
+  --ui-border: var(--border);
   --ui-border-muted: rgb(255 255 255 / 5%);
   --ui-border-accented: rgb(255 255 255 / 16%);
-  --ui-border-inverted: oklch(0.985 0 0);
+  --ui-border-inverted: var(--foreground);
   --ui-text: oklch(0.87 0 0);
   --ui-text-toned: oklch(0.8 0 0);
-  --ui-text-muted: oklch(0.708 0 0);
+  --ui-text-muted: var(--muted-foreground);
   --ui-text-dimmed: oklch(0.62 0 0);
-  --ui-text-highlighted: oklch(0.985 0 0);
-  --ui-text-inverted: oklch(0.145 0 0);
-  --ui-primary: oklch(0.985 0 0);
-  /* Sky 400 keeps 3:1 on the dark page. */
-  --vh-focus: oklch(0.746 0.16 232.661);
+  --ui-text-highlighted: var(--foreground);
+  --ui-text-inverted: var(--background);
+  --ui-primary: var(--primary);
+  --vh-focus: var(--ring);
   --vh-text-error: var(--ui-color-error-400);
   --vh-text-info: var(--ui-color-info-400);
   --vh-text-success: var(--ui-color-success-400);
   --vh-text-warning: var(--ui-color-warning-400);
-  /* Dark floating surfaces sit one step above the page instead of matching it. */
-  --vh-floating: rgb(23 23 23 / 92%);
+  --vh-floating: var(--popover);
   --vh-shadow-floating: 0 0 0 1px var(--ui-border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
   --vh-shadow-dialog: 0 0 0 1px var(--ui-border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
   --vh-scrollbar: rgb(255 255 255 / 12%);
@@ -115,30 +138,38 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.light):not(.dark) {
     color-scheme: dark;
-    --ui-bg: oklch(0.145 0 0);
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --muted: rgb(255 255 255 / 5%);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: rgb(255 255 255 / 10%);
+    --primary: oklch(0.985 0 0);
+    /* Dark floating surfaces sit one step above the page instead of matching it. */
+    --popover: rgb(23 23 23 / 92%);
+    /* Sky 400 keeps 3:1 on the dark page. */
+    --ring: oklch(0.746 0.16 232.661);
+    --ui-bg: var(--background);
     --ui-bg-muted: oklch(0.178 0 0);
-    --ui-bg-elevated: rgb(255 255 255 / 5%);
+    --ui-bg-elevated: var(--muted);
     --ui-bg-accented: rgb(255 255 255 / 8%);
-    --ui-bg-inverted: oklch(0.985 0 0);
-    --ui-border: rgb(255 255 255 / 10%);
+    --ui-bg-inverted: var(--foreground);
+    --ui-border: var(--border);
     --ui-border-muted: rgb(255 255 255 / 5%);
     --ui-border-accented: rgb(255 255 255 / 16%);
-    --ui-border-inverted: oklch(0.985 0 0);
+    --ui-border-inverted: var(--foreground);
     --ui-text: oklch(0.87 0 0);
     --ui-text-toned: oklch(0.8 0 0);
-    --ui-text-muted: oklch(0.708 0 0);
+    --ui-text-muted: var(--muted-foreground);
     --ui-text-dimmed: oklch(0.62 0 0);
-    --ui-text-highlighted: oklch(0.985 0 0);
-    --ui-text-inverted: oklch(0.145 0 0);
-    --ui-primary: oklch(0.985 0 0);
-    /* Sky 400 keeps 3:1 on the dark page. */
-    --vh-focus: oklch(0.746 0.16 232.661);
+    --ui-text-highlighted: var(--foreground);
+    --ui-text-inverted: var(--background);
+    --ui-primary: var(--primary);
+    --vh-focus: var(--ring);
     --vh-text-error: var(--ui-color-error-400);
     --vh-text-info: var(--ui-color-info-400);
     --vh-text-success: var(--ui-color-success-400);
     --vh-text-warning: var(--ui-color-warning-400);
-    /* Dark floating surfaces sit one step above the page instead of matching it. */
-    --vh-floating: rgb(23 23 23 / 92%);
+    --vh-floating: var(--popover);
     --vh-shadow-floating: 0 0 0 1px var(--ui-border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
     --vh-shadow-dialog: 0 0 0 1px var(--ui-border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
     --vh-scrollbar: rgb(255 255 255 / 12%);
