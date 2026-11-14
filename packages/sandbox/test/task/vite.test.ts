@@ -205,9 +205,9 @@ describe("hubSandboxTask", () => {
     expect(providerImportAliases).not.toHaveProperty("vite-hub/sandbox/task")
     expect(providerImportAliases).not.toHaveProperty("vitehub-sandbox-task-provider-loader")
     expect(registryAlias).toContain(".vitehub/sandbox-task/runtime/sandbox-task-registry.mjs")
-    expect(providerLoaderAlias).toContain(".vitehub/sandbox-task/runtime/sandbox-task-provider-loader.mjs")
+    expect(providerLoaderAlias).toContain(".vitehub/sandbox-task/sandbox-task-provider-loader.mjs")
     expect(readAlias(alias, "@vite-hub/sandbox/task/runtime/state")).toBeUndefined()
-    expect(readAlias(alias, "@vite-hub/sandbox/task/runtime/provider-loader")).toContain(".vitehub/sandbox-task/runtime/sandbox-task-provider-loader.mjs")
+    expect(readAlias(alias, "@vite-hub/sandbox/task/runtime/provider-loader")).toContain(".vitehub/sandbox-task/sandbox-task-provider-loader.mjs")
 
     const [facade, registry, providerLoader] = await Promise.all([
       readFile(sandboxTaskAlias, "utf8"),
@@ -228,7 +228,7 @@ describe("hubSandboxTask", () => {
       "@vite-hub/sandbox/_internal/task/runtime",
     ])
     expect(facade).toContain('from "./sandbox-task-registry.mjs"')
-    expect(facade).toContain('from "./sandbox-task-provider-loader.mjs"')
+    expect(facade).toContain(`from ${JSON.stringify(providerLoaderAlias)}`)
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("resolveTaskSandbox")
     const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
@@ -632,7 +632,7 @@ describe("hubSandboxTask", () => {
 
     expect(resolvedNitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-registry.mjs"), "utf8")).resolves.toContain('"example"')
-    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-provider-loader.mjs"), "utf8")).resolves.toContain("resolveTaskSandbox")
+    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/sandbox-task-provider-loader.mjs"), "utf8")).resolves.toContain("resolveTaskSandbox")
     const generatedDefinition = await readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/example.mjs"), "utf8")
     expect(JSON.parse(generatedDefinition.slice("export default ".length))).toMatchObject({
       bundle: {
@@ -1758,6 +1758,30 @@ describe("hubSandboxTask", () => {
     expect(activeRegistry).toMatch(/stablePath: "file:/)
     await rm(stableDefinition)
     await expect(loadPreviousDefinition()).resolves.toBeDefined()
+  })
+
+  it("keeps the provider loader that Nitro resolved at startup after a dev restart and later edits", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const startDevServer = async () => {
+      const plugin = hubSandboxTask({ provider: "vercel" })
+      const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+      const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+      await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} }, { command: "serve", mode: "development" })
+      const nitroAliases = createSandboxTaskNitroLifecycle(plugin)().alias as Record<string, string>
+      const providerLoaderAlias = nitroAliases["#vitehub-sandbox-task-provider-loader"]!
+      // Nitro resolves each alias to a real path once, before Vite resolves its config.
+      const nitroProviderLoader = await realpath(providerLoaderAlias).catch(() => providerLoaderAlias)
+      await configResolved({ root: rootDir, resolve: { alias: [] } })
+      return { configResolved, nitroProviderLoader }
+    }
+
+    await startDevServer()
+    const restarted = await startDevServer()
+    await restarted.configResolved({ root: rootDir, resolve: { alias: [] } })
+    await restarted.configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    await expect(readFile(restarted.nitroProviderLoader, "utf8")).resolves.toContain("resolveTaskSandbox")
   })
 
   it("keeps the last valid generated bundles when regeneration fails", async () => {
