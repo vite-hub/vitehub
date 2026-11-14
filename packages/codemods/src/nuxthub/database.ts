@@ -169,7 +169,7 @@ export async function moveSchema(cwd: string, dialect: Dialect): Promise<SchemaM
     ...(turso
       ? [
           `${style.indent}connection: {`,
-          `${style.indent}${style.indent}url: process.env.TURSO_DATABASE_URL,`,
+          `${style.indent}${style.indent}url: process.env.TURSO_DATABASE_URL || undefined,`,
           `${style.indent}${style.indent}authToken: process.env.TURSO_AUTH_TOKEN,`,
           `${style.indent}},`,
         ]
