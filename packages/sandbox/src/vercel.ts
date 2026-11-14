@@ -51,7 +51,8 @@ export interface VercelSandboxCreateOptions {
   persistent?: boolean;
   projectId?: string;
   resources?: { vcpus?: number };
-  runtime: string;
+  /** Vercel takes the runtime from the snapshot for a snapshot source, so ViteHub omits it then. */
+  runtime?: string;
   signal?: AbortSignal;
   source?: VercelSandboxSource;
   teamId?: string;
@@ -115,7 +116,8 @@ export interface VercelFileStat {
 }
 
 export function createVercelRuntime(options: VercelSandboxOptions = {}): SandboxRuntime {
-  const runtime = options.runtime ?? "node24";
+  // A snapshot already has its runtime. The Vercel SDK types forbid `runtime` with a snapshot source.
+  const runtime = options.source?.type === "snapshot" ? options.runtime : options.runtime ?? "node24";
   const executionAuthority = vercelExecutionAuthority(options.networkPolicy);
   return markBuiltInSandboxRuntime({
     name: "vercel",
@@ -127,7 +129,7 @@ export function createVercelRuntime(options: VercelSandboxOptions = {}): Sandbox
       const env = await resolveRemoteEnvironment(input, { workspace });
       const create = options.create ?? await loadVercelSandbox();
       const instance = await create({
-        runtime,
+        ...(runtime ? { runtime } : {}),
         persistent: false,
         signal: openOptions?.signal,
         timeout: options.timeout ?? 300_000,

@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
-import { createVercelRuntime, type VercelSandboxCommand, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelSandboxCommand, type VercelSandboxCreateOptions, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -758,6 +758,20 @@ describe("remote Sandbox providers", () => {
       network,
       processes: "arbitrary",
     });
+  });
+
+  it.each([
+    [{}, "node24"],
+    [{ runtime: "node22" }, "node22"],
+    [{ source: { type: "git", url: "https://github.com/vite-hub/vitehub.git" } }, "node24"],
+    [{ source: { snapshotId: "snap_123", type: "snapshot" } }, undefined],
+  ] as const)("sends the Vercel runtime only when the source has none for %j", async (options, runtime) => {
+    const create = vi.fn(async (_options: VercelSandboxCreateOptions) => vercelInstance());
+    const sandbox = await resolveSandbox({ runtime: createVercelRuntime({ ...options, create }) }, {});
+    await (await sandbox.open()).close();
+
+    if (runtime === undefined) expect(create.mock.calls[0]![0]).not.toHaveProperty("runtime");
+    else expect(create.mock.calls[0]![0]).toMatchObject({ runtime });
   });
 
   it("does not infer unrestricted network access from an inherited wildcard", async () => {

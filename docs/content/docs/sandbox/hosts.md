@@ -23,7 +23,7 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `runtime` | `'node24'` | Runtime image. |
+| `runtime` | `'node24'` | Runtime image. With a `snapshot` source, the snapshot sets the runtime, so ViteHub sends none unless you set one. |
 | `timeout` | - | Session timeout in milliseconds. A task timeout wins. |
 | `cpu` | - | vCPU count. |
 | `ports` | - | Ports to expose. |
