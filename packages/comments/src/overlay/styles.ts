@@ -11,12 +11,12 @@ export const overlayStyles = `
   --ui-bg: #fff; --ui-bg-elevated: #f5f5f5; --ui-bg-accented: #e5e5e5; --ui-bg-muted: #fafafa; --ui-border: #e5e5e5;
   --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #171717;
   /* The comment blue of ViteHub's theme (--ring in @vite-hub/ui/theme.css), for the areas of comments here and in Drop. */
-  --vh-ui-comment-mark: oklch(0.588 0.158 241.966);
+  --mark: oklch(0.588 0.158 241.966); --vh-ui-comment-mark: var(--mark);
 }
 :host(.dark) {
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
   --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #fafafa;
-  --vh-ui-comment-mark: oklch(0.746 0.16 232.661);
+  --mark: oklch(0.746 0.16 232.661);
 }
 .root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
@@ -29,10 +29,10 @@ export const overlayStyles = `
 .cursor svg { display: block; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .cursor span { display: inline-block; margin: 2px 0 0 12px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #18181b; white-space: nowrap; box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
 
-.outline { position: fixed; border: 2px solid var(--vh-ui-comment-mark); border-radius: 4px; }
+.outline { position: fixed; border: 2px solid var(--mark); border-radius: 4px; }
 .outline[data-kind="draft"] { border-style: dashed; border-color: #f59e0b; }
 .tag { position: fixed; transform: translateY(-100%); padding: 2px 6px; border-radius: 4px 4px 0 0; background: #f59e0b; color: #18181b; font-size: 11px; font-weight: 600; }
-.outline[data-kind="hover"] + .tag { background: var(--vh-ui-comment-mark); color: #fff; }
+.outline[data-kind="hover"] + .tag { background: var(--mark); color: #fff; }
 
 .card { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; width: min(320px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 12px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: calc(var(--vh-radius) * 1.5); box-shadow: 0 8px 24px rgb(0 0 0 / .16); font-size: 13px; }
 .card label { display: grid; gap: 4px; font-weight: 500; }
