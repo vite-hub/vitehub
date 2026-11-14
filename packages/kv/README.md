@@ -68,7 +68,7 @@ Several Node processes share keys only through a shared store. Without a `driver
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
 
-The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
+The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. A build without a `driver` that has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, prints a warning with the fix `kv: { driver: "redis" }`. On Vercel without Upstash variables, the same warning says that the inferred Upstash store fails at runtime. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
 
 This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 

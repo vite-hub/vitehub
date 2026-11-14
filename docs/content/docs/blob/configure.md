@@ -73,7 +73,7 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `blob: false` | Turns Blob off. |
-| `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
+| `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks S3 when the build has `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`. Otherwise it picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Named stores. `stores.default` is required. |
 | `blob: { serve: false }` | No serve route. This is the default. |
 | `blob: { serve: { access: 'public' } }` | Adds a Nitro route at `/api/_vitehub/blob/**` that sends every file of the default store to anyone. |
@@ -85,7 +85,7 @@ export default defineConfig({
 
 ### Use the real store in development
 
-`vite dev` keeps Blob local by default. When ViteHub infers Vercel Blob for a store without a `driver`, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
+`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
 
 Set `remote: true` to use the real store in `vite dev`:
 
@@ -637,6 +637,10 @@ The `s3` and `minio` drivers share options. Their required fields differ.
 | `secretAccessKey` | `minio` | `string` | Secret key. |
 
 MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. The `s3` driver also reads the SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
+
+The `s3` driver takes its keys in `credentials`. A top-level `accessKeyId`, `secretAccessKey`, or `sessionToken`, as NuxtHub's `s3` driver used, fails with `BLOB_C0023`.
+
+A store without a `driver` uses `s3` when the build has NuxtHub's variables: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`, with `S3_REGION` and `S3_ENDPOINT` when they are set. These variables come before the host, as in NuxtHub. The build output has only the variable names, and the server reads the keys when the store starts. An `S3_ENDPOINT` without `S3_BUCKET` does not select `s3`: set `bucket`.
 
 ### Google Cloud Storage
 
