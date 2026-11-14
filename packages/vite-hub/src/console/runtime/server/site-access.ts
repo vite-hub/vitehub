@@ -86,7 +86,7 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   if (!location) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
   const bound = record.target.state
   if (bound && bound !== await stateHash(readCookie(request, siteStateCookie) ?? "")) {
-    return ticketProblem(403, "CONSOLE_TICKET_MISMATCH", "This link was made for another browser. Open /_vitehub again in this browser.")
+    return ticketProblem(403, "CONSOLE_TICKET_MISMATCH", "This link was made for another browser.", "Open /_vitehub of the app in this browser.")
   }
   const guest = record.purpose === "page.guest"
   const name = guest ? record.target.name : record.person.name ?? record.person.email
@@ -99,7 +99,6 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)
   headers.append("set-cookie", viteHubPageToolsResetCookie)
-  if (bound) headers.append("set-cookie", `${siteStateCookie}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`)
   return seeOther(location, headers)
 }
 

@@ -16,7 +16,8 @@ import type { ConsoleRoute } from "./request.ts"
  * `?vitehub`.
  *
  * The route sets a state cookie, and the Console passes the state to `site.link`. The link then works only in the
- * browser that started here, so a link that someone else made cannot sign this browser in as them.
+ * browser that started here, so a link that someone else made cannot sign this browser in as them. The browser keeps
+ * one state for 10 minutes, for every tab.
  */
 
 /** Seconds that the state cookie lives: long enough for a sign-in with GitHub or a passkey. */
@@ -59,7 +60,10 @@ const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   const base = url.pathname.endsWith(entrySuffix) ? url.pathname.slice(0, -entrySuffix.length) : ""
   const page = siteEntryPage(url.searchParams.get("page"), base)
   if (isConsoleDevelopmentRuntime()) return seeOther(withQuery(`${base}${page}`, "vitehub"))
-  const state = base64url(crypto.getRandomValues(new Uint8Array(32)))
+  // A second `/_vitehub` in this browser, such as in another tab, keeps the state, so the first tab's link still works.
+  // The links are one-time, so the state lives until it expires.
+  const current = /(?:^|;\s*)__Host-vitehub-site-state=([\w-]{43})(?:;|$)/.exec(request.headers.get("cookie") ?? "")?.[1]
+  const state = current ?? base64url(crypto.getRandomValues(new Uint8Array(32)))
   const target = new URL("/open", hostedConsoleOrigin)
   target.search = new URLSearchParams({ project: `${appOrigin(request)}${base}`, site: page, state }).toString()
   const headers = new Headers({ "set-cookie": `${siteStateCookie}=${state}; Path=/; Max-Age=${siteStateLifetime}; HttpOnly; Secure; SameSite=Lax` })

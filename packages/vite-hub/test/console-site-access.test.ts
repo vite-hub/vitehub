@@ -194,8 +194,13 @@ describe("GET /_vitehub", () => {
     const { response, cookie: session } = await open(await link("site.link", { path: "/runs/42", state }), chrome, stateCookie)
     expect(response.status).toBe(303)
     expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
-    expect(response.headers.getSetCookie()).toContain("__Host-vitehub-site-state=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax")
     expect((await signedIn(session))?.user).toMatchObject({ id: app.member.id })
+  })
+
+  it("keeps the state of this browser, so a link from another tab still works", async () => {
+    const first = await enter()
+    const response = await siteEntryRoute.fetch(new Request(`${origin}/_vitehub`, { headers: { cookie: first.cookie.split(";")[0]! } }))
+    expect(new URL(response.headers.get("location")!).searchParams.get("state")).toBe(first.state)
   })
 
   it("goes to the page with ?vitehub on a development server", async () => {
