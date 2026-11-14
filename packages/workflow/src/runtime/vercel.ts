@@ -63,6 +63,12 @@ async function loadVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
   return createVercelWorkflowRuntime(api as VercelWorkflowApiModule, runtime as VercelWorkflowRuntimeModule)
 }
 
+/**
+ * The largest step page that Vercel's step listing accepts. A larger page fails with HTTP 400. Workflow DevKit's own
+ * CLI uses the same bound (`packages/cli/src/lib/inspect/flag-bounds.ts` in vercel/workflow).
+ */
+const vercelStepPageLimit = 100
+
 function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: VercelWorkflowRuntimeModule): VercelWorkflowRuntime {
   const { getRun, resumeHook, start } = api
   const { getWorld } = runtime
@@ -75,7 +81,7 @@ function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: Verc
       let cursor: string | undefined
       do {
         const page = normalizeStepPage(await (await getWorld()).steps.list({
-          pagination: { cursor, limit: 1000, sortOrder: "asc" },
+          pagination: { cursor, limit: vercelStepPageLimit, sortOrder: "asc" },
           resolveData: "none",
           runId: id,
         }))

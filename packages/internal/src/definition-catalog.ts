@@ -9,6 +9,7 @@ import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 const sourceFilePattern = /\.(?:c|m)?[jt]sx?$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]sx?$/i
+const testFilePattern = /\.(?:test|spec)\.(?:c|m)?[jt]sx?$/i
 const ignoredDirs = new Set(["node_modules", "dist", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
 
 export interface DiscoveredDefinition {
@@ -125,8 +126,13 @@ export function listMatchingFiles(root: string, predicate: (name: string) => boo
   return files.sort()
 }
 
+/** A module that a Definitions folder can hold: JavaScript or TypeScript, and not a declaration, test, or spec file. */
+export function isDefinitionSourceFile(name: string): boolean {
+  return sourceFilePattern.test(name) && !declarationFilePattern.test(name) && !testFilePattern.test(name)
+}
+
 export function listSourceFiles(root: string, options: { includeHidden?: boolean } = {}): string[] {
-  return listMatchingFiles(root, name => sourceFilePattern.test(name) && !declarationFilePattern.test(name), options)
+  return listMatchingFiles(root, isDefinitionSourceFile, options)
 }
 
 export function normalizePathDefinitionName(rootDir: string, file: string): string {
