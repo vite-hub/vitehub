@@ -1,39 +1,9 @@
 import { back, fail, guardRequest, json } from "./guard.ts"
 
-import { coerceFormFields } from "./schema.ts"
+import { checkForm, coerceFormFields } from "./fields.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { FormDefinition, FormEmailMessage, FormIssue, FormServices, FormSubmission, FormUser } from "./types.ts"
-
-/** Keep schema output in the same JSON representation for hooks, notifications, and both stores. */
-function jsonData<T>(value: T): { value: T } | undefined {
-  const ancestors = new Set<object>()
-  const valid = (value: unknown): boolean => {
-    if (value === null || typeof value === "string" || typeof value === "boolean") return true
-    if (typeof value === "number") return Number.isFinite(value)
-    if (typeof value !== "object" || ancestors.has(value)) return false
-    const prototype: unknown = Object.getPrototypeOf(value)
-    if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false
-    ancestors.add(value)
-    const values: unknown[] = Array.isArray(value) ? Array.from(value) : Object.values(value)
-    const accepted = values.every(valid)
-    ancestors.delete(value)
-    return accepted
-  }
-  try {
-    return valid(value) ? { value: JSON.parse(JSON.stringify(value)) as T } : undefined
-  }
-  catch {
-    return undefined
-  }
-}
-
-function issuePath(path: StandardSchemaV1.Issue["path"]): (string | number)[] {
-  return (path ?? []).map((segment) => {
-    const key = typeof segment === "object" ? segment.key : segment
-    return typeof key === "number" ? key : String(key)
-  })
-}
+import type { FormDefinition, FormEmailMessage, FormServices, FormSubmission, FormUser } from "./types.ts"
 
 function emailText(name: string, submission: FormSubmission): string {
   const lines = Object.entries(submission.data && typeof submission.data === "object" ? submission.data : { value: submission.data })
@@ -88,17 +58,12 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   const stop = (status: number, message: string) => html ? back(request, page, "error", name) : fail(status, message)
 
   if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") coerceFormFields(options.schema, fields)
-  const result = await options.schema["~standard"].validate(fields)
-  if (result.issues) {
+  const [invalid, output] = await checkForm(definition, fields)
+  if (invalid) {
     if (html) return back(request, page, "error", name)
-    return json(400, { message: "Check the form and try again.", issues: result.issues.map((issue): FormIssue => ({ message: issue.message, path: issuePath(issue.path) })) })
+    return json(400, { message: invalid.message, issues: invalid.issues })
   }
 
-  const data = jsonData(result.value)
-  if (!data) {
-    if (html) return back(request, page, "error", name)
-    return json(400, { message: "Check the form and try again.", issues: [{ message: "The form schema must return JSON data: plain objects, arrays, strings, finite numbers, booleans, or null.", path: [] }] })
-  }
   const store = options.store === false ? undefined : services.store
   if (options.store !== false && !store) return stop(503, "This form cannot store messages now.")
 
@@ -106,7 +71,7 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   const submission: FormSubmission<StandardSchemaV1.InferOutput<TSchema>> = {
     id: services.id?.() ?? crypto.randomUUID(),
     form: name,
-    data: data.value,
+    data: output,
     page,
     anchor,
     user,

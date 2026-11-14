@@ -28,6 +28,10 @@ A wrong `defineForm()` throws when you define it. The inbox returns `[error, dat
 
 The form is wrong: `schema` is not a Standard Schema, a limit is out of range, or a file of `server/forms/` does not default-export `defineForm()`. Fix the definition.
 
+### FORMS_C0002
+
+A surface cannot draw a field of the form schema: a nested object, a list, a union of types, or a root that is not an object. An MCP elicitation also refuses a choice of numbers. Keep the form flat: one field for each text, number, true or false, or choice. Move nested data to its own form, or join it into one text field.
+
 ### FORMS_B0001
 
 A file of `server/forms/` has a name that is not lowercase letters, digits, and dashes, or two files define the same form. Rename the file.
