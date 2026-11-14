@@ -592,7 +592,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("Escape")
     await page.mouse.move(5, 5)
     const items = page.locator("vitehub-comments [data-slot='comment-layer-item']:not([data-draft])")
-    const areas = () => page.evaluate(() => document.querySelector("vitehub-comment-areas").shadowRoot.querySelectorAll(".area").length)
+    const areas = () => page.evaluate(() => document.querySelector("vitehub-comment-areas").shadowRoot.querySelectorAll("[data-slot='comment-mark-area']").length)
     const all = await items.count()
     assert.ok(all >= 3, `${all} pins before the eye`)
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-0-all.png` })
@@ -601,7 +601,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await eye.getAttribute("aria-pressed"), "true")
     await page.waitForFunction(() => document.querySelectorAll("vitehub-comments").length && !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']"), undefined, { timeout: 5000 })
     assert.equal(await areas(), 0)
-    assert.equal((await highlights(page))["vitehub-comment"] ?? 0, 0)
+    assert.equal((await highlights(page))["vh-comment"] ?? 0, 0)
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), "hidden")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-1-eye.png` })
 
