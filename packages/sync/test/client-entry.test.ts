@@ -47,6 +47,22 @@ describe("createSync in the browser", () => {
     expect(() => one.insert({ title: "Late" })).toThrow("destroyed")
   })
 
+  it("sends the writes of a subset that no component shows when the network comes back", async () => {
+    const server = createFakeSyncServer()
+    server.offline = true
+    const list = createSync("todos", { fetch: server.fetch, interval: false, where: { listId: "l1" } })
+    const write = list.insert({ title: "Milk" })
+    write.then(undefined, () => undefined)
+    await until(() => list.getState().status === "offline")
+    // The page leaves the list while offline, and shows another table.
+    list.destroy()
+    open(server.fetch)
+    server.offline = false
+    window.dispatchEvent(new Event("online"))
+    await until(() => server.rows.has(write.key))
+    expect(server.rows.get(write.key)).toMatchObject({ title: "Milk", listId: "l1", ownerId: "ada" })
+  })
+
   it("forgets every row and queued write on clearSync()", async () => {
     const server = createFakeSyncServer()
     server.write({ id: "a", ownerId: "ada", title: "Milk" })

@@ -7,7 +7,7 @@ import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFail
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
-import type { SyncMerge, SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange, SyncWriteResult } from "./storage.ts"
+import type { SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange } from "./storage.ts"
 import type { SyncActionCalls, SyncFailure, SyncLocal, SyncState, SyncStatus, SyncStore, SyncWrite } from "./types.ts"
 import type { SyncView } from "./view.ts"
 
@@ -41,20 +41,6 @@ interface PendingWrite {
   key: SyncKey
   op: SyncNewWrite["op"]
   settle: (state: "applied" | "rejected", value: unknown) => void
-}
-
-/**
- * An update in memory that merges into a stored update, until the storage says whether the merge happened. The merge
- * fails when another tab sent the stored update meanwhile.
- */
-interface PendingMerge {
-  /** The stored update. It stays in memory until the merge happened. */
-  seq: number
-  id: string
-  /** The patch of the new update alone. */
-  patch: SyncRow
-  /** The handles of the stored update, which wait for the new one while the merge holds. */
-  handles: PendingWrite[]
 }
 
 /** A pull of the live stream, with the generation of the rows that the stream opened with. */
@@ -97,7 +83,7 @@ function isPush(value: unknown): value is SyncPushResponse {
 
 /** A short text that changes when the stored meta or outbox differs from the copy in memory. */
 function queueSignature(meta: SyncMeta | undefined, writes: readonly SyncQueuedWrite[]): string {
-  return `${meta?.account}:${meta?.scope.id}:${meta?.version}:${meta?.cursor}:${writes.map(write => `${write.seq}${write.account ?? write.legacyScope ?? ""}${write.error ? "!" : ""}${write.sent ? "s" : ""}`).join(",")}`
+  return `${meta?.account}:${meta?.scope.id}:${meta?.version}:${meta?.cursor}:${writes.map(write => `${write.seq}${write.account ?? ""}${write.error ? "!" : ""}`).join(",")}`
 }
 
 function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boolean {
@@ -109,7 +95,7 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
     && meta!.version === change.meta!.version
     && !change.reset
     && !change.put?.length && !change.delete?.length && !change.add?.length && !change.update?.length && !change.remove?.length
-    && !change.sent?.length && !change.merge?.length && !change.results?.length
+    && !change.results?.length
 }
 
 /** Thrown inside a round that `forget()` ended, so it writes nothing more. */
@@ -189,17 +175,15 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   // Results of the actions of this tab that this tab sent, until their write settles. The storage keeps the results of
   // actions that another tab made.
   const results = new Map<string, unknown>()
-  // Ids of writes in a push of this tab, or on their way to storage. A new update does not merge into them.
-  const busy = new Set<string>()
-  // New updates that merge into a stored update, by the id of the new update.
-  const merges = new Map<string, PendingMerge>()
+  // Ids of writes on their way to storage. A new update does not merge into them.
+  const storing = new Set<string>()
 
   let meta: SyncMeta | undefined
   let confirmed = new Map<SyncKey, SyncRow>()
   let writes: SyncQueuedWrite[] = []
   // Writes that wait for the storage. They show in the rows, and the next pass sends them once they are stored.
   let local: SyncNewWrite[] = []
-  // Stored writes that a merge or a retry replaced. The next flush removes them from storage.
+  // Stored writes that a retry replaced. The next flush removes them from storage.
   let removals: number[] = []
   let flushQueued = false
   // The last write of a flush to storage. A pass waits for it, so it sends the writes made before it started.
@@ -264,13 +248,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     changedKeys = []
     const account = meta?.account
     const failures: SyncFailure[] = []
-    // A stored update that a new update merges into counts once, as the new one.
-    const merging = new Set([...merges.values()].map(item => item.seq))
     let queued = 0
-    for (const write of writes) {
-      if (isActive(write, account) && !merging.has(write.seq)) queued++
-    }
-    for (const write of local) {
+    for (const write of [...writes, ...local]) {
       if (isActive(write, account)) queued++
     }
     for (const write of writes) {
@@ -367,32 +346,16 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   /** Moves the handles of the write `from` to the write `to`. */
-  function moveHandles(from: string, to: string, handles = pending.get(from) ?? []): void {
-    const moved = new Set(handles)
-    const left = (pending.get(from) ?? []).filter(handle => !moved.has(handle))
-    if (left.length) pending.set(from, left)
-    else pending.delete(from)
-    if (handles.length) pending.set(to, [...pending.get(to) ?? [], ...handles])
+  function moveHandles(from: string, to: string): void {
+    const handles = pending.get(from)
+    if (!handles) return
+    pending.delete(from)
+    pending.set(to, [...pending.get(to) ?? [], ...handles])
   }
 
-  /**
-   * Merges the update `write` into the unsent update `target`. A target in memory only is dropped. A stored target
-   * stays until the flush: the storage merges only when no tab sent the target meanwhile.
-   */
-  function merge(write: Extract<SyncNewWrite, { op: "update" }>, target: SyncQueuedWrite | SyncNewWrite, patch: SyncRow): void {
-    if ("seq" in target) {
-      merges.set(write.id, { seq: target.seq, id: target.id, patch, handles: pending.get(target.id) ?? [] })
-    }
-    else {
-      local = local.filter(item => item !== target)
-      const earlier = merges.get(target.id)
-      if (earlier) {
-        merges.delete(target.id)
-        merges.set(write.id, { ...earlier, patch: { ...earlier.patch, ...patch } })
-      }
-    }
-    // The handles of the merged write now wait for this one.
-    moveHandles(target.id, write.id)
+  /** `true` while the store has writes that it may send: writes not stored yet, or stored writes of the account. */
+  function hasSendable(): boolean {
+    return local.length > 0 || writes.some(write => isActive(write, meta?.account))
   }
 
   /** Shows `write` at once. It goes to storage at the end of the tick, with the other writes of the tick. */
@@ -415,7 +378,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   /**
    * Stores the writes of this tick in one change, then sends them in one push. It runs also after `destroy()`, so each
-   * write that the store took reaches storage. Another store of the name sends it then.
+   * write that the store took reaches storage and the server.
    */
   function flush(): void {
     flushQueued = false
@@ -427,44 +390,28 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       void loading.then(flush)
       return
     }
-    const batch = local.filter(write => !busy.has(write.id)).map(write => write.account === null && meta ? { ...write, account: meta.account } : write)
-    const pendingMerges = new Map<number, [string, PendingMerge]>()
-    const merge: SyncMerge[] = []
-    batch.forEach((write, index) => {
-      const pendingMerge = merges.get(write.id)
-      if (!pendingMerge) return
-      merges.delete(write.id)
-      pendingMerges.set(index, [write.id, pendingMerge])
-      merge.push({ index, seq: pendingMerge.seq, patch: pendingMerge.patch })
-    })
+    const batch = local.filter(write => !storing.has(write.id)).map(write => write.account === null && meta ? { ...write, account: meta.account } : write)
     const removed = removals
     removals = []
-    for (const write of batch) busy.add(write.id)
+    for (const write of batch) storing.add(write.id)
     const at = generation
-    const change: SyncStorageChange = { add: batch, remove: removed, ...(merge.length ? { merge } : {}) }
+    const change: SyncStorageChange = { add: batch, remove: removed }
     flushed = storage.write(id, change).then((result) => {
-      for (const write of batch) busy.delete(write.id)
+      for (const write of batch) storing.delete(write.id)
       if (at !== generation) return
-      // A merge that did not happen leaves the stored update, which another tab sent, to its own handles.
-      for (const index of result.unmerged) {
-        const [mergedId, pendingMerge] = pendingMerges.get(index)!
-        moveHandles(mergedId, pendingMerge.id, pendingMerge.handles)
-      }
-      const replaced = new Set(merge.filter(item => !result.unmerged.includes(item.index)).map(item => item.seq))
       // A reload may have read these writes from storage already.
       const known = new Set(writes.map(write => write.id))
       const stored = addedWrites(change, result)
       const ids = new Set(batch.map(write => write.id))
       local = local.filter(write => !ids.has(write.id))
-      writes = [...writes.filter(write => !replaced.has(write.seq)), ...stored.filter(write => !known.has(write.id))]
+      writes = [...writes, ...stored.filter(write => !known.has(write.id))]
       version++
       publish()
-      environment.post(destroyed ? { type: "change", id, queued: true } : { type: "change", id })
+      environment.post({ type: "change", id })
       void schedule(false)
     }, (cause: unknown) => {
-      for (const write of batch) busy.delete(write.id)
+      for (const write of batch) storing.delete(write.id)
       if (at !== generation) return
-      for (const [mergedId, pendingMerge] of pendingMerges.values()) moveHandles(mergedId, pendingMerge.id, pendingMerge.handles)
       const ids = new Set(batch.map(write => write.id))
       local = local.filter(write => !ids.has(write.id))
       version++
@@ -499,36 +446,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     environment.post({ type: "change", id })
   }
 
-  /**
-   * Marks the writes that a push sends as sent, in storage first, so no tab merges a later update into them. The rows
-   * do not change, so the view stays. Returns the writes that are still queued, as marked.
-   */
-  async function markSent(batch: readonly SyncQueuedWrite[]): Promise<SyncQueuedWrite[] | undefined> {
-    const fresh = batch.filter(write => !write.sent).map(write => write.seq)
-    if (fresh.length) {
-      if (passGeneration !== generation) throw cancelled
-      const change: SyncStorageChange = { sent: fresh }
-      const result: SyncWriteResult = await storage.write(id, change)
-      if (passGeneration !== generation) throw cancelled
-      writes = applyQueueChange(writes, change, result)
-      version++
-      // Another tab merged or removed a write meanwhile, so the outbox in memory is old.
-      if (result.gone.length) return undefined
-    }
-    const seqs = new Set(batch.map(write => write.seq))
-    return writes.filter(write => seqs.has(write.seq))
-  }
-
   /** Reads the stored copy again, such as after another tab changed it. */
   async function reload(): Promise<void> {
     for (;;) {
       const at = version
       const stored = await storage.read(id)
-      // After `destroy()`, the copy in memory still gets the account, for the writes that the store flushes then.
-      if (destroyed) {
-        meta ??= stored.meta
-        return
-      }
       if (at !== version) continue
       meta = stored.meta
       confirmed = new Map(stored.rows)
@@ -602,12 +524,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
   }
 
-  async function push(sentMeta: SyncMeta, batch: SyncQueuedWrite[]): Promise<boolean> {
-    const sent = await markSent(batch)
-    if (!sent) {
-      await reload()
-      return true
-    }
+  async function push(sentMeta: SyncMeta, sent: SyncQueuedWrite[]): Promise<boolean> {
     const body: SyncPushRequest = {
       account: sentMeta.account,
       cursor: sentMeta.cursor,
@@ -616,14 +533,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       ...(subset ? { where } : {}),
       mutations: sent.map(write => toMutation(write, sentMeta)),
     }
-    for (const write of sent) busy.add(write.id)
-    let answer: Answer
-    try {
-      answer = await request(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) })
-    }
-    finally {
-      for (const write of sent) busy.delete(write.id)
-    }
+    const answer = await request(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) })
     if (!answer.ok) {
       const reason = answer.error
       if (reason.code === "SYNC_ACCOUNT_CHANGED") {
@@ -691,12 +601,12 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     for (;;) {
       if (flushQueued) flush()
       await flushed
-      if (destroyed) return
       const at = version
       const queue = await storage.readQueue(id)
       // Another tab changed the stored copy since this tab read it.
       if (at === version && queueSignature(queue.meta, queue.writes) !== queueSignature(meta, writes)) await reload()
-      if (destroyed) return
+      // A destroyed store sends its writes, then stops.
+      if (destroyed && !hasSendable()) return
       await applyLivePulls()
       if (!meta || wantPull) {
         wantPull = false
@@ -722,7 +632,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       try {
         await loading
         // A round that failed waits for its backoff timer, also when a write asked for another round meanwhile.
-        while (again && !destroyed && !cancelRetry) {
+        while (again && !cancelRetry && !(destroyed && !hasSendable())) {
           again = false
           await environment.lock(`vitehub-sync:${id}`, pass).catch((cause: unknown) => {
             if (cause === cancelled) return
@@ -733,6 +643,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       }
       finally {
         running = undefined
+        // A destroyed store stops when its writes are sent, or a failure that is not retried stopped them.
+        if (destroyed && !cancelRetry) stopMessages()
       }
     })()
     return running
@@ -740,7 +652,6 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   /** Starts a round. Without `force`, a round waits for the backoff timer. */
   function schedule(force: boolean): Promise<void> {
-    if (destroyed) return Promise.resolve()
     if (!force && cancelRetry) return Promise.resolve()
     if (force) {
       cancelRetry?.()
@@ -917,12 +828,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   })
   const stopMessages = environment.receive((message) => {
     if (message.type === "clear") forget()
-    // A store that stopped stored writes that it does not send, so this one sends them.
-    else if (message.id === id) {
-      void reload().then(() => {
-        if (message.queued) void schedule(false)
-      })
-    }
+    else if (message.id === id) void reload()
   })
   tick()
   void schedule(true)
@@ -938,7 +844,6 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     removals = []
     livePulls = []
     results.clear()
-    merges.clear()
     status = "loading"
     error = null
     wantPull = true
@@ -967,13 +872,14 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       return enqueue({ id: randomUUID(), account: meta?.account ?? null, key, op: "insert", value: fields })
     },
     update(key, patch) {
-      const fields = { id: randomUUID(), account: meta?.account ?? null, key, op: "update" as const }
-      // A later patch of the same row merges into the update that waits for it, so one push sends one update.
-      const target = mergeTarget([...writes, ...local], key, meta?.account, busy, pending)
-      if (target?.op !== "update") return enqueue({ ...fields, patch: { ...patch } })
-      const write = { ...fields, patch: { ...target.patch, ...patch } }
       assertOpen()
-      merge(write, target, { ...patch })
+      // A later patch of the same row in the same tick merges into the update that waits, so one push sends one update.
+      const target = mergeTarget(local, key, meta?.account, storing)
+      const write: SyncNewWrite = { id: randomUUID(), account: meta?.account ?? null, key, op: "update", patch: { ...target?.patch, ...patch } }
+      if (target) {
+        local = local.filter(item => item !== target)
+        moveHandles(target.id, write.id)
+      }
       return enqueue(write)
     },
     delete(key) {
@@ -993,7 +899,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const failed = findFailure(failure)
       if (!failed) throw syncErrors.SYNC_UNKNOWN_FAILURE()
       // The retry is a new write with a new id, since the server refused the old one.
-      const { seq: _seq, error: _error, sent: _sent, ...write } = failed
+      const { seq: _seq, error: _error, ...write } = failed
       const id = randomUUID()
       return enqueue({ ...write, id, ...(write.op === "action" ? { key: id } : {}) }, failed)
     },
@@ -1009,14 +915,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     destroy() {
       if (destroyed) return
       destroyed = true
-      // The writes of this tick go to storage now, and another store of the name sends them.
+      // The writes of this tick go to storage now. The store keeps sending its queue, and stops when it is empty.
       if (flushQueued) flush()
       stopEvents()
-      stopMessages()
       stopLive()
-      cancelRetry?.()
       cancelTick?.()
       listeners.clear()
+      void schedule(false)
     },
     forget,
     addActions(actions) {

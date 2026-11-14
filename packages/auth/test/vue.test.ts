@@ -39,7 +39,7 @@ vi.mock("better-auth/vue", () => ({
 const appClient = vi.hoisted(() => ({ options: { plugins: [{ id: "admin-client" }] } }))
 vi.mock("#vitehub/auth/client", () => ({ default: appClient.options }))
 
-const { authClient, createAuthClient, loadAuthClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, onSignOut, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
 
 const signedIn = { session: { id: "s" }, user: { id: "u", name: "Ada" } }
 
@@ -501,6 +501,24 @@ describe("signOut() of useUserSession()", () => {
     await signOut(undefined, { onSuccess })
 
     expect(betterAuth.calls).toEqual([["useSession"], ["signOut", {}, { onSuccess }]])
+  })
+
+  it("waits for the onSignOut() listeners after the server ended the session, and before the next page opens", async () => {
+    signedIn()
+    const steps: string[] = []
+    setSignOutHandler(redirectTo => void steps.push(`open ${redirectTo}`))
+    const stop = onSignOut(async () => {
+      steps.push(`listener after ${betterAuth.calls.at(-1)?.[0]}`)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      steps.push("listener done")
+    })
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ redirectTo: "/goodbye" })
+    stop()
+    await signOut()
+
+    expect(steps).toEqual(["listener after signOut", "listener done", "open /goodbye", "open undefined"])
   })
 
   it("lets the Nuxt module open the next page", async () => {

@@ -77,7 +77,7 @@ catch (error) {
 
 `SyncError` comes from `vite-hub/sync/client`. A write that waits for the network does not throw. It stays in the queue until it is sent.
 
-Writes that you make in one tick go out in one push. When you change a row again before any tab sent its last update, the two updates become one, and the later value wins. A text field that saves on each key press while offline sends one update, not one per key. After a tab sent an update, the next change is a new update, also when the answer did not arrive. So a retry never sends old values again over newer ones.
+Writes that you make in one tick go out in one push. When you change a row two times in one tick, the two updates become one, and the later value wins. An update in a later tick is a new write, also while offline, and the server applies the updates in order. So a retry never sends old values again over newer ones.
 
 ## Pending rows
 
@@ -178,22 +178,31 @@ The rows of other people show within about a second. One tab of the app keeps a 
 
 ## Accounts and sign-out
 
-Each write belongs to the account that was signed in when it was made: the user of ViteHub Auth, or the scope without Auth. When another person signs in on the device, the old writes wait in IndexedDB. They do not show in `rows`, do not count in `queued`, and are never sent with the other person's session. When the first person signs in again, they go out.
+Each write belongs to the account that was signed in when it was made: the user that `identify` returns, else the user of ViteHub Auth, else the scope. When another person signs in on the device, the old writes wait in IndexedDB. They do not show in `rows`, do not count in `queued`, and are never sent with the other person's session. When the first person signs in again, they go out.
 
-Rows stay in the browser after a sign-out too. Call `clearSync()` when a person signs out, so the next person on the device does not see them. It empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts:
+Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`.
+
+With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync()` for you, after the server ended the session and before the next page opens. In a Vue app without Nuxt, add it once with `onSignOut()`:
+
+```ts [src/main.ts] fragment
+import { onSignOut } from 'vite-hub/auth/vue'
+import { clearSync } from 'vite-hub/sync/client'
+
+onSignOut(() => clearSync())
+```
+
+With another sign-in, call `clearSync()` after the sign-out request ended. Before it, the store can pull again with the old session and bring the rows back:
 
 ```ts [app/composables/sign-out.ts] fragment
 import { clearSync } from 'vite-hub/sync/client'
 
 export async function signOutEverywhere() {
+  await $fetch('/api/logout', { method: 'POST' })
   await clearSync()
-  await signOut()
 }
 ```
 
-If you forget it, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
-
-Writes that Sync v1 queued have no account. They wait until a pull has the scope that they were made for, which is the same user with the same `where` values, and then go out with that account.
+If the app does not clear Sync, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
 
 ## Refused writes
 
@@ -238,6 +247,6 @@ todos.destroy()
 comments.destroy()
 ```
 
-A write that the store takes before `destroy()` still goes to IndexedDB. Another store of the name, in this tab or another one, sends it, or the next store of the name does. This also holds when a component unmounts in the tick of its write. Its `SyncWrite` stays `queued`.
+A store keeps sending its queue after `destroy()`, and stops when the queue is empty or the server refuses the caller. This also holds when a component unmounts in the tick of its write. When the page closes first, the next page sends the writes on its first `createSync()` and when the network comes back, also when it never opens that table or subset again.
 
 On the server, `createSync()` makes no request and starts no timer. Its writes and actions throw, since they belong in the browser.

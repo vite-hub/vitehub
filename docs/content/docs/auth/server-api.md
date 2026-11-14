@@ -70,6 +70,14 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
 
+To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page. It returns a function that stops the listener. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, ViteHub adds `onSignOut(() => clearSync())` for you.
+
+```ts [src/main.ts] fragment
+import { onSignOut } from 'vite-hub/auth/vue'
+
+onSignOut(() => localStorage.removeItem('drafts'))
+```
+
 ### Client plugins
 
 To use Better Auth client plugins, such as `adminClient()`, export their options from `app/auth.client.ts` in a Nuxt app, or from `auth.client.ts` in the Vite root. The default client, `useUserSession()`, `useAuthClient()`, and the Nuxt page guard then use one client with these plugins.

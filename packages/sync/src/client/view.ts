@@ -54,12 +54,8 @@ function singleValues(values: SyncValues | undefined): SyncValues {
   return single
 }
 
-/**
- * `true` when the write belongs to `account`, or was made before the first pull. A write of Sync v1 waits for the pull
- * of its scope, so it belongs to nobody until then.
- */
+/** `true` when the write belongs to `account`, or was made before the first pull. */
 function isOwn(write: SyncNewWrite, account: string | undefined): boolean {
-  if (write.legacyScope !== undefined) return false
   return write.account === null || account === undefined || write.account === account
 }
 
@@ -185,23 +181,11 @@ function toMutation(write: SyncNewWrite, meta: SyncMeta | undefined): SyncMutati
 }
 
 /**
- * The storage change for a pull. Writes made before the first pull take its account. A write of Sync v1 takes it only
- * when the pull has the scope id of the write, which is the same user with the same `where` values. Writes of another
- * account stay as they are, for when that account comes back. A new scope or table version drops the rows, not the
- * writes.
+ * The storage change for a pull. Writes made before the first pull take its account. Writes of another account stay as
+ * they are, for when that account comes back. A new scope or table version drops the rows, not the writes.
  */
 function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: readonly SyncQueuedWrite[]): SyncStorageChange {
-  const update: SyncQueuedWrite[] = []
-  for (const write of writes) {
-    if (write.legacyScope !== undefined) {
-      if (write.legacyScope !== pull.scope.id) continue
-      const { legacyScope: _legacyScope, ...adopted } = write
-      update.push({ ...adopted, account: pull.account })
-    }
-    else if (write.account === null) {
-      update.push({ ...write, account: pull.account })
-    }
-  }
+  const update = writes.filter(write => write.account === null).map(write => ({ ...write, account: pull.account }))
   return {
     meta: { key: pull.key, cursor: pull.cursor, scope: pull.scope, account: pull.account, version: pull.version, defaults: pull.defaults },
     reset: pull.reset || (meta !== undefined && (meta.scope.id !== pull.scope.id || meta.version !== pull.version)),
@@ -213,7 +197,8 @@ function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: 
 
 /**
  * The outbox change for the results of a push. A write without a result stays queued. `results` has each action that
- * the server applied, with its result, or `undefined` when it returned nothing or was a duplicate.
+ * the server applied, with its result, or `undefined` when it returned nothing. A duplicate has the result that the
+ * server stored the first time.
  */
 function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMutationResult[]): Required<Pick<SyncStorageChange, "remove" | "update">> & { results: Map<string, unknown> } {
   const byId = new Map(results.map(result => [result.id, result]))
@@ -224,7 +209,7 @@ function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMuta
     const result = byId.get(write.id)
     if (result?.status === "applied" || result?.status === "duplicate") {
       remove.push(write.seq)
-      if (write.op === "action") values.set(write.id, result.status === "applied" ? result.result : undefined)
+      if (write.op === "action") values.set(write.id, result.result)
     }
     else if (result?.status === "rejected") update.push({ ...write, error: result.error })
   }
@@ -232,18 +217,17 @@ function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMuta
 }
 
 /**
- * The unsent update that a new update of `key` can merge into: the last active write that changes `key`, when it is an
- * update that no tab sent, and that this tab made and waits for (`own`). An action in between stops the search, since
- * its server code may read the row. A sent write may be on the server already, so a merge into it would send its old
- * values again with a new id. A write of another tab keeps its id, so that tab can settle it.
+ * The update that a new update of `key` merges into: the last active write of `local` that changes `key`, when it is an
+ * update that is not on its way to storage (`storing`). `local` holds the writes of this tab that are not stored yet, so
+ * no other tab and no push has them. An action in between stops the search, since its server code may read the row.
  */
-function mergeTarget<TWrite extends SyncNewWrite>(writes: readonly TWrite[], key: SyncKey, account: string | undefined, sending: ReadonlySet<string>, own: { has: (id: string) => boolean }): TWrite | undefined {
-  for (let index = writes.length - 1; index >= 0; index--) {
-    const write = writes[index]!
+function mergeTarget(local: readonly SyncNewWrite[], key: SyncKey, account: string | undefined, storing: ReadonlySet<string>): Extract<SyncNewWrite, { op: "update" }> | undefined {
+  for (let index = local.length - 1; index >= 0; index--) {
+    const write = local[index]!
     if (!isActive(write, account)) continue
     if (write.op === "action") return undefined
     if (write.key !== key) continue
-    return write.op === "update" && !write.sent && !sending.has(write.id) && own.has(write.id) ? write : undefined
+    return write.op === "update" && !storing.has(write.id) ? write : undefined
   }
   return undefined
 }

@@ -127,29 +127,27 @@ describe("pullChange", () => {
 })
 
 describe("pushChange", () => {
-  it("removes confirmed writes, keeps refused ones with their error, keeps writes without an answer, and keeps action results", () => {
-    const sent = [write(1, { op: "delete", key: "a" }), write(2, { op: "delete", key: "b" }), write(3, { op: "delete", key: "c" }), write(4, { op: "delete", key: "d" }), write(5, { op: "action", key: "m5", name: "complete", args: {} })]
+  it("removes confirmed writes, keeps refused ones with their error, keeps writes without an answer, and keeps action results, also of a duplicate", () => {
+    const sent = [write(1, { op: "delete", key: "a" }), write(2, { op: "delete", key: "b" }), write(3, { op: "delete", key: "c" }), write(4, { op: "delete", key: "d" }), write(5, { op: "action", key: "m5", name: "complete", args: {} }), write(6, { op: "action", key: "m6", name: "complete", args: {} })]
     const error = { code: "SYNC_NOT_FOUND" as const, message: "No such row." }
-    expect(pushChange(sent, [{ id: "m1", status: "applied" }, { id: "m2", status: "duplicate" }, { id: "m3", status: "rejected", error }, { id: "m5", status: "applied", result: { count: 2 } }])).toEqual({
-      remove: [1, 2, 5],
+    expect(pushChange(sent, [{ id: "m1", status: "applied" }, { id: "m2", status: "duplicate" }, { id: "m3", status: "rejected", error }, { id: "m5", status: "applied", result: { count: 2 } }, { id: "m6", status: "duplicate", result: { count: 1 } }])).toEqual({
+      remove: [1, 2, 5, 6],
       update: [{ ...sent[2], error }],
-      results: new Map([["m5", { count: 2 }]]),
+      results: new Map([["m5", { count: 2 }], ["m6", { count: 1 }]]),
     })
   })
 })
 
 describe("mergeTarget", () => {
-  it("finds the last unsent update of the key that this tab made, and stops at another write of the key or at an action", () => {
+  it("finds the last update of the key that is not on its way to storage, and stops at another write of the key or at an action", () => {
     const first = write(1, { op: "update", key: "a", patch: { title: "1" } })
-    const own = new Set([first.id])
     const other = write(2, { op: "update", key: "b", patch: { title: "2" } })
-    expect(mergeTarget([first, other], "a", meta.account, new Set(), own)).toBe(first)
-    expect(mergeTarget([first, other], "a", meta.account, new Set(["m1"]), own)).toBeUndefined()
-    expect(mergeTarget([first, write(3, { op: "delete", key: "a" })], "a", meta.account, new Set(), own)).toBeUndefined()
-    expect(mergeTarget([first, write(3, { op: "action", key: "m3", name: "rename", args: {} })], "a", meta.account, new Set(), own)).toBeUndefined()
-    expect(mergeTarget([write(1, { op: "insert", key: "a", value: {} })], "a", meta.account, new Set(), own)).toBeUndefined()
-    expect(mergeTarget([first, write(4, { op: "update", key: "a", patch: {}, error: { code: "SYNC_INVALID", message: "No." } })], "a", meta.account, new Set(), own)).toBe(first)
-    expect(mergeTarget([first, other], "a", meta.account, new Set(), new Set())).toBeUndefined()
+    expect(mergeTarget([first, other], "a", meta.account, new Set())).toBe(first)
+    expect(mergeTarget([first, other], "a", meta.account, new Set(["m1"]))).toBeUndefined()
+    expect(mergeTarget([first, write(3, { op: "delete", key: "a" })], "a", meta.account, new Set())).toBeUndefined()
+    expect(mergeTarget([first, write(3, { op: "action", key: "m3", name: "rename", args: {} })], "a", meta.account, new Set())).toBeUndefined()
+    expect(mergeTarget([write(1, { op: "insert", key: "a", value: {} })], "a", meta.account, new Set())).toBeUndefined()
+    expect(mergeTarget([first, write(4, { op: "update", key: "a", patch: {}, error: { code: "SYNC_INVALID", message: "No." } })], "a", meta.account, new Set())).toBe(first)
   })
 })
 

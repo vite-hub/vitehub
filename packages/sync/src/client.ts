@@ -7,7 +7,7 @@ import { SyncError } from "./client/types.ts"
 import { whereKey } from "./client/view.ts"
 import { syncErrors } from "./errors.ts"
 
-import type { SyncRow } from "./protocol.ts"
+import type { SyncRow, SyncValues } from "./protocol.ts"
 import type { SyncStorage } from "./client/storage.ts"
 import type { SyncOptimisticAction, SyncStoreWithReset } from "./client/store.ts"
 import type { SyncOptions, SyncState, SyncStore } from "./client/types.ts"
@@ -23,6 +23,8 @@ interface SharedStore {
 const shared = new Map<string, SharedStore>()
 let memoryStorage: SyncStorage | undefined
 let indexedDBStorage: SyncStorage | undefined
+// The storages whose stored writes this page sends, with the fetch of the last `createSync()` that used each one.
+const senders = new Map<SyncStorage, typeof fetch>()
 
 const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
@@ -42,6 +44,42 @@ function storageFor(persist: boolean): SyncStorage {
 function routeOf(name: string, baseURL: string | undefined): string {
   const base = baseURL ?? (typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__)
   return `${base.replace(/\/+$/, "")}${syncRoute(name)}`
+}
+
+/**
+ * Sends the writes that `storage` keeps for stores that are not open, such as a subset that the page left before its
+ * writes went out. Each one gets a store that stops when its writes are sent.
+ */
+async function sendStored(storage: SyncStorage): Promise<void> {
+  const ids = await storage.queuedIds().catch(() => [])
+  for (const id of ids) {
+    if (shared.has(id)) continue
+    // The id is the route, and `?` with the subset as JSON when there is one. See `createSyncStore()`.
+    const split = id.indexOf("?")
+    const url = split < 0 ? id : id.slice(0, split)
+    const where: unknown = split < 0 ? {} : JSON.parse(id.slice(split + 1))
+    createSyncStore(url.slice(url.lastIndexOf("/") + 1), {
+      url,
+      // SAFETY: `whereKey()` wrote the subset as a JSON object of column values.
+      where: where as SyncValues,
+      fetch: senders.get(storage)!,
+      storage,
+      environment: createBrowserEnvironment(),
+      interval: false,
+    }).destroy()
+  }
+}
+
+/** On the first `createSync()` of a storage, and each time the network comes back, sends its writes of closed stores. */
+function startSending(storage: SyncStorage, fetch: typeof globalThis.fetch): void {
+  const first = !senders.has(storage)
+  if (!senders.size) {
+    window.addEventListener("online", () => {
+      for (const known of senders.keys()) void sendStored(known)
+    })
+  }
+  senders.set(storage, fetch)
+  if (first) void sendStored(storage)
 }
 
 /** The store on the server: no request, no timer, no rows. */
@@ -69,7 +107,7 @@ function createIdleStore<TRow, TArgs>(): SyncStore<TRow, TArgs> {
  * The local copy of the Sync table `server/sync/<name>.ts`. It shows the stored rows at once, pulls, and keeps them
  * fresh, live while the page shows. Writes and actions apply at once, survive a reload in IndexedDB, and go to the
  * server in order. Calls with one name and subset share one store; `destroy()` ends one call, and the store stops with
- * the last one. On the server it does nothing.
+ * the last one, once its queued writes are sent. On the server it does nothing.
  *
  * ```ts
  * const todos = createSync("todos")
@@ -91,19 +129,22 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
   const actions = options.actions as Record<string, SyncOptimisticAction | undefined> | undefined
   let entry = shared.get(sharedKey)
   if (!entry) {
+    const fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
+    const storage = storageFor(options.persist !== false)
     entry = {
       store: createSyncStore<SyncRow>(name, {
         url,
         where,
         ...(actions ? { actions } : {}),
-        fetch: options.fetch ?? ((input, init) => globalThis.fetch(input, init)),
-        storage: storageFor(options.persist !== false),
+        fetch,
+        storage,
         environment: createBrowserEnvironment(),
         interval: options.interval ?? 30_000,
       }),
       users: 0,
     }
     shared.set(sharedKey, entry)
+    startSending(storage, fetch)
   }
   else if (actions) {
     entry.store.addActions(actions)

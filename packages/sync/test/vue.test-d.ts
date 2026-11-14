@@ -12,6 +12,7 @@ interface Todo { id: string, ownerId: string, title: string, done: boolean, list
 declare global {
   interface ViteHubSyncMap {
     todos: SyncDefinition<unknown, Todo, { complete: { id: string }, add: { id?: string, title: string } }>
+    meetings: SyncDefinition<unknown, { id: string, at: Date, count: bigint }>
   }
 }
 
@@ -24,6 +25,16 @@ test("useSync() and createSync() type the rows from the Sync map", () => {
   expectTypeOf(createSync("todos").getState().rows).toEqualTypeOf<readonly Todo[]>()
   // @ts-expect-error The app has no Sync definition with this name.
   useSync("notes")
+})
+
+test("useSync() and createSync() type rows, inserts and updates as JSON, so a Date or a bigint column is text", () => {
+  const meetings = useSync("meetings")
+  expectTypeOf(meetings.rows).toEqualTypeOf<readonly { id: string, at: string, count: string }[]>()
+  meetings.insert({ at: "2026-11-14T10:00:00.000Z", count: "1" })
+  // @ts-expect-error The browser sends JSON, so a Date column takes text.
+  meetings.insert({ at: new Date() })
+  // @ts-expect-error The browser sends JSON, so a bigint column takes text.
+  createSync("meetings").update("a", { count: 1n })
 })
 
 test("useSync() and createSync() type the subset, the actions and their optimistic functions", () => {

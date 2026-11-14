@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
 import { build } from "vite"
 
-import { accountOf, createFakeSyncServer, scopeIdOf } from "../client-fake-server.ts"
+import { createFakeSyncServer } from "../client-fake-server.ts"
 
 async function bundle(entry) {
   const output = await build({
@@ -19,6 +19,15 @@ async function bundle(entry) {
   })
   const [result] = Array.isArray(output) ? output : [output]
   return result.output.find(chunk => chunk.type === "chunk" && chunk.isEntry).code
+}
+
+/** Resolves once `check` passes. */
+async function until(check, timeout = 10_000) {
+  const start = Date.now()
+  while (!check()) {
+    if (Date.now() - start > timeout) throw new Error("The condition did not become true in time.")
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
 }
 
 const client = await bundle("../../src/client.ts")
@@ -77,16 +86,10 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
         await db.write("/a", { meta: meta(3), reset: true, put: [["k9", { id: "k9" }]] })
         const reset = await db.read("/a")
         const b = await db.read("/b")
-        // A merge replaces an update that no tab sent. Once a tab marked an update as sent, a new update keeps its own
-        // patch, and the sent one stays.
-        const { seqs: [first] } = await db.write("/m", { add: [{ id: "u1", account: "acc", key: "k", op: "update", patch: { title: "1" } }] })
-        const merged = await db.write("/m", { add: [{ id: "u2", account: "acc", key: "k", op: "update", patch: { title: "2", done: true } }], merge: [{ index: 0, seq: first, patch: { done: true } }] })
-        const marked = await db.write("/m", { sent: [merged.seqs[0], 999_999] })
-        const late = await db.write("/m", { add: [{ id: "u3", account: "acc", key: "k", op: "update", patch: { title: "2", done: true, note: "x" } }], merge: [{ index: 0, seq: merged.seqs[0], patch: { note: "x" } }] })
-        const merges = { merged, marked, late, queue: await db.readQueue("/m") }
+        const queued = await db.queuedIds()
         await db.clear()
         const cleared = await db.read("/a")
-        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs, action: action.writes, actionSeq, merges }
+        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs, action: action.writes, actionSeq, queued }
       })
       assert.equal(result.persisted, true)
       assert.deepEqual(result.a.meta, { scope: { id: "s", values: {} }, key: "id", cursor: 2, account: "acc", version: "v1", defaults: { done: false } })
@@ -98,89 +101,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       assert.deepEqual(result.b, [["x", { id: "x" }]])
       assert.deepEqual(result.action, [{ seq: result.actionSeq, id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }])
       assert.deepEqual(result.cleared, { meta: undefined, rows: [], writes: [] })
-      const { merged, marked, late, queue: merges } = result.merges
-      assert.deepEqual([merged.unmerged, marked.gone, late.unmerged], [[], [999_999], [0]])
-      assert.deepEqual(merges.writes, [
-        { seq: merged.seqs[0], id: "u2", account: "acc", key: "k", op: "update", patch: { title: "2", done: true }, sent: true },
-        { seq: late.seqs[0], id: "u3", account: "acc", key: "k", op: "update", patch: { note: "x" } },
-      ])
-      await page.close()
-    })
-
-    await t.test("the upgrade from format 1 drops the rows, keeps the outbox, and marks it as sent", async () => {
-      const page = await open()
-      const result = await page.evaluate(async () => {
-        await new Promise((resolve, reject) => {
-          const request = indexedDB.deleteDatabase("vitehub-sync")
-          request.onsuccess = resolve
-          request.onerror = reject
-        })
-        // A format 1 database, as the Sync v1 client wrote it.
-        const old = await new Promise((resolve, reject) => {
-          const request = indexedDB.open("vitehub-sync", 1)
-          request.onupgradeneeded = () => {
-            const database = request.result
-            database.createObjectStore("rows", { keyPath: ["name", "key"] })
-            database.createObjectStore("meta", { keyPath: "name" })
-            database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
-          }
-          request.onsuccess = () => resolve(request.result)
-          request.onerror = reject
-        })
-        const transaction = old.transaction(["rows", "meta", "outbox"], "readwrite")
-        transaction.objectStore("rows").put({ name: "/a", key: "k1", order: 0, row: { id: "k1" } })
-        transaction.objectStore("meta").put({ name: "/a", format: 1, next: 1, scope: { id: "s", values: {} }, key: "id", cursor: 4 })
-        transaction.objectStore("outbox").add({ name: "/a", id: "m1", scope: "s", key: "k1", op: "delete" })
-        transaction.objectStore("outbox").add({ name: "/a", id: "m2", scope: null, key: "k2", op: "insert", value: { title: "Early" } })
-        await new Promise(resolve => transaction.oncomplete = resolve)
-        old.close()
-        const db = window.storage.createIndexedDBStorage(() => { throw new Error("no fallback") })
-        const stored = await db.read("/a")
-        await db.clear()
-        return stored
-      })
-      assert.deepEqual(result.meta, undefined)
-      assert.deepEqual(result.rows, [])
-      assert.deepEqual(result.writes.map(({ seq: _seq, ...write }) => write), [
-        { id: "m1", account: null, legacyScope: "s", key: "k1", op: "delete", sent: true },
-        { id: "m2", account: null, key: "k2", op: "insert", value: { title: "Early" }, sent: true },
-      ])
-      await page.close()
-    })
-
-    await t.test("the upgrade from format 3 keeps the outbox, with the name of an action, and marks it as sent", async () => {
-      const page = await open()
-      const result = await page.evaluate(async () => {
-        await new Promise((resolve, reject) => {
-          const request = indexedDB.deleteDatabase("vitehub-sync")
-          request.onsuccess = resolve
-          request.onerror = reject
-        })
-        const old = await new Promise((resolve, reject) => {
-          const request = indexedDB.open("vitehub-sync", 3)
-          request.onupgradeneeded = () => {
-            const database = request.result
-            database.createObjectStore("rows", { keyPath: ["name", "key"] })
-            database.createObjectStore("meta", { keyPath: "name" })
-            database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("store", "store")
-          }
-          request.onsuccess = () => resolve(request.result)
-          request.onerror = reject
-        })
-        const transaction = old.transaction(["outbox"], "readwrite")
-        transaction.objectStore("outbox").add({ store: "/a", id: "m1", account: "acc", key: "m1", op: "action", name: "complete", args: { id: "x" } })
-        transaction.objectStore("outbox").add({ store: "/a", id: "m2", account: "acc", key: "k", op: "update", patch: { title: "T" } })
-        await new Promise(resolve => transaction.oncomplete = resolve)
-        old.close()
-        const db = window.storage.createIndexedDBStorage(() => { throw new Error("no fallback") })
-        const stored = await db.read("/a")
-        await db.clear()
-        return stored
-      })
-      assert.deepEqual(result.writes.map(({ seq: _seq, ...write }) => write), [
-        { id: "m1", account: "acc", key: "m1", op: "action", name: "complete", args: { id: "x" }, sent: true },
-        { id: "m2", account: "acc", key: "k", op: "update", patch: { title: "T" }, sent: true },
-      ])
+      assert.deepEqual(result.queued, ["/a", "/b"])
       await page.close()
     })
 
@@ -219,6 +140,25 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       })
       assert.deepEqual(sent, { rows: [{ id: "a", ownerId: "ada", title: "Milk" }, { id: key, ownerId: "ada", title: "Eggs" }], queued: 0, status: "ready" })
       assert.equal(server.applied.length, 1)
+      await page.close()
+    })
+
+    await t.test("a write of a subset that the page left goes out after a reload, also when the subset never opens again", async () => {
+      const page = await open()
+      server.offline = true
+      const key = await page.evaluate(async () => {
+        const list = window.sync.createSync("todos", { where: { listId: "left" }, interval: false })
+        const write = list.insert({ title: "Left behind" })
+        write.then(undefined, () => undefined)
+        await list.refresh()
+        return write.key
+      })
+      await page.reload()
+      await page.waitForFunction(() => window.ready)
+      server.offline = false
+      await page.evaluate(() => window.sync.createSync("todos", { interval: false }).refresh())
+      await until(() => server.rows.has(key))
+      assert.deepEqual(server.rows.get(key), { id: key, ownerId: "ada", listId: "left", title: "Left behind" })
       await page.close()
     })
 
@@ -288,46 +228,6 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       await two.evaluate(() => window.calls.destroy())
       await one.close()
       await two.close()
-    })
-
-    await t.test("a queued write of Sync v1 goes out with the account of its user after the upgrade", async () => {
-      const page = await open()
-      const scope = scopeIdOf({ name: "todos", ownerId: "ada" })
-      await page.evaluate(async (scope) => {
-        await new Promise((resolve, reject) => {
-          const request = indexedDB.deleteDatabase("vitehub-sync")
-          request.onsuccess = resolve
-          request.onerror = reject
-        })
-        const old = await new Promise((resolve, reject) => {
-          const request = indexedDB.open("vitehub-sync", 1)
-          request.onupgradeneeded = () => {
-            const database = request.result
-            database.createObjectStore("rows", { keyPath: ["name", "key"] })
-            database.createObjectStore("meta", { keyPath: "name" })
-            database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
-          }
-          request.onsuccess = () => resolve(request.result)
-          request.onerror = reject
-        })
-        const transaction = old.transaction(["outbox"], "readwrite")
-        transaction.objectStore("outbox").add({ name: "/api/_vitehub/sync/todos", id: "v1-insert", scope, key: "from-v1", op: "insert", value: { title: "From v1" } })
-        await new Promise(resolve => transaction.oncomplete = resolve)
-        old.close()
-      }, scope)
-      const state = await page.evaluate(async () => {
-        const todos = window.sync.createSync("todos", { interval: false })
-        await todos.refresh()
-        await todos.refresh()
-        const { queued, rows } = todos.getState()
-        todos.destroy()
-        return { queued, rows }
-      })
-      assert.equal(state.queued, 0)
-      assert.deepEqual(server.rows.get("from-v1"), { id: "from-v1", ownerId: "ada", title: "From v1" })
-      const sent = server.requests.filter(request => request.method === "POST").at(-1).body
-      assert.equal(sent.account, accountOf("ada"))
-      await page.close()
     })
   })
 }

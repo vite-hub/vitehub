@@ -5,7 +5,7 @@ import { SyncError } from "../src/client/types.ts"
 import { accountOf, scopeIdOf } from "./client-fake-server.ts"
 import { createHarness, until } from "./client-harness.ts"
 
-import type { SyncNewWrite, SyncStorage } from "../src/client/storage.ts"
+import type { SyncStorage } from "../src/client/storage.ts"
 import type { Harness, Todo } from "./client-harness.ts"
 
 let harness: Harness
@@ -231,6 +231,21 @@ describe("writes", () => {
     expect(store.getState()).toMatchObject({ queued: 0, rows: [{ id: "a", title: "Soy milk" }] })
   })
 
+  it("merges only within one tick, so a patch of a later tick is its own update", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    const { store } = h.open()
+    await store.refresh()
+    h.server.offline = true
+    store.update("a", { title: "Oat milk" }).then(undefined, () => undefined)
+    await until(() => store.getState().status === "offline")
+    store.update("a", { done: true }).then(undefined, () => undefined)
+    expect(store.getState().queued).toBe(2)
+    h.server.offline = false
+    await store.refresh()
+    expect(h.server.applied.map(mutation => mutation.op === "update" && mutation.patch)).toEqual([{ title: "Oat milk" }, { done: true }])
+  })
+
   it("deletes a row at once and on the server", async () => {
     const h = setup()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
@@ -404,28 +419,6 @@ describe("accounts", () => {
     await until(() => reload.store.getState().queued === 0)
     expect(h.server.applied.map(mutation => mutation.op === "insert" && mutation.value.title)).toEqual(["Bob's offline", "Ada's offline"])
     expect(reload.store.getState().rows.map(row => row.title)).toEqual(["Ada's", "Ada's offline"])
-  })
-
-  it("sends a write of Sync v1 only with the account of a pull that has its scope id", async () => {
-    const h = setup()
-    seed(h, [{ id: "b", ownerId: "bob", title: "Bob's" }])
-    // The v1 upgrade keeps the scope id of the write. With Auth, the account of v2 is another fingerprint.
-    const legacy: SyncNewWrite = { id: "v1-write", account: null, legacyScope: scopeIdOf({ name: "todos", ownerId: "ada" }), key: "k1", op: "insert", value: { title: "From v1" }, sent: true }
-    await h.storage.write("/api/_vitehub/sync/todos", { add: [legacy] })
-    h.server.user = "bob"
-    const { store } = h.open()
-    await store.refresh()
-    expect(h.server.applied).toEqual([])
-    expect(store.getState()).toMatchObject({ queued: 0, failures: [], rows: [{ id: "b" }] })
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toMatchObject([{ id: "v1-write", account: null, legacyScope: legacy.legacyScope }])
-
-    // Ada signs in. Her pull has the scope id of the write, so the write gets her account and goes out.
-    h.server.user = "ada"
-    await store.refresh()
-    await until(() => h.server.rows.has("k1"))
-    expect(h.server.rows.get("k1")).toMatchObject({ title: "From v1", ownerId: "ada" })
-    expect(posts(h).at(-1)!.body!.account).toBe(accountOf("ada"))
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
   })
 
   it("stops pushing after a 409 when the pull keeps the same account", async () => {
@@ -614,6 +607,23 @@ describe("actions", () => {
     expect(call.state).toBe("applied")
     // The tab that made the call read the result, so the storage does not keep it.
     expect(await h.storage.takeResults([call.key])).toEqual(new Map())
+  })
+
+  it("resolves an action with its first result when the answer was lost and the server answers duplicate", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    h.server.actions.complete = ({ update }, args) => {
+      update((args as { id: string }).id, { done: true })
+      return { answer: 42 }
+    }
+    const { store } = h.open()
+    await store.refresh()
+    h.server.loseNextResponse = true
+    const call = store.actions.complete({ id: "a" })
+    await until(() => store.getState().status === "offline")
+    await store.refresh()
+    expect(await call).toEqual({ answer: 42 })
+    expect(h.server.applied).toHaveLength(1)
   })
 
   it("refuses an action that the server does not have", async () => {
@@ -1033,23 +1043,37 @@ describe("persistence and tabs", () => {
     expect(h.server.applied).toHaveLength(1)
   })
 
-  it("stores a write that the store took just before destroy(), and the next store sends it", async () => {
+  it("sends a write that the store took just before destroy()", async () => {
     const h = setup()
     const first = h.open()
     await first.store.refresh()
     const write = first.store.insert({ title: "Milk" })
     first.store.destroy()
-    await new Promise(resolve => setTimeout(resolve, 5))
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toMatchObject([{ id: expect.any(String), key: write.key, op: "insert" }])
-    expect(write.state).toBe("queued")
-
-    const second = h.open()
-    await second.store.refresh()
-    expect(second.store.getState().queued).toBe(0)
+    expect(await write).toMatchObject({ title: "Milk", ownerId: "ada" })
     expect(h.server.rows.get(write.key)).toMatchObject({ title: "Milk", ownerId: "ada" })
+    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
   })
 
-  it("sends from an open store the writes that a destroyed store stored", async () => {
+  it("keeps sending the queue of a destroyed store until it is empty, as after a navigation while offline", async () => {
+    const h = setup()
+    const { store, browser } = h.open()
+    await store.refresh()
+    h.server.offline = true
+    const write = store.insert({ title: "Milk" })
+    await until(() => store.getState().status === "offline")
+    store.destroy()
+    h.server.offline = false
+    // The backoff timer of the failed push fires.
+    browser.fire()
+    expect(await write).toMatchObject({ title: "Milk", ownerId: "ada" })
+    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
+    const requests = h.server.requests.length
+    expect(browser.fire()).toEqual([])
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(h.server.requests.length).toBe(requests)
+  })
+
+  it("shows in an open store the writes that a destroyed store sent", async () => {
     const h = setup()
     const other = h.open()
     const first = h.open()

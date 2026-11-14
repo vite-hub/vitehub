@@ -73,7 +73,8 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
   const route = syncRoute(name)
   const rows = new Map<SyncKey, SyncRow>()
   let log: Change[] = []
-  const ledger = new Set<string>()
+  // Applied mutation ids, with the result of an action.
+  const ledger = new Map<string, unknown>()
   const wakers = new Set<() => void>()
   const enders = new Set<() => void>()
   let seq = 0
@@ -241,7 +242,10 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
   }
 
   function apply(mutation: SyncMutation, values: SyncValues, user: string): SyncMutationResult {
-    if (ledger.has(mutation.id)) return { id: mutation.id, status: "duplicate" }
+    if (ledger.has(mutation.id)) {
+      const stored = ledger.get(mutation.id)
+      return { id: mutation.id, status: "duplicate", ...(stored === undefined ? {} : { result: stored }) }
+    }
     const refused = (code: SyncWireError["code"], message: string): SyncMutationResult => ({ id: mutation.id, status: "rejected", error: { code, message } })
     const singles = Object.fromEntries(Object.entries(values).filter(([, value]) => !Array.isArray(value)))
     const writes: [SyncKey, SyncRow | undefined][] = []
@@ -299,7 +303,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     const error = server.refuse?.(mutation)
     if (error) return { id: mutation.id, status: "rejected", error }
     for (const [key, row] of writes) put(key, row)
-    ledger.add(mutation.id)
+    ledger.set(mutation.id, result)
     server.applied.push(mutation)
     return { id: mutation.id, status: "applied", ...(result === undefined ? {} : { result }) }
   }
