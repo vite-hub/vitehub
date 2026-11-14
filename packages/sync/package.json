@@ -73,6 +73,7 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
@@ -86,6 +87,7 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
+    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {

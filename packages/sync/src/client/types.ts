@@ -1,3 +1,7 @@
+import { Diagnostic } from "nostics"
+
+import { syncDocsPage } from "../errors.ts"
+
 import type { SyncErrorCode, SyncKey, SyncMutation, SyncWireError } from "../protocol.ts"
 
 /**
@@ -18,18 +22,18 @@ type SyncClientErrorCode = SyncErrorCode | "SYNC_NETWORK" | "SYNC_SERVER_ERROR"
  * An error of a pull, a push, or one write. A refused write rejects with it.
  * @experimental
  */
-class SyncError extends Error {
-  /** What went wrong, such as `SYNC_UNAUTHORIZED`. */
-  readonly code: SyncClientErrorCode
+class SyncError extends Diagnostic {
+  /** What went wrong, such as `SYNC_UNAUTHORIZED`. `docs` links to its page. */
+  declare code: SyncClientErrorCode
   /** The HTTP status, when the server answered. */
   readonly status: number | undefined
   /** Per-field problems from the definition's `schema`. */
   readonly issues: { path?: string, message: string }[] | undefined
 
-  constructor(code: SyncClientErrorCode, message: string, options: { status?: number, issues?: { path?: string, message: string }[] } = {}) {
-    super(message)
+  /** `fix` is the fix that the server sent, or the fix of the catalog for a code that the client makes. */
+  constructor(code: SyncClientErrorCode, message: string, options: { status?: number, issues?: { path?: string, message: string }[], fix?: string } = {}) {
+    super({ code, why: message, docs: syncDocsPage(code), ...(options.fix ? { fix: options.fix } : {}) }, SyncError)
     this.name = "SyncError"
-    this.code = code
     this.status = options.status
     this.issues = options.issues
   }

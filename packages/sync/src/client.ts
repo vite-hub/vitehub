@@ -4,6 +4,7 @@ import { createIndexedDBStorage } from "./client/indexeddb.ts"
 import { createMemoryStorage } from "./client/storage.ts"
 import { createSyncStore } from "./client/store.ts"
 import { SyncError } from "./client/types.ts"
+import { syncErrors } from "./errors.ts"
 
 import type { SyncRow } from "./protocol.ts"
 import type { SyncStorage } from "./client/storage.ts"
@@ -45,7 +46,7 @@ function routeOf(name: string, baseURL: string | undefined): string {
 /** The store on the server: no request, no timer, no rows. */
 function createIdleStore<TRow>(): SyncStore<TRow> {
   const browserOnly = () => {
-    throw new Error("[vitehub] Sync writes run in the browser only. Call them from an event handler or after mount.")
+    throw syncErrors.SYNC_BROWSER_ONLY()
   }
   return {
     getState: () => idleState,
@@ -95,7 +96,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions = 
   const owned = new Set<() => void>()
   let open = true
   const check = () => {
-    if (!open) throw new Error(`[vitehub] This Sync store "${name}" was destroyed.`)
+    if (!open) throw syncErrors.SYNC_STORE_DESTROYED({ name })
   }
   // SAFETY: the rows of the route are the JSON rows of its table, which `SyncRowOf` names.
   return {

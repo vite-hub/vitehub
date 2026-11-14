@@ -3,8 +3,15 @@ import { defineErrors } from "@vite-hub/runtime"
 const message = ({ message }: { message: string }) => message
 
 // Keep published codes stable. Each code has a page at https://vitehub.dev/docs/sync/diagnostics/<code>.
+const syncDocs = "https://vitehub.dev/docs/sync/diagnostics"
+
+/** The docs page of a Sync code, such as a wire code that the client got from the server. */
+export function syncDocsPage(code: string): string {
+  return `${syncDocs}/${code.toLowerCase()}`
+}
+
 export const syncErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/sync/diagnostics",
+  docs: syncDocs,
   codes: {
     // Answers on the wire. The client acts on these codes.
     SYNC_UNAUTHORIZED: {
@@ -52,6 +59,28 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
     SYNC_BAD_REQUEST: {
       why: message,
       fix: "Send `GET ?cursor=<n>&scope=<id>` or `POST` with a JSON `SyncPushRequest`, as `@vite-hub/sync/client` does.",
+    },
+
+    // Errors that the browser client makes. The server never sends them.
+    SYNC_NETWORK: {
+      why: "The Sync route could not be reached.",
+      fix: "Check the network. The client tries again later, and at once when the network comes back.",
+    },
+    SYNC_SERVER_ERROR: {
+      why: message,
+      fix: "Read the server log. The client tries again later.",
+    },
+    SYNC_BROWSER_ONLY: {
+      why: "Sync writes run in the browser only, and this write ran on the server.",
+      fix: "Call `insert`, `update`, `delete`, and `retry` from an event handler or after mount.",
+    },
+    SYNC_STORE_DESTROYED: {
+      why: ({ name }: { name: string }) => `The Sync store ${JSON.stringify(name)} was destroyed.`,
+      fix: "Do not use a store after `destroy()`. Call `createSync()` or `useSync()` again to get a new one.",
+    },
+    SYNC_UNKNOWN_FAILURE: {
+      why: "This failure is not in the Sync store. It was retried or dismissed before.",
+      fix: "Pass a failure from the current `failures` of the store.",
     },
 
     // Definition and setup errors. They stop the build or the server start, or fail the request with 500.

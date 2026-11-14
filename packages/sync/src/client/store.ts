@@ -1,7 +1,8 @@
+import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
 import { applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, failScope, keyColumnOf, pullChange, pushChange, randomUUID, readError, replayWrites, toMutation, toWireError } from "./view.ts"
+import { backoffDelay, clientError, failScope, keyColumnOf, pullChange, pushChange, randomUUID, readError, replayWrites, toMutation, toWireError } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
@@ -185,7 +186,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
   }
 
   function assertOpen(): void {
-    if (destroyed) throw new Error(`[vitehub] The Sync store "${name}" was destroyed.`)
+    if (destroyed) throw syncErrors.SYNC_STORE_DESTROYED({ name })
   }
 
   /** Shows `write` at once, stores it, then sends it. `replaces` is a refused write that it takes the place of. */
@@ -281,7 +282,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
       response = await options.fetch(input, { ...init, cache: "no-store" })
     }
     catch {
-      return { ok: false, error: new SyncError("SYNC_NETWORK", "The Sync route could not be reached.") }
+      return { ok: false, error: clientError(syncErrors.SYNC_NETWORK()) }
     }
     const body: unknown = await response.json().catch(() => undefined)
     if (!response.ok) return { ok: false, error: readError(response.status, body) }
@@ -293,7 +294,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
       const query = meta ? `?${new URLSearchParams({ cursor: String(meta.cursor), scope: meta.scope.id })}` : ""
       const answer = await request(`${id}${query}`, { method: "GET", headers: { accept: "application/json" } })
       if (!answer.ok) return fail(answer.error)
-      if (!isPull(answer.body)) return fail(new SyncError("SYNC_SERVER_ERROR", "The Sync route answered without a pull."))
+      if (!isPull(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a pull." })))
       recover()
       await commit(pullChange(meta, answer.body, writes))
       if (!answer.body.more) return true
@@ -316,9 +317,9 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
       await commit({ update: sent.map(write => ({ ...write, error: toWireError(reason) })) })
       return true
     }
-    if (!isPush(answer.body)) return fail(new SyncError("SYNC_SERVER_ERROR", "The Sync route answered without results."))
+    if (!isPush(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without results." })))
     const settled = pushChange(sent, answer.body.results)
-    if (!settled.remove.length && !settled.update.length) return fail(new SyncError("SYNC_SERVER_ERROR", "The Sync route answered without a result for the writes."))
+    if (!settled.remove.length && !settled.update.length) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a result for the writes." })))
     recover()
     const sentIds = new Set(sent.map(write => write.id))
     const pulled = pullChange(meta, answer.body.pull, writes.filter(write => !sentIds.has(write.id)))
@@ -459,7 +460,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
     retry(failure) {
       assertOpen()
       const failed = findFailure(failure)
-      if (!failed) throw new Error("[vitehub] This failure is not in the Sync store. It was retried or dismissed before.")
+      if (!failed) throw syncErrors.SYNC_UNKNOWN_FAILURE()
       // A write stays with the scope it was made for, so it never reaches another account.
       if (meta && failed.scope !== meta.scope.id) return refused(failed.key, new SyncError("SYNC_SCOPE_CHANGED", failed.error!.message))
       const { seq: _seq, error: _error, ...write } = failed

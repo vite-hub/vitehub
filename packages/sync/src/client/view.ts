@@ -3,6 +3,7 @@ import { SyncError } from "./types.ts"
 
 import type { SyncErrorCode, SyncKey, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncWireError } from "../protocol.ts"
 import type { SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorageChange } from "./storage.ts"
+import type { SyncClientErrorCode } from "./types.ts"
 
 const wireCodes = {
   SYNC_UNAUTHORIZED: true,
@@ -138,9 +139,15 @@ function readError(status: number, body: unknown): SyncError {
   const fields = body && typeof body === "object" ? body : {}
   const code: unknown = Reflect.get(fields, "code")
   const message: unknown = Reflect.get(fields, "message")
+  const fix: unknown = Reflect.get(fields, "fix")
   const issues = readIssues(Reflect.get(fields, "issues"))
   const known = status >= 500 ? "SYNC_SERVER_ERROR" : isWireCode(code) ? code : statusCodes[status] ?? "SYNC_BAD_REQUEST"
-  return new SyncError(known, typeof message === "string" ? message : `The Sync route answered ${status}.`, { status, ...(issues ? { issues } : {}) })
+  return new SyncError(known, typeof message === "string" ? message : `The Sync route answered ${status}.`, { status, ...(issues ? { issues } : {}), ...(typeof fix === "string" ? { fix } : {}) })
+}
+
+/** A `SyncError` for a code that the client makes, with the why and fix of the catalog. */
+function clientError(diagnostic: { code: SyncClientErrorCode, message: string, fix?: string | undefined }): SyncError {
+  return new SyncError(diagnostic.code, diagnostic.message, diagnostic.fix ? { fix: diagnostic.fix } : {})
 }
 
 /** The wire form of an error, to keep with a refused write. */
@@ -149,4 +156,4 @@ function toWireError(error: SyncError): SyncWireError {
   return { code, message: error.message, ...(error.issues ? { issues: error.issues } : {}) }
 }
 
-export { backoffDelay, failScope, insertedRow, keyColumnOf, pullChange, pushChange, randomUUID, readError, replayWrites, toMutation, toWireError }
+export { backoffDelay, clientError, failScope, insertedRow, keyColumnOf, pullChange, pushChange, randomUUID, readError, replayWrites, toMutation, toWireError }

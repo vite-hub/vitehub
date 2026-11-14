@@ -62,7 +62,7 @@ icon: i-lucide-refresh-cw
 | Fresh rows | The client pulls on start, when the page shows again, when the network comes back, every 30 seconds while the page shows, and after each write. Other tabs see a change at once. |
 | Inspection | `vitehub sync list` and `vitehub sync changes <name>`, and the `sync.list` and `sync.changes` operations. |
 
-The client has no dependencies. Vue gets `useSync()`, and other frameworks use the same store through `createSync()`.
+The client needs no framework. Vue gets `useSync()`, and other frameworks use the same store through `createSync()`.
 
 ## Sync, Database, or Realtime
 
