@@ -1,15 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { runViteHubCli } from "@vite-hub/cli"
 import { registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
 import { commentsRoleAllows } from "../../comments/src/index.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
+import { consoleOperations } from "../src/console/runtime/server/operations.ts"
+import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
+import { redeemConsoleTicket } from "../src/console/runtime/server/tickets.ts"
 import { consolePageAuthUser } from "../src/console/runtime/server/page-auth.ts"
 import { consolePageToolAllowed } from "../src/console/runtime/server/page-tool.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { requestEvent } from "./console-event.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -78,6 +84,7 @@ afterEach(() => {
   app.database.sqlite.close()
   state.app = undefined
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
+  installConsoleDevelopment("/app", false)
   vi.unstubAllEnvs()
   vi.useRealTimers()
 })
@@ -168,5 +175,87 @@ describe("guests", () => {
     const late = String(Reflect.get(Object((await call("site.invite", { name: "Leo", grants: ["comments-read"], expiresInDays: 1 })).value), "url"))
     vi.useFakeTimers({ now: Date.now() + 25 * 60 * 60_000, toFake: ["Date"] })
     expect((await open(late)).response.status).toBe(401)
+  })
+})
+
+/**
+ * Run `vitehub <args>` as in a project with the Console. Its calls reach the Console RPC of this app: signed with a key
+ * and `--url`, as against a deployed app, or unsigned through the dev server that the command finds.
+ */
+async function vitehub(args: string[], target: "deployed" | "dev" = "deployed") {
+  let stdout = ""
+  let stderr = ""
+  const plugin = { name: "vite-hub", vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations, module: "vite-hub/console/server" }] } }
+  const code = await runViteHubCli({
+    args: target === "deployed" ? [...args, "--url", origin] : args,
+    cwd: "/app",
+    env: target === "deployed" ? { VITEHUB_CONSOLE_PRIVATE_KEY_CONSOLE_SITE: key.key.privateKey } : { VITEHUB_DEV_SERVER_URL: origin },
+    fetch: async (url, init) => await handleConsoleRpcRequest(new Request(url, init), { remoteAddress: "127.0.0.1" }),
+    loadConfig: async () => ({ plugins: [plugin], root: "/app" }),
+    loadNuxtViteConfig: async () => undefined,
+    stderr: { write: chunk => (stderr += String(chunk), true) },
+    stdout: { write: chunk => (stdout += String(chunk), true) },
+  })
+  return { code, stderr, stdout }
+}
+
+describe("the vitehub site commands", () => {
+  it("list the browsers and sign one out", async () => {
+    const { cookie } = await open(await link("site.link"))
+    const sessions = await vitehub(["site", "sessions"])
+    expect(sessions).toMatchObject({ code: 0, stderr: "" })
+    const [header, ...rows] = sessions.stdout.trimEnd().split("\n")
+    expect(header).toMatch(/^ID +KIND +PERSON +DEVICE +LAST SEEN +EXPIRES$/)
+    // The fixture member also has a session of their own, from another device.
+    const row = rows.find(line => line.includes("Chrome"))
+    expect(row).toMatch(/^\S+ +member +Ada Lovelace <ada@example\.com> +Chrome · macOS +\d{4}-\d\d-\d\dT\S+ +\d{4}-\d\d-\d\dT\S+$/)
+
+    const id = row!.split(/ +/)[0]!
+    expect(await vitehub(["site", "revoke", id, "--yes"])).toEqual({ code: 0, stderr: "", stdout: "Signed the browser out.\n" })
+    expect(await signedIn(cookie)).toBeNull()
+    expect((await vitehub(["site", "sessions"])).stdout).not.toContain("Chrome")
+  })
+
+  it("refuse a sign-in link or an invite from a deployed app, and say where to make it", async () => {
+    const opened = await vitehub(["site", "open", "/runs/42"])
+    expect(opened).toMatchObject({ code: 1, stdout: "" })
+    expect(opened.stderr).toContain("CONSOLE_TICKET_NO_PERSON: Opening the site signs the browser in as the app user with the email of the person who asks, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.")
+    expect(opened.stderr).toContain("Fix: Make the link in the ViteHub Console, where you are signed in.")
+
+    const invited = await vitehub(["site", "invite", "Ana", "--grants", "comments-write"])
+    expect(invited.code).toBe(1)
+    expect(invited.stderr).toContain("CONSOLE_TICKET_NO_PERSON: An invite records the Console member who made it")
+    expect((await vitehub(["site", "invites"])).stdout).toBe("No open invites.\n")
+  })
+
+  it("on a dev server, refuse a sign-in link for the local developer and invite a guest instead", async () => {
+    installConsoleAccess({ mode: "local" })
+    installConsoleDevelopment("/app", true)
+    installConsoleProjectRoot("/app")
+    const opened = await vitehub(["site", "open"], "dev")
+    expect(opened.code).toBe(1)
+    expect(opened.stderr).toContain("CONSOLE_TICKET_NO_PERSON: Opening the site signs the browser in as the app user with your email, and the development server knows you only as the local developer, without an email.")
+    expect(opened.stderr).toContain("invite the browser as a guest: `vitehub site invite <name> --grants <role>`")
+
+    const invited = await vitehub(["site", "invite", "Ana", "--grants", "comments-read,comments-write", "--expires-in-days", "1", "--path", "/runs/42"], "dev")
+    expect(invited).toMatchObject({ code: 0, stderr: "" })
+    const [url, note] = invited.stdout.trimEnd().split("\n")
+    expect(url).toMatch(new RegExp(`^${origin}/_vitehub/rpc\\?ticket=vt1_`))
+    expect(note).toMatch(/^The link works once, in one browser, until \S+\. Revoke it with `vitehub site revoke-invite \S+`\.$/)
+    const invites = await vitehub(["site", "invites"], "dev")
+    expect(invites.stdout).toMatch(/^ID +NAME +ROLES +PATH +EXPIRES +BY\n\S+ +Ana +comments-read,comments-write +\/runs\/42 +\S+ +You\n$/)
+
+    // A development server answers only this machine, so the browser that opens the link runs here too.
+    const response = await redeemConsoleTicket(requestEvent(new Request(url!, { headers: { "user-agent": chrome } }), { remoteAddress: "127.0.0.1" }))
+    const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]!).filter(pair => !pair.endsWith("=")).join("; ")
+    expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
+    expect((await signedIn(cookie))?.user).toMatchObject({ name: "Ana", role: "guest,comments-read,comments-write" })
+    expect((await vitehub(["site", "grants"], "dev")).stdout).toBe([
+      "ROLE            LABEL           GUESTS",
+      "console         Console         no, members only",
+      "comments-read   Read comments   yes",
+      "comments-write  Write comments  yes",
+      "",
+    ].join("\n"))
   })
 })

@@ -289,6 +289,26 @@ A guest user has no password and a placeholder email, `guest-<id>@guests.invalid
 | `site.sessions` and `site.revoke-session` | List the browsers of members and guests, and sign one out. |
 | `site.grants` | Lists the roles that Site access gives. |
 
+### Site access from the terminal
+
+Each operation is also a [`vitehub` command](/docs/development/cli#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](#sign-console-requests), it calls the deployed app.
+
+```bash [Terminal]
+pnpm vitehub site sessions
+pnpm vitehub site revoke <id> --yes
+pnpm vitehub site invite Ana --grants comments-write --expires-in-days 7
+pnpm vitehub site invites
+pnpm vitehub site revoke-invite <id> --yes
+pnpm vitehub site grants
+```
+
+`vitehub site sessions` prints the id, kind, person, device, last use, and expiry of each browser. `--json` prints the operation result.
+
+`vitehub site open [path]` runs `site.link`, but a command cannot sign a browser in as you. The link opens the app as the person who asks, and a command signs its calls with a key, not as a person. A development server knows you only as the local developer, without an email. So the command fails with `403` and `CONSOLE_TICKET_NO_PERSON`, and so does `vitehub site invite` against a deployed app, since an invite records the member who made it:
+
+- For a deployed app, use **Open site**, **Link a phone**, or **Invite someone** in the Console.
+- On a development server, which the Console cannot reach, invite your own browser as a guest with the roles you need: `vitehub site invite Me --grants comments-read,comments-write`, then open the link that it prints in a browser on the same machine, since the development server answers only this machine. `vitehub site grants` lists the roles.
+
 ## Links to the Console
 
 `hostedConsoleUrl()` from `vite-hub/runtime` builds a link to one page of a project in the Console. `consoleInvocationUrl()` and GitHub pull request comments use it. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
@@ -836,6 +856,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers. A proxy must not change it. |
 | `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](#one-time-links) works once, within 60 seconds. |
 | `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in the browser where you are signed in to the app with the email of your Console account. |
+| `CONSOLE_TICKET_NO_PERSON` | `403` | Make the link in the Console. A `vitehub` command signs as a key, not as a person. See [Site access from the terminal](#site-access-from-the-terminal). |
 | `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, so every instance shares the tickets. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |

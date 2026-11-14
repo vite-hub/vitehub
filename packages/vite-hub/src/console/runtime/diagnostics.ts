@@ -32,6 +32,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_SIGNATURE_STALE"
   | "CONSOLE_TICKET_INVALID"
   | "CONSOLE_TICKET_MISMATCH"
+  | "CONSOLE_TICKET_NO_PERSON"
   | "CONSOLE_TICKET_STORE_MISSING"
   | "CONSOLE_UNAVAILABLE"
 
@@ -153,6 +154,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "This one-time link was made for another person or another app.",
       "Open the page from the ViteHub Console in the browser where you are signed in to the app with the email of your Console account.",
       `${consoleGuide}#one-time-links`,
+      "docs",
+    ),
+    CONSOLE_TICKET_NO_PERSON: code(
+      "A one-time link opens the app as the person who asks for it, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
+      "Make the link in the ViteHub Console, where you are signed in. On a development server, which the Console cannot reach, invite the browser as a guest: `vitehub site invite <name> --grants <role>`.",
+      `${consoleGuide}#site-access-from-the-terminal`,
       "docs",
     ),
     CONSOLE_TICKET_STORE_MISSING: code(
