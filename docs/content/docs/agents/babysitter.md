@@ -347,7 +347,7 @@ export default defineConfig({
 :::
 ::
 
-Create `server/console-authorize.ts` to decide which Console users and CLI keys may use the Babysitter sections, as [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections) shows. Every Console call runs it before it reads data.
+Create `server/console-authorize.ts` to decide which Console users and CLI keys may use the Babysitter sections, as [Limit a user to some sections](/docs/console/access#what-authorize-returns) shows. Every Console call runs it before it reads data.
 
 The worker records and recovers Invocations under `<discovered-agent-name>-worker`, such as `babysitter-worker`, so each Babysitter Agent has its own recovery scope. Other Agents can share the journal without their active Invocations failing. A standalone process host without an assigned journal keeps its own `dataDir/invocations.sqlite`.
 

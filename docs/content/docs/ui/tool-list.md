@@ -98,5 +98,5 @@ Icons use Nuxt UI's `UIcon`. To replace it, see [Nuxt UI components](/docs/ui/in
 
 ## Related
 
-- [Console](/docs/development/console) groups the tools of a run by Capability.
+- [Console](/docs/console) groups the tools of a run by Capability.
 - [Code block](/docs/ui/code-block) shows the input and output of a tool call.

@@ -55,7 +55,7 @@ describe("docs product navigation", () => {
     const rail = docsRailGroups(docsManifest, categories, railExclude);
     expect(railExclude).toEqual(["Develop and deploy", "Reference"]);
     expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(candidate => candidate.id))
-      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
+      .toEqual(expect.arrayContaining(["console", "development", "frameworks-hosts", "guides"]));
     expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id))
       .toEqual(expect.arrayContaining(["reference", "compare"]));
     const railSectionIds = rail.flat().map(candidate => candidate.id);
@@ -158,7 +158,7 @@ describe("docs product navigation", () => {
   });
 
   it("groups every navigable page of a large section", () => {
-    for (const sectionId of ["agents", "development", "frameworks-hosts", "reference", "ui"]) {
+    for (const sectionId of ["agents", "console", "development", "frameworks-hosts", "reference", "ui"]) {
       const groups = docsSidebarGroups(section(sectionId));
 
       expect(groups.length, sectionId).toBeGreaterThan(0);

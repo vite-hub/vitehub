@@ -1,18 +1,19 @@
 ---
 title: Operations
-description: Define an ability once and call it from the Console, the CLI, and agent tools.
-navigation.order: 32.1
-navigation.group: Local tools
+description: Define one action of your app with defineOperation(), and run it as a Console action, a vitehub CLI command, an Agent tool, and an MCP tool.
+navigation.order: 31
+navigation.group: Agents and tools
 icon: i-lucide-square-function
 ---
 
-An operation is a named action of your app, such as `content.publish` or `invocations.list`. Define it once with `defineOperation()`, and the Console, the `vitehub` CLI, and agent tools all call that one definition.
+An operation is a named action of your app, such as `content.publish` or `invocations.list`. Define it once with `defineOperation()`, and the Console, the `vitehub` CLI, agent tools, and the [ViteHub MCP](/docs/console/mcp) all call that one definition.
 
 | Surface | How it calls the operation |
 | --- | --- |
-| Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](/docs/development/console#call-format). |
+| Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](#call-format). |
 | CLI | `vitehub <namespace> <command>` sends the same request. |
 | Agent | The `operations()` capability turns the operation into a tool. |
+| MCP | `run_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
 
 ## Define an operation
 
@@ -211,21 +212,31 @@ Core error codes:
 | `INTERNAL_R0026` | The server parsed a destructive call that the generated CLI command did not confirm. Review the call and pass `--yes`. |
 | `INTERNAL_B0048` | Two operations have the same name. |
 | `INTERNAL_B0049` | Two operations are the same CLI command. |
-| `INTERNAL_B0050` | Two operations are the same [MCP](/docs/development/mcp) tool name, such as `content.publish` and `content_publish`. |
+| `INTERNAL_B0050` | Two operations are the same [MCP](/docs/console/mcp) tool name, such as `content.publish` and `content_publish`. |
 
 ## Access
 
-The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, and takes only [signed requests](/docs/development/console#sign-console-requests).
-
-In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature. `console: false` turns this RPC off.
-
-::warning
-A dev RPC without signed calls (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth`, so it takes only signed calls.
-::
-
-In `vite dev`, a call without a signed user runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments and Content see the same user. A build never adds it: a production call from the CLI has `context.user` unset, and a call from the Console has the person that the Console signed.
+The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is set, and takes only [signed requests](/docs/console/signed-requests). In `vite dev` without a `console` option, every section is open to this machine only. See [Development server](/docs/console/development).
 
 Duplicate operation names fail every build, also without a `console` option. An app without `server/content.ts` has no Content operations.
+
+## Call format
+
+Each `POST /_vitehub/rpc` request carries one birpc request message as JSON. `m` is the operation name, `a` holds its input, and `i` is an id that the reply repeats:
+
+```json [Request]
+{ "m": "sections.list", "a": [{}], "t": "q", "i": "V1StGXR8_Z5jdHi6B-myT" }
+```
+
+The response carries one reply. `r` holds the value. The HTTP status is `200`, or the status that the operation sets, such as `202`:
+
+```json [Response]
+{ "t": "s", "i": "V1StGXR8_Z5jdHi6B-myT", "r": { "sections": ["agents", "kv"] } }
+```
+
+A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
+
+Each call is one stateless request, so hosts such as Cloudflare Workers can send consecutive calls to different instances.
 
 ## Built-in operations
 
@@ -243,7 +254,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-- `blob.put`, `blob.delete`, `kv.set`, and `kv.delete` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
+- `blob.put`, `blob.delete`, `kv.set`, and `kv.delete` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/console/access#read-only-grants)).
 - `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
 - The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
 - Queue has no peek, because the provider-independent Queue contract cannot read a backlog.

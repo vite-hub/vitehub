@@ -432,7 +432,7 @@ References stay portable in Markdown frontmatter and JSON. An alt-text fix in th
 
 The media library edits folders, uploads, alt text, focal points, and crops, and has a picker for `image()` fields and Markdown images.
 
-When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/console/access#grant-one-blob-store).
 
 ## Storage layout
 

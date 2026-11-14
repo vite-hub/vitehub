@@ -172,7 +172,7 @@ curl -X POST \
 
 The dev server takes this call without a signature when the app has no
 `console` option or sets `console: { auth: false }`. A deployed app takes only
-[signed requests](/docs/development/console#sign-console-requests): use a
+[signed requests](/docs/console/signed-requests): use a
 `vitehub` command with `--url` and `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` there.
 
 This calls `agent.status()`. `ready` means the probe found enough executable,

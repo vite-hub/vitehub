@@ -13,7 +13,7 @@ The journal gives the model no conversation context. Use [Chat History](/docs/ag
 
 ## Store invocation history
 
-An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
+An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -751,4 +751,4 @@ Then it retries each interrupted inline Chat turn once. A turn is interrupted wh
 
 - [Observability](/docs/agents/observability) exports lifecycle events.
 - [Evals](/docs/agents/evals) check behavior.
-- The [Console](/docs/development/console) reads the configured journal. Its authorization stays your app's policy.
+- The [Console](/docs/console) reads the configured journal. Its authorization stays your app's policy.

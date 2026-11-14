@@ -49,7 +49,7 @@ const client = createCommentsClient({ transport: createRpcTransport({ base: '/po
 `createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc`, one birpc call for each request. It has no `subscribe`, so the client refreshes on window focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
 
 > [!WARNING]
-> `createRpcTransport()` is for development only. A browser cannot sign Console calls, so it works only on a development server with `console: { auth: false }` or without the `console` option. In production, the app takes only [signed calls](/docs/development/console#sign-console-requests) on `/_vitehub/rpc`.
+> `createRpcTransport()` is for development only. A browser cannot sign Console calls, so it works only on a development server with `console: { auth: false }` or without the `console` option. In production, the app takes only [signed calls](/docs/console/signed-requests) on `/_vitehub/rpc`.
 
 Your pages use [`createRestTransport()`](/docs/comments/server-api#rest-transport) from `vite-hub/comments/client`. It calls the same actions and policy through the Comments API, for signed-in users, guests, and share link readers, and adds `upload` and `attachmentUrl(key)`.
 

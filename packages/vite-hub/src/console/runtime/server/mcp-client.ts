@@ -179,7 +179,7 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
   const pending = (): PendingAuthorization => oauth.pending ??= { expiresAt: Date.now() + pendingLifetimeMs, state: randomId() }
   const metadata: OAuthClientMetadata = {
     client_name: "ViteHub Console",
-    client_uri: "https://vitehub.dev/docs/development/console",
+    client_uri: "https://vitehub.dev/docs/console/mcp-client",
     grant_types: ["authorization_code", "refresh_token"],
     redirect_uris: [oauth.redirectUrl],
     response_types: ["code"],

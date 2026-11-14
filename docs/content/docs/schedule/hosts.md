@@ -48,7 +48,7 @@ Provider Wake output requires a static five-field cron string compatible with ge
 
 ## Run and inspect Schedules during development
 
-`vitehub()` adds the `vitehub schedule` commands, which call the [Console RPC](/docs/development/operations). `hubSchedule()` alone adds none. Start the Vite dev server, then run a manual schedule or list runs from another terminal.
+`vitehub()` adds the `vitehub schedule` commands, which call the [Console RPC](/docs/console/operations). `hubSchedule()` alone adds none. Start the Vite dev server, then run a manual schedule or list runs from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub schedule run daily-report

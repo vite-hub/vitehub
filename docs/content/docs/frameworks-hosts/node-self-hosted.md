@@ -376,7 +376,7 @@ that an environment variable or the Default Database selects at boot shows
 correctly. Agent state, the Agent Invocation journal, and Workspace files
 report too. Run
 `vitehub durability list` to read the same report from the dev server. It is
-the `durability.list` [operation](/docs/development/operations). On a
+the `durability.list` [operation](/docs/console/operations). On a
 deployment, `--url` works when the app enables the Console, with credentials
 for the `durability` section. Server code can read the report with
 `getDurabilityReport()` from `vite-hub/runtime/durability`.

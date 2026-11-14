@@ -159,7 +159,7 @@ srun_manual_daily-report_2026-01-31T08:00:00.000Z_manual_mw6dwbtr_3xkimura  succ
 
 A saved run that throws shows `failed` and its error. Provider cron executions do not create saved runs.
 
-To see the same runs in a page, with a button to run the schedule, open the app in the [Console](/docs/development/console).
+To see the same runs in a page, with a button to run the schedule, open the app in the [Console](/docs/console).
 
 ::
 

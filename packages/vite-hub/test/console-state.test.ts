@@ -54,7 +54,7 @@ describe("Console state", () => {
       expect(root.textContent).toContain("ask the Console owner for access")
       expect(root.textContent).toContain("CONSOLE_ACCESS_DENIED · 403")
       expect(buttons).toEqual(["Read the docs"])
-      expect(root.querySelector("a")?.getAttribute("href")).toBe("https://vitehub.dev/docs/development/console#how-each-mode-checks-a-request")
+      expect(root.querySelector("a")?.getAttribute("href")).toBe("https://vitehub.dev/docs/console/access#who-can-call-the-endpoint")
     }
     finally { app.unmount() }
   })

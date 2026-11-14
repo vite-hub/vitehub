@@ -442,7 +442,7 @@ interface TraceStepView {
 
 ## Related
 
-- [Console](/docs/development/console) shows the activities of a whole Agent Invocation.
+- [Console](/docs/console) shows the activities of a whole Agent Invocation.
 - [Message parts](/docs/ui/message-parts) renders reasoning, tool, and source parts as Trace lines.
 - [Code block](/docs/ui/code-block) shows tool output under a line.
 - [Marker](/docs/ui/marker) shows status between turns.

@@ -219,7 +219,7 @@ echo '{ "title": "About us" }' | pnpm vitehub content edit about --file -
 pnpm vitehub content publish --collection about
 ```
 
-`publish` lists the draft and asks you to confirm. In production, editors do this in the Content section of the [Console](/docs/development/console).
+`publish` lists the draft and asks you to confirm. In production, editors do this in the Content section of the [Console](/docs/console).
 
 Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 

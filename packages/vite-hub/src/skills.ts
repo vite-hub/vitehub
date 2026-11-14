@@ -47,7 +47,7 @@ const skillErrors = /*#__PURE__*/ defineErrors({
   },
 })
 
-/** The codes of `vite-hub/skills`. Each has a heading on https://vitehub.dev/docs/development/skills. */
+/** The codes of `vite-hub/skills`. Each has a row in the Errors table of https://vitehub.dev/docs/console/skills. */
 export type SkillErrorCode = "SKILL_DUPLICATE_NAME" | "SKILL_FILE_MISSING" | "SKILL_INVALID_FRONTMATTER" | "SKILL_INVALID_PATH" | "SKILL_NOT_FOUND" | "SKILL_SETTINGS_UNAVAILABLE"
 
 /** One file of a skill. */

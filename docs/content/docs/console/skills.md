@@ -1,8 +1,9 @@
 ---
-title: Agent Skills
-description: Serve your app's Agent Skills to coding agents through Agent Skills Discovery and MCP, and turn each one on or off.
-navigation.order: 32.3
-navigation.group: Local tools
+title: Serve Agent Skills
+description: Serve your app's Agent Skills to coding agents through Agent Skills Discovery and MCP, and turn each one on or off from the Console.
+navigation.title: Served skills
+navigation.order: 32
+navigation.group: Agents and tools
 icon: i-vitehub-skills
 ---
 
@@ -14,7 +15,7 @@ An [Agent Skill](https://agentskills.io) is a folder with a `SKILL.md` and optio
 | Agent Skills Discovery v0.1.0 | `/.well-known/skills/index.json`, `<name>/<path>` | `npx skills add https://app.example.com` and Executor |
 | MCP Skills extension | `skills/list`, `skills/get`, `resources/list`, `resources/read` for `skill://<name>/<path>` | MCP clients of your MCP server |
 
-It uses only `Request`, `Response`, and Web Crypto, so it runs on every host, also Cloudflare Workers. The [Console](/docs/development/console) endpoint serves the ViteHub skill separately, at `/_vitehub/.well-known/skills`.
+It uses only `Request`, `Response`, and Web Crypto, so it runs on every host, also Cloudflare Workers. The [Console](/docs/console) endpoint serves the ViteHub skill separately, at `/_vitehub/.well-known/skills`.
 
 ## Define the skills
 
@@ -139,15 +140,15 @@ pnpm vitehub served-skills list
 pnpm vitehub served-skills set release false
 ```
 
-[`console.authorize`](/docs/development/console#limit-a-user-to-some-sections) decides who may use them. Grant `served-skills` to change the switches, or `served-skills:read` to only list them. A `server/skills.ts` that exports a plain list, as the `skills` export or the default export, shows in the section with every skill on and no switches.
+[`console.authorize`](/docs/console/access) decides who may use them. Grant `served-skills` to change the switches, or `served-skills:read` to only list them. A `server/skills.ts` that exports a plain list, as the `skills` export or the default export, shows in the section with every skill on and no switches.
 
 Your app's own pages use the same object:
 
 | Method | Returns |
 | --- | --- |
-| `settings.enabled()` | The skills that are on. It rejects with [`SKILL_SETTINGS_UNAVAILABLE`](#skill_settings_unavailable) when the store fails, so a request fails instead of serving a skill that is off. |
+| `settings.enabled()` | The skills that are on. It rejects with [`SKILL_SETTINGS_UNAVAILABLE`](#errors) when the store fails, so a request fails instead of serving a skill that is off. |
 | `settings.list()` | `[error, data]` with each skill and its `enabled` state, for a catalog page that applies your own rules, such as showing members only the skills that are on. |
-| `settings.set(name, enabled)` | `[error, data]` after it turns one skill on or off. It returns [`SKILL_NOT_FOUND`](#skill_not_found) for a name that is not in the list. Check who may call it in your route. |
+| `settings.set(name, enabled)` | `[error, data]` after it turns one skill on or off. It returns [`SKILL_NOT_FOUND`](#errors) for a name that is not in the list. Check who may call it in your route. |
 
 | Option | Default | Use |
 | --- | --- | --- |
@@ -169,7 +170,7 @@ Your app's own pages use the same object:
 | `resources()` | Every skill file for `resources/list`. The `SKILL.md` of a skill has its `description`. |
 | `read(uri)` | `[error, data]` with the `resources/read` result for `skill://<name>/<path>`: `text` for a text file, base64 `blob` for bytes. |
 
-`get()` and `read()` return [`SKILL_NOT_FOUND`](#skill_not_found) for a skill or a file that the list does not have. Answer it with the JSON-RPC error `-32602`. This excerpt connects the dynamic list above to an existing [`h3-mcp`](https://github.com/h3js/mcp) server:
+`get()` and `read()` return [`SKILL_NOT_FOUND`](#errors) for a skill or a file that the list does not have. Answer it with the JSON-RPC error `-32602`. This excerpt connects the dynamic list above to an existing [`h3-mcp`](https://github.com/h3js/mcp) server:
 
 ```ts [server/mcp/skills.ts] fragment
 import { invalidParamsError, mcpMethod, parseParams, requireParamString, type ExtensionPlugin } from 'h3-mcp'
@@ -206,38 +207,16 @@ curl https://app.example.com/.well-known/agent-skills/index.json
 
 ## Errors
 
-### SKILL_FILE_MISSING
+Each code also has its own page under [diagnostics](/docs/development/diagnostics).
 
-`defineSkill()` got no `SKILL.md`. Add one at the skill root, with `name` and `description` in its frontmatter.
-
-### SKILL_INVALID_FRONTMATTER
-
-`SKILL.md` is not valid UTF-8, does not start with a `---` YAML block, or a frontmatter field is not valid. The `name` has lowercase letters, digits, and single hyphens, at most 64 characters, and equals the folder name in `defineSkills()`. The `description` is a non-empty string of at most 1024 characters. If set, `compatibility` is a non-empty string of at most 500 characters, `metadata` maps strings to strings, and `license` and `allowed-tools` are strings. Unknown fields are kept. The error names the field.
-
-### SKILL_INVALID_PATH
-
-A file path is not a relative path inside the skill. Use paths such as `SKILL.md` or `references/api.md`, without `..`, `.`, empty segments, a leading `/`, or `\`.
-
-### SKILL_DUPLICATE_NAME
-
-`defineSkills()` found two skills with the same `name`. Give each its own name and folder. A list function that returns two with one name serves the first.
-
-### SKILL_NOT_FOUND
-
-`skillsMcp().get()` or `read()` got a URI for a skill or file not in the list, for example one the list function left out. Read `skills/list` or `resources/list` for current URIs. `skillSettings().set()` returns it with the URI `skill://<name>` for a name that is not in the list; `vitehub served-skills set` then answers with HTTP 404. Run `vitehub served-skills list` for the names.
-
-### SKILL_SETTINGS_UNAVAILABLE
-
-The store of `skillSettings()` failed to read or write the names of the skills that are off. The error `cause` has the store error, such as a KV error. Check the store binding, then try again. `settings.enabled()` rejects with it, so a request fails instead of serving a skill that is off.
-
-### SERVED_SKILLS_UNAVAILABLE
-
-`vitehub served-skills` or the Console section ran in a server that has no `server/skills.ts`. Add the file and build again. The call answers with HTTP 503.
-
-### SERVED_SKILLS_INVALID_EXPORT
-
-`server/skills.ts` has no default export and no `skills` export that is a skill list or `skillSettings()`. Default-export `skillSettings(skills, { store })`, or a list to only show the skills. The call answers with HTTP 500.
-
-### SERVED_SKILLS_NO_SETTINGS
-
-`served-skills.set` ran, but `server/skills.ts` exports a plain list, which has no switches. Wrap the list in `skillSettings(skills, { store })`. The call answers with HTTP 409.
+| Code | Cause and fix |
+| --- | --- |
+| `SKILL_FILE_MISSING` | `defineSkill()` got no `SKILL.md`. Add one at the skill root, with `name` and `description` in its frontmatter. |
+| `SKILL_INVALID_FRONTMATTER` | `SKILL.md` is not valid UTF-8, does not start with a `---` YAML block, or a frontmatter field is not valid. The `name` has lowercase letters, digits, and single hyphens, at most 64 characters, and equals the folder name in `defineSkills()`. The `description` is a non-empty string of at most 1024 characters. If set, `compatibility` is a non-empty string of at most 500 characters, `metadata` maps strings to strings, and `license` and `allowed-tools` are strings. Unknown fields are kept. The error names the field. |
+| `SKILL_INVALID_PATH` | A file path is not a relative path inside the skill. Use paths such as `SKILL.md` or `references/api.md`, without `..`, `.`, empty segments, a leading `/`, or `\`. |
+| `SKILL_DUPLICATE_NAME` | `defineSkills()` found two skills with the same `name`. Give each its own name and folder. A list function that returns two with one name serves the first. |
+| `SKILL_NOT_FOUND` | `skillsMcp().get()` or `read()` got a URI for a skill or file not in the list, for example one the list function left out. Read `skills/list` or `resources/list` for current URIs. `skillSettings().set()` returns it with the URI `skill://<name>` for a name that is not in the list; `vitehub served-skills set` then answers with HTTP 404. Run `vitehub served-skills list` for the names. |
+| `SKILL_SETTINGS_UNAVAILABLE` | The store of `skillSettings()` failed to read or write the names of the skills that are off. The error `cause` has the store error, such as a KV error. Check the store binding, then try again. `settings.enabled()` rejects with it, so a request fails instead of serving a skill that is off. |
+| `SERVED_SKILLS_UNAVAILABLE` | `vitehub served-skills` or the Console section ran in a server that has no `server/skills.ts`. Add the file and build again. The call answers with HTTP 503. |
+| `SERVED_SKILLS_INVALID_EXPORT` | `server/skills.ts` has no default export and no `skills` export that is a skill list or `skillSettings()`. Default-export `skillSettings(skills, { store })`, or a list to only show the skills. The call answers with HTTP 500. |
+| `SERVED_SKILLS_NO_SETTINGS` | `served-skills.set` ran, but `server/skills.ts` exports a plain list, which has no switches. Wrap the list in `skillSettings(skills, { store })`. The call answers with HTTP 409. |

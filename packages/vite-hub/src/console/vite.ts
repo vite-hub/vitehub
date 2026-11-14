@@ -80,7 +80,7 @@ interface LocalConsoleOptions extends ConsoleOptions {
 
 const localDevelopmentConsole: Readonly<LocalConsoleOptions> = Object.freeze({ auth: false, local: true })
 
-const consoleGuide = "https://vitehub.dev/docs/development/console"
+const consoleGuide = "https://vitehub.dev/docs/console/migrate"
 
 /** Options that the Console had before it moved out of apps, with the change that replaces each one. */
 const removedConsoleOptions: Record<string, string> = {

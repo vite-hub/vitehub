@@ -475,4 +475,4 @@ Omit the id for a singleton. `edit` saves drafts with field issues and prints th
 
 ## ViteHub MCP
 
-With the Console enabled, an agent on the ViteHub MCP of the Console lists readable collections and documents, reads drafts, and saves drafts through the same Content operations as the editor. Each call checks `content.can()` with the Console user. Saves require `ifDigest` and respect edit leases. The application module loads on the first call. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp).
+With the Console enabled, an agent on the ViteHub MCP of the Console lists readable collections and documents, reads drafts, and saves drafts through the same Content operations as the editor. Each call checks `content.can()` with the Console user. Saves require `ifDigest` and respect edit leases. The application module loads on the first call. See [ViteHub MCP](https://vitehub.dev/docs/console/mcp).

@@ -25,7 +25,7 @@ const pages = [
   "/docs/agents",
   "/docs/agents/channels",
   "/docs/development/cli",
-  "/docs/development/console",
+  "/docs/console",
   "/docs/reference/doctor-rules",
   "/docs/reference/errors-diagnostics",
   "/docs/kv/diagnostics/kv_disabled",

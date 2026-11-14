@@ -367,7 +367,7 @@ The Channel verifies Google OIDC and the Pub/Sub envelope before it opens or wri
 
 The first push or poll only stores the cursor; [replay](#replay-past-mail) reads earlier mail. Gmail keeps history for about a week. When the stored history is gone, the Channel reads the last two days of Inbox mail and continues from the current history.
 
-One process at a time reads the mailbox. A push during a sync makes the running sync read once more. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
+One process at a time reads the mailbox. A push during a sync makes the running sync read once more. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
 
 Background work runs in the host's `waitUntil`, which Cloudflare Workers stop 30 seconds after the response. For large bursts on Workers, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run.
 

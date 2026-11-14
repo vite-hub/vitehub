@@ -6,7 +6,7 @@ navigation.order: 13
 icon: i-lucide-terminal-square
 ---
 
-`vitehub content` reads, edits, deletes, restores, publishes, and schedules the [collections and singletons](/docs/content/configure#document-collections) of a running app. Start the app's dev server, then run the commands in another terminal. Each command runs a `content.*` [operation](/docs/development/operations) with the app's `server/content.ts`, so it uses the same storage as the app.
+`vitehub content` reads, edits, deletes, restores, publishes, and schedules the [collections and singletons](/docs/content/configure#document-collections) of a running app. Start the app's dev server, then run the commands in another terminal. Each command runs a `content.*` [operation](/docs/console/operations) with the app's `server/content.ts`, so it uses the same storage as the app.
 
 ```bash [Terminal]
 pnpm vitehub content collections
@@ -19,7 +19,7 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/development/console) on, and [sign each call](/docs/development/console#sign-console-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
+The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/console) on, and [sign each call](/docs/console/signed-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 
 ## Commands
 
@@ -322,6 +322,6 @@ Warnings do not hold a head back. Errors do, and `check` exits with status 1 on 
 
 ## How it reaches storage
 
-`vitehub content` sends each `content.*` call to `POST /_vitehub/rpc`, the same route the Console uses. The app plugin `@vite-hub/content` contributes the `content.*` operations. The Console editor, the CLI, and agents run the same code. See [Operations](/docs/development/operations).
+`vitehub content` sends each `content.*` call to `POST /_vitehub/rpc`, the same route the Console uses. The app plugin `@vite-hub/content` contributes the `content.*` operations. The Console editor, the CLI, and agents run the same code. See [Operations](/docs/console/operations).
 
 `vitehub inspect definitions --kind content` lists the Content file without starting a server.
