@@ -1,4 +1,4 @@
-import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_D1, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
@@ -90,12 +90,6 @@ async function readProjectWranglerConfig(rootDir: string): Promise<Record<string
   const extension = extname(configPath)
   const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
   return isRecord(config) ? config : undefined
-}
-
-async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
-  const config = await readProjectWranglerConfig(rootDir)
-  const alias = isRecord(config?.alias) ? config.alias["#vitehub/env/server"] : undefined
-  return typeof alias === "string" ? alias : undefined
 }
 
 async function writeCloudflareAssetsMiddleware(projectRoot: string): Promise<string> {
@@ -964,7 +958,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!nuxt.options._prepare) assertAgentInvocationsUrl(plan.host, agentJournal?.databaseUrl)
     ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_D1] = { binding: d1Binding }
     const libsql = defaultJournalNeedsLibsql({ build: true, databaseUrl: agentJournal?.databaseUrl, host: plan.host })
-    await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, libsql, projectRoot })
+    await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, libsql, projectRoot, stateUrl: agentJournalStateUrl(options) })
   }
   await writeNuxtAgentJournal(options.database, journalDatabaseRoot)
   const nitro = (nuxt.options.nitro ??= {})
@@ -1489,13 +1483,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           config.handlers = [...handlers, { handler, route: "/**", middleware: true }];
       }
       const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>;
-      const envServer = generatedAliases["#vitehub/env/server"];
-      if (envServer) {
-        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
-        const alias = (wrangler.alias ??= {}) as Record<string, string>
-        const nitroEnvServer = (config.alias as Record<string, string> | undefined)?.["#vitehub/env/server"]
-        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? nitroEnvServer ?? envServer
-      }
       if (cloudflare.nodeCompat === true) {
         const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
         const flags: unknown[] = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []

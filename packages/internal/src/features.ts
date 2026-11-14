@@ -452,7 +452,7 @@ export default defineRealtime({
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
-      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Cloudflare or Vercel host uses that host's Sandbox."),
+      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Vercel host uses Vercel Sandbox when Vercel credentials are set. The Vite or Nuxt dev server cannot host a Cloudflare Container: build, then run `wrangler dev` on the build output."),
       netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
@@ -512,7 +512,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
     },
     id: "workflow",
     packages: ["@vite-hub/workflow"],
-    summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
+    summary: "Durable Workflows in `server/workflows/` with steps and provider retries.",
     title: "Workflow",
   }),
   workspace: feature({
@@ -540,7 +540,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
 }
 
 /** Packages needed by a feature, its provider, and its enabled feature integrations. */
-export function featurePackages(id: FeatureId, value: unknown, enabled: readonly FeatureId[] = []): string[] {
+export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost | "unknown", enabled: readonly FeatureId[] = []): string[] {
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores

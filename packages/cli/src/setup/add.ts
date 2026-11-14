@@ -462,7 +462,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures, ...(enabled.has("console") ? ["console" as const] : [])])]
-  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), [...enabled]))
+  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host, [...enabled]))
   const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),

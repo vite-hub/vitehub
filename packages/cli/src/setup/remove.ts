@@ -221,7 +221,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, active = wasEnabled) => {
-    return [...featurePackages(id, value, active), ...features[id].devPackages]
+    return [...featurePackages(id, value, host, active), ...features[id].devPackages]
   }
   const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), remaining)))
 
@@ -283,7 +283,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of wasEnabled) {
     // Unknown features keep their files and packages because their Definitions were not scanned.
     if (enabled(status, id).enabled !== "on") continue
-    const packages = featurePackages(id, valueOf(project.config, id), wasEnabled)
+    const packages = featurePackages(id, valueOf(project.config, id), host, wasEnabled)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
     for (const name of packages) if (removable(name) && project.declared(name, true)) prod.push(name)
     for (const name of features[id].devPackages) if (removable(name) && project.declared(name, true)) dev.push(name)

@@ -122,6 +122,13 @@ function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): {
   return { id }
 }
 
+const cloudflareInstanceIdPattern = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,99}$/
+
+/** The array-form `createBatch` accepts reserved ids, unlike the object form. */
+function isCloudflareInstanceId(id: string): boolean {
+  return cloudflareInstanceIdPattern.test(id)
+}
+
 // Cloudflare `waiting` (a sleep, an event wait, or a retry delay), `waitingForPause`, and `paused` are not finished, so
 // they report `running` like a sleeping OpenWorkflow or Vercel run. `terminated` is a user cancellation.
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
@@ -206,6 +213,8 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       return await inlineAdapter(config).get({ event, id, name })
     },
     async run({ definition, event, id, name, options, payload }) {
+      // Check in `vite dev` too, where the run can be inline, so the id fails before deployment.
+      if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_CLOUDFLARE_RUN_ID_INVALID({ id })
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         resolveDispatchObserver(event)?.()

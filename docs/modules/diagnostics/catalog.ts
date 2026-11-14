@@ -30,6 +30,13 @@ export interface DiagnosticSite {
   message: string | null
 }
 
+/** One `codes` object of a catalog call, with its codes in source order. */
+export interface DiagnosticCatalog {
+  /** Catalog file, relative to the repository root. */
+  file: string
+  codes: DiagnosticCode[]
+}
+
 const catalogCalls = new Set(["defineErrors", "defineDiagnostics", "defineProdDiagnostics"])
 const codePattern = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
 const declaresCatalog = /define(?:Errors|Diagnostics|ProdDiagnostics)\(/
@@ -37,18 +44,10 @@ const mayHoldDiagnostics = /define(?:Errors|Diagnostics|ProdDiagnostics)\(|[.["'
 
 /** Every code of every catalog under `packages/*\/src`, with its call sites. */
 export function readDiagnosticCodes(root: string): DiagnosticCode[] {
-  const files = packageSources(root)
+  const { sources, catalogs } = readCatalogs(root)
   const codes = new Map<string, DiagnosticCode>()
-  // Most files neither define a catalog nor raise a code. Parse only those that can.
-  const texts = files
-    .map(file => ({ file, text: readFileSync(file, "utf8") }))
-    .filter(({ text }) => mayHoldDiagnostics.test(text))
-  // A code prefix names its owner only when that package declares a catalog, so a package such as the Console app
-  // does not take the `CONSOLE_*` codes of vite-hub.
-  const packages = new Set(texts.filter(({ text }) => declaresCatalog.test(text)).map(({ file }) => relative(join(root, "packages"), file).split(/[\\/]/)[0]!))
-  const sources = texts.map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
-  for (const { file, source } of sources) {
-    for (const code of catalogCodes(root, file, source, packages)) {
+  for (const catalog of catalogs) {
+    for (const code of catalog.codes) {
       const existing = codes.get(code.code)
       // A package can declare another package's code again, such as CMS for Content. The catalog of the package that
       // the code prefix names wins, and keeps the other's text where its own has none.
@@ -74,6 +73,23 @@ export function readDiagnosticCodes(root: string): DiagnosticCode[] {
     })
   }
   return [...codes.values()].sort((left, right) => left.code.localeCompare(right.code))
+}
+
+/** Every catalog under `packages/*\/src`, without call sites. A code that two catalogs declare is in both. */
+export function readDiagnosticCatalogs(root: string): DiagnosticCatalog[] {
+  return readCatalogs(root).catalogs
+}
+
+function readCatalogs(root: string): { sources: { file: string, source: ts.SourceFile }[], catalogs: DiagnosticCatalog[] } {
+  // Most files neither define a catalog nor raise a code. Parse only those that can.
+  const texts = packageSources(root)
+    .map(file => ({ file, text: readFileSync(file, "utf8") }))
+    .filter(({ text }) => mayHoldDiagnostics.test(text))
+  // A code prefix names its owner only when that package declares a catalog, so a package such as the Console app
+  // does not take the `CONSOLE_*` codes of vite-hub.
+  const packages = new Set(texts.filter(({ text }) => declaresCatalog.test(text)).map(({ file }) => relative(join(root, "packages"), file).split(/[\\/]/)[0]!))
+  const sources = texts.map(({ file, text }) => ({ file, source: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) }))
+  return { sources, catalogs: sources.flatMap(({ file, source }) => fileCatalogs(root, file, source, packages)) }
 }
 
 function owns(code: DiagnosticCode): boolean {
@@ -134,8 +150,8 @@ function packageSources(root: string): string[] {
     .sort()
 }
 
-function catalogCodes(root: string, file: string, source: ts.SourceFile, packages: ReadonlySet<string>): DiagnosticCode[] {
-  const found: DiagnosticCode[] = []
+function fileCatalogs(root: string, file: string, source: ts.SourceFile, packages: ReadonlySet<string>): DiagnosticCatalog[] {
+  const catalogs: DiagnosticCatalog[] = []
   const declaring = relative(join(root, "packages"), file).split(/[\\/]/)[0]!
   visit(source, (node) => {
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || !catalogCalls.has(node.expression.text)) return
@@ -149,6 +165,7 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
     const codesProperty = options.properties.find(property => propertyName(property) === "codes")
     const codes = objectValue(propertyValue(codesProperty))
     if (!codes) throw new Error(`Cannot read diagnostic codes in ${relative(root, file)}:${lineOf(source, node)}. Use a same-file object literal.`)
+    const found: DiagnosticCode[] = []
     let group: string | null = null
     for (const property of codes.properties) {
       const code = propertyName(property)
@@ -168,8 +185,9 @@ function catalogCodes(root: string, file: string, source: ts.SourceFile, package
         sites: [],
       })
     }
+    catalogs.push({ file: relative(root, file), codes: found })
   })
-  return found
+  return catalogs
 }
 
 /** Resolve literal objects and same-file variable references in their enclosing block or source file. */
