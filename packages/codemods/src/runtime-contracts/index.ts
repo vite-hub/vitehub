@@ -291,12 +291,15 @@ function leadingStatement(node: Node, ancestors: readonly Node[]): Node | undefi
   return undefined
 }
 
-/** The source range of `node`, with the parentheses around it. */
+/**
+ * The source range of `node`, with one pair of parentheses around it, such as `(await checkRateLimit(...))`. Other
+ * parentheses, or a comment beside them, stay: an identifier in their place is valid code too.
+ */
 function rangeWithParentheses(code: string, node: Node): [number, number] {
   const extra = node.extra as { parenthesized?: boolean, parenStart?: number } | undefined
-  if (!extra?.parenthesized || extra.parenStart === undefined) return [start(node), end(node)]
-  const close = code.indexOf(")", end(node))
-  return [extra.parenStart, close + 1]
+  const close = /^\s*\)/.exec(code.slice(end(node)))
+  if (!extra?.parenthesized || extra.parenStart === undefined || !close || !/^\(\s*$/.test(code.slice(extra.parenStart, start(node)))) return [start(node), end(node)]
+  return [extra.parenStart, end(node) + close[0].length]
 }
 
 /**
@@ -338,7 +341,8 @@ function rewriteCheckRateLimit(context: FileContext): number {
     const check = `if (${error}) throw ${error}${semicolon}`
     const declarator = statement.type === "VariableDeclaration" && statement.declarations.length === 1 ? statement.declarations[0] : undefined
     const id = declarator?.init === awaited ? declarator.id : undefined
-    if (id && (id.type === "Identifier" || id.type === "ObjectPattern") && !id.typeAnnotation) {
+    // A pattern such as `const { allowed } = ...` would read the decision before the error check, so it takes the last branch.
+    if (id?.type === "Identifier" && !id.typeAnnotation) {
       // `const decision = await checkRateLimit(...)` keeps its statement.
       output.overwrite(block.offset + start(id), block.offset + end(id), `[${error}, ${block.code.slice(start(id), end(id))}]`)
       output.appendLeft(block.offset + end(statement), `\n${indent}${check}`)
