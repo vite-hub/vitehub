@@ -28,6 +28,8 @@ let openWorkflowImporter = defaultImporter
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
+  /** Returns the OpenWorkflow id of the first run of `name` that started with the id `key`. */
+  findRunId: (name: string, key: string) => Promise<string | undefined>
   workflows: Map<string, OpenWorkflowRunnable>
 }
 
@@ -158,7 +160,51 @@ async function createOpenWorkflowRuntime(
   return {
     backend,
     client,
+    findRunId: createRunIdLookup(backend, options),
     workflows: new Map(),
+  }
+}
+
+interface SqliteHandle {
+  prepare: (sql: string) => { get: (...values: unknown[]) => unknown }
+}
+
+interface PostgresHandle {
+  (strings: TemplateStringsArray, ...values: unknown[]): PromiseLike<unknown[]>
+  (identifier: string): unknown
+}
+
+function isSqliteHandle(value: unknown): value is SqliteHandle {
+  return typeof value === "object" && value !== null && typeof Reflect.get(value, "prepare") === "function"
+}
+
+function isPostgresHandle(value: unknown): value is PostgresHandle {
+  return typeof value === "function"
+}
+
+function readRowId(row: unknown): string | undefined {
+  if (typeof row !== "object" || row === null) return undefined
+  const id: unknown = Reflect.get(row, "id")
+  return typeof id === "string" ? id : undefined
+}
+
+/**
+ * ViteHub starts a run with the caller's id as the OpenWorkflow idempotency key, and OpenWorkflow gives the run its own
+ * UUID. The OpenWorkflow API reads runs by UUID only, so this lookup reads the key from the backend connection.
+ */
+function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRunId"] {
+  const connection: unknown = Reflect.get(backend, options.backend === "sqlite" ? "db" : "pg")
+  return async (name, key) => {
+    if (options.backend === "sqlite" && isSqliteHandle(connection)) {
+      return readRowId(connection.prepare(`SELECT "id" FROM "workflow_runs" WHERE "namespace_id" = ? AND "workflow_name" = ? AND "idempotency_key" = ? ORDER BY "created_at" ASC, "id" ASC LIMIT 1`)
+        .get(options.namespaceId, name, key))
+    }
+    if (options.backend === "postgres" && isPostgresHandle(connection)) {
+      const [row] = await connection`SELECT "id" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = ${name} AND "idempotency_key" = ${key} ORDER BY "created_at" ASC, "id" ASC LIMIT 1`
+      return readRowId(row)
+    }
+    // Internal invariant: OpenWorkflow 0.9 backends keep their connection in `db` (SQLite) or `pg` (Postgres).
+    throw new TypeError(`The OpenWorkflow ${options.backend} backend has no connection that ViteHub can read run ids from.`)
   }
 }
 
@@ -224,8 +270,9 @@ export async function registerOpenWorkflowDefinition(
   // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
   const openWorkflowDefinition = definition as never
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
+    const stored = await runtime.backend.getWorkflowRun({ workflowRunId: run.id })
     return await runSerializedWorkflowHandler({
-      id: run.id,
+      id: stored?.idempotencyKey || run.id,
       name,
       payload: input,
       provider: "openworkflow",
@@ -268,7 +315,8 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
   // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
   const result = (isSerializedResponse(run.output) ? deserializeResponse(run.output) : run.output) as TResult | undefined
   return {
-    id: run.id,
+    // The id that the caller passed is the run id. OpenWorkflow keeps it as the idempotency key.
+    id: run.idempotencyKey || run.id,
     metadata: run.error || {
       namespaceId: run.namespaceId,
       version: run.version,
@@ -294,6 +342,10 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   onDispatch?.()
   let firstAcknowledgementUnknown = false
   const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
+    // OpenWorkflow deduplicates a key for 24 hours only. A run id identifies one run for as long as storage keeps it.
+    const existingId = options.id ? await runtime.findRunId(name, options.id) : undefined
+    const existing = existingId ? await runtime.backend.getWorkflowRun({ workflowRunId: existingId }) : null
+    if (existing) return { workflowRun: existing }
     const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
     return await start().catch((error) => {
       if (!options.id) throw error
@@ -321,7 +373,7 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   return await runWorkflowProviderOperation("openworkflow", "get", async () => {
-    const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
+    const run = await runtime.backend.getWorkflowRun({ workflowRunId: await runtime.findRunId(name, id) ?? id })
     const serialized = serializeOpenWorkflowRun(run, name)
     return serialized.id
       // SAFETY: The caller's Workflow Definition supplies the payload and result types retained by this provider run.
@@ -350,7 +402,7 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
   if (current.status === "unknown" || terminalOpenWorkflowStatuses.has(current.status)) return current
   const runtime = await getOpenWorkflowRuntime(config)
   try {
-    await runWorkflowProviderOperation("openworkflow", "cancel", () => runtime.client.cancelWorkflowRun(id))
+    await runWorkflowProviderOperation("openworkflow", "cancel", async () => await runtime.client.cancelWorkflowRun(await runtime.findRunId(name, id) ?? id))
   }
   catch (error) {
     // A worker may finish between the initial read and OpenWorkflow's atomic cancellation update.

@@ -199,7 +199,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency key, so a double click does not start a second checkout. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
+The id is the run id on Cloudflare and OpenWorkflow, so a double click does not start a second checkout, and `getWorkflowRun()` reads the run with the same id. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
 
 ## Inspect the run
 
