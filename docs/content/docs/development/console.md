@@ -177,7 +177,7 @@ An app with [`connections`](/docs/connections) has a **Connections** section. It
 | `connections.revoke` | destructive | Revoke the grant of a Connection. |
 
 - The callback of a Console sign-in needs no app session and no `state` cookie, because the Console page and the app have different origins. The signed call that started it checked you, and the `state` works once, for 10 minutes.
-- The provider must allow the callback URL of the app, such as `https://app.example.com/_vitehub/connections/callback`. A provider that [registers its client](/docs/connections/configure#register-the-client-automatically) allows it.
+- The provider must allow the callback URL of the app, such as `https://app.example.com/_vitehub/connections/callback`.
 - API key and ChatGPT Connections show their status here. Set a key, or sign in with a ChatGPT plan, with [`vitehub connections`](/docs/connections/server-api#cli).
 
 ## Connect to MCP servers
