@@ -260,13 +260,19 @@ Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) n
 
 ## Update ViteHub
 
-Update `vite-hub` and every `@vite-hub/*` package to the same version in one command:
+Move `vite-hub` and every `@vite-hub/*` package to the latest release together:
 
 ```bash [commands/update]
+pnpm update --latest vite-hub "@vite-hub/*"
+```
+
+To try a [pkg.pr.new](https://pkg.pr.new) preview, put its URLs in `package.json`, such as `https://pkg.pr.new/vite-hub/vitehub/vite-hub@<commit>`, for every ViteHub package. Then run:
+
+```bash [commands/update-preview]
 pnpm update vite-hub "@vite-hub/*"
 ```
 
-A [pkg.pr.new](https://pkg.pr.new) preview of ViteHub, such as `https://pkg.pr.new/vite-hub/vitehub/vite-hub@<commit>`, also accepts the npm release of each ViteHub package that it uses. When you change the URLs in `package.json` and run `pnpm install`, pnpm can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update` resolves them again. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
+A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
 
 ```text [output/pnpm-why-stale.txt]
 @vite-hub/env@0.0.0-preview-156a885
