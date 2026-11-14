@@ -576,7 +576,7 @@ A host CLI exited with an error. The reason shows its last lines. The command ex
 
 ### `SETUP_DEPLOY_PROVISION_UNCHECKED`
 
-A Provision Step could not read the host resources, so the deploy created, built, and deployed nothing. The `fix` names what is missing, such as `CLOUDFLARE_ACCOUNT_ID` for a `wrangler login` with several accounts, or `VERCEL_TOKEN` for a saved `vercel login`. `rerun` deploys with `--no-provision`. The command exits with `2`.
+A Provision Step could not read the host resources, so the deploy created, built, and deployed nothing. The reason names what is missing, such as `CLOUDFLARE_ACCOUNT_ID` for a `wrangler login` with several accounts, or `VERCEL_TOKEN` for a saved `vercel login`. `rerun` deploys with `--no-provision`. The command exits with `2`.
 
 ### `SETUP_DEPLOY_PROVISION_NEEDS_BUILD`
 

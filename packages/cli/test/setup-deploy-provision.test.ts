@@ -177,7 +177,7 @@ describe("vitehub deploy provisions the host", () => {
 
     expect(result.exitCode).toBe(2)
     expect(result.json.error?.code).toBe("SETUP_DEPLOY_PROVISION_UNCHECKED")
-    expect(result.json.error?.fix).toContain("Set CLOUDFLARE_ACCOUNT_ID, or run `vitehub link --host cloudflare --account <id>`.")
+    expect(result.json.error?.why).toContain("Set CLOUDFLARE_ACCOUNT_ID, or run `vitehub link --host cloudflare --account <id>`.")
     expect(result.json.rerun).toBe("vitehub deploy --no-provision --yes --json")
     expect(events).toEqual([])
     expect(await hosts.calls()).toEqual([])
@@ -203,7 +203,7 @@ describe("vitehub deploy provisions the host", () => {
 
     expect(result.exitCode).toBe(2)
     expect(result.json.error?.code).toBe("SETUP_DEPLOY_PROVISION_UNCHECKED")
-    expect(result.json.error?.fix).toContain("A saved `vercel login` cannot create Vercel resources. Set VERCEL_TOKEN")
+    expect(result.json.error?.why).toContain("A saved `vercel login` cannot create Vercel resources. Set VERCEL_TOKEN")
     expect(await hosts.calls()).toEqual([])
   })
 

@@ -40,18 +40,18 @@ function declaresResources(step: ProvisionStep, env: NodeJS.ProcessEnv): boolean
   return described === undefined || described.some(category => category.declared.length > 0)
 }
 
-function uncheckedFix(host: ProvisionProvider, env: NodeJS.ProcessEnv, rerun: string): string {
-  const skip = ` Or skip it: run \`${rerun}\`.`
+/** Says which credential the steps miss, for the reason of SETUP_DEPLOY_PROVISION_UNCHECKED. */
+function missingCredential(host: ProvisionProvider, env: NodeJS.ProcessEnv): string {
   if (host === "cloudflare" && !env.CLOUDFLARE_ACCOUNT_ID?.trim()) {
-    return `Set CLOUDFLARE_ACCOUNT_ID, or run \`vitehub link --host cloudflare --account <id>\`. A \`wrangler login\` with several accounts does not say which one to use.${skip}`
+    return "Set CLOUDFLARE_ACCOUNT_ID, or run `vitehub link --host cloudflare --account <id>`. A `wrangler login` with several accounts does not say which one to use."
   }
   if (host === "vercel" && !env.VERCEL_TOKEN?.trim()) {
-    return `A saved \`vercel login\` cannot create Vercel resources. Set VERCEL_TOKEN to a token from https://vercel.com/account/tokens.${skip}`
+    return "A saved `vercel login` cannot create Vercel resources. Set VERCEL_TOKEN to a token from https://vercel.com/account/tokens."
   }
   if (host === "vercel" && !env.VERCEL_PROJECT_ID?.trim()) {
-    return `Run \`vitehub link --host vercel\` to store the project id, or set VERCEL_PROJECT_ID.${skip}`
+    return "Run `vitehub link --host vercel` to store the project id, or set VERCEL_PROJECT_ID."
   }
-  return `Fix the cause of the warnings.${skip}`
+  return "Fix the cause of the warnings."
 }
 
 async function confirmProvision(count: number, host: DeployHost): Promise<boolean> {
@@ -93,7 +93,7 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
     },
   })
   if (!plan.checked) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PROVISION_UNCHECKED({ fix: uncheckedFix(host, env, input.rerun), host, warnings: plan.warnings.join(" ") }), setupExitCodes.inputNeeded, { rerun: input.rerun })
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PROVISION_UNCHECKED({ host, missing: missingCredential(host, env), warnings: plan.warnings.join(" ") }), setupExitCodes.inputNeeded, { rerun: input.rerun })
   }
 
   const changes = plan.actions.flatMap((planned) => {
