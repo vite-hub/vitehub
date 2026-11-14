@@ -88,7 +88,9 @@ const codes = {
     fix: "Add the origin to the provider `origins`, or call a URL of a configured API catalog. ViteHub did not send the credential.",
   },
   CONNECTIONS_PROVIDER_FAILED: {
-    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "invalid-json" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
+    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "discovery" | "invalid-json" | "no-token" | "registration" | "token-request" | "verify", provider?: string, status?: number }): string => {
+      if (problem === "discovery") return `ViteHub found no ${message} for Connection "${provider}". Check its \`mcp\` URL, or set \`authorizationEndpoint\`, \`tokenEndpoint\`, and \`clientId\`.`
+      if (problem === "registration") return `The authorization server of Connection "${provider}" did not register a client${status === undefined ? "" : ` (${status})`}.`
       if (problem === "invalid-json") return "Provider returned invalid JSON."
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
       if (problem === "token-request") return `Provider "${provider}" rejected the token request${status === undefined ? "" : ` with ${status}`}${message ? ` (${message})` : ""}.`
@@ -144,12 +146,12 @@ const codes = {
       if (problem === "request-bucket") return `Connections that share request bucket "${bucket}" use different rate intervals.`
       if (problem === "client-id") return `Provider "${provider}" has no client id.`
       if (problem === "instance") return `The Connection Definition of instance "${connection}" is invalid.`
-      if (problem === "registration") return `The authorization server of Connection "${connection}" does not register clients. Set the provider \`clientId\`.`
+      if (problem === "registration") return `The authorization server of Connection "${connection}" does not offer client registration. Set the provider \`clientId\`.`
       if (problem === "revocation") return `Provider "${provider}" does not support token revocation.`
       if (problem === "verify-result") return `The verify check of provider "${provider}" must return a boolean or { account }.`
       return "The Connection Definition is invalid."
     },
-    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
+    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`, or an `mcp` endpoint whose authorization server registers clients; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
   },
   CONNECTIONS_INVALID_NAME: {
     why: ({ file, name, problem }: { file?: string, name?: string, problem: "length" | "use-connection" | "whitespace" }): string => {
