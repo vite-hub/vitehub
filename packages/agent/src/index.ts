@@ -806,6 +806,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtimeConfig?: AgentRuntimeConfig
 }
 interface AgentWorkflowRun<TOutput = unknown> {
+  error?: { code?: string, message: string, name?: string }
   id: string
   metadata?: unknown
   payload?: unknown
@@ -1454,7 +1455,7 @@ async function runAgentAsWorkflow<
   if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
     await activity?.update(
       run.status,
-      run.status === "failed" ? run.metadata : undefined,
+      run.status === "failed" ? run.error : undefined,
       run.status === "completed" ? finalTextFromAgentOutput(run.result) : undefined,
     )
   }
@@ -8531,7 +8532,7 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
       : run.status
   if (!status) return undefined
   return {
-    ...(run.status === "failed" && run.metadata !== undefined ? { error: run.metadata } : {}),
+    ...(run.status === "failed" && run.error !== undefined ? { error: run.error } : {}),
     id: run.id,
     ...(run.result !== undefined ? { output: run.result } : {}),
     status,

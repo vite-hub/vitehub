@@ -109,7 +109,7 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
     try {
       const run = await getWorkflowRun(recovery.workflowName, recovery.runId)
       if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
-        await journal.finish(run.status, run.status === "failed" ? run.metadata : undefined)
+        await journal.finish(run.status, run.status === "failed" ? run.error : undefined)
         await Promise.all(agentInvocationRecoveryTasks(runtimeContext))
         const record = await invocations.getByRunId(recovery.sourceRunId, recovery.agentName)
         if (record?.status === run.status) return

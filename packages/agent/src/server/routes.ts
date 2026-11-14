@@ -10114,7 +10114,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                     })
                     detachAgentChannelDelivery(channelDelivery)
                   } else {
-                    throw agentDiagnostics.AGENT_R0844({ message: typeof result.metadata === "string" ? result.metadata : `Agent Workflow returned ${result.status}.` })
+                    throw agentDiagnostics.AGENT_R0844({ message: typeof result.error?.message === "string" ? result.error.message : `Agent Workflow returned ${result.status}.` })
                   }
                 } finally {
                   stopHeartbeat?.()

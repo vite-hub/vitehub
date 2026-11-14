@@ -35,6 +35,7 @@ export type {
   WorkflowProvider,
   WorkflowProviderOptions,
   WorkflowRun,
+  WorkflowRunError,
   WorkflowRunStep,
   WorkflowRunStatus,
   WorkflowSignalResult,

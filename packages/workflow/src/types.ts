@@ -81,9 +81,20 @@ export type WorkflowOptions =
 
 export type ResolvedWorkflowOptions = WorkflowProviderOptions
 
+/** The failure of a failed Workflow Run. Every provider fills it, and it is safe to send as JSON. */
+export interface WorkflowRunError {
+  /** Code of the thrown error, when it has one. */
+  code?: string
+  message: string
+  /** Name of the thrown error, when it is not `Error`. */
+  name?: string
+}
+
 export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
   completedAt?: Date
   createdAt?: Date
+  /** Set when `status` is `failed`. */
+  error?: WorkflowRunError
   id: string
   provider: WorkflowProvider
   result?: TResult

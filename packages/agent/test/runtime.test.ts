@@ -14906,7 +14906,7 @@ describe("agent message protocol", () => {
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const getWorkflowRun = vi.fn(async () => ({
         id: "target-run",
-        metadata: new Error("worker startup failed"),
+        error: { message: "worker startup failed" },
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         provider: "cloudflare" as const,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
