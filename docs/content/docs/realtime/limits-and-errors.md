@@ -93,7 +93,7 @@ The browser answered with an error: its handler threw, it has no `onRequest()` h
 
 ### REALTIME_ROOM_REQUESTS_OFF
 
-The Realtime Definition does not take requests. Define it with `defineRealtime({ document: false, requests: true })`.
+The Realtime Definition does not take requests. Define it with `defineRealtime({ access: "public", document: false, requests: true })`.
 
 ### REALTIME_ROOM_TIMEOUT
 
