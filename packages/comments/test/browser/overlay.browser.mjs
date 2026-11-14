@@ -73,7 +73,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   t.after(() => server.close())
   const browser = await chromium.launch()
   t.after(() => browser.close())
-  const page = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+  const page = await browser.newPage({ viewport: { width: 1024, height: 720 }, ...(evidence ? { recordVideo: { dir: evidence, size: { width: 1024, height: 720 } } } : {}) })
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${port}/`)
@@ -614,19 +614,37 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await items.count(), 0)
     await composer.fill("Only this one shows")
     await composer.press("Enter")
-    await items.first().waitFor({ timeout: 5000 })
-    const sent = Date.now()
+    // The item is a zero-size anchor, so wait for its pin. From then on the page records each change of the pins, as
+    // the pop-out lasts 180ms and a screenshot can take longer.
+    await items.first().locator("[data-slot='comment-pin']").waitFor({ timeout: 5000 })
+    await page.evaluate(() => {
+      const root = document.querySelector("vitehub-comments").shadowRoot
+      const start = performance.now()
+      const log = window.pinLog = []
+      const record = () => {
+        const pins = [...root.querySelectorAll("[data-slot='comment-layer-item']:not([data-draft])")].filter(item => item.querySelector("[data-slot='comment-pin']"))
+        const entry = { at: performance.now() - start, count: pins.length, leaving: pins.some(item => item.dataset.leaving === "true"), animation: pins.map(item => getComputedStyle(item.querySelector("[data-slot='comment-pin']")).animationName).join(",") }
+        const last = log.at(-1)
+        if (!last || last.count !== entry.count || last.leaving !== entry.leaving) log.push(entry)
+      }
+      record()
+      new MutationObserver(record).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-leaving"] })
+    })
     assert.equal(await items.count(), 1)
     assert.match(await items.first().locator("[data-slot='comment-pin']").getAttribute("aria-label"), /Only this one shows/)
     assert.equal(await eye.getAttribute("aria-pressed"), "true")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-2-flash.png` })
 
-    await page.locator("vitehub-comments [data-slot='comment-layer-item'][data-leaving='true']").waitFor({ state: "attached", timeout: 5000 })
-    const shown = Date.now() - sent
-    assert.ok(shown >= 2000 && shown < 3500, `the new comment showed for ${shown}ms`)
-    const scale = await page.locator("vitehub-comments [data-leaving='true'] [data-slot='comment-pin']").evaluate(element => getComputedStyle(element).animationName)
-    assert.equal(scale, "vh-comment-leave")
-    if (evidence) await page.screenshot({ path: `${evidence}/hidden-3-leaving.png` })
+    await page.waitForFunction(() => window.pinLog.at(-1).count === 0, undefined, { timeout: 5000 })
+    const log = await page.evaluate(() => window.pinLog)
+    const leave = log.find(entry => entry.leaving)
+    assert.ok(leave, `the pin popped out: ${JSON.stringify(log)}`)
+    // Shown since the send, then 180ms of pop-out.
+    assert.ok(leave.at >= 1800 && leave.at < 3000, `the new comment showed for ${leave.at}ms`)
+    assert.equal(leave.animation, "vh-comment-leave")
+    const gone = log.at(-1).at - leave.at
+    assert.ok(gone >= 150 && gone < 500, `the pop-out took ${gone}ms`)
+    assert.ok(log.every(entry => entry.count <= 1), "no other pin showed")
     await page.waitForFunction(() => !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']:not([data-draft])"), undefined, { timeout: 2000 })
     assert.equal(await areas(), 0)
     assert.equal(await eye.getAttribute("aria-pressed"), "true")
