@@ -101,6 +101,32 @@ describe("cache operations", () => {
     expect((await call("cache.list", { limit: 101 })).status).toBe(400)
   })
 
+  it("preserves a prefix's trailing segment boundary when listing and deleting", async () => {
+    const items = new Map<string, unknown>([
+      ["group:getStars:a.json", { value: 1 }],
+      ["group:getStarsOther:b.json", { value: 2 }],
+    ])
+    mount.storage = {
+      getItem: async key => items.get(key),
+      getKeys: async (base = "") => [...items.keys()].filter(key => key.startsWith(base)),
+      hasItem: async key => items.has(key),
+      removeItem: async (key) => { items.delete(key) },
+    }
+    for (const prefix of ["group:getStars:", "group/getStars/", "group\\getStars\\"]) {
+      const result = (await call("cache.list", { prefix })).body as { value: { entries: unknown[] } }
+      expect(result).toMatchObject({
+        ok: true,
+        value: { entries: [{ key: "group:getStars:a.json" }], prefix: "group:getStars:" },
+      })
+      expect(result.value.entries).toHaveLength(1)
+    }
+    expect((await call("cache.delete", { prefix: "group:getStars:" })).body).toMatchObject({ ok: true, value: { deleted: 1 } })
+    expect([...items.keys()]).toEqual(["group:getStarsOther:b.json"])
+    for (const prefix of [":", "/", "\\", "://:"]) {
+      expect((await call("cache.delete", { prefix })).body).toMatchObject({ code: "CACHE_INVALID_INPUT", ok: false })
+    }
+  })
+
   it("reads one entry and its value", async () => {
     expect((await call("cache.get", { key: "nitrofunctions.Cm3ZWo:getStars:a1.json" })).body).toMatchObject({
       ok: true,

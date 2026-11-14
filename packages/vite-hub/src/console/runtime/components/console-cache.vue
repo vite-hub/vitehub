@@ -161,7 +161,7 @@ async function loadEntries(options: { append?: boolean } = {}): Promise<void> {
     nextCursor.value = typeof source.cursor === "string" ? source.cursor : undefined;
     listError.value = undefined;
     if (!options.append) {
-      if (!selectedKey.value || !entries.value.some(entry => entry.key === selectedKey.value)) selectedKey.value = entries.value[0]?.key ?? "";
+      if (!selectedKey.value) selectedKey.value = entries.value[0]?.key ?? "";
       await loadValue();
     }
   } catch (error) {

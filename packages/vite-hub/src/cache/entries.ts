@@ -1,5 +1,7 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+
 /** Default and largest page of `cache.list`. Each listed entry is one storage read, so a page stays small. */
 export const cacheDefaultListLimit = 50
 export const cacheMaximumListLimit = 100
@@ -64,15 +66,8 @@ export interface CacheDeleteResult {
   prefix?: string
 }
 
-/** A failure with the fields that every surface reports. */
-export class CacheOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
-    super(redactInspectionText(message))
-  }
-}
-
-function invalidInput(message: string): CacheOperationError {
-  return new CacheOperationError(message, 400, "CACHE_INVALID_INPUT")
+function invalidInput(message: string) {
+  return Object.assign(viteHubErrorDiagnostics.CACHE_INVALID_INPUT({ message }), { status: 400 })
 }
 
 /** Read the cache with the error of the driver, such as a driver that cannot list keys. */
@@ -82,7 +77,7 @@ async function readCache<T>(action: string, read: () => Promise<T>): Promise<T> 
   }
   catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    throw new CacheOperationError(`The cache storage could not ${action}. ${reason}`, 502, "CACHE_STORAGE_FAILED", "Check that the cache driver can list keys. Vercel Runtime Cache cannot.")
+    throw Object.assign(viteHubErrorDiagnostics.CACHE_STORAGE_FAILED({ message: redactInspectionText(`The cache storage could not ${action}. ${reason}`) }), { status: 502 })
   }
 }
 
@@ -93,7 +88,9 @@ function normalizeCacheKey(key: string): string {
 
 function requireKey(key: string, label: string): string {
   if (key.length > maximumKeyLength) throw invalidInput(`The ${label} is too long.`)
-  return normalizeCacheKey(key)
+  const normalized = normalizeCacheKey(key)
+  // A prefix separator narrows the match to this segment; separator-only input must still be empty.
+  return label === "prefix" && normalized && /[:/\\]$/.test(key) ? `${normalized}:` : normalized
 }
 
 /**
