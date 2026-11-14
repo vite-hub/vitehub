@@ -983,9 +983,10 @@ function deploymentPlugins(
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
             const configuredSandboxTask = options.sandboxTask && options.sandboxTask !== true ? options.sandboxTask : undefined
+            const configuredSandboxName = configuredSandboxTask && "name" in configuredSandboxTask ? configuredSandboxTask.name : undefined
             setResolvedFeatureOptions(config, "sandboxTask", {
               ...configuredSandboxTask,
-              ...(plan.services.sandbox.adapter === "cloudflare" && configuredSandboxTask?.name === undefined
+              ...(plan.services.sandbox.adapter === "cloudflare" && configuredSandboxName === undefined
                 ? { name: cloudflareResourceScope(name) + "-sandbox" }
                 : {}),
               provider: plan.services.sandbox.adapter,
@@ -1525,12 +1526,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ))
   }
   if (sandboxTaskEnabled) {
-    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask({
+    const sandboxTaskPluginOptions = {
       ...options.sandboxTask === true ? {} : options.sandboxTask,
       provider: sandboxTaskProvider,
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
-    } as SandboxTaskOptions)))
+    }
+    // SAFETY: hubSandboxTask() removes the two package-private integration fields before it reads the public options.
+    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask(sandboxTaskPluginOptions as SandboxTaskOptions)))
   }
   if (options.agent) {
     // The generated plugin installs the journal, with the Console on or off, so the Console only reads it.
