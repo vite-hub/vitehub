@@ -138,11 +138,13 @@
   "devDependencies": {
     "@electric-sql/pglite": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@types/pg": "catalog:database",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
+    "pg": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -154,6 +156,7 @@
     "@electric-sql/pglite": "catalog:database",
     "drizzle-kit": ">=1.0.0-rc.5 <2.0.0",
     "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "pg": "catalog:database",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
@@ -162,6 +165,9 @@
       "optional": true
     },
     "drizzle-kit": {
+      "optional": true
+    },
+    "pg": {
       "optional": true
     },
     "postgres": {

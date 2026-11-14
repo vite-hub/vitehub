@@ -9,7 +9,7 @@ import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, mayUseRemoteLibsql
 import { implicitDefaultDatabaseContributions } from "../contributions.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
-import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesSqlite } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { CollectedDatabaseContributions } from "../contributions.ts"
@@ -73,7 +73,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig, 
     ensureMigrationsImport: createImportPath(file, resolveRuntimeModule("runtime/migrate-on-start")),
     imports: [
       ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesRemoteLibsql(runtimeConfig) ? "runtime/hosted" : "runtime/d1")))}`] : []),
-      ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
+      ...renderPostgresRuntimeImports(runtimeConfig, module => createImportPath(file, resolveRuntimeModule(module))),
       "",
       ...imports,
     ],

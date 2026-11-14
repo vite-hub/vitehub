@@ -177,9 +177,10 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
   }
   const sqlitePlans = await planSqlite(databases.filter(database => database.dialect === "sqlite"), options)
   const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
-    const client: unknown = Reflect.get(Object(database.db), "$client")
-    if (!isPostgresClient(client)) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js." })
+    const value: unknown = Reflect.get(Object(database.db), "$client")
+    const client = isPostgresClient(value) ? value : isNodePostgresPool(value) ? toPostgresMigrationClient(value) : undefined
+    if (!client) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js or a node-postgres Pool." })
     }
     return { client, database }
   })
@@ -346,6 +347,52 @@ function isPostgresClient(value: unknown): value is PostgresMigrationClient {
   return typeof value === "function"
     && typeof Reflect.get(value, "begin") === "function"
     && typeof Reflect.get(value, "unsafe") === "function"
+}
+
+/** The part of a node-postgres Pool, or of one of its clients, that migrations use. */
+interface NodePostgresQueryable {
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+interface NodePostgresPool extends NodePostgresQueryable {
+  connect: () => Promise<NodePostgresQueryable & { release: (error?: Error) => void }>
+}
+
+function isNodePostgresPool(value: unknown): value is NodePostgresPool {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "connect") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+}
+
+function nodePostgresSql(queryable: NodePostgresQueryable): PostgresMigrationSql {
+  return { unsafe: async (query, parameters) => (await queryable.query(query, parameters)).rows }
+}
+
+/** Runs migrations on a node-postgres Pool: `begin()` takes one client of the pool and wraps the run in a transaction. */
+export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigrationClient {
+  return {
+    ...nodePostgresSql(pool),
+    begin: async (run) => {
+      const client = await pool.connect()
+      let failure: Error | undefined
+      try {
+        await client.query("begin")
+        const result = await run(nodePostgresSql(client))
+        await client.query("commit")
+        return result
+      }
+      catch (error) {
+        await client.query("rollback").catch((rollbackError: unknown) => {
+          // A client that cannot roll back must not go back to the pool.
+          failure = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        })
+        throw error
+      }
+      finally {
+        client.release(failure)
+      }
+    },
+  }
 }
 
 /**

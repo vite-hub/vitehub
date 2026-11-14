@@ -86,7 +86,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>, TRelatio
   }
 
   if (options.dialect === "postgresql") {
-    if (options.driver !== undefined && options.driver !== "pglite") {
+    if (options.driver !== undefined && options.driver !== "pglite" && options.driver !== "node-postgres") {
       throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({})
     }
     const unsupported = [

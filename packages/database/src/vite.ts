@@ -23,7 +23,7 @@ import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
+import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy } from "./internal/migrate-on-deploy.ts"
@@ -196,9 +196,9 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
     // and a WebContainer's `@libsql/client` does not export.
     ...(usesSqlite(config) ? [`import { ${dev ? "resolveDevRemoteConfig, " : ""}resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`] : []),
     ...(usesPostgres(config)
-      ? [dev
-          ? `import { createDevPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/pglite"))}`
-          : `import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`]
+      ? dev
+        ? [`import { createDevPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/pglite"))}`]
+        : renderPostgresRuntimeImports(config, module => resolveRuntimeModule(computePackageDir(import.meta.url), module))
       : []),
     ...imports,
     "",
