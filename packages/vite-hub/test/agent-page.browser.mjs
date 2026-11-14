@@ -368,9 +368,12 @@ const cases = [
   { name: "nuxt-cloudflare", framework: "nuxt", host: "cloudflare", port: 4834 },
 ].filter(item => !process.env.AGENT_PAGE_CASES || process.env.AGENT_PAGE_CASES.split(",").includes(item.name))
 
-/** The vite-hub options of every case. A Node build keeps its rooms in memory, in one process. */
-function hubOptions(host) {
-  return { host, agent: true, auth: true, console: true, realtime: host === "node" ? { authority: "memory" } : true }
+/**
+ * The vite-hub options of every case. A Node build keeps its rooms in memory, in one process. `publicUrl` lets the
+ * Console check the CLI's signed calls on Node.
+ */
+function hubOptions(item) {
+  return { host: item.host, agent: true, auth: true, console: true, publicUrl: `http://127.0.0.1:${item.port}`, realtime: item.host === "node" ? { authority: "memory" } : true }
 }
 
 async function writeFixture(item) {
@@ -395,7 +398,7 @@ async function writeFixture(item) {
   }
   else {
     Object.assign(files, {
-      "nuxt.config.ts": `export default defineNuxtConfig({\n  css: ["@ui-sdk/core/web.css"],\n  modules: ["vite-hub/nuxt"],\n  vitehub: ${JSON.stringify(hubOptions(item.host))},\n})\n`,
+      "nuxt.config.ts": `export default defineNuxtConfig({\n  css: ["@ui-sdk/core/web.css"],\n  modules: ["vite-hub/nuxt"],\n  vitehub: ${JSON.stringify(hubOptions(item))},\n})\n`,
       "app/app.vue": appComponent,
       "app/ProjectSettings.vue": settingsPage,
     })
@@ -412,7 +415,7 @@ async function build(item, root) {
     const { createBuilder } = await import("vite")
     const { default: vue } = await import("@vitejs/plugin-vue")
     const { vitehub } = await import("vite-hub")
-    const builder = await createBuilder({ configFile: false, logLevel: "warn", plugins: [vue(), vitehub(hubOptions(item.host))], root })
+    const builder = await createBuilder({ configFile: false, logLevel: "warn", plugins: [vue(), vitehub(hubOptions(item))], root })
     await builder.buildApp()
     return
   }
