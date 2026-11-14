@@ -1,6 +1,6 @@
 ---
-title: Build your first UI view
-description: "Install ViteHub UI, render a local question and reply with the Chat component in a Nuxt application, and check the result."
+title: Get started with ViteHub UI
+description: "Install the ui-sdk parts and the ViteHub modules in Nuxt or Vue, load the kit styles, render one part, and let an Agent work the page."
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
@@ -8,129 +8,199 @@ navigation.group: Start
 icon: i-lucide-rocket
 ---
 
-ViteHub UI is a set of Vue components for AI apps, such as a chat view and a prompt box. The components show the data that you give them. Your app still loads and saves the messages.
+In this guide, you render a project name field with ui-sdk parts and the kit styles. Then an Agent renames the project on the open page.
 
-In this tutorial, you show a short chat with one question and one reply. The messages are written in your code, so you can check the view before you connect an Agent.
+You need Node.js 22.22 or newer and pnpm. For Nuxt, you need Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
 
-> [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Nuxt 5 app. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Run the commands from the root of the app. You need no account and no API key. For Vue with Vite, follow [Installation](/docs/ui/installation) first.
+::tutorial-step{title="Install"}
+## Install
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
-
-Install the UI package, ViteHub, and the packages that they need:
-
-```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide
+:::tabs{sync="vue-app"}
+::::tabs-item{label="Nuxt"}
+```bash [commands/install-nuxt]
+pnpm add @ui-sdk/vue @ui-sdk/core @vite-hub/kit vite-hub
 ```
-
-Add the modules to `nuxt.config.ts`. Keep the other modules of your app.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ["@nuxt/ui", "vite-hub/nuxt"],
+  modules: ["@ui-sdk/vue/nuxt", "@vite-hub/kit/nuxt", "vite-hub/nuxt"],
   css: ["~/assets/css/main.css"],
-});
+})
 ```
 
-Load Tailwind CSS, Nuxt UI, and the package styles in this order:
+The modules import the parts for you, such as `<Dialog>` and `<TagsInput>`.
+::::
 
-```css [assets/css/main.css]
-@import "tailwindcss";
-@import "@nuxt/ui";
-@import "@vite-hub/ui/styles.css";
+::::tabs-item{label="Vue"}
+```bash [commands/install-vue]
+pnpm add @ui-sdk/vue @ui-sdk/core @vite-hub/kit vite-hub vue
+pnpm add -D vite @vitejs/plugin-vue
 ```
 
-`vite-hub/nuxt` imports the components for you. You do not need to register a Vue plugin.
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vue(), vitehub()],
+})
+```
+
+```ts [src/main.ts]
+import { createApp } from "vue"
+import App from "./App.vue"
+import "./style.css"
+
+createApp(App).mount("#app")
+```
+::::
+:::
+
 ::
 
-::tutorial-step{title="Render one message"}
-## Render one message
+::tutorial-step{title="Add the styles"}
+## Add the styles
 
-Create `app.vue` with one user message and one assistant reply:
+The parts have no styles until you load a style family. Load the tokens, then the `default` family. Put the lines above `@import "tailwindcss"` if your app uses Tailwind CSS.
 
-```vue [app.vue]
+:::tabs{sync="vue-app"}
+::::tabs-item{label="Nuxt"}
+```css [app/assets/css/main.css]
+@layer ui-sdk;
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
+```
+::::
+
+::::tabs-item{label="Vue"}
+```css [src/style.css]
+@layer ui-sdk;
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
+```
+::::
+:::
+
+Do not load a style family in an app that uses Nuxt UI yet. See [From Nuxt UI](/docs/ui/from-nuxt-ui).
+
+::
+
+::tutorial-step{title="Render one part"}
+## Render one part
+
+:::tabs{sync="vue-app"}
+::::tabs-item{label="Nuxt"}
+```vue [app/app.vue]
 <script setup lang="ts">
-import type { UIMessage } from "ai";
-
-const messages: UIMessage[] = [
-  {
-    id: "welcome-user",
-    role: "user",
-    parts: [{ type: "text", text: "What should I check before a release?" }],
-  },
-  {
-    id: "welcome-assistant",
-    role: "assistant",
-    parts: [
-      {
-        type: "text",
-        text: "Run the build and focused tests, then inspect the preview at the target viewport sizes.",
-      },
-    ],
-  },
-];
+const name = ref("Apollo")
 </script>
 
 <template>
-  <Chat :messages class="h-[32rem]" />
+  <Field>
+    <FieldLabel>Project name</FieldLabel>
+    <Input v-model="name" />
+  </Field>
+</template>
+```
+::::
+
+::::tabs-item{label="Vue"}
+```vue [src/App.vue]
+<script setup lang="ts">
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
+import { ref } from "vue"
+
+const name = ref("Apollo")
+</script>
+
+<template>
+  <Field>
+    <FieldLabel>Project name</FieldLabel>
+    <Input v-model="name" />
+  </Field>
+</template>
+```
+::::
+:::
+
+Start the dev server with `pnpm dev` and open the page. Select **Project name**: the label focuses the input.
+
+::
+
+::tutorial-step{title="Let an Agent work the page"}
+## Let an Agent work the page
+
+Install the Agent, Realtime, and Workflow packages, and `ai` for the model. An Agent runs on Workflow on Node:
+
+```bash [commands/install-agent]
+pnpm add @vite-hub/agent @vite-hub/realtime @vite-hub/workflow ai
+```
+
+Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its rooms in memory, in one process:
+
+:::tabs{sync="vue-app"}
+::::tabs-item{label="Nuxt"}
+```diff
+ export default defineNuxtConfig({
+   modules: ["@ui-sdk/vue/nuxt", "@vite-hub/kit/nuxt", "vite-hub/nuxt"],
+   css: ["~/assets/css/main.css"],
++  vitehub: { host: "node", agent: true, realtime: { authority: "memory" } },
+ })
+```
+::::
+
+::::tabs-item{label="Vue"}
+```diff
+ export default defineConfig({
+-  plugins: [vue(), vitehub()],
++  plugins: [vue(), vitehub({ host: "node", agent: true, realtime: { authority: "memory" } })],
+ })
+```
+::::
+:::
+
+Give an Agent the page Capability. A model string goes through Vercel AI Gateway, so set `AI_GATEWAY_API_KEY` in the server environment. Each request can cost money.
+
+```ts [server/agents/settings.ts]
+import { defineAgent } from "vite-hub/agent"
+import { page } from "vite-hub/agent/capabilities"
+import { webChat } from "vite-hub/agent/channels"
+
+export default defineAgent({
+  capabilities: [page()],
+  channels: { web: webChat() },
+  driver: { model: "openai/gpt-5" },
+})
+```
+
+Connect the page and send a message. Add the component next to the field: in `app/components/` for Nuxt, or `src/components/` for Vue.
+
+```vue [AskAgent.vue]
+<script setup lang="ts">
+import { createAgent } from "@ui-sdk/vue/agent"
+import { Button } from "@ui-sdk/vue/button"
+import { connectPage } from "vite-hub/agent/page"
+import { useAgent, useChat } from "vite-hub/agent/vue"
+import { connectRealtimeRoom } from "vite-hub/realtime/client"
+
+const page = connectPage(createAgent, { join: connectRealtimeRoom })
+const { sendMessage } = useChat(useAgent("settings"), { page })
+const ask = () => sendMessage({ text: "Rename the project to Atlas." })
+</script>
+
+<template>
+  <Button @click="ask">Ask the Agent</Button>
 </template>
 ```
 
-- Each message has an `id`, a `role`, and `parts`. Here each message has one text part.
-- `role` tells `Chat` which message is the question (`user`) and which is the reply (`assistant`).
-- `UIMessage` is the message type of the [AI SDK](https://ai-sdk.dev). `Chat` shows a list of them.
-- `class="h-[32rem]"` gives the chat a fixed height. The messages scroll inside it.
-
-This example sends no request. `Chat` does not load data or call an Agent.
-::
-
-::tutorial-step{title="Run and check the result"}
-## Run and check the result
-
-Start Nuxt:
-
-```bash [commands/dev]
-pnpm nuxt dev
-```
-
-Open the URL that Nuxt prints. The page shows the release question, then the reply. Change a text in `messages` and save the file. The view updates. Add more messages to see them scroll inside the chat.
-
-To send messages, your app needs a chat endpoint, an API route that answers. When your endpoint is ready, install the AI SDK for Vue:
-
-```bash pm [commands/install-ai-sdk]
-pnpm add @ai-sdk/vue
-```
-
-```ts [composables/use-chat.ts]
-import { useChat } from "@ai-sdk/vue";
-
-export function useAppChat() {
-  return useChat();
-}
-```
-
-Then:
-
-1. Configure `useChat()` for your endpoint.
-2. Call `useAppChat()` in `<script setup>` of your component. Nuxt imports the files in `composables/` for you.
-3. Pass the values that it returns to [`Chat`](/docs/ui/chat), such as `const { messages, status } = useAppChat()`.
-4. Put [`PromptInput`](/docs/ui/prompt-input) in the `composer` slot of `Chat`, so users can type.
+Select **Ask the Agent**. The Agent reads the page, finds **Project name**, and sets it to Atlas. The change reaches the field with `source: "agent"`. Read [Page](/docs/agents/capabilities/page) to deny parts, ask for approval, and undo a change.
 
 ::
 
-## Next steps
+## Next
 
-::card-group
-:::card{title="Chat" icon="i-lucide-messages-square" to="/docs/ui/chat"}
-See every prop and slot of the `Chat` component.
-:::
-
-:::card{title="Prompt input" icon="i-lucide-text-cursor-input" to="/docs/ui/prompt-input"}
-Add the box where users type their message.
-:::
-
-:::card{title="Chat App block" icon="i-lucide-layout-panel-left" to="/docs/ui/blocks/chat-app"}
-Build a full chat app with sessions and attachments.
-:::
-::
+- [Where does it belong?](/docs/ui/where-does-it-belong): find the owner of a bug or a feature.
+- [From Reka UI](/docs/ui/from-reka-ui): the ui-sdk part for each Reka UI part.
+- The ui-sdk docs for your installed version are in `node_modules/@ui-sdk/vue/docs`.

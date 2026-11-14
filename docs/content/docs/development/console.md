@@ -855,7 +855,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 
 A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0114`.
 
-See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page, use [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
+See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page, use [AI components](/docs/ui/ai-components) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
 
 ### Image upload boundaries
 

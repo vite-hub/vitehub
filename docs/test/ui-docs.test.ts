@@ -19,19 +19,22 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   name: relative(uiDocsRoot, path),
   source: readFileSync(path, "utf8"),
 }));
+// The Start and AI components groups hold guides. Every other page documents a component.
+const guideGroups = /^navigation\.group: (?:Start|AI components)$/m;
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/") && !page.name.startsWith("diagnostics/"),
+  (page) => !guideGroups.test(page.source) && !page.name.startsWith("blocks/") && !page.name.startsWith("diagnostics/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
 
 describe("UI documentation", () => {
-  it("keeps the overview's text list in sync for raw Markdown readers", () => {
-    const source = readFileSync(resolve(uiDocsRoot, "index.md"), "utf8");
-    const gallery = source.split('::page-list{exclude="Start"}\n')[1]?.split("\n::\n")[0] ?? "";
+  it("keeps the AI components text list in sync for raw Markdown readers", () => {
+    const source = readFileSync(resolve(uiDocsRoot, "ai-components.md"), "utf8");
+    const gallery = source.split('::page-list{exclude="Start, AI components"}\n')[1]?.split("\n::\n")[0] ?? "";
+    expect(gallery).not.toBe("");
     for (const page of [...componentPages, ...blockPages]) {
       const path = `/docs/ui/${page.name.replace(/\.md$/, "")}`;
-      expect(gallery, `index.md should list ${path}`).toContain(`](${path})`);
+      expect(gallery, `ai-components.md should list ${path}`).toContain(`](${path})`);
     }
   });
 
