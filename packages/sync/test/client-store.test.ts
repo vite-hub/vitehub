@@ -705,6 +705,28 @@ describe("live", () => {
     expect(h.server.streams).toBe(1)
   })
 
+  it("pulls after an error event, so the store shows why the stream ended", async () => {
+    const h = live()
+    let refuse = false
+    const refusal = () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error: { code: "SYNC_UNAUTHORIZED", message: "Sign in." } })}\n\n`))
+        controller.close()
+      },
+    }), { headers: { "content-type": "text/event-stream" } })
+    const { store, browser } = h.open({ fetch: async (input, init) => refuse && String(input).includes("live=1") ? refusal() : h.server.fetch(input, init) })
+    await store.refresh()
+    await until(() => store.getState().live)
+    // The person signs out in another tab. The next stream gets an error event.
+    h.server.user = null
+    refuse = true
+    h.server.endStreams()
+    await until(() => browser.timers.length === 1)
+    browser.fire()
+    await until(() => store.getState().status === "error")
+    expect(store.getState()).toMatchObject({ live: false, error: { code: "SYNC_UNAUTHORIZED" } })
+  })
+
   it("applies a streamed pull only on top of its cursor, and pulls instead when it is older than the rows", async () => {
     const h = live()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
