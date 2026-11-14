@@ -136,7 +136,7 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     // process signals
     SANDBOX_R0165: {
       why: ({ runtime, signal }: { runtime: string; signal: string }) => `${runtime} Sandbox cannot send the signal ${signal}.`,
-      fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number.",
+      fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number. On Cloudflare, use SIGALRM, SIGHUP, SIGINT, SIGKILL, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2, or a signal number.",
     },
   },
 })

@@ -417,10 +417,15 @@ export function parseDuration(value: number | string | undefined) {
   return Number(match[1]) * units[(match[2] ?? "s") as keyof typeof units];
 }
 
-function signalNumber(signal: string | undefined) {
+/** The number of a signal name such as `"SIGTERM"` or `"TERM"`, or of a number. Undefined when this Sandbox cannot send it. */
+export function cloudflareSignalNumber(signal: string | undefined): number | undefined {
   if (!signal) return signals.TERM;
   if (/^\d+$/.test(signal)) return Number(signal);
-  const number = signals[signal.toUpperCase().replace(/^SIG/, "")];
+  return signals[signal.toUpperCase().replace(/^SIG/, "")];
+}
+
+function signalNumber(signal: string | undefined) {
+  const number = cloudflareSignalNumber(signal);
   if (number === undefined) throw new Error(`[vitehub] Unsupported signal ${JSON.stringify(signal)}.`);
   return number;
 }
