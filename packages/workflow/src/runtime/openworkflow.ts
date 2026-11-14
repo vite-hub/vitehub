@@ -1,5 +1,5 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
-import { runSerializedWorkflowHandler } from "./execute.ts"
+import { defaultStepOptions, runSerializedWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
@@ -221,9 +221,15 @@ export async function registerOpenWorkflowDefinition(
     return existing
   }
 
+  // A root step cannot hold `step.sleep()`: OpenWorkflow parks the run by throwing from it, and the enclosing step
+  // records that as a failed attempt. So the handler runs outside a step, and the run gets the root step retry policy.
+  const rootStep = definition.options?.rootStep !== false
   // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
-  const openWorkflowDefinition = definition as never
-  const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
+  const openWorkflowDefinition = { ...definition, options: { ...definition.options, rootStep: false } } as never
+  const workflow = runtime.client.defineWorkflow({
+    name,
+    ...(rootStep ? { retryPolicy: toOpenWorkflowRetryPolicy(defaultStepOptions) } : {}),
+  }, async ({ input, run, step }) => {
     return await runSerializedWorkflowHandler({
       id: run.id,
       name,

@@ -3,7 +3,8 @@ import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hu
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
-const defaultStepOptions = {
+/** The retry policy of every step file and root step. */
+export const defaultStepOptions = {
   retries: {
     backoff: "exponential",
     delay: "10 seconds",
