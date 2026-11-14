@@ -129,15 +129,42 @@ it("copies only the published sources that deployment files name, without dotenv
   ])
   await expect(readFile(bundleFile, "utf8")).resolves.toContain("./.vitehub/workflow/sources/0/app/server/agents/review/workspace")
 
-  const allSourcesDir = join(rootDir, "all-sources")
+  // A bundle that names the whole app root still does not deploy dotenv files.
+  const rootBundleFile = join(rootDir, "root-deployment", "index.mjs")
+  const rootSourcesDir = join(rootDir, "root-deployment", "sources")
+  await mkdir(dirname(rootBundleFile), { recursive: true })
+  await writeFile(rootBundleFile, `const sourceRootDir = ${JSON.stringify(appDir)}\n`)
   await publishProviderSourcesToDeploymentOutputs({
-    copyAllSources: true,
-    destinations: [{ files: [], runtimeSourcesDir: "./sources", sourcesDir: allSourcesDir }],
+    destinations: [{ files: [rootBundleFile], runtimeSourcesDir: "./sources", sourcesDir: rootSourcesDir }],
     publishedSourcesDir,
   })
-  const allSources = (await readdir(allSourcesDir, { recursive: true })).map(path => path.split(sep).join("/"))
-  expect(allSources).toContain("0/app/notes/private.txt")
-  expect(allSources.filter(path => path.split("/").at(-1)!.startsWith(".env"))).toEqual([])
+  const rootSources = (await readdir(rootSourcesDir, { recursive: true })).map(path => path.split(sep).join("/"))
+  expect(rootSources).toContain("0/app/notes/private.txt")
+  expect(rootSources.filter(path => path.split("/").at(-1)!.startsWith(".env"))).toEqual([])
+})
+
+it("leaves local secret files out of the retained source snapshot", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-retained-provider-dotenv-"))
+  tempDirs.push(rootDir)
+  const entry = join(rootDir, "server", "entry.mjs")
+  await mkdir(dirname(entry), { recursive: true })
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export const value = "retained"\n'),
+    writeFile(join(rootDir, ".env"), "APP_SECRET=fake-test-value\n"),
+    writeFile(join(rootDir, ".env.local"), "VERCEL_OIDC_TOKEN=fake-test-value\n"),
+    writeFile(join(rootDir, ".dev.vars"), "WRANGLER_SECRET=fake-test-value\n"),
+    writeFile(join(rootDir, "server", ".env.production"), "SERVER_SECRET=fake-test-value\n"),
+    writeFile(join(rootDir, ".npmrc"), "//registry.example.test/:_authToken=fake-test-value\n"),
+  ])
+  const artifactDir = join(rootDir, ".vitehub", "workflow", "sources")
+
+  const retained = await retainProviderOutputSources({ artifactDir, paths: [entry], roots: [rootDir] })
+
+  const snapshot = (await readdir(artifactDir, { recursive: true })).map(path => path.split(sep).join("/").split("/").at(-1)!)
+  expect(snapshot).toContain("entry.mjs")
+  expect(snapshot.filter(name => name.startsWith(".env") || name.startsWith(".dev.vars") || name === ".npmrc")).toEqual([])
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
 it("rebases published dependency links before retained generation cleanup", async () => {
@@ -905,10 +932,12 @@ it.each([false, true])("publishes external pnpm runtime imports without the work
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "one", "sources")
   const retained = await retainProviderOutputSources({ artifactDir, paths: [entry], roots: [rootDir] })
   const deployedEntry = join(deployment, relative(artifactDir, retained.resolve(entry)))
+  const bundleFile = join(await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-bundle-")), "index.mjs")
+  tempDirs.push(dirname(bundleFile))
+  await writeFile(bundleFile, `const sources = ${JSON.stringify(join(artifactDir, "0"))}\n`)
   await publishProviderSourcesToDeploymentOutputs({
-    copyAllSources: true,
     publishedSourcesDir: artifactDir,
-    destinations: [{ files: [], runtimeSourcesDir: "./sources", sourcesDir: deployment }],
+    destinations: [{ files: [bundleFile], runtimeSourcesDir: "./sources", sourcesDir: deployment }],
   })
   await rm(workspace, { recursive: true, force: true })
   await expect(import(pathToFileURL(deployedEntry).href)).resolves.toMatchObject({ value: "retained" })

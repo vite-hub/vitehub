@@ -552,7 +552,6 @@ export async function writeVercelScheduleFunctions(options: {
       workingDir: options.sourceRootDir ?? options.rootDir,
     })
     await publishProviderSourcesToDeploymentOutputs({
-      copyAllSources: true,
       destinations: [{
         files: [functionFile],
         runtimeSourcesDir: `./${deployedScheduleSourcesPath}`,
@@ -777,7 +776,6 @@ async function writeNetlifyScheduleFunctions(options: {
       if (failure) throw failure.reason
     }
     await publishProviderSourcesToDeploymentOutputs({
-      copyAllSources: true,
       destinations: [{
         files: outputs.map(output => output.file),
         runtimeSourcesDir: relative(options.rootDir, netlifySourcesDir).replace(/\\/g, "/"),
@@ -891,7 +889,6 @@ async function writeCloudflareScheduleOutput(options: {
     writeFile(options.stateFile, `${JSON.stringify({ crons: ownedCrons, main }, null, 2)}\n`, { encoding: "utf8", signal: options.signal }),
   ])
   await publishProviderSourcesToDeploymentOutputs({
-    copyAllSources: true,
     destinations: [{
       files: [resolve(outputRoot, main)],
       runtimeSourcesDir: `./${deployedScheduleSourcesPath}`,

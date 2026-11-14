@@ -1181,7 +1181,6 @@ async function finalizeStagedDenoDeploymentOutput(
       workingDir: options.rootDir,
     })
     await publishProviderSourcesToDeploymentOutputs({
-      copyAllSources: true,
       destinations: [{
         files: [temporaryScheduleOutput],
         runtimeSourcesDir: "./.vitehub/schedule/sources",

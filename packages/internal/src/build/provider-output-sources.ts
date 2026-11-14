@@ -114,9 +114,12 @@ function referencedProviderSourcePaths(contents: string, publishedSourcesDir: st
   return [...references].filter(reference => ![...references].some(parent => parent !== reference && pathContains(parent, reference)))
 }
 
-/** Dotenv files hold local secrets. A deployment never receives them, even inside a directory that its code names. */
-function isDotenvFile(path: string): boolean {
-  return basename(path).startsWith(".env")
+/** Dotenv files (`.env*`, Wrangler `.dev.vars*`), registry credentials, and Wrangler state hold local secrets. */
+const localSecretFile = /^(?:\.env|\.dev\.vars)(?:\..*)?$|^\.(?:netrc|npmrc|wrangler)$/
+
+/** A retained snapshot and a deployment never receive local secret files, even inside a directory that the code names. */
+function isLocalSecretFile(path: string): boolean {
+  return localSecretFile.test(basename(path))
 }
 
 /**
@@ -125,8 +128,6 @@ function isDotenvFile(path: string): boolean {
  * copied: the retained snapshot holds the whole project root, with local files that must not be deployed.
  */
 export async function publishProviderSourcesToDeploymentOutputs(options: {
-  /** Copies the whole retained snapshot, not only the sources that `files` name. Dotenv files stay out. */
-  copyAllSources?: boolean
   destinations: ProviderOutputSourceDestination[]
   publishedSourcesDir: string
   signal?: AbortSignal
@@ -136,13 +137,11 @@ export async function publishProviderSourcesToDeploymentOutputs(options: {
     await rm(destination.sourcesDir, { force: true, recursive: true })
     if (!existsSync(options.publishedSourcesDir)) return
     const files = await Promise.all(destination.files.map(async file => ({ contents: await readFile(file, "utf8"), file })))
-    const references = options.copyAllSources
-      ? [options.publishedSourcesDir]
-      : new Set(files.flatMap(({ contents }) => referencedProviderSourcePaths(contents, options.publishedSourcesDir)))
+    const references = new Set(files.flatMap(({ contents }) => referencedProviderSourcePaths(contents, options.publishedSourcesDir)))
     for (const reference of references) {
       const target = resolve(destination.sourcesDir, relative(options.publishedSourcesDir, reference))
       await mkdir(dirname(target), { recursive: true })
-      await cp(reference, target, { filter: source => !isDotenvFile(source), recursive: true })
+      await cp(reference, target, { filter: source => !isLocalSecretFile(source), recursive: true })
     }
     if (existsSync(destination.sourcesDir)) {
       await rebasePublishedProviderSourceLinks(destination.sourcesDir, options.publishedSourcesDir, destination.sourcesDir)
@@ -1084,7 +1083,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const stagedRoot = resolve(stagedContainer, relative(captureRoot, root))
     try {
       const shouldCopySource = (resolvedSource: string): boolean => {
-        if (pathContains(artifactDir, resolvedSource)) return false
+        if (pathContains(artifactDir, resolvedSource) || isLocalSecretFile(resolvedSource)) return false
         if (isTransientSourceDirectory(resolvedSource)
           && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
         if (resolvedSource !== root
@@ -1144,7 +1143,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       for (const source of escapedMaterializedSources) {
         const retainedSource = resolve(stagedContainer, relative(captureRoot, source))
         await mkdir(dirname(retainedSource), { recursive: true })
-        await cp(realpathSync(source), retainedSource, { recursive: statSync(source).isDirectory() })
+        await cp(realpathSync(source), retainedSource, { filter: path => !isLocalSecretFile(path), recursive: statSync(source).isDirectory() })
       }
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
