@@ -151,3 +151,73 @@ describe("requestRealtimeRoom()", () => {
     expect(page.closed).toBeUndefined()
   })
 })
+
+describe("a Definition with scope: \"user\"", () => {
+  // `identify` stands in for the Auth session: the test names the person in a header.
+  const perPerson: RealtimePresenceDefinition = {
+    document: false,
+    requests: true,
+    scope: "user",
+    identify: ({ request }) => {
+      const id = request.headers.get("x-person")
+      return id ? { id } : null
+    },
+  }
+
+  it("keeps one room per person for the same room id, and asks only the named person's", async () => {
+    const server = createTestServer(perPerson)
+    const ada = await server.connect("page-1", { headers: { "x-person": "ada" } })
+    const grace = await server.connect("page-1", { headers: { "x-person": "grace" } })
+    await settle()
+    // Two people in the same room id are not a crowd: each is alone in their own room.
+    const pending = requestRealtimeRoom("docs", "page-1", { method: "snapshot" }, { wait: 0, user: "ada" })
+    await settle()
+    expect(ada.requests).toHaveLength(1)
+    expect(grace.requests).toHaveLength(0)
+    answer(ada, { ok: true, body: "ada's page" })
+    await expect(pending).resolves.toEqual([undefined, "ada's page"])
+
+    // Grace cannot answer for Ada's room, and a request for her room reaches only her.
+    const forged = requestRealtimeRoom("docs", "page-1", {}, { wait: 0, timeout: 200, user: "ada" })
+    await settle()
+    answer(ada, { ok: true, body: "late" }, grace.peer)
+    expect((await forged)[0]?.code).toBe("REALTIME_ROOM_TIMEOUT")
+    const [empty] = await requestRealtimeRoom("docs", "page-1", {}, { wait: 0, user: "edsger" })
+    expect(empty?.code).toBe("REALTIME_ROOM_EMPTY")
+  })
+
+  it("puts everyone without a session in one anonymous scope", async () => {
+    const server = createTestServer(perPerson)
+    const visitor = await server.connect("page-1")
+    await settle()
+    const pending = requestRealtimeRoom("docs", "page-1", {}, { wait: 0, user: null })
+    await settle()
+    expect(visitor.requests).toHaveLength(1)
+    answer(visitor, { ok: true, body: "anonymous" })
+    await expect(pending).resolves.toEqual([undefined, "anonymous"])
+    const [signedIn] = await requestRealtimeRoom("docs", "page-1", {}, { wait: 0, user: "ada" })
+    expect(signedIn?.code).toBe("REALTIME_ROOM_EMPTY")
+  })
+
+  it("refuses a request that names no person", async () => {
+    const server = createTestServer(perPerson)
+    await server.connect("page-1", { headers: { "x-person": "ada" } })
+    await settle()
+    const [error] = await requestRealtimeRoom("docs", "page-1", {}, { wait: 0 })
+    expect(error).toMatchObject({ code: "REALTIME_ROOM_REFUSED" })
+    expect(error?.why).toContain("{ user }")
+  })
+
+  it("keeps a room id from naming another person's scope", async () => {
+    const server = createTestServer(perPerson)
+    const ada = await server.connect("page-1", { headers: { "x-person": "ada" } })
+    // An anonymous visitor asks for a room whose id looks like Ada's scope.
+    const visitor = await server.connect(encodeURIComponent("user:ada") + "/page-1")
+    await settle()
+    const pending = requestRealtimeRoom("docs", "page-1", {}, { wait: 0, user: "ada" })
+    await settle()
+    expect(visitor.requests).toHaveLength(0)
+    answer(ada, { ok: true, body: "ada" })
+    await expect(pending).resolves.toEqual([undefined, "ada"])
+  })
+})

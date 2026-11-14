@@ -439,7 +439,25 @@ if (error) console.warn(error.code, error.why)
 - The browser has `timeout` milliseconds to answer, 30 seconds by default. `signal` stops the request.
 - An answer only counts from the browser that was asked. A browser that leaves fails its requests at once.
 - On Cloudflare the request goes to the Durable Object that holds the rooms. On Node it reaches the rooms of this process. With Redis or Postgres, a browser on another instance gives `REALTIME_ROOM_ELSEWHERE`.
-- The room id is the only key. Anyone who knows it can join the room of a public definition, so use a random id and keep it out of URLs and logs, or set `auth: true`.
+- The room id is the only key. Anyone who knows it can join the room of a public definition, so use a random id and keep it out of URLs and logs, or keep a room per person with `scope: "user"`.
+
+#### A room per person
+
+`scope: "user"` keys each room by the person who joins it, so the same room id for two people is two rooms:
+
+```ts [server/realtime/tabs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({ document: false, requests: true, scope: 'user' })
+```
+
+The person is the signed-in [Auth](/docs/auth) user of the tab. The definition reads the session when the app has Auth and does not require one: everyone without a session shares one anonymous scope. With `identify` or `auth: true`, those decide who the person is. Server code then names the person, and asks only their room:
+
+```ts fragment
+const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' }, { user: session.user.id })
+```
+
+`user: null` asks the anonymous room. A request without `user` returns `REALTIME_ROOM_REFUSED`. A tab joins with the identity it has when it connects, so a tab that signs in reaches its new scope after it reconnects. The [page bridge](/docs/agents/capabilities/page) keeps its rooms this way.
 
 [Room request errors](/docs/realtime/limits-and-errors#room-request-errors) lists every code.
 

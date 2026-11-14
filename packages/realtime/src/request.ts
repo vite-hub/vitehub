@@ -67,6 +67,11 @@ export interface RealtimeRoomRequestOptions {
   wait?: number
   /** Stops the request, such as when the caller's run is cancelled. */
   signal?: AbortSignal
+  /**
+   * The person whose room this is, for a Definition with `scope: "user"`: their Auth user id, or `null` for the shared
+   * anonymous scope. Required there; ignored elsewhere.
+   */
+  user?: string | null
   /** On Cloudflare, the `$DurableObject` binding that holds the rooms. Defaults to the binding of the running Worker. */
   durableObjects?: RealtimeDurableObjectNamespace
 }
@@ -78,6 +83,7 @@ export interface LocalRequestOptions {
   timeout: number
   wait: number
   signal?: AbortSignal
+  user?: string | null
 }
 type LocalRequest = (definitionName: string, documentId: string, body: unknown, options: LocalRequestOptions) => Promise<RealtimeRoomRequestResult>
 
@@ -150,6 +156,7 @@ export function isDurableSockets(value: unknown): value is DurableSockets {
  * one to join, such as after a reload, before it returns `REALTIME_ROOM_EMPTY`. A room with more than one browser
  * returns `REALTIME_ROOM_CROWDED`. On Cloudflare the request goes to the Durable Object that holds the rooms. On Node it
  * reaches the rooms of this process; with Redis or Postgres, a browser on another instance gives `REALTIME_ROOM_ELSEWHERE`.
+ * A Definition with `scope: "user"` keeps a room per person: pass `{ user }`, and only that person's room is asked.
  * Returns `[error, answer]` and never throws.
  */
 export async function requestRealtimeRoom(definition: string, documentId: string, body: unknown, options: RealtimeRoomRequestOptions = {}): Promise<RealtimeRoomRequestResult> {
@@ -157,6 +164,7 @@ export async function requestRealtimeRoom(definition: string, documentId: string
     timeout: options.timeout ?? defaultRequestTimeout,
     wait: options.wait ?? defaultRequestWait,
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.user !== undefined ? { user: options.user } : {}),
   }
   if (local.signal?.aborted) return roomRequestError("REALTIME_ROOM_ABORTED")
   const binding = options.durableObjects ?? workerDurableObjects()
@@ -183,7 +191,7 @@ async function requestDurableRoom(binding: RealtimeDurableObjectNamespace, defin
       {
         method: "POST",
         headers: { [internalRequestHeader]: "1", "content-type": "application/json" },
-        body: JSON.stringify({ body, timeout: options.timeout, wait: options.wait }),
+        body: JSON.stringify({ body, timeout: options.timeout, wait: options.wait, ...(options.user !== undefined ? { user: options.user } : {}) }),
         ...(options.signal ? { signal: options.signal } : {}),
       },
     ))

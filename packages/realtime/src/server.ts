@@ -274,8 +274,15 @@ export function assertRealtimeRoomStateQuota(document: Y.Doc, maxStateBytes = ma
   }
 }
 
-export function realtimeRoomKey(definitionName: string, documentId: string): string {
-  return JSON.stringify([definitionName, documentId])
+export function realtimeRoomKey(definitionName: string, documentId: string, scope?: string): string {
+  // The scope is its own element, so no room id can name another person's room.
+  return JSON.stringify(scope === undefined ? [definitionName, documentId] : [definitionName, documentId, scope])
+}
+
+/** The scope of a person's rooms in a Definition with `scope: "user"`, or `undefined` for shared rooms. */
+function roomScope(definition: RealtimeDefinition, user: string | null): string | undefined {
+  if (definition.document !== false || definition.scope !== "user") return undefined
+  return user === null ? "anonymous" : `user:${user}`
 }
 
 export async function restoreRealtimeDocument(
@@ -626,18 +633,26 @@ async function identify(request: Request, event: H3Event, definitionName: string
     if (definition.auth && !user) throw new HTTPError({ status: 401 })
     return user
   }
-  if (!definition.auth) return null
+  // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
+  const optional = !definition.auth && definition.document === false && definition.scope === "user"
+  if (!definition.auth && !optional) return null
   let auth
   try {
     auth = await assertAuthOrigin(request, event)
   }
-  catch {
+  catch (error) {
+    if (optional && isMissingAuth(error)) return null
     throw new HTTPError({ status: 403 })
   }
   const session = await auth.api.getSession({ headers: request.headers })
   const user = toRealtimeUser(session?.user)
-  if (!user) throw new HTTPError({ status: 401 })
+  if (!user && !optional) throw new HTTPError({ status: 401 })
   return user
+}
+
+/** The app has no Auth Definition (`AUTH_R0005`), so nobody is signed in. */
+function isMissingAuth(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "AUTH_R0005"
 }
 
 async function allows(
@@ -1899,7 +1914,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       return roomRequestError("REALTIME_ROOM_REQUESTS_OFF", { definition: definitionName })
     }
     if (definition.document !== false || definition.requests !== true) return roomRequestError("REALTIME_ROOM_REQUESTS_OFF", { definition: definitionName })
-    const key = realtimeRoomKey(definitionName, documentId)
+    if (definition.scope === "user" && ask.user === undefined) {
+      return roomRequestError("REALTIME_ROOM_REFUSED", { reason: `the Definition "${definitionName}" keeps a room per person, so the request must name one with { user }.` })
+    }
+    const key = realtimeRoomKey(definitionName, documentId, roomScope(definition, ask.user ?? null))
     const deadline = Date.now() + ask.wait
     let targets = requestTargets(key, durable)
     // A tab that reloads or reconnects leaves the room for a moment, and its old socket can close after the new one joins.
@@ -1997,7 +2015,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const user = await identify(event.req, event, definitionName, definition)
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
-    return { access, definitionName, documentId, resolved, searchParams, user, workspaceEvents }
+    const scope = roomScope(definition, user?.id ?? null)
+    return { access, definitionName, documentId, resolved, scope, searchParams, user, workspaceEvents }
   }
 
   const httpHandler = defineEventHandler(async (event) => {
@@ -2046,7 +2065,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       ? await getEventsRoom(JSON.stringify([request.definitionName, { workspaceEvents: true }]), true, undefined)
       : request.resolved
         ? await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
-        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId), false, resolveRealtimeRoomSql(event))
+        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId, request.scope), false, resolveRealtimeRoomSql(event))
     const clientEpoch = request.searchParams.get("epoch")
     // A browser on another editor version reads the room with another schema. TipTap deletes the nodes that schema does
     // not know from the shared document as soon as it renders, so the connection may read but never write.
@@ -2351,10 +2370,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const field = (name: string) => input && typeof input === "object" && name in input ? (input as Record<string, unknown>)[name] : undefined
       const timeout = field("timeout")
       const wait = field("wait")
+      const user = field("user")
       const context = resolveCloudflare(event)?.context
       return toDurableRequestReply(await requestRoom(definitionName, documentId, field("body"), {
         timeout: typeof timeout === "number" && timeout > 0 ? timeout : defaultRequestTimeout,
         wait: typeof wait === "number" && wait >= 0 ? wait : defaultRequestWait,
+        ...(typeof user === "string" || user === null ? { user } : {}),
       }, isDurableSockets(context) ? context : undefined))
     }
     // After a Durable Object hibernates, crossws restores each socket's peer with a bare GET of its first URL, with no

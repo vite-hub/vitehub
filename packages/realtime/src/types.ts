@@ -224,6 +224,13 @@ export interface RealtimePresenceDefinition extends RealtimeDefinitionAccess {
    * browser answers with `room.onRequest()`. Default `false`: rooms without it refuse request frames.
    */
   requests?: boolean
+  /**
+   * `"user"`: each person gets their own rooms. A room is keyed by the identity of whoever joins it, so the same room id
+   * for two people is two rooms, and `requestRealtimeRoom()` must name the person with `{ user }`. The identity is the
+   * ViteHub Auth session when the app has Auth, read without requiring one; everyone without a session shares one
+   * `anonymous` scope. With `identify` or `auth: true`, those decide the identity.
+   */
+  scope?: "user"
 }
 
 export type RealtimeDefinition = RealtimeDocumentDefinition | RealtimePresenceDefinition
