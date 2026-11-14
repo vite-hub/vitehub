@@ -472,6 +472,11 @@
       "import": "./dist/forms/database.js",
       "default": "./dist/forms/database.js"
     },
+    "./forms/formisch": {
+      "types": "./dist/forms/formisch.d.ts",
+      "import": "./dist/forms/formisch.js",
+      "default": "./dist/forms/formisch.js"
+    },
     "./forms/operations": {
       "types": "./dist/forms/operations.d.ts",
       "import": "./dist/forms/operations.js",
@@ -883,6 +888,7 @@
     "@electric-sql/pglite": "catalog:database",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
+    "@formisch/vue": "catalog:ui",
     "@google-cloud/storage": "catalog:storage",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify/vue": "catalog:ui",
@@ -982,6 +988,7 @@
     "@azure/storage-blob": "catalog:storage",
     "@better-auth/oauth-provider": "catalog:auth",
     "@cloudflare/workers-types": ">=4",
+    "@formisch/vue": "^1.2.0",
     "@google-cloud/storage": "catalog:storage",
     "@json-render/core": "0.21.0",
     "@json-render/vue": "0.21.0",
@@ -1060,6 +1067,9 @@
       "optional": true
     },
     "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@formisch/vue": {
       "optional": true
     },
     "@google-cloud/storage": {

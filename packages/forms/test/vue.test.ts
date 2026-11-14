@@ -7,6 +7,11 @@ import { renderToString } from "vue/server-renderer"
 import { createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 import { AutoForm, describeFormFields } from "../src/vue.ts"
 
+// `@vite-hub/forms/vue` works without Formisch. Only `@vite-hub/forms/formisch` needs it.
+vi.mock("@formisch/vue", () => {
+  throw new Error("@vite-hub/forms/vue must not load @formisch/vue")
+})
+
 const ContactSchema = v.object({
   email: v.pipe(v.string(), v.email("Enter a valid email.")),
   topic: v.picklist(["bug", "idea"]),
@@ -60,7 +65,7 @@ describe("AutoForm", () => {
     }
     const submit = async () => {
       element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
-      // AutoForm validates before Formisch marks the form as submitting, so let that run first.
+      // AutoForm checks the schema before it sends, so let that run first.
       await new Promise(resolve => setTimeout(resolve, 10))
       await vi.waitFor(async () => {
         await nextTick()
@@ -172,9 +177,13 @@ describe("AutoForm", () => {
     await type("[data-field=topic] :is(input, select, textarea)", "idea")
     await type("[data-field=message] :is(input, select, textarea)", "Add dark mode.")
     await submit()
-    expect((await store.list()).map(row => row.data)).toEqual([{ email: "ada@example.com", topic: "idea", message: "Add dark mode." }])
+    // An unchecked optional box is `false`, as in a post without JavaScript.
+    expect((await store.list()).map(row => row.data)).toEqual([{ email: "ada@example.com", topic: "idea", message: "Add dark mode.", newsletter: false }])
     expect(root.querySelector("[data-sent]")?.textContent).toBe("Thanks. Your message was sent.")
     expect(sent).toHaveBeenCalledWith(expect.any(String))
+    // A success empties the fields.
+    expect(root.querySelector<HTMLInputElement>("[data-field=email] input")?.value).toBe("")
+    expect(root.querySelector<HTMLSelectElement>("[data-field=topic] select")?.value).toBe("")
   })
 
   it("sends an unchecked box as false, a number option as a number, and the input before transforms", async () => {

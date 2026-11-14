@@ -8,6 +8,8 @@ export interface SchemaNode {
   requirement?: unknown
   title?: string
   description?: string
+  /** The default of an optional schema, or the function that returns it. */
+  default?: unknown
 }
 
 /** The base schema, whether a wrapper made it optional, and the actions of every layer, outer first. */
