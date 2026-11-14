@@ -21,7 +21,7 @@ import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServer
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { hostFromNitroPreset, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
@@ -46,7 +46,7 @@ import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleDeploymentEnv, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
-import { cloudflareExportConditions, detectHost, type ViteHubHost } from "./deployment.ts"
+import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
@@ -453,7 +453,7 @@ export interface ViteHubOptions {
   /**
    * The host to build for. When omitted, `detectHost()` reads it from `VITEHUB_HOST`, `NITRO_PRESET`,
    * `SERVER_PRESET`, or the provider variables of Cloudflare Workers Builds, Netlify, Vercel, and Deno Deploy.
-   * Without any of them, ViteHub builds for `"node"`.
+   * Without any of them, ViteHub builds for `"node"`. `vitehub deploy --host` overrides it for its build.
    */
   host?: ViteHubHost
   name?: string
@@ -1283,7 +1283,7 @@ function doctorPlugin(): Plugin {
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
-  const host = options.host ?? detectHost() ?? "node"
+  const host = resolveBuildHost(options.host)
   // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
   options = withConnectionsDatabase(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
   const configuredConsole = resolveConsoleOptions(options.console)
