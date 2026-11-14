@@ -36,7 +36,7 @@ A catalog code can give static or computed `data`, which stays in memory. Each f
 
 ## Diagnostic codes
 
-Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Other packages still use numbered codes:
+New codes use names: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Codes that a package published with a number keep it:
 
 | Format | Catalog group |
 | --- | --- |
