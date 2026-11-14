@@ -4,6 +4,8 @@ ViteHub is an ambitious open source project for server primitives and portable A
 
 You are working with Maxi. Keep the work direct, practical, and easy to review.
 
+Before you design, change, review, or document anything in this repository, read the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md). It explains how we decide: primitives, public API size, breaking changes, docs, proof, and pull requests.
+
 ## How we work
 
 - Write short, plain English. Use ASD-STE100 language.

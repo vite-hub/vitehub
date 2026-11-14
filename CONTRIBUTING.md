@@ -110,6 +110,8 @@ Report the observed user result, exact commands, failures, and unverified parts.
 
 ## Load relevant guidance
 
+Use the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md) for every change to this repository. It holds the judgment behind these rules: when to add a primitive, how to keep the public API small, when to break a contract, and what proof a pull request needs. Agents find it in `.agents/skills/`, Claude Code through the `.claude/skills` link, and every agent through `AGENTS.md`. Add repository skills to `.agents/skills/` only.
+
 Use the [ViteHub skill](docs/skills/vitehub/SKILL.md) when building or debugging a consuming application. Its reference table selects guidance for Agent Definitions, Workspaces, Channels, providers, and other features. Load only the matching references. For repository changes, current source and local user docs are the contract; use the skill's installed-package checks when reproducing a consumer problem.
 
 For package-specific contracts, read the affected package README and [user reference](docs/content/docs/reference/index.md). Do not copy those contracts into contributor instructions. Keep skill purposes separate from repository rules and from Skills loaded by product Agents.
