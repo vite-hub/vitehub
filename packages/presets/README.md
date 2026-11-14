@@ -132,14 +132,14 @@ records the request UUID and waits for GitHub to confirm a merge. Finished owner
 release their queue lease while preserving any unresolved merge attempt. Expired
 GitHub request results re-enter the current head's normal merge gates. An enqueued request retains its fence until the PR closes, merges, or changes head: queue absence and removal timeline commits do not identify the accepted request safely.
 
-`merge` defaults to `false`:
+`merge` defaults to `"direct"`:
 
 | Value | Behavior |
 | --- | --- |
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
+| `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -150,6 +150,9 @@ add a policy, such as a required approval check; return `true` or a reason. Any
 other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
 PR from an author without write access only after a reviewer with write access
 approves its current head and no such reviewer's latest review requests changes.
+`trustedAuthors`, such as `["renovate[bot]"]`, lets those authors through that
+gate without an approval. A bot entry needs its `[bot]` suffix and matches only a
+bot account.
 
 A PR that is only `behind` a base requiring up-to-date branches, or whose base
 changed its files after its checks ran, gets a branch update instead of a merge

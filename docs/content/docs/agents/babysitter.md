@@ -119,7 +119,8 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without an `author` or `authorAssociation` rule, only authors with write access are selected. Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. Without them or `filter.labels`, `babysitter:skip` pauses a pull request. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady, bypassInheritedChecks }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). `bypassInheritedChecks` is off by default ([Failures from the base branch](#failures-from-the-base-branch)). |
+| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). `bypassInheritedChecks` is off by default ([Failures from the base branch](#failures-from-the-base-branch)). |
+| `merge.trustedAuthors` | `[]` | Logins, such as `'renovate[bot]'`, whose pull requests the default gate merges without an approval ([Gate outside contributors](#gate-outside-contributors)). |
 | `merge.markDraftsReady` | `[]` | Logins whose drafts the host marks ready for review once a pass has reviewed the head and no required check failed. Only drafts from a branch in the repository itself qualify, so a fork's draft stays a draft. |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
@@ -183,6 +184,18 @@ merge: { strategy: 'direct', ready: 'approved-if-outside' },
 - A push after the approval, including the Babysitter's own repair, needs a new approval.
 
 The Babysitter still repairs the pull request while it waits.
+
+A bot's `author_association` is usually `NONE` or `CONTRIBUTOR`, so its pull requests wait for an approval too. List the authors you trust in `trustedAuthors`, and the gate merges their pull requests like a maintainer's:
+
+```ts fragment
+filter: {
+  authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] },
+  author: { allow: ['renovate[bot]'] },
+},
+merge: { strategy: 'direct', trustedAuthors: ['renovate[bot]'] },
+```
+
+Write a bot with its `[bot]` suffix. An entry with the suffix matches only a bot account, and one without it matches only a user, so a person cannot sign up as `renovate` and pass as the bot. The filter still decides which pull requests get work, so add the bot there too. `trustedAuthors` works only with the default gate: a `ready` function decides every author itself.
 
 For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits. `ready: () => true` merges every ready pull request, including bot pull requests, whose author has no write access.
 

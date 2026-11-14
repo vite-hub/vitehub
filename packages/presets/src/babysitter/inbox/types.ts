@@ -68,7 +68,9 @@ const evidenceSchema = v.looseObject({
   app: v.nullish(v.looseObject({ slug: v.optional(v.string()), id: v.optional(v.number()) })),
   output: v.optional(v.object({ summary: v.nullish(v.string()), text: v.nullish(v.string()) })),
   pull_requests: v.optional(v.array(v.object({ number: v.pipe(v.number(), v.integer(), v.minValue(1)) }))),
-  commit_id: v.optional(v.string()), original_commit_id: v.optional(v.string()), commit: v.nullish(v.object({ oid: v.string() })),
+  commit_id: v.optional(v.string()), original_commit_id: v.optional(v.string()),
+  // A GraphQL review names its commit by `oid`. A status delivery carries the REST commit, with `sha` and no `oid`.
+  commit: v.nullish(v.looseObject({ oid: v.optional(v.string()) })),
   pull_request_review_id: v.optional(v.number()), in_reply_to_id: v.optional(v.number()),
   path: v.optional(v.string()), line: v.nullish(v.number()), original_line: v.nullish(v.number()),
   start_line: v.nullish(v.number()), original_start_line: v.nullish(v.number()), side: v.optional(v.string()), start_side: v.nullish(v.string()),
@@ -82,7 +84,7 @@ export interface GitHubEvidence extends GitHubTimestamps {
   head_sha?: string; sha?: string; context?: string; description?: string | null; details_url?: string | null; target_url?: string | null
   performed_via_github_app?: { id: number } | null
   app?: { [key: string]: unknown; slug?: string; id?: number } | null; output?: { summary?: string | null; text?: string | null }
-  pull_requests?: { number: number }[]; commit_id?: string; original_commit_id?: string; commit?: { oid: string } | null
+  pull_requests?: { number: number }[]; commit_id?: string; original_commit_id?: string; commit?: { [key: string]: unknown; oid?: string } | null
   pull_request_review_id?: number; in_reply_to_id?: number; path?: string; line?: number | null
   original_line?: number | null; start_line?: number | null; original_start_line?: number | null; side?: string; start_side?: string | null
 }
