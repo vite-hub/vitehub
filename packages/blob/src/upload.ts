@@ -1,4 +1,4 @@
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 

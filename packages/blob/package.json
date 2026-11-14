@@ -162,6 +162,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.4",
     "files-sdk": "catalog:storage",
+    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "sharp": "0.35.5",
@@ -180,6 +181,7 @@
     "@azure/storage-blob": "catalog:storage",
     "@cf-wasm/photon": "^0.4.0",
     "@google-cloud/storage": "catalog:storage",
+    "nitro": "catalog:nitro-compat",
     "sharp": "^0.34.0 || ^0.35.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
