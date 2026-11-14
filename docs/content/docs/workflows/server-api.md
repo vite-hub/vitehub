@@ -49,7 +49,9 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 
 `WorkflowStartOptions` accepts `id`.
 
-Inline runs buffer the response body before they complete. Each inspection and duplicate start returns a new response, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
+The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
+
+Inline runs buffer a returned `Response` body before they complete. Each inspection and duplicate start returns a new `Response`, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
 
 Inspection holds a weak reference to an active inline run:
 
@@ -70,7 +72,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `id` | `string` | Run id from the provider or ViteHub. |
 | `provider` | `WorkflowProvider` | Provider of the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
-| `result` | `TResult` | Result, when completed. |
+| `result` | `TResult` | The value that the handler returned, as JSON, when completed. A `Response` when the handler returned one. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |
 

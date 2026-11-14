@@ -143,11 +143,12 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   return Object.hasOwn(cloudflareStatusMap, normalized) ? cloudflareStatusMap[normalized]! : "unknown"
 }
 
-function ownSerializedOutput(metadata: unknown) {
+/** The run result from Cloudflare status: the stored value, or a `Response` when the handler returned one. */
+function cloudflareRunResult(metadata: unknown): unknown {
   if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "output")) return undefined
   // SAFETY: The guards establish a non-null object with an own output property, whose value remains unknown.
   const output = (metadata as { output?: unknown }).output
-  return isSerializedResponse(output) ? output : undefined
+  return isSerializedResponse(output) ? deserializeResponse(output) : output
 }
 
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
@@ -167,13 +168,13 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
-        const output = ownSerializedOutput(metadata)
+        const status = normalizeCloudflareStatus(metadata)
         return {
           id,
           metadata,
           provider: "cloudflare",
-          result: output ? deserializeResponse(output) : undefined,
-          status: normalizeCloudflareStatus(metadata),
+          result: status === "completed" ? cloudflareRunResult(metadata) : undefined,
+          status,
         }
       }
 
