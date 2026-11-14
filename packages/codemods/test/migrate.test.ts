@@ -60,8 +60,8 @@ describe("migrate", () => {
       "layers/base/nuxt.config.cjs": "export default { hooks: { 'hub:db:migrations:dirs': () => {} } }\n",
     })
     const result = await runCodemod("nuxthub", { cwd, dryRun: true })
-    expect(result.followUps).toContainEqual(expect.objectContaining({ file: "nuxt.config.cjs", line: 1, message: expect.stringContaining("hub:db:schema:extend") }))
-    expect(result.followUps).toContainEqual(expect.objectContaining({ file: "layers/base/nuxt.config.cjs", line: 1, message: expect.stringContaining("hub:db:migrations:dirs") }))
+    expect(result.result.followUps).toContainEqual(expect.objectContaining({ file: "nuxt.config.cjs", line: 1, message: expect.stringContaining("hub:db:schema:extend") }))
+    expect(result.result.followUps).toContainEqual(expect.objectContaining({ file: "layers/base/nuxt.config.cjs", line: 1, message: expect.stringContaining("hub:db:migrations:dirs") }))
   })
 
   it("detects nuxt-safe-runtime-config and writes what the codemod writes alone", async () => {
