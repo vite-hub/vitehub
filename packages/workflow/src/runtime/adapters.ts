@@ -250,9 +250,11 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 const warnedInlineOpenWorkflowNames = new Set<string>()
 
 /**
- * Every OpenWorkflow worker registers the discovered Workflow Definitions of the build registry when it starts. Any
- * worker can claim a run, so a run of another definition, such as an inline `createWorkflow(name, handler)` or an Agent
- * Workflow, could wait in storage on a worker that never registers it. Those runs execute inline in this process.
+ * Every OpenWorkflow worker registers the Workflow Definitions of the build registry when it starts: discovered
+ * Workflows and discovered Agent Workflows. Any worker can claim a run, so a run of an inline
+ * `createWorkflow(name, handler)` could wait in storage on a worker that never registers it. Those runs execute inline
+ * in this process. A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, so Agent turns are
+ * never inline.
  */
 function isDurableOpenWorkflowDefinition(name: string): boolean {
   const registry = getWorkflowRuntimeRegistry()
@@ -272,6 +274,8 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     run: async (context) => {
       const { definition, event, name, options, payload } = context
       if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event))
+      // An Agent turn must be durable. The registry has every discovered Agent, so this one is not discovered.
+      if (definition?.internalAgentWorkflow || definition?.internalAgentInvocationRecovery) throw workflowErrorDiagnostics.WORKFLOW_AGENT_NOT_DISCOVERED({ name })
       if (!warnedInlineOpenWorkflowNames.has(name)) {
         warnedInlineOpenWorkflowNames.add(name)
         console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)

@@ -3,11 +3,12 @@ import { workflowRuntimeModule } from "./runtime-modules.ts"
 import { dirname, relative, resolve } from "node:path"
 
 import { discoverWorkflowDefinitions } from "../discovery.ts"
-import { createWorkflowRegistryContents, workflowPackageName } from "./vite-build.ts"
+import { createWorkflowRegistryContents, installedAgentWorkflowModules, withAgentInvocationRecoveryDefinitions } from "./vite-build.ts"
 
 import { defaultOpenWorkflowSqlitePath } from "./openworkflow-defaults.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../types.ts"
+import type { AgentWorkflowModules } from "./vite-build.ts"
 
 // Provider servers install the discovered Workflow registry in production. In
 // `vite dev`, and in builds for hosts without a Provider Output server (Node,
@@ -19,19 +20,19 @@ const devRegistryFile = "dev-registry.mjs"
 const devPluginFile = "dev-plugin.mjs"
 
 /**
- * Agent Workflows need the Agent registry transform of the provider build, so
- * the development registry does not contain them.
+ * The Workflow Definitions of the startup registry. With `agents`, it also has each discovered Agent Workflow and its
+ * invocation recovery Workflow, as a provider build does. OpenWorkflow needs them: its worker registers the
+ * definitions of this registry when it starts, and runs only those. Other providers keep running Agent turns inline.
  */
-function isWorkflowDevDefinition(definition: DiscoveredWorkflowDefinition): boolean {
-  return definition.source !== "agent-workflow" && definition.source !== "agent-workflow-recovery"
+export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: string[], agents = false): DiscoveredWorkflowDefinition[] {
+  return agents
+    ? withAgentInvocationRecoveryDefinitions(discoverWorkflowDefinitions({ rootDir, serverDirs }))
+    : discoverWorkflowDefinitions({ mode: "standalone", rootDir, serverDirs })
 }
 
-export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: string[]): DiscoveredWorkflowDefinition[] {
-  return discoverWorkflowDefinitions({ mode: "standalone", rootDir, serverDirs })
-}
-
-function createWorkflowDevRegistryModule(registryFile: string, definitions: DiscoveredWorkflowDefinition[], importBase = workflowPackageName): string {
-  return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
+/** True when the startup registry must have the Agent Workflows, because an OpenWorkflow worker runs the Agent turns. */
+export function registersAgentWorkflows(workflow: false | ResolvedWorkflowOptions | undefined): boolean {
+  return workflow !== undefined && workflow !== false && workflow.provider === "openworkflow"
 }
 
 /**
@@ -85,6 +86,8 @@ async function writeIfChanged(file: string, contents: string): Promise<boolean> 
 }
 
 export interface WorkflowDevRegistryFilesOptions {
+  /** The Agent files that Agent Workflow entries import. Without them, the Agent package that the app installs. */
+  agentModules?: AgentWorkflowModules
   /** The module that exports `getPostgresConnectionUrl()`, when the app has a Postgres Default Database. */
   databaseImport?: string
   definitions: DiscoveredWorkflowDefinition[]
@@ -116,7 +119,13 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   const registry = resolve(directory, devRegistryFile)
   const plugin = resolve(directory, devPluginFile)
   const files: Array<[string, string]> = [
-    [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
+    [registry, createWorkflowRegistryContents(registry, options.definitions, {
+      agent: options.definitions.some(definition => definition.source === "agent-workflow")
+        ? options.agentModules ?? await installedAgentWorkflowModules(options.projectRoot)
+        : undefined,
+      // As in a provider build: the Agent loads this Workflow entry, else the one that it resolves.
+      workflow: options.importBase,
+    })],
     [plugin, createWorkflowDevPluginModule(options.workflow, options.dev, options.databaseImport)],
   ]
   if (process.env.VITEST) {

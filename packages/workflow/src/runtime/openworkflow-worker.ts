@@ -9,6 +9,7 @@ import { createWorkflowError } from "../errors.ts"
 import type { ShutdownApp } from "@vite-hub/runtime/internal/shutdown"
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { defaultOpenWorkflowWorkerConcurrency } from "../internal/openworkflow-defaults.ts"
 
 type OpenWorkflowWorker = ReturnType<Awaited<ReturnType<typeof getOpenWorkflowRuntime>>["client"]["newWorker"]>
 
@@ -52,7 +53,7 @@ async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOption
   }
 
   return {
-    concurrency: options.concurrency ?? (config.worker ? config.worker.concurrency : undefined),
+    concurrency: options.concurrency ?? (config.worker ? config.worker.concurrency : undefined) ?? defaultOpenWorkflowWorkerConcurrency,
     runtime,
   }
 }

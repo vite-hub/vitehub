@@ -865,6 +865,17 @@ describe("workflow runtime", () => {
     warn.mockRestore()
   })
 
+  // An Agent turn on OpenWorkflow is durable or it fails. It never runs inline in the request process.
+  it("rejects a turn of an Agent Workflow that is not in the registry", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    const handler = vi.fn(async () => "turn")
+    const turn = createWorkflow("undiscovered-agent", handler, { internalAgentWorkflow: true, rootStep: false })
+
+    await expect(turn.start()).rejects.toMatchObject({ code: "WORKFLOW_AGENT_NOT_DISCOVERED" })
+    expect(openWorkflowMock.runOptions).toHaveLength(0)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("cancels pending OpenWorkflow runs of the same Workflow through the OpenWorkflow client", async () => {
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
     const workflow = durableOpenWorkflow("cancel-open", async () => "done")
@@ -2254,6 +2265,16 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  // OpenWorkflow runs one run at a time by default. An Agent turn holds two runs: the turn and its recovery run.
+  it("runs 10 runs at once by default", async () => {
+    setWorkflowRuntimeConfig({ postgres: { url: "postgres://localhost/vitehub" }, provider: "openworkflow" })
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 10 })
   })
 
   it.each(["default", "direct"])("rejects mismatched names in %s OpenWorkflow registry definitions", async (shape) => {
