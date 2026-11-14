@@ -7,7 +7,7 @@
 // - a denied step, by the component's ref id, returns AGENT_R1047 and changes nothing;
 // - two steps that need approval in one call: the person approves one and refuses the other (AGENT_R1049);
 // - `vitehub agent invocations show` lists every change with Agent, page, person, step, before, after and time;
-// - undo from the page, and undo by an operator with `vitehub invocations undo`;
+// - undo from the page, and undo by an operator with `vitehub agent invocations undo`;
 // - a second person who joins the first person's page id gets no calls, and their run cannot reach that page.
 // Run: pnpm --filter vite-hub test:browser   (AGENT_PAGE_CASES=vite-node,nuxt-cloudflare picks cases)
 import assert from "node:assert/strict"
@@ -634,7 +634,7 @@ for (const item of cases) {
     assert.ok(pageChanges.some(change => change.id === region.id), JSON.stringify(pageChanges))
     const notRestored = await ada.page.evaluate(id => window.pageTest.undo(id), region.id)
     assert.deepEqual(notRestored, [])
-    const undone = await vitehub(app, ["invocations", "undo", settings.invocationId, "--change", visibility.id])
+    const undone = await vitehub(app, ["agent", "invocations", "undo", settings.invocationId, "--change", visibility.id])
     assert.deepEqual(undone.notRestored ?? [], [], JSON.stringify(undone))
     const afterUndo = Object.fromEntries((await ada.page.evaluate(() => window.pageTest.snapshot())).filter(component => component.label).map(component => [component.label, component]))
     assert.equal(afterUndo["Default region"]?.value, "iad")
