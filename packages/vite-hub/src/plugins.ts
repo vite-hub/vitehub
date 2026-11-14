@@ -162,6 +162,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
+  "@vite-hub/sync": true,
   "@vite-hub/ui": true,
   // Browser-only: generated server code never imports it.
   "@vite-hub/web-container": false,
@@ -1701,6 +1702,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       standard: "vite-hub/runtime",
     },
   }))
+  // Sync in `server/sync/<name>.ts`: one route for each, the change log in the Database, and the user with Auth. Inert
+  // without the folder, and absent without its package.
+  if (ownerModules.syncVite) plugins.push(ownerModules.syncVite.hubSync({
+    database: Boolean(options.database),
+    auth: Boolean(options.auth),
+    imports: {
+      runtime: "vite-hub/sync/runtime",
+      operations: "vite-hub/sync/operations",
+      database: "vite-hub/sync/database",
+      databases: "@vite-hub/database/runtime/registry",
+      auth: "vite-hub/auth/server",
+    },
+  }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
@@ -1714,7 +1728,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   else if (options.comments === false) plugins.push(commentsOffPlugin())
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite || !ownerModules.syncVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())

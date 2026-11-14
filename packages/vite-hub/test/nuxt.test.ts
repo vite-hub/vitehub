@@ -4536,6 +4536,28 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }])
   })
 
+  it("auto-imports useSync only when the app has server/sync/", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-"))
+    try {
+      await mkdir(resolve(root, "server/sync"), { recursive: true })
+      const withSync = createNuxt()
+      withSync.nuxt.options.rootDir = root
+      withSync.nuxt.options.serverDir = resolve(root, "server")
+      const withoutSync = createNuxt()
+
+      await viteHubNuxtModule({ host: "node" }, withSync.nuxt)
+      await viteHubNuxtModule({ host: "node" }, withoutSync.nuxt)
+
+      // SAFETY: The module initializes Nuxt's imports collection.
+      const imports = (nuxt: typeof withSync.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
+      expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+      expect(imports(withoutSync.nuxt)).not.toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("rejects a configured Nuxt composable that would bind a different useChat", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options, {

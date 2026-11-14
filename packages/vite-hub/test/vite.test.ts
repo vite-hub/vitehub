@@ -703,6 +703,7 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
@@ -767,6 +768,7 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
@@ -956,6 +958,18 @@ describe("vitehub", () => {
     }
     finally {
       ownerModules.formsVite = forms
+    }
+  })
+
+  it("checks Sync entries when only the Sync owner is absent", () => {
+    expect(ownerModules.formsVite).toBeDefined()
+    const sync = ownerModules.syncVite
+    try {
+      ownerModules.syncVite = undefined
+      expect(pluginNames(vitehub({ database: false, host: "node" }))).toContain("vite-hub/optional-owner-entries")
+    }
+    finally {
+      ownerModules.syncVite = sync
     }
   })
 

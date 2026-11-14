@@ -35,7 +35,7 @@ import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
 import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
-import { ownerModules } from "./internal/owner-modules.ts"
+import { hasSyncDirectory, ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
@@ -1540,6 +1540,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms") && isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction", "useFormSubmit"])
+  // `server/sync/` turns Sync on, so `useSync()` is imported only then.
+  if (isPackageInstalled("@vite-hub/sync") && hasSyncDirectory(projectRoot, resolveNuxtServerDirs(nuxt.options))) addVueImports(nuxt, "vite-hub/sync/vue", ["useSync"])
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
     addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
