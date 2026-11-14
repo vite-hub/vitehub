@@ -193,8 +193,9 @@ a PR waiting while they run. A comment-only review with an empty body does not
 wake a waiting PR; its inline comments do. `noFindingsReviews` lists body
 prefixes, such as `"> ✅ No new issues found."`, of comment-only reviews that
 report no findings; these do not wake it either. `ignoreFeedbackAuthors` lists
-logins, such as deployment preview bots, whose comments and reviews never need an
-assessment. Feedback that a pass assessed or answered with a repair push stays
+logins whose comments and reviews never need an assessment. It defaults to the
+deployment preview bots `pkg-pr-new[bot]`, `vercel[bot]`,
+`cloudflare-workers-and-pages[bot]` and `netlify[bot]`; a list replaces them. Feedback that a pass assessed or answered with a repair push stays
 assessed on later heads, so a direct merge needs a model pass only for new
 feedback. Bot issue comments count by identity, not body. Without required
 checks on the base branch, the newest run of every current-head check must
