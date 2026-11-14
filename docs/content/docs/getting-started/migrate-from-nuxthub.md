@@ -168,7 +168,7 @@ For a custom serving route on Nitro 3, see
 
 `blob.serve()` sends `Cache-Control: private, no-cache` and
 `X-Content-Type-Options: nosniff`. NuxtHub sent neither. The built-in route of
-`blob: { serve: true }` sends `public, max-age=0, s-maxage=0`, or
+`blob: { serve: { access: "public" } }` sends `public, max-age=0, s-maxage=0`, or
 `private, no-cache` with `authorize`. For HTML, SVG, XML,
 and `multipart/*` files it also sends `Content-Security-Policy: sandbox`, so the
 file cannot run script on your origin. To cache files, pass `cacheControl`:
@@ -178,7 +178,7 @@ file cannot run script on your origin. To cache files, pass `cacheControl`:
 +  return blob.serve(event.req, pathname, { cacheControl: "public, max-age=3600" })
 ```
 
-For the built-in route, set `blob: { serve: { headers: { "Cache-Control": "public, max-age=3600" } } }`.
+For the built-in route, set `blob: { serve: { access: "public", headers: { "Cache-Control": "public, max-age=3600" } } }`.
 The sandbox stays on. To serve a page that runs script, read it with
 `blob.get()` in your own route. See
 [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
@@ -201,7 +201,8 @@ Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
 `vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
 also need `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` at
 runtime, because an R2 binding alone cannot sign requests. To serve files
-without your own route, set `blob: { serve: true }`.
+without your own route, set `blob: { serve: { access: "public" } }` for public
+files, or `blob: { serve: { authorize: true } }` to require a session.
 
 ## Move the database
 
