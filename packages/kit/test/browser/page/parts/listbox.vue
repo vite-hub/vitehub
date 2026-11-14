@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CheckIcon } from "../icons"
-import { Field, FieldDescription, FieldLabel } from "@vite-hub/kit/field"
-import { Listbox, ListboxItem, ListboxItemIndicator } from "@vite-hub/kit/listbox"
+import { Field, FieldDescription, FieldLabel } from "@ui-sdk/vue/field"
+import { Listbox, ListboxItem, ListboxItemIndicator } from "@ui-sdk/vue/listbox"
 
 const topics = [
   { value: "comments", label: "Comments" },

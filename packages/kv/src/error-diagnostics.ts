@@ -25,7 +25,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass a positive integer, for example `kv.list({ limit: 100 })`.",
     },
     KV_INVALID_OPTION: {
-      why: ({ operation, option }: { operation: "set" | "setIfAbsent", option: string }) => `kv.${operation}() does not accept the option \`${option}\`. It accepts only \`ttl\`.`,
+      why: ({ operation, option }: { operation: "set" | "setIfAbsent" | "setMany", option: string }) => `kv.${operation}() does not accept the option \`${option}\`. It accepts only \`ttl\`.`,
       fix: "Pass `{ ttl: seconds }` to expire the value, or no options to keep it. KV has no Cloudflare `expirationTtl`, `expiration`, or `metadata` option.",
     },
     KV_INVALID_TTL: {
@@ -90,6 +90,14 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare host."
         : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
     },
+    KV_INVALID_BATCH: {
+      why: ({ operation }: { operation: "getMany" | "setMany" }) => operation === "getMany"
+        ? "`kv.getMany()` needs an array of keys."
+        : "`kv.setMany()` needs an array of `{ key, value }` entries.",
+      fix: ({ operation }: { operation: "getMany" | "setMany" }) => operation === "getMany"
+        ? "Pass an array, for example `kv.getMany(['a', 'b'])`."
+        : "Pass an array, for example `kv.setMany([{ key: 'a', value: 1 }])`.",
+    },
     KV_INVALID_STORE_MODE: {
       why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
       fix: "Pass `{ mode: 'read' }` for a read-only handle, or omit `mode` for a writable one.",
@@ -132,6 +140,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
 /** Codes that a KV operation throws because the code or the deployment must change. */
 export const kvConfigErrorCodes: ReadonlySet<string> = new Set([
   "KV_DATABASE_UNAVAILABLE",
+  "KV_INVALID_BATCH",
   "KV_DENO_KV_UNAVAILABLE",
   "KV_DISABLED",
   "KV_MISSING_ENV",

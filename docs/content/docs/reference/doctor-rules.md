@@ -875,6 +875,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Invalid
 export default defineRealtime({
+  auth: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 5000, maxWait: 1000 },
 })
@@ -885,6 +886,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Valid
 export default defineRealtime({
+  auth: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 500, maxWait: 5000 },
 })
@@ -1031,6 +1033,7 @@ An app that uses ViteHub still has NuxtHub parts:
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
 - `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
 - Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime. The rule does not report `hubKV()` or `hubDatabase()` that you import from a ViteHub package.
+- A dependency in `package.json` whose installed `package.json` lists `@nuxthub/core` in `peerDependencies` or `dependencies`, such as `@evlog/nuxthub`. The package manager then installs NuxtHub, and the module can start it next to ViteHub. ViteHub does not emulate NuxtHub's module APIs. The rule reports it on the `modules` entry of `nuxt.config.ts`. See [Modules that expect NuxtHub](/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub).
 
 ```ts [nuxt.config.ts] fails=TS2353
 // Invalid
@@ -1110,7 +1113,7 @@ ViteHub reads `server/comments.ts` without running it. A default export selects 
 
 - A default export next to `export const comments`. ViteHub never installs the live API.
 - `defineComments()` exported under another name, with no default export. The entry selects Comment operations.
-- In the live-site form, a `database` option that is not a string literal. ViteHub then uses the default Database.
+- In the live-site form, a `database` option that is not a string literal. The build then fails with `COMMENTS_B0004`.
 
 ```ts [server/comments.ts] fragment
 // Invalid

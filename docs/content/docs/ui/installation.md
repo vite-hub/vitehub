@@ -245,6 +245,41 @@ The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-m
 
 `--vh-ui-radius` is the corner radius of framed parts, such as `CodeBlock` and `CodeView`. It defaults to Nuxt UI's `rounded-lg`, twice `--ui-radius`. Other corners, such as those of `Bubble` and `PromptInput`, derive from it, so one value changes them all.
 
+### Design system tokens
+
+`@vite-hub/ui/theme.css` is the ViteHub design system for a whole app. It sets the colors and the radius under their [shadcn/ui names](https://ui.shadcn.com/docs/theming), and Nuxt UI's `--ui-*` tokens read those names. To change one, set its name after the theme: on `:root` for light, and on `:root.dark` for dark.
+
+```css [nuxt/tokens/assets/css/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/theme.css";
+
+:root {
+  --radius: 0.375rem;
+  --foreground: oklch(0.145 0 0);
+}
+
+:root.dark {
+  --background: oklch(0.1 0 0);
+}
+```
+
+| Name | Tokens that read it | Light | Dark |
+| --- | --- | --- | --- |
+| `--background` | `--ui-bg`, `--ui-text-inverted` | `oklch(1 0 0)` | `oklch(0.145 0 0)` |
+| `--foreground` | `--ui-text-highlighted`, `--ui-bg-inverted`, `--ui-border-inverted` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` |
+| `--muted` | `--ui-bg-elevated` | `oklch(0.97 0 0)` | `rgb(255 255 255 / 5%)` |
+| `--muted-foreground` | `--ui-text-muted` | `oklch(0.5 0 0)` | `oklch(0.708 0 0)` |
+| `--border` | `--ui-border` | `oklch(0.922 0 0)` | `rgb(255 255 255 / 10%)` |
+| `--primary` | `--ui-primary` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` |
+| `--popover` | `--vh-floating`, the surface of menus, popovers, and tooltips | `rgb(255 255 255 / 92%)` | `rgb(23 23 23 / 92%)` |
+| `--ring` | `--vh-focus`, the focus ring and drawn comment areas | `oklch(0.588 0.158 241.966)` | `oklch(0.746 0.16 232.661)` |
+| `--radius` | `--ui-radius` | `0.25rem` | `0.25rem` |
+
+`--radius` is Nuxt UI's smallest step (`rounded-sm`), as in `@vite-hub/kit`. It is not the card radius of shadcn/ui. Nuxt UI multiplies it: buttons get 1.5 times, cards 2 times, and menus 3 times.
+
+The other Nuxt UI steps have no shadcn/ui name, so you set them on the token itself, in both blocks: `--ui-text`, `--ui-text-toned`, `--ui-text-dimmed`, `--ui-bg-muted`, `--ui-bg-accented`, `--ui-border-muted`, and `--ui-border-accented`. The status colors, such as `--ui-error`, come from the `colors` of the Nuxt UI app config. The theme does not set other shadcn/ui names, such as `--card` or `--input`, because no token reads them.
+
 ## Server rendering
 
 Chat output supports Vue server rendering. Scroll observers, clipboard actions, and attachment conversion use browser APIs and work after hydration.

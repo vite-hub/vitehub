@@ -46,3 +46,9 @@ export function installCloudflareKVLimits(driver: Driver): void {
   if (removeItem) driver.removeItem = (key, options) => { assertCloudflareKVKey(key); return removeItem.call(driver, key, options) }
   if (setItem) driver.setItem = (key, value, options) => { assertCloudflareKVWrite(key, value); return setItem.call(driver, key, value, cloudflareKVSetOptions(options)) }
 }
+
+/** Preflight serialized writes and deletion keys before either branch starts. */
+export function validateCloudflareKVBatch(items: Parameters<NonNullable<Driver["setItems"]>>[0], removals: string[]): void {
+  for (const key of removals) assertCloudflareKVKey(key)
+  for (const item of items) assertCloudflareKVWrite(item.key, item.value)
+}

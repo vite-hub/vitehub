@@ -174,7 +174,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "getMany" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent" | "setMany"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
@@ -207,10 +207,16 @@ export type KVGetOptions<K extends KVGetType | undefined = KVGetType | undefined
 /** A read value: the caller's `T` without a `type`, the converted type with one. */
 type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
-/** Options of `kv.set()` and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
+/** Options of `kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
 export interface KVSetOptions {
   /** Seconds until the key expires, a positive number. Every driver expires the key. Cloudflare KV keeps it at least 60 seconds. */
   ttl?: number
+}
+
+/** One entry of `kv.setMany()`. */
+export interface KVEntry<T = unknown> {
+  key: string
+  value: T
 }
 
 export interface KVListPage {
@@ -241,6 +247,14 @@ export interface KVStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
+   * Reads many keys in one call. Returns one value per key, in the order of `keys`, with `null` for a missing key.
+   * `options` works as in `get()` and applies to every key. Stores with a batch read use it: Cloudflare KV reads 100
+   * keys per call, Redis and Upstash use `MGET`, and the `database` driver runs one query. Other stores read the keys
+   * one by one, 16 at a time.
+   */
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
+  getMany<T = unknown, K extends KVGetType | undefined = undefined>(keys: readonly string[], options?: KVGetOptions<K>): Promise<Result<Array<KVValue<T, K> | null>, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
+  /**
    * Atomically returns and deletes a value. `{ type: "text" }` returns the stored text.
    * The drivers in {@link KVDriversWith}`<"getAndDelete">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
@@ -259,6 +273,14 @@ export interface KVStorage {
    * Cloudflare KV stores return `KV_KEY_TOO_LONG` and `KV_VALUE_TOO_LARGE` before a write that Cloudflare rejects.
    */
   set<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
+  /**
+   * Writes many keys in one call. `options` works as in `set()` and applies to every entry. When a key is in `entries`
+   * more than once, the last entry wins. A `value` of `undefined` deletes the key, as `set()` does. The writes are not
+   * atomic: when the call fails, some entries can be written. Redis sends one pipeline and the `database` driver runs one
+   * statement. Other stores write the entries one by one, 16 at a time. A Cloudflare KV store checks every entry against
+   * the Workers KV limits before it writes any.
+   */
+  setMany<T = unknown>(entries: readonly KVEntry<T>[], options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
   /**
    * Writes the value only when the key has no value, in one atomic step.
    * Returns `true` when this call wrote the value and `false` when the key already had one.
@@ -279,12 +301,13 @@ export interface KVStoreOptions {
 }
 
 /**
- * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `has()`, `keys()`, and `list()`.
+ * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `getMany()`, `has()`, `keys()`, and `list()`.
  * It limits this API, not the host: the KV binding or provider token keeps full access, so it is not a security
  * boundary against code that reads the binding directly.
  */
 export interface ReadonlyKVStorage {
   get: KVStorage["get"]
+  getMany: KVStorage["getMany"]
   has: KVStorage["has"]
   keys: KVStorage["keys"]
   list: KVStorage["list"]

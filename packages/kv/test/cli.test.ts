@@ -344,10 +344,10 @@ describe("vitehub kv", () => {
 
   it("prints what set and delete changed", async () => {
     const created = context()
-    const fetch = devServer({ created: true, key: "greeting", notice: "Cloudflare KV raises a TTL below 60 seconds to 60 seconds.", store: "default", ttl: 60, type: "string" })
+    const fetch = devServer({ created: true, key: "greeting", notice: "Cloudflare KV rounds the TTL up to 60 seconds.", store: "default", ttl: 60, type: "string" })
     await expect(runKVCli(["set", "greeting", "hello", "--ttl", "60"], created.context, { fetch })).resolves.toBe(0)
     expect(sentBody(fetch)).toEqual({ key: "greeting", operation: "set", ttl: 60, value: "hello" })
-    expect(created.stdout.output()).toBe("Created key greeting in store default (string, TTL 60 s).\nCloudflare KV raises a TTL below 60 seconds to 60 seconds.\n")
+    expect(created.stdout.output()).toBe("Created key greeting in store default (string, TTL 60 s).\nCloudflare KV rounds the TTL up to 60 seconds.\n")
 
     const updated = context()
     const jsonValue = devServer({ created: false, key: "settings", store: "cache", type: "object" })

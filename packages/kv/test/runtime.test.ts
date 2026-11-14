@@ -441,14 +441,14 @@ describe("kv runtime", () => {
     expect(mountedDrivers.cloudflare).toBeUndefined()
   })
 
-  it("falls back through unstorage when the resolved driver lacks getItems", async () => {
-    cloudflareDriver = createDriverWithoutOptionalMethods()
+  it("reads one key at a time when the resolved driver lacks getItems", async () => {
+    fsLiteDriver = createDriverWithoutOptionalMethods()
 
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
     const lazyDriver = createLazyKVRuntimeDriver({
       store: {
-        binding: "KV",
-        driver: "cloudflare-kv-binding",
+        base: ".vitehub/data/kv",
+        driver: "fs-lite",
       },
     })
     const lazyStorage = createStorage({ driver: lazyDriver })
@@ -477,11 +477,12 @@ describe("kv runtime", () => {
     await driver.getItem("missing")
 
     expect(driver.getItemRaw).toBeUndefined()
-    expect(driver.getItems).toBeUndefined()
     expect(driver.getMeta).toBeUndefined()
     expect(driver.setItemRaw).toBeUndefined()
-    expect(driver.setItems).toBeUndefined()
     expect(driver.removeItems).toBeUndefined()
+    // Every driver gets the batch methods, which call the single-key methods when the driver has no batch command.
+    expect(driver.getItems).toEqual(expect.any(Function))
+    expect(driver.setItems).toEqual(expect.any(Function))
     expect(driver.watch).toBeUndefined()
   })
 
@@ -510,7 +511,7 @@ describe("kv runtime", () => {
     expect(driver.getItemRaw).toEqual(expect.any(Function))
     expect(driver.getMeta).toEqual(expect.any(Function))
     expect(driver.setItemRaw).toEqual(expect.any(Function))
-    expect(driver.getItems).toBeUndefined()
+    expect(driver.getItems).toEqual(expect.any(Function))
     expect(driver.watch).toBeUndefined()
 
     await expect(driver.getItemRaw?.("greeting", {})).resolves.toEqual(Buffer.from("hello"))

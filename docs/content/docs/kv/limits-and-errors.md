@@ -68,7 +68,7 @@ Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl`
 
 ### KV_INVALID_CURSOR
 
-The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. In-process drivers keep cursors in memory, so a restart or `disposeKVStores()` expires them. List again without `cursor`.
+The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. `fs-lite` and Upstash keep some cursors in process memory, so a restart or `disposeKVStores()` expires them. Cloudflare KV and Deno KV cursors carry the provider cursor, so another isolate or a restarted process can continue the listing. List again without `cursor`.
 
 ### KV_INVALID_LIMIT
 
@@ -127,6 +127,10 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 ### KV_INVALID_REMOTE
 
 `remote` of a store is not `true` or `false`. Set `remote: true` to use the real store in `vite dev`, or remove it to keep the store local.
+
+### KV_INVALID_BATCH
+
+`kv.getMany()` got something other than an array of keys, or `kv.setMany()` something other than an array of `{ key, value }` entries. KV throws, because the code must change. Pass an array, for example `kv.getMany(['a', 'b'])`.
 
 ### KV_INVALID_STORE_MODE
 

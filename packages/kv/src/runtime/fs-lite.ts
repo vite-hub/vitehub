@@ -10,11 +10,6 @@ import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
 
-function ttlOption(options: unknown): number | undefined {
-  const ttl: unknown = options && typeof options === "object" ? Reflect.get(options, "ttl") : undefined
-  return typeof ttl === "number" ? ttl : undefined
-}
-
 // unstorage's atomic writes and setIfAbsentItem() stage values in files with this name. They are not keys.
 const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
 // Layout records point to an exclusively allocated metadata directory, outside the encoded key namespace.
@@ -146,68 +141,98 @@ async function migrateKeys(root: string): Promise<string> {
   }
 }
 
+// Same rules as the `database` driver: positive seconds that stay a safe integer in milliseconds.
+function ttlMilliseconds(ttl: number): number {
+  if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  const ms = Math.ceil(ttl * 1000)
+  if (!Number.isSafeInteger(ms)) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  return ms
+}
+
+// Like other unstorage drivers, no TTL or 0 keeps the key.
+function setExpiry(options: unknown): number | undefined {
+  const ttl: unknown = options && typeof options === "object" ? Reflect.get(options, "ttl") : undefined
+  if (ttl === undefined || ttl === null || ttl === 0) return
+  if (typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
+  return Date.now() + ttlMilliseconds(ttl)
+}
+
 export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): Promise<KVRuntimeDriver> {
   const root = resolve(options.base)
   const layout = await migrateKeys(root)
+  // The expiry of a key is a file in the layout workspace, which listings skip. It is named by a hash of the key, so
+  // its name stays short for any key. A key without this file never expires, as every key that older versions wrote.
+  const expiries = join(layout, "expires")
+  const expiryPath = (key: string) => join(expiries, createHash("sha256").update(key).digest("hex"))
+
+  async function readExpiry(key: string): Promise<number | undefined> {
+    const text = await readFile(expiryPath(key), "utf8").catch((error: unknown) => {
+      if (hasCode(error, "ENOENT", "ENOTDIR")) return undefined
+      throw error
+    })
+    const expiresAt = text === undefined ? Number.NaN : Number(text)
+    return Number.isSafeInteger(expiresAt) ? expiresAt : undefined
+  }
+
+  // Serialize expiry cleanup and complete operations across instances and processes.
+  // Use the migration lock too, so opening another driver cannot race with clear or writes.
+  async function synchronized<T>(operation: () => Promise<T>): Promise<T> {
+    const release = await lock(layout, { lockfilePath: join(layout, "lock"), retries: { retries: 100, minTimeout: 20, maxTimeout: 100 } })
+    try { return await operation() }
+    finally { await release() }
+  }
+
+  // Called under the shared lock, together with the value write.
+  async function writeExpiry(key: string, expiresAt: number | undefined): Promise<void> {
+    if (expiresAt === undefined) {
+      await rm(expiryPath(key), { force: true })
+      return
+    }
+    await mkdir(expiries, { recursive: true })
+    // rename() replaces the file in one step, so a reader never sees a partial expiry.
+    const temporary = join(expiries, `.tmp-${randomUUID()}`)
+    await writeFile(temporary, String(expiresAt))
+    await rename(temporary, expiryPath(key))
+  }
+
+  // Called under the shared lock, so cleanup cannot remove a replacement value.
+  async function live(key: string): Promise<boolean> {
+    const expiresAt = await readExpiry(key)
+    if (expiresAt === undefined || expiresAt > Date.now()) return true
+    await rm(join(root, fileName(key)), { force: true })
+    await rm(expiryPath(key), { force: true })
+    return false
+  }
+
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   const { getItem, getItemRaw, getMeta, hasItem, removeItem, setItem, setItemRaw } = driver
-  // The expiry of a key with a TTL is a file here, with the expiry time in milliseconds.
-  // A key that has expired reads as missing. The next write, delete(), or clear() of the key removes its files.
-  // Expiry and lock files are named by a hash of the key, so their names stay short for any key.
-  const expiries = join(layout, "expires")
-  const locks = join(layout, "locks")
-  const hashed = (key: string) => createHash("sha256").update(key).digest("hex")
-  const expiryPath = (key: string) => join(expiries, hashed(key))
-  async function isExpired(key: string): Promise<boolean> {
-    const text = await readFile(expiryPath(key), "utf8").catch((error: unknown) => {
-      if (hasCode(error, "ENOENT")) return undefined
-      throw error
-    })
-    return text !== undefined && Number(text) <= Date.now()
-  }
-  async function writeExpiry(key: string, ttl: number | undefined): Promise<void> {
-    if (ttl === undefined) return rm(expiryPath(key), { force: true })
-    await mkdir(expiries, { recursive: true })
-    await writeFile(expiryPath(key), String(Date.now() + ttl * 1000))
-  }
-  // Reads and writes to one key hold its lock, so a value and its expiry change together, also across processes on one disk.
-  async function withKeyLock<T>(key: string, run: () => Promise<T>): Promise<T> {
-    await mkdir(locks, { recursive: true })
-    // proper-lockfile tracks its locks by this path, so each key needs its own.
-    const release = await lock(join(locks, hashed(key)), { realpath: false, retries: { retries: 100, minTimeout: 5, maxTimeout: 100 } })
-    try {
-      return await run()
-    }
-    finally {
-      await release()
-    }
-  }
-
-  driver.getItem = (key, operationOptions) => withKeyLock(key, async () => {
+  driver.getItem = async (key, operationOptions) => {
+    if (!await live(key)) return null
     const value = await getItem(fileName(key), operationOptions)
     // unstorage returns filesystem read errors as values rather than rejecting.
     if (value instanceof Error) throw value
-    return value !== null && await isExpired(key) ? null : value
-  })
-  driver.getItemRaw = (key, operationOptions) => withKeyLock(key, async () => {
+    return value
+  }
+  driver.getItemRaw = async (key, operationOptions) => {
+    if (!await live(key)) return null
     const value = await getItemRaw?.(fileName(key), operationOptions)
     if (value instanceof Error) throw value
-    return value !== null && value !== undefined && await isExpired(key) ? null : value
-  })
-  driver.getMeta = (key, operationOptions) => withKeyLock(key, async () => await isExpired(key) ? null : (getMeta?.(fileName(key), operationOptions) ?? null))
-  driver.setItem = (key, value, operationOptions) => withKeyLock(key, async () => {
-    await setItem?.(fileName(key), value, operationOptions)
-    await writeExpiry(key, ttlOption(operationOptions))
-  })
-  driver.setItemRaw = (key, value, operationOptions) => withKeyLock(key, async () => {
-    await setItemRaw?.(fileName(key), value, operationOptions)
-    await writeExpiry(key, ttlOption(operationOptions))
-  })
-  driver.removeItem = (key, operationOptions) => withKeyLock(key, async () => {
+    return value
+  }
+  driver.getMeta = async (key, operationOptions) => await live(key) ? getMeta?.(fileName(key), operationOptions) ?? null : null
+  driver.setItem = async (key, value, operationOptions) => {
+    await writeExpiry(key, setExpiry(operationOptions))
+    return setItem?.(fileName(key), value, operationOptions)
+  }
+  driver.setItemRaw = async (key, value, operationOptions) => {
+    await writeExpiry(key, setExpiry(operationOptions))
+    return setItemRaw?.(fileName(key), value, operationOptions)
+  }
+  driver.removeItem = async (key, operationOptions) => {
+    await rm(expiryPath(key), { force: true })
     await removeItem?.(fileName(key), operationOptions)
-    await writeExpiry(key, undefined)
-  })
+  }
   driver.clear = async (base = "") => {
     // Delete only encoded key files, keeping the layout record and its workspace for later initialization.
     const entries = await readdir(root).catch((error: unknown) => {
@@ -216,41 +241,50 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     })
     for (const entry of entries) {
       const key = keyOf(entry)
-      if (key !== undefined && key.startsWith(base)) await driver.removeItem?.(key, {})
+      if (key !== undefined && key.startsWith(base)) {
+        await rm(join(root, entry), { force: true, recursive: true })
+        await rm(expiryPath(key), { force: true })
+      }
     }
   }
-  driver.hasItem = async (key, operationOptions) => {
+  const hasLiveItem: typeof driver.hasItem = async (key, operationOptions) => {
     // Keep the underlying driver's key validation before resolving its file path.
     if (!await hasItem(fileName(key), operationOptions)) return false
+    if (!await live(key)) return false
     try {
-      if (!(await stat(join(root, fileName(key)))).isFile()) return false
+      return (await stat(join(root, fileName(key)))).isFile()
     }
     catch (error) {
       // A key can be removed between the existence check and stat.
       if (hasCode(error, "ENOENT")) return false
       throw error
     }
-    return !await isExpired(key)
   }
-  // The key lock makes the check and the write one step. rename() publishes the complete file, so readers see the whole
-  // value or none, and it replaces an expired value.
+  driver.hasItem = hasLiveItem
+  // link() publishes the complete file and fails when the key exists, in one step, also across processes on one disk.
+  // hasItem() deletes an expired key first, so the claim can replace it.
   driver.setIfAbsentItem = async (key, value, ttl) => {
+    const expiresAt = ttl === undefined ? undefined : Date.now() + ttlMilliseconds(ttl)
     // The underlying driver validates the key before it resolves the file path.
-    if (await driver.hasItem(key, {})) return false
-    return withKeyLock(key, async () => {
-      if (await driver.hasItem(key, {})) return false
-      // Beside the destination, so rename() stays on one disk. Key listings skip unstorage's temporary file names.
-      const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
-      try {
-        await writeFile(temporary, value, "utf8")
-        await rename(temporary, join(root, fileName(key)))
-      }
-      finally {
-        await rm(temporary, { force: true })
-      }
-      await writeExpiry(key, ttl)
+    if (await hasLiveItem(key, {})) return false
+    const path = join(root, fileName(key))
+    await mkdir(root, { recursive: true })
+    // Beside the destination, so link() stays on one disk. Key listings skip unstorage's temporary file names.
+    const temporary = join(root, `.unstorage-tmp-${randomUUID()}`)
+    await writeFile(temporary, value, "utf8")
+    try {
+      await link(temporary, path)
+      // Only the winner writes the expiry, so a failed claim cannot change the expiry of the stored value.
+      await writeExpiry(key, expiresAt)
       return true
-    })
+    }
+    catch (error) {
+      if (hasCode(error, "EEXIST") && (await stat(path)).isFile()) return false
+      throw error
+    }
+    finally {
+      await rm(temporary, { force: true })
+    }
   }
 
   // Yields each key, or undefined for a skipped entry, which still counts as listing work.
@@ -266,7 +300,7 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     for await (const entry of entries) {
       if (entry.name === basename(layout) || layoutRecord.test(entry.name)) continue
       const key = entry.isFile() ? keyOf(entry.name) : undefined
-      yield key !== undefined && await isExpired(key) ? undefined : key
+      yield key !== undefined && await synchronized(() => live(key)) ? key : undefined
     }
   }
 
@@ -300,6 +334,14 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
       if (key !== undefined && key.startsWith(prefix)) keys.push(key)
     }
     return { keys, cursor: await continuations.retain(iterator) }
+  }
+  // Keep the check, cleanup, and value/expiry access in one critical section.
+  for (const name of ["getItem", "getItemRaw", "getMeta", "hasItem", "setItem", "setItemRaw", "removeItem", "clear", "setIfAbsentItem"] as const) {
+    const operation = driver[name]
+    if (operation) {
+      // SAFETY: Each wrapper preserves the original method's arguments and result.
+      Reflect.set(driver, name, (...args: unknown[]) => synchronized(async () => Reflect.apply(operation, driver, args)))
+    }
   }
   return driver
 }

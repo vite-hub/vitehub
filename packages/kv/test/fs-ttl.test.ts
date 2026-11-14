@@ -1,86 +1,105 @@
-import { createHash } from "node:crypto"
-import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { check } from "proper-lockfile"
-
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+import createCloudflareKVLocalDriver from "../src/runtime/cloudflare-kv-local.ts"
 import createFsLiteKVDriver from "../src/runtime/fs-lite.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
-const reads = vi.hoisted(() => ({ pause: undefined as undefined | (() => Promise<void>) }))
-vi.mock("node:fs/promises", async (original) => {
-  const fs = await original<typeof import("node:fs/promises")>()
-  return { ...fs, readFile: async (...args: Parameters<typeof fs.readFile>) => {
-    if (String(args[0]).includes("/expires/")) await reads.pause?.()
-    return fs.readFile(...args)
-  } }
+const interruption = vi.hoisted(() => ({ remove: undefined as (() => Promise<void>) | undefined }))
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      if (String(args[0]).endsWith("/key-lock")) await interruption.remove?.()
+      return actual.rm(...args)
+    },
+  }
 })
 
 let base: string
-beforeEach(async () => { base = await mkdtemp(join(tmpdir(), "vitehub-kv-ttl-")) })
+beforeEach(async () => {
+  // Fake only Date, so filesystem promises still resolve.
+  vi.useFakeTimers({ now: Date.UTC(2026, 10, 13), toFake: ["Date"] })
+  base = await mkdtemp(join(tmpdir(), "vitehub-kv-fs-ttl-"))
+})
 afterEach(async () => {
-  reads.pause = undefined
+  interruption.remove = undefined
   vi.useRealTimers()
   await rm(base, { force: true, recursive: true })
 })
 
-function at(ms: number) {
-  vi.useFakeTimers({ now: ms, toFake: ["Date"] })
-}
-
-it("expires a key that set() wrote with a ttl", async () => {
+it("expires a key after its ttl in every read", async () => {
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-  at(1_000_000)
-  await storage.setItem("session", { user: "ada" }, { ttl: 60 })
-  await storage.setItem("kept", 1)
+  try {
+    await storage.setItem("otp:ada", "code-123456", { ttl: 1 })
+    await storage.setItem("keep", "yes")
+    vi.advanceTimersByTime(999)
+    await expect(storage.getItem("otp:ada")).resolves.toBe("code-123456")
+    await expect(storage.hasItem("otp:ada")).resolves.toBe(true)
 
-  vi.setSystemTime(1_059_000)
-  expect(await storage.getItem("session")).toEqual({ user: "ada" })
-  expect(await storage.hasItem("session")).toBe(true)
-
-  vi.setSystemTime(1_060_000)
-  expect(await storage.getItem("session")).toBeNull()
-  expect(await storage.hasItem("session")).toBe(false)
-  expect(await storage.getKeys()).toEqual(["kept"])
-  expect(await storage.listKeys({ limit: 10 })).toEqual({ keys: ["kept"] })
-  expect(await storage.getItem("kept")).toBe(1)
-  await storage.dispose()
+    vi.advanceTimersByTime(501)
+    await expect(storage.getItem("otp:ada")).resolves.toBeNull()
+    await expect(storage.hasItem("otp:ada")).resolves.toBe(false)
+    await expect(storage.getKeys()).resolves.toEqual(["keep"])
+    await expect(storage.listKeys({ limit: 10 })).resolves.toEqual({ keys: ["keep"] })
+    await expect(storage.getItem("keep")).resolves.toBe("yes")
+    // Reads delete the expired file, and only keys stay in the base folder.
+    expect((await readdir(base)).filter(name => name.startsWith("key-"))).toEqual(["key-keep"])
+  }
+  finally {
+    await storage.dispose()
+  }
 })
 
-it("removes the expiry when set() writes again without a ttl", async () => {
+it("removes the expiry when a later write sets no ttl, and replaces it when the write sets one", async () => {
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-  at(1_000_000)
-  await storage.setItem("session", "first", { ttl: 1 })
-  await storage.setItem("session", "second")
+  try {
+    await storage.setItem("session", "a", { ttl: 1 })
+    await storage.setItem("session", "b")
+    vi.advanceTimersByTime(5_000)
+    await expect(storage.getItem("session")).resolves.toBe("b")
 
-  vi.setSystemTime(2_000_000)
-  expect(await storage.getItem("session")).toBe("second")
-  await storage.dispose()
+    await storage.setItem("session", "c", { ttl: 10 })
+    vi.advanceTimersByTime(5_000)
+    await storage.setItem("session", "d", { ttl: 1 })
+    vi.advanceTimersByTime(1_001)
+    await expect(storage.hasItem("session")).resolves.toBe(false)
+
+    await storage.setItem("deleted", "x", { ttl: 1 })
+    await storage.removeItem("deleted")
+    await storage.setItem("deleted", "y")
+    vi.advanceTimersByTime(5_000)
+    await expect(storage.getItem("deleted")).resolves.toBe("y")
+  }
+  finally {
+    await storage.dispose()
+  }
 })
 
-it("lets setIfAbsent() claim an expired key and expires its own claim", async () => {
+it("lets setIfAbsent claim an expired key and expire its own claim", async () => {
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-  at(1_000_000)
-  expect(await storage.setIfAbsentItem!("lock", "a", 30)).toBe(true)
-  expect(await storage.setIfAbsentItem!("lock", "b", 30)).toBe(false)
-
-  vi.setSystemTime(1_030_000)
-  expect(await storage.setIfAbsentItem!("lock", "c", 30)).toBe(true)
-  expect(await storage.getItem("lock")).toBe("c")
-
-  vi.setSystemTime(1_060_000)
-  expect(await storage.hasItem("lock")).toBe(false)
-  await storage.dispose()
+  try {
+    await expect(storage.setIfAbsentItem!("lock", "first", 1)).resolves.toBe(true)
+    await expect(storage.setIfAbsentItem!("lock", "second", 1)).resolves.toBe(false)
+    vi.advanceTimersByTime(1_001)
+    await expect(storage.setIfAbsentItem!("lock", "third")).resolves.toBe(true)
+    await expect(storage.getItem("lock")).resolves.toBe("third")
+    vi.advanceTimersByTime(60_000)
+    await expect(storage.getItem("lock")).resolves.toBe("third")
+  }
+  finally {
+    await storage.dispose()
+  }
 })
 
 it("lets exactly one of many concurrent calls claim an expired key", async () => {
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-  at(1_000_000)
   await storage.setItem("lock", "old", { ttl: 1 })
-  vi.setSystemTime(1_001_000)
+  vi.setSystemTime(Date.now() + 1_000)
 
   const results = await Promise.all(Array.from({ length: 10 }, (_, index) => storage.setIfAbsentItem!("lock", `owner-${index}`, 30)))
   expect(results.filter(Boolean)).toHaveLength(1)
@@ -99,44 +118,94 @@ it("removes the expiry files with the key and with clear()", async () => {
   await storage.clear()
   expect((await readdir(base)).filter(name => name.startsWith("key-"))).toEqual([])
   await storage.setItem("b", 2)
-  at(Date.now() + 3_600_000)
+  vi.setSystemTime(Date.now() + 3_600_000)
   expect(await storage.getItem("b")).toBe(2)
   await storage.dispose()
 })
 
-it.each(["getItem", "getItemRaw"] as const)("keeps %s and expiry in one locked snapshot", async (method) => {
-  const storage = await createFsLiteKVDriver({ base, driver: "fs-lite" })
-  at(1_000_000)
-  await storage.setItem!("session", "expired-old", { ttl: 1 })
-  vi.setSystemTime(1_002_000)
-  let paused!: () => void
-  let resume!: () => void
-  const entered = new Promise<void>(resolve => { paused = resolve })
-  const released = new Promise<void>(resolve => { resume = resolve })
-  reads.pause = async () => { paused(); await released }
-  const reading = storage[method]!("session", {})
-  await entered
-  const layout = (await readdir(base)).find(name => name.startsWith(".unstorage-tmp-vitehub-migration-"))!
-  const lockPath = join(base, layout, "locks", createHash("sha256").update("session").digest("hex"))
-  const locked = await check(lockPath, { realpath: false })
-  const replacement = storage.setItem!("session", "replacement", {})
-  reads.pause = undefined
-  resume()
-  const value = await reading
-  await replacement
-  expect(locked).toBe(true)
-  expect(value).toBeNull()
-  expect(await storage.getItem("session", {})).toBe("replacement")
-  await storage.dispose?.()
+it("keeps files without an expiry, as older versions wrote them", async () => {
+  // The old layout stored `legacy` as a plain file. The first open migrates it.
+  await writeFile(join(base, "legacy"), "\"old\"")
+  const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  try {
+    vi.advanceTimersByTime(365 * 24 * 60 * 60 * 1000)
+    await expect(storage.getItem("legacy")).resolves.toBe("old")
+  }
+  finally {
+    await storage.dispose()
+  }
 })
 
-it("preserves expiry outside a cleared prefix", async () => {
+it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, "60"])("rejects ttl %s like the other drivers", async (ttl) => {
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-  at(1_000_000)
-  await storage.setItem("removed:a", 1, { ttl: 1 })
-  await storage.setItem("kept:a", 2, { ttl: 1 })
-  await storage.clear("removed:")
-  vi.setSystemTime(1_002_000)
-  expect(await storage.getItem("kept:a")).toBeNull()
-  await storage.dispose()
+  try {
+    await expect(storage.setItem("key", "value", { ttl })).rejects.toMatchObject({ code: "KV_INVALID_TTL" })
+    await expect(storage.hasItem("key")).resolves.toBe(false)
+  }
+  finally {
+    await storage.dispose()
+  }
+})
+
+it("expires keys in the Cloudflare KV fallback of vite dev", async () => {
+  const driver = createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare-kv-binding", localBase: base })
+  try {
+    await driver.setItem?.("ttl", "\"a\"", { ttl: 60 })
+    await driver.setItem?.("relative", "\"b\"", { expirationTtl: 120 })
+    await driver.setItem?.("absolute", "\"c\"", { expiration: Math.floor(Date.now() / 1000) + 180 })
+    vi.advanceTimersByTime(60_001)
+    await expect(driver.getKeys("", {})).resolves.toEqual(expect.arrayContaining(["relative", "absolute"]))
+    await expect(driver.hasItem("ttl", {})).resolves.toBe(false)
+    vi.advanceTimersByTime(60_000)
+    await expect(driver.hasItem("relative", {})).resolves.toBe(false)
+    await expect(driver.hasItem("absolute", {})).resolves.toBe(true)
+    vi.advanceTimersByTime(60_000)
+    await expect(driver.listKeys({ limit: 10 })).resolves.toEqual({ keys: [] })
+  }
+  finally {
+    await driver.dispose?.()
+  }
+})
+
+it("serializes expired cleanup with another driver's claim", async () => {
+  const first = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  const second = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  let resume!: () => void
+  let paused!: () => void
+  const gate = new Promise<void>((resolve) => { resume = resolve })
+  const reached = new Promise<void>((resolve) => { paused = resolve })
+  try {
+    await first.setIfAbsentItem!("lock", "old", 1)
+    vi.advanceTimersByTime(1_001)
+    interruption.remove = async () => {
+      interruption.remove = undefined
+      paused()
+      await gate
+    }
+    const claimA = first.setIfAbsentItem!("lock", "owner-a")
+    await reached
+    const claimB = second.setIfAbsentItem!("lock", "owner-b")
+    // Give B a chance to publish while A is paused immediately before deleting the old value.
+    await Promise.race([claimB, new Promise(resolve => setTimeout(resolve, 100))])
+    resume()
+    expect(await Promise.all([claimA, claimB])).toEqual([true, false])
+    await expect(first.getItem("lock", {})).resolves.toBe("owner-a")
+  }
+  finally {
+    resume?.()
+    await first.dispose?.()
+    await second.dispose?.()
+  }
+})
+
+it("preserves unrelated expiry when clearing a prefix", async () => {
+  const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
+  try {
+    await driver.setItem!("remove:a", "a", { ttl: 1 })
+    await driver.setItem!("keep:b", "b", { ttl: 1 })
+    await driver.clear!("remove:", {})
+    vi.advanceTimersByTime(1_001)
+    await expect(driver.hasItem("keep:b", {})).resolves.toBe(false)
+  }
+  finally { await driver.dispose?.() }
 })

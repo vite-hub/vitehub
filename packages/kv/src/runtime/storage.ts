@@ -126,7 +126,7 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 }
 
 // JavaScript callers can pass any object, so the runtime checks what the `KVSetOptions` type allows.
-function readSetTTL(operation: "set" | "setIfAbsent", options: KVSetOptions | undefined): number | undefined {
+function readSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSetOptions | undefined): number | undefined {
   if (options === undefined) return
   for (const option of Object.keys(options)) {
     if (option !== "ttl") throw kvErrorDiagnostics.KV_INVALID_OPTION({ operation, option })
@@ -154,6 +154,7 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
+    async getMany(keys, options) { return runKVOperation("getMany", name, storage => storage.getMany(keys, options), kvKeyLimitCodes) },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
@@ -171,6 +172,12 @@ function createKVStorage(name = "default"): KVStorage {
       return runKVOperation("set", name, async (storage) => {
         const ttl = readSetTTL("set", options)
         return storage.setItem(key, value, ttl === undefined ? undefined : { ttl })
+      }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
+    },
+    async setMany(entries, options) {
+      return runKVOperation("setMany", name, async (storage) => {
+        const ttl = readSetTTL("setMany", options)
+        return storage.setMany(entries, ttl === undefined ? undefined : { ttl })
       }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
     },
     async setIfAbsent(key, value, options) {

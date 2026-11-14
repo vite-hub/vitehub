@@ -9,6 +9,7 @@ export type {
   KVDriver,
   KVDriverAtomicOperations,
   KVDriversWith,
+  KVEntry,
   KVErrorCode,
   KVGetOptions,
   KVGetType,

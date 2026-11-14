@@ -64,7 +64,10 @@ export interface KVDevGetResult {
   found: boolean
   /** With `preview`: how `value` is written. */
   format?: "json" | "text"
-  /** `unknown`: the key can expire, but the driver cannot report the time left, so a write that sets no TTL removes the expiry. */
+  /**
+   * Whether the key can expire. `unknown`: the store can expire keys, but its driver cannot report the time left, so a
+   * write that sets no TTL removes the expiry.
+   */
   expiry?: "unknown"
   /** With `preview`: the value was cut at 256 KiB. */
   truncated?: true
