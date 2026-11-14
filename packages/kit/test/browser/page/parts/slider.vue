@@ -6,7 +6,7 @@ import {
   SliderTrack,
   SliderIndicator,
   SliderThumb,
-} from "@vite-hub/kit/slider"
+} from "@ui-sdk/vue/slider"
 </script>
 
 <template>

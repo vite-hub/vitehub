@@ -1,0 +1,34 @@
+wrangler d1 migrations apply <database>
+
+Apply any unapplied D1 migrations
+
+POSITIONALS
+  database  The name or binding of the DB  [string] [required]
+
+GLOBAL FLAGS
+  -c, --config          Path to Wrangler configuration file  [string]
+      --cwd             Run as if Wrangler was started in the specified directory instead of the current working directory  [string]
+  -e, --env             Environment to use for operations, and for selecting .env and .dev.vars files  [string]
+      --env-file        Path to an .env file to load - can be specified multiple times - values from earlier files are overridden by values in later files  [array]
+  -h, --help            Show help  [boolean]
+      --install-skills  Install Cloudflare skills for detected AI coding agents before running the command  [boolean] [default: false]
+      --profile         Use a specific auth profile  [string]
+  -v, --version         Show version number  [boolean]
+
+OPTIONS
+      --local       Execute commands/files against a local DB for use with wrangler dev  [boolean]
+      --remote      Execute commands/files against a remote DB for use with wrangler dev --remote  [boolean]
+      --preview     Execute commands/files against a preview D1 DB  [boolean] [default: false]
+      --persist-to  Specify directory to use for local persistence (you must use --local with this flag)  [string]
+
+This command will prompt you to confirm the migrations you are about to apply.
+Confirm that you would like to proceed. After applying, a backup will be captured.
+
+The progress of each migration will be printed in the console.
+
+When running the apply command in a CI/CD environment or another non-interactive
+command line, the confirmation step will be skipped, but the backup will still be
+captured.
+
+If applying a migration results in an error, this migration will be rolled back,
+and the previous successful migration will remain applied.

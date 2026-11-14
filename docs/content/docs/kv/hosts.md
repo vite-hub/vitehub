@@ -31,7 +31,7 @@ Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and o
 
 - `bigint` values, also nested, show as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`.
 - Cloudflare writes report the TTL after rounding.
-- Drivers cannot tell a key's time left, so `kv get` shows `expiry: "unknown"` (`"none"` on `fs-lite`, which never expires keys).
+- Drivers cannot tell a key's time left, so `kv get` shows `expiry: "unknown"`.
 - A write without `--ttl` removes the old expiry. The Console editor warns and has an **Expires in seconds** field.
 
 ## Preview deployments
@@ -54,7 +54,7 @@ Read [Preview deployments share data](/docs/development/provisioning#preview-dep
 
 Key prefixes are not tables. Use Database for constraints, joins, migrations, history, or complex queries.
 
-Do not build locks with `kv.get()` and `kv.set()`. The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
+Do not build locks with `kv.get()` and `kv.set()`. Use [`kv.lock()`](/docs/kv/server-api#locks). The atomic methods cover single-use reads, single-use writes with `setIfAbsent()`, owner-only deletes with `deleteIfEquals()`, and counters; they are not a general compare-and-swap API.
 
 ## Related guides
 

@@ -101,6 +101,11 @@
       "import": "./dist/media.js",
       "default": "./dist/media.js"
     },
+    "./nuxt-image": {
+      "types": "./dist/nuxt-image.d.ts",
+      "import": "./dist/nuxt-image.js",
+      "default": "./dist/nuxt-image.js"
+    },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
@@ -132,7 +137,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/blob#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
-    "test": "vp run --cache -t @vite-hub/blob#build && vp test"
+    "test": "vp run --cache -t @vite-hub/blob#build && vp test && vp test --config vitest.workerd.config.ts"
   },
   "dependencies": {
     "@valibot/to-json-schema": "catalog:runtime",
@@ -151,6 +156,7 @@
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@cf-wasm/photon": "0.4.0",
+    "@cloudflare/vitest-plugin": "catalog:",
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/internal": "workspace:*",

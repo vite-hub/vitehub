@@ -1,4 +1,4 @@
-import type { Driver } from "unstorage"
+import type { Driver, TransactionOptions } from "unstorage"
 
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -60,4 +60,10 @@ export function installCloudflareKVLimits(driver: Driver): void {
   driver.hasItem = (key, options) => { assertCloudflareKVKey(key); return hasItem.call(driver, key, options) }
   if (removeItem) driver.removeItem = (key, options) => { assertCloudflareKVKey(key); return removeItem.call(driver, key, options) }
   if (setItem) driver.setItem = (key, value, options) => { assertCloudflareKVWrite(key, value, options); return setItem.call(driver, key, value, options) }
+}
+
+/** Preflight serialized writes and deletion keys before either branch starts. */
+export function validateCloudflareKVBatch(items: Parameters<NonNullable<Driver["setItems"]>>[0], removals: string[], options?: TransactionOptions): void {
+  for (const key of removals) assertCloudflareKVKey(key)
+  for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...options, ...item.options })
 }
