@@ -1190,6 +1190,31 @@ describe("the account item", () => {
     }
   }
 
+  it.each([
+    ["bottom", 0, 375], ["bottom", 100, 375],
+    ["top", 0, 375], ["top", 100, 375],
+    ["bottom", 0, 1280], ["bottom", 100, 1280],
+    ["top", 0, 1280], ["top", 100, 1280],
+  ] as const)("keeps the guest menu inside the %s dock at %i with viewport %i", async (edge, at, width) => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge, at }))
+    session({ tools: [comments], account: { name: "Ana", signOut: "/api/auth/sign-out" } })
+    await loadViteHubPageTools({ load: modules().load })
+    const { button, menu } = account()
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(width)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(800)
+    vi.spyOn(document.querySelector("vitehub-pill")!, "getBoundingClientRect").mockReturnValue({ top: edge === "bottom" ? 740 : 20, bottom: edge === "bottom" ? 780 : 60 } as DOMRect)
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue({ right: at === 0 ? 155 : width - 12 } as DOMRect)
+    vi.spyOn(menu, "getBoundingClientRect").mockImplementation(() => {
+      expect(menu.hidden).toBe(false)
+      return { width: 220 } as DOMRect
+    })
+    button.click()
+    expect(menu.style.left).toBe(`${at === 0 ? 8 : width - 232}px`)
+    expect(menu.style.right).toBe("auto")
+    expect(edge === "bottom" ? menu.style.bottom : menu.style.top).toBe("68px")
+  })
+
   it("draws no account item without a signed-in person", async () => {
     page("/?vitehub")
     session({ tools: [comments] })

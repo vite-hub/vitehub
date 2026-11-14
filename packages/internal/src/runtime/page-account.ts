@@ -157,8 +157,7 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
     }
     if (focus) button.focus({ preventScroll: true })
   }
-  // The Console item, and the place next to the pill, toward the page, before the menu shows. Right and bottom anchor
-  // the menu without its size.
+  // Place the menu next to the pill, toward the page, then clamp its measured width on horizontal docks.
   const show = () => {
     openConsole = options.openConsole?.()
     open.item.hidden = !openConsole
@@ -182,6 +181,11 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
     Object.assign(menu.style, place)
     menu.hidden = false
     if ("showPopover" in menu) menu.showPopover()
+    if (edge === "bottom" || edge === "top") {
+      const menuWidth = menu.getBoundingClientRect().width
+      menu.style.right = "auto"
+      menu.style.left = `${Math.max(8, Math.min(box.right - menuWidth, width - menuWidth - 8))}px`
+    }
     button.setAttribute("aria-expanded", "true")
     items()[0]?.focus({ preventScroll: true })
   }
