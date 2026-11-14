@@ -262,8 +262,13 @@ export function mergeGeneratedSourceNitroConfig(
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
-    const duplicate = !handler.middleware && handlers.some(candidate =>
+    const duplicate = handler.middleware ? undefined : handlers.find(candidate =>
       !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
+    if (duplicate && handler.route === "/mcp") {
+      // The app MCP server of `vitehub({ mcp })` writes its entry below .vitehub/nitro/mcp/.
+      const other = duplicate.handler.replaceAll("\\", "/").includes("/.vitehub/nitro/mcp/") ? "the app MCP server of vitehub({ mcp })" : `the handler ${duplicate.handler}`
+      throw sourceErrorDiagnostics.SOURCE_B0010({ route: handler.route, other })
+    }
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
@@ -629,11 +634,18 @@ async function writeContentArtifact(
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
   const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  // With Auth, every reader of published Content passes the session user of each request to `authorize` for
+  // `action: "read"`. Entries that load when the server starts import Auth on the first request that asks.
+  const sessionUser = (useAuth: string) => `async request => (await ${useAuth}(request).api.getSession({ headers: request.headers }))?.user ?? null`
+  const authImport = options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []
+  const readerOptions = options.auth ? `, { user: ${sessionUser("useAuth")} }` : ""
+  const lazyReaderOptions = options.auth ? `, { user: ${sessionUser(`(await import(${JSON.stringify(authServerModuleId)})).useAuth`)} }` : ""
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
+    ...authImport,
     `import content from ${contentModule}`,
     "",
-    "export default defineContentHandler(content)",
+    `export default defineContentHandler(content${readerOptions})`,
     "",
   ].join("\n"))
   else await rm(output, { force: true })
@@ -696,7 +708,7 @@ async function writeContentArtifact(
     await writeFileIfChanged(previewRoutes, [
       `import { defineContentPreviewRoutesPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
       "",
-      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default))`,
+      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default)${lazyReaderOptions})`,
       "",
     ].join("\n"))
     handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
@@ -717,17 +729,20 @@ async function writeContentArtifact(
     }
     // Unknown configuration must not reserve /mcp: a disabled Content server passes through to the app's handler.
     const conditionalMcp = routes[0] === "/mcp" && enabled === "unknown"
+    // robots.txt names no page, so it does not ask `authorize`.
+    const helperOptions = helper === "defineContentRobotsHandler" ? "" : readerOptions
     await writeFileIfChanged(path, [
       `import { ${helper} } from ${importBase}`,
+      ...helperOptions ? authImport : [],
       `import content from ${contentModule}`,
       "",
       ...conditionalMcp ? [
-        `const handler = ${helper}(content)`,
+        `const handler = ${helper}(content${helperOptions})`,
         "export default async event => {",
         "  if (!content.seo?.mcp) return",
         "  return await handler.fetch(event.req)",
         "}",
-      ] : [`export default ${helper}(content)`],
+      ] : [`export default ${helper}(content${helperOptions})`],
       "",
     ].join("\n"))
     for (const route of routes) handlers.push(conditionalMcp ? { handler: path, middleware: true, route } : route === "/mcp" ? { handler: path, route } : { handler: path, method: "get", route })
@@ -739,7 +754,7 @@ async function writeContentArtifact(
     await writeFileIfChanged(markdown, [
       `import { defineContentMarkdownHandler } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/markdown`)}`,
       "",
-      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default))`,
+      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default)${lazyReaderOptions})`,
       "",
     ].join("\n"))
     handlers.push({ handler: markdown, middleware: true, lazy: false, route: "/**" })

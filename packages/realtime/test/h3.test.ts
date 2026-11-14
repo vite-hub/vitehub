@@ -6,6 +6,7 @@ import { createMemoryAdapter, createStubEditor, registryOf } from "./harness.ts"
 
 function handler() {
   return createRealtimeHandler(registryOf({
+    access: "public",
     document: createMemoryAdapter({ "posts/hello": { body: "Hello" } }).adapter,
     editor: createStubEditor().editor,
   }) as never)

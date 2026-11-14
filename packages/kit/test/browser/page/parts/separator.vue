@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Separator } from "@vite-hub/kit/separator"
+import { Separator } from "@ui-sdk/vue/separator"
 </script>
 
 <template>

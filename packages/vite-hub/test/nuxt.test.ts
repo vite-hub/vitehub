@@ -30,15 +30,16 @@ import { hubAgent } from "@vite-hub/agent/vite"
 import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
-import { hubKV, kvNitroCacheDriver } from "@vite-hub/kv/vite"
+import { hubKV, kvStorageDriver } from "@vite-hub/kv/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
+import type { BlobOptions } from "@vite-hub/blob"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
 
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
-const kvCacheDriver = kvNitroCacheDriver
+const kvCacheDriver = kvStorageDriver
 const databaseRuntimeState = fileURLToPath(new URL("../dist/internal/database-runtime-state.js", import.meta.url))
 
 // Each run gets its own fixture directories, so two runs at the same time do not overwrite each other.
@@ -729,6 +730,23 @@ describe("ViteHub Nuxt integration", () => {
     expect(components).toEqual([])
   })
 
+  it("registers the vitehub Nuxt Image provider for a served Blob Store", async () => {
+    const options = (blob: BlobOptions, modules: unknown[] = ["vite-hub/nuxt", ["@nuxt/image", {}]]) => ({ options: { modules, vitehub: { blob } } })
+    const served: BlobOptions = { driver: "fs", serve: { access: "public", publicBaseUrl: "https://cdn.example/", route: "/media/" }, images: { sizes: [320, 960] } }
+    expect(await viteHubNuxtModule.getModuleDependencies(options(served))).toMatchObject({
+      "@nuxt/image": {
+        optional: true,
+        defaults: { providers: { vitehub: { options: { baseURL: "https://cdn.example/media", imageSizes: [320, 960] }, provider: "vite-hub/blob/nuxt-image" } } },
+      },
+    })
+    expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs", serve: { access: "public" } }))).toMatchObject({
+      "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/api/_vitehub/blob" } } } } },
+    })
+    // No served store, or no Nuxt Image module: Nuxt must not try to resolve @nuxt/image.
+    expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs" }))).not.toHaveProperty("@nuxt/image")
+    expect(await viteHubNuxtModule.getModuleDependencies(options(served, ["vite-hub/nuxt"]))).not.toHaveProperty("@nuxt/image")
+  })
+
   it("registers the ViteHub Iconify collection before Nuxt Icon setup", async () => {
     const dependencies = await viteHubNuxtModule.getModuleDependencies()
     expect(dependencies).toMatchObject({
@@ -742,6 +760,17 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
     })
+  })
+
+  it.each([["node", true], ["cloudflare", false]] as const)("gives Nuxt Content the Postgres Database on %s: %s", async (host, mapped) => {
+    const rootDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-content-"))
+    onTestFinished(() => rm(rootDir, { force: true, recursive: true }))
+    await mkdir(resolve(rootDir, "server/databases"), { recursive: true })
+    await writeFile(resolve(rootDir, "package.json"), '{"private":true,"type":"module"}')
+    await writeFile(resolve(rootDir, "server/databases/default.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
+    const nuxt = { options: { dev: false, modules: ["@nuxt/content"], rootDir, vitehub: { database: true, host } } }
+    const dependencies = await viteHubNuxtModule.getModuleDependencies(nuxt)
+    expect(dependencies["@nuxt/content"]).toEqual(mapped ? { defaults: { database: { type: "postgresql", url: "" } } } : undefined)
   })
 
   it.each([false, true])("gives the vite-hub/ui parts their Nuxt runtime, icons, and auto-imports when Nuxt UI installs later: %s", async (later) => {
@@ -1952,7 +1981,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(application.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/agent-invocations" }))
   })
 
-  it.each([false, true])("uses the KV configuration for Nitro cache (dev: %s)", async (dev) => {
+  it.each([false, true])("uses the KV configuration for Nitro cache and the `kv` mount (dev: %s)", async (dev) => {
     const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
       plugin => isTestRecord(plugin) && ["vite-hub/deployment-host", "@vite-hub/kv/vite"].includes(String(plugin.name)),
@@ -1965,7 +1994,7 @@ describe("ViteHub Nuxt integration", () => {
     await enabled.runNitroConfigHook(config)
     expect(config.imports).toMatchObject({ imports: expect.arrayContaining([{ from: "vite-hub/kv", name: "kv", priority: -1 }]) })
     const mount = { base: "nitro-cache", driver: kvCacheDriver }
-    expect(config).toMatchObject({ $development: { kv: { cache: mount } }, kv: { cache: mount } })
+    expect(config).toMatchObject({ $development: { kv: { cache: mount } }, kv: { cache: mount, kv: { driver: kvCacheDriver } } })
 
     const disabled = createNuxt(dev)
     await viteHubNuxtModule({ cache: { driver: "kv" }, kv: false, host: "node" }, disabled.nuxt)
@@ -4344,6 +4373,45 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it("merges inline module options into the vitehub key per leaf", async () => {
+    const { nuxt } = createNuxt()
+    // A layer or the app sets the vitehub key, and a modules tuple sets inline options.
+    Object.assign(nuxt.options, {
+      vitehub: {
+        kv: { driver: "redis", url: "env:REDIS_URL" },
+        queue: { namePrefix: "app" },
+        cache: true,
+        realtime: true,
+        i18n: { locales: ["en", "es"], workspace: "translations" },
+      },
+    })
+    await viteHubNuxtModule({
+      env: false,
+      host: "node",
+      kv: true,
+      queue: false,
+      cache: { driver: "fs-lite", base: "cache" },
+      i18n: { locales: ["en", "fr"] },
+    }, nuxt)
+
+    expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({
+      kv: { driver: "redis", url: "env:REDIS_URL" },
+      queue: false,
+      cache: { driver: "fs-lite", base: "cache" },
+      realtime: true,
+      i18n: { locales: ["en", "fr"], workspace: "translations" },
+    })
+  })
+
+  it("lets an inline `true` replace a nested option that is an object", async () => {
+    const { nuxt } = createNuxt()
+    const declaration = { mode: "build", default: false }
+    Object.assign(nuxt.options, { vitehub: { env: { define: { FEATURE_ENABLED: declaration }, server: { FLAG: declaration } } } })
+    await viteHubNuxtModule({ host: "node", env: { define: { FEATURE_ENABLED: true }, server: { FLAG: true } } } as Parameters<typeof viteHubNuxtModule>[0], nuxt)
+
+    expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ env: { define: { FEATURE_ENABLED: true }, server: { FLAG: true } } })
   })
 
   it("reads feature switches from the Nuxt module options", async () => {

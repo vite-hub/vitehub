@@ -1,0 +1,433 @@
+{
+  "component": "toast",
+  "engine": "ui-sdk",
+  "steps": [
+    {
+      "step": "load",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- list",
+        "- status",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": ""
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Tab to Show toast",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- list",
+        "- status",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": ""
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Show",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "F8 focuses the region",
+      "focus": "listitem \"File saved\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Tab to the toast",
+      "focus": "listitem \"File saved\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Tab to Undo",
+      "focus": "button \"Undo\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Tab to Dismiss",
+      "focus": "button \"Dismiss\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Enter dismisses",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- list",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Show again",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Click Dismiss",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- list",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Show for Escape",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Escape in the toast closes",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- list",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": []
+    },
+    {
+      "step": "Show for swipe",
+      "focus": "button \"Show toast\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    },
+    {
+      "step": "Swipe right closes",
+      "focus": "listitem \"File saved\"",
+      "tree": [
+        "- button \"Show toast\"",
+        "- button \"After\"",
+        "- region \"Notifications\":",
+        "  - list:",
+        "    - listitem \"File saved\":",
+        "      - text: File saved",
+        "      - button \"Undo\"",
+        "      - button \"Dismiss\"",
+        "- status: File saved",
+        "- alert"
+      ],
+      "live": [
+        {
+          "role": "status",
+          "live": "polite",
+          "atomic": "true",
+          "text": "File saved"
+        },
+        {
+          "role": "alert",
+          "live": "assertive",
+          "atomic": "true",
+          "text": ""
+        }
+      ],
+      "relations": [
+        "li \"File saved Undo Dismiss\" aria-labelledby div \"File saved\""
+      ]
+    }
+  ]
+}

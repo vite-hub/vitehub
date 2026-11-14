@@ -55,7 +55,7 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     routeName: "vitehub-console-blob",
   },
   databases: {
-    description: "Inspect discovered Database Definitions and static schema metadata.",
+    description: "Read the tables, columns, and rows of each Database Definition without changing data.",
     icon: "i-vitehub-database",
     label: "Databases",
     routeName: "vitehub-console-databases",
@@ -94,6 +94,7 @@ export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
   agents: "agents",
   skills: "agents",
+  "served-skills": "agents",
   usage: "agents",
   channels: "agents",
   "mcp-client": "agents",

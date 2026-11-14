@@ -1,6 +1,6 @@
 ---
 title: MCP server configuration
-description: Change the route of the MCP server, sign MCP clients in with MCP OAuth, or make the server public.
+description: Change the route of the MCP server, name it for MCP clients, sign MCP clients in with MCP OAuth, or make the server public.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -12,9 +12,66 @@ Set `mcp: true` in the ViteHub options, or pass an object with these options:
 | --- | --- | --- |
 | `route` | `/mcp` | The path of the server below the application base. |
 | `auth` | `true` | Require an access token from `mcpOAuth()`. The app needs `auth`. `false` lets anyone call every tool. |
-| `publicRoute` | none | A second path that serves the tools with `public: true` without sign-in. Needs `auth`. |
+| `publicRoute` | none | A second path that serves the tools, prompts, and resources with `public: true` without sign-in. Needs `auth`. |
+| `instructions` | A short generic text | What `initialize` tells the Agent about the server. |
+| `serverInfo` | The app name, version `"1"` | The `name`, `title`, `version`, `description`, `websiteUrl`, and `icons` that MCP clients show. |
 
 A `route` that is not a path, such as one with a query or `//`, fails the build with [`MCP_B0001`](/docs/mcp/limits-and-errors#mcp_b0001).
+
+## Name the server
+
+MCP clients show the `serverInfo` of the server, and Agents read its `instructions` when they connect. Use the instructions to tell the Agent what the server is for and which tool to call first:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    mcp: {
+      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
+      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    mcp: {
+      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
+      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    mcp: {
+      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
+      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+    },
+  })],
+})
+```
+:::
+::
+
+An icon `src` or a `websiteUrl` that starts with `/` is a path on the origin of the request, so one build serves the right URL on each domain. Include the application base in the path when the app has one.
 
 ## Sign in with MCP OAuth
 
@@ -22,10 +79,12 @@ The MCP server needs an access token, so set `auth` in `vitehub()`. Without `aut
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { mcpOAuth } from 'vite-hub/auth/mcp'
 
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
+  database: authDatabase(),
   plugins: [...mcpOAuth({ resource: `${requestOrigin}/mcp`, loginPage: '/sign-in' })],
 }))
 ```
@@ -34,7 +93,9 @@ A request without a valid token gets `401` with `WWW-Authenticate: Bearer resour
 
 ## Make every tool public
 
-Set `mcp: { auth: false }` to let anyone who knows the URL call every tool, or to check callers in each handler. This works with or without `auth` in `vitehub()`. Then `caller` is always `undefined`, and `publicRoute` fails the build with [`MCP_B0003`](/docs/mcp/limits-and-errors#mcp_b0003).
+Set `mcp: { auth: false }` to let anyone who knows the URL call every tool, or to check callers in each handler. This works with or without `auth` in `vitehub()`. Without `resolveCaller`, `caller` is always `undefined`, and `publicRoute` fails the build with [`MCP_B0003`](/docs/mcp/limits-and-errors#mcp_b0003).
+
+To give the handlers the app's own identity, add `resolveCaller` in [`server/mcp.ts`](/docs/mcp/server-api#resolve-the-caller-and-log-tool-calls).
 
 ## Serve the app below a base path
 
@@ -88,6 +149,6 @@ export default defineMcpTool({
 })
 ```
 
-`/mcp` lists only the tools with `public: true`. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
+`/mcp` lists only the tools with `public: true`. Prompts and resources with `public: true` are on it too. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
 
 Set `public` on a tool only with `publicRoute`. Without `publicRoute`, a tool with `public: true` or `public: false` fails the server with [`MCP_R0001`](/docs/mcp/limits-and-errors#mcp_r0001), because the option would do nothing.

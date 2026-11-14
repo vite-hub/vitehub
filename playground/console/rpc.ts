@@ -11,6 +11,7 @@ import { cacheFixture } from "./cache-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
+import { servedSkillsFixture } from "./served-skills-fixture.ts"
 import { siteFixture } from "./site-fixture.ts"
 
 const authReads = new Map<string, string>(Object.entries(authConsoleReadOperations).map(([read, operation]) => [operation, read]))
@@ -72,6 +73,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   if (site) return site
   const cache = await cacheFixture(payload.operation, input)
   if (cache) return cache
+  const servedSkills = servedSkillsFixture(payload.operation, input)
+  if (servedSkills) return servedSkills
   let route = fixtureRoutes[payload.operation]
   let method = "GET"
   let body: unknown

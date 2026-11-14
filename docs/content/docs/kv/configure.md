@@ -102,13 +102,13 @@ Several Node processes share KV keys only through a shared store. Without a `dri
 1. `database` when the app has a Default Database on Postgres. The build reads the Database integration's resolved configuration, without running the Database.
 2. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
 
-The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver.
+The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver. When a Node or Vercel build without a `driver` has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, the build prints a warning with the fix: `kv: { driver: 'redis' }`, or `kv: { driver: 'redis', url: 'env:KV_URL' }` for `KV_URL`. Apps that move from NuxtHub need this line if they kept KV in Redis.
 
 `vitehub inspect definitions --kind kv` and `vitehub kv list` report the selected driver. `vitehub({ dataDir })` selects `fs-lite` in that directory. `vite dev` keeps the inferred store on `fs-lite`.
 
 The Nitro cache follows KV with `cache: { driver: 'kv' }`, so cached responses are shared too. See [Nitro cache in KV](#nitro-cache-in-kv).
 
-`fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. The migration lock stays in that folder, so only `base` needs write access. Copies and backups must preserve hidden files and hard links; follow the procedure below before opening a copied store.
+`fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. A key written with `ttl` also has its expiry time in the metadata folder. After that time, reads, `has()`, and listings treat the key as missing and delete its file. Keys without an expiry file, such as keys from earlier versions, do not expire. The migration lock stays in that folder, so only `base` needs write access. Copies and backups must preserve hidden files and hard links; follow the procedure below before opening a copied store.
 
 ### Move an fs-lite store
 
@@ -131,7 +131,7 @@ The loop also checks records with a numeric suffix. If any command fails, keep t
 
 In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel host do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.
 
-On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It does not expire keys.
+On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It expires keys as Cloudflare does: `ttl` is at least 60 seconds, and `expirationTtl` or `expiration` apply as given.
 
 Set `remote: true` to use the real store in development:
 
@@ -220,7 +220,7 @@ export default defineConfig({
 ::
 
 - Cache keys start with `nitro-cache:`, apart from your keys. `base` changes the prefix. Development uses the dev store.
-- Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds, Redis, the `database` driver, Upstash, and Deno KV expire them on time, and `fs-lite` keeps the file until a new write. Nitro checks the age on each read, so it never serves an expired entry as fresh.
+- Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds. Redis, the `database` driver, Upstash, Deno KV, and `fs-lite` expire them on time. Nitro checks the age on each read, so it never serves an expired entry as fresh.
 - The build fails when `kv` is not enabled.
 - A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) wins over this option.
 - The Console Cache section and `vitehub cache` list, read, and invalidate the entries. See [Read and invalidate the cache](/docs/development/cli#read-and-invalidate-the-cache).
