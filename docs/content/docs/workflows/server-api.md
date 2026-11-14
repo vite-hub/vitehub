@@ -47,7 +47,7 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 | `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. |
 
-`WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_R0037`, also in `vite dev`, and `getWorkflowRun()` reports it as `unknown`. `createWorkflow({ id })` hashes its value into an id that follows these rules.
+`WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_R0037`, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
 
 Inline runs buffer the response body before they complete. Each inspection and duplicate start returns a new response, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
 
@@ -73,6 +73,8 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `result` | `TResult` | Result, when completed. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |
+
+Every provider uses the same statuses. A run that sleeps, waits, or waits between step retries reports `running`. A run that does not exist reports `unknown`. On Cloudflare, `waiting`, `waitingForPause`, and `paused` report `running`, and `terminated` reports `cancelled`. `metadata.status` keeps the Cloudflare status.
 
 ## Inspect a run
 

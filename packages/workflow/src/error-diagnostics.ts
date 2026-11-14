@@ -71,7 +71,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Deploy with the Wrangler config that the build writes, or add the Workflow binding to your own Wrangler config. Set `workflow.binding` when the binding has another name.",
     },
     WORKFLOW_R0037: {
-      why: ({ id }: { id: string }) => `[vitehub] Cloudflare does not accept the run id ${JSON.stringify(id)}. A Cloudflare instance id starts with a letter, a digit, or \`_\`, then uses only letters, digits, \`-\`, and \`_\`, up to 100 characters. \`batch\`, \`terminate\`, \`terminateAll\`, and \`cf_\` followed by 64 hex digits are reserved.`,
+      why: ({ id }: { id: string }) => `[vitehub] Cloudflare does not accept the run id ${JSON.stringify(id)}. A Cloudflare instance id starts with a letter, a digit, or \`_\`, then uses only letters, digits, \`-\`, and \`_\`, up to 100 characters.`,
       fix: "Build the id from allowed characters only, for example `checkout-${orderId}` instead of `checkout:${orderId}`. Hash a long or free-form value first.",
     },
     WORKFLOW_B0001: dynamicError,

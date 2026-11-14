@@ -22,7 +22,7 @@ Then install the dependency required by the selected provider:
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Cloudflare Workflows | None in application code                                           | Cloudflare owns run state. Without the binding, only `vite dev` runs inline; a Worker fails with `WORKFLOW_R0036`. |
-| Vercel Workflow      | `@vercel/functions`; add `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
+| Vercel Workflow      | `@vercel/functions`; add `workflow@5.2.3` and `@workflow/builders@5.0.6` for native durable definitions ([versions](#make-a-vercel-workflow-durable)) | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
@@ -168,7 +168,9 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. To set your own id, pass `{ id }`. Use only letters, digits, `-`, and `_`, up to 100 characters, so the id works on every provider; Cloudflare rejects other ids with `WORKFLOW_R0037`. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+
+To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. Invalid start ids fail with `WORKFLOW_R0037`. Inspection queries the binding because existing instance ids can follow different rules.
 
 The other runtime helpers are:
 
@@ -192,6 +194,8 @@ A plain Vercel definition executes inline and does not survive a function restar
 ```sh
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
+
+The peer ranges accept any 5.x from these versions. ViteHub tests with 5.2.3 and 5.0.6. Workflow 5.3.0 and later end a run as soon as the workflow function returns, even while a losing `Promise.race` step still runs; see [Upgrade the Vercel Workflow SDK](https://vitehub.dev/docs/workflows/hosts#upgrade-the-vercel-workflow-sdk).
 
 ```ts fragment
 import { defineWorkflow, type WorkflowProviderContext } from "@vite-hub/workflow";
@@ -221,7 +225,7 @@ async function inlineOnboard(payload: OnboardPayload) {
 export default defineWorkflow("onboard-user", inlineOnboard, { native: durableOnboard });
 ```
 
-ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
+ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
 
 ## Handle stable failures
 

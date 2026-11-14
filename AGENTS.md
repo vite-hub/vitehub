@@ -4,6 +4,8 @@ ViteHub is an ambitious open source project for server primitives and portable A
 
 You are working with Maxi. Keep the work direct, practical, and easy to review.
 
+Before you design, change, review, or document anything in this repository, read the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md). It explains how we decide: primitives, public API size, breaking changes, docs, proof, and pull requests.
+
 ## How we work
 
 - Write short, plain English. Use ASD-STE100 language.
@@ -31,6 +33,10 @@ Use Better Auth as a reference for composability and UnJS as a reference for hos
 - `packages/*/src/`: each Server Primitive or integration
 - `docs/`: documentation and the first party website
 - `fixtures/`, `test/consumer/`, `test/output/`: consumer and generated output proof
+
+## Diagnostic codes
+
+Name a new catalog code `<PREFIX>_<WHAT_FAILED>`, such as `AUTH_FORWARD_AUTH_INCOMPLETE`, and put its key in alphabetical order among the codes of its catalog group, so concurrent pull requests edit different lines. Published numbered codes, such as `AUTH_C0068`, keep their names. Write the `why` and `fix` in the catalog: the docs build writes the code's page. Put more text in `docs/diagnostics/<CODE>.md`. `test/diagnostic-codes.test.ts` checks these rules.
 
 ## Before and after a change
 

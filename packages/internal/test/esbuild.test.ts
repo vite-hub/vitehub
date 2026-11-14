@@ -795,6 +795,37 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     expect(await readFile(outfile, "utf8")).not.toContain("replacement")
   })
 
+  it("matches an exact package alias only for the file it names when one importer imports two files of the package", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/example")
+    const root = resolve(packageDir, "dist/index.mjs")
+    const internal = resolve(packageDir, "dist/server/internal.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(dirname(internal), { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: { ".": "./dist/index.mjs", "./server/internal": "./dist/server/internal.mjs" }, name: "example", type: "module" })}\n`, "utf8"),
+      writeFile(root, "export const rootValue = 'package-root'\n", "utf8"),
+      writeFile(internal, "export const internalValue = 'package-internal'\n", "utf8"),
+      writeFile(replacement, "export const rootValue = 'replacement'\n", "utf8"),
+      // Generated route modules import package files by absolute path, the root first.
+      writeFile(entry, `export { rootValue } from ${JSON.stringify(root)}\nexport { internalValue } from ${JSON.stringify(internal)}\n`, "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { example: replacement },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain("replacement")
+    expect(output).toContain("package-internal")
+  })
+
   it("resolves bare aliases independently for each importer", async () => {
     const rootDir = await createTempDir()
     const rootPackageDir = resolve(rootDir, "node_modules/example")

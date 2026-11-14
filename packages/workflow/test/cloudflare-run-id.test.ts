@@ -10,18 +10,17 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-// The instance id rules of a Cloudflare Workflow binding, as Miniflare and the Cloudflare limits page define them.
+// The array-form createBatch accepts the same ids as create(), including reserved ids.
 function isValidInstanceId(id: string) {
   return id.length <= 100 && /^[a-zA-Z0-9_][a-zA-Z0-9-_]*$/.test(id)
-    && !["batch", "terminate", "terminateAll"].includes(id) && !/^cf_[0-9a-f]{64}$/.test(id)
 }
 
 function invalidId() {
   return new Error("(instance.invalid_id) Instance ID is invalid")
 }
 
-function cloudflareBinding(name: string) {
-  const instances = new Map<string, unknown>()
+function cloudflareBinding(name: string, existingIds: string[] = []) {
+  const instances = new Map<string, unknown>(existingIds.map(id => [id, undefined]))
   const binding = {
     createBatch: vi.fn(async (batch: { id: string, params: unknown }[]) => batch.map(({ id, params }) => {
       if (!isValidInstanceId(id)) throw invalidId()
@@ -29,7 +28,6 @@ function cloudflareBinding(name: string) {
       return { id, status: async () => ({ status: "queued" }) }
     })),
     get: vi.fn(async (id: string) => {
-      if (!isValidInstanceId(id)) throw invalidId()
       if (!instances.has(id)) throw new Error("instance.not_found")
       return { id, status: async () => ({ status: "running" }) }
     }),
@@ -44,7 +42,6 @@ it.each([
   { id: "checkout:1042", label: "a colon" },
   { id: "-checkout-1042", label: "a leading hyphen" },
   { id: `checkout-${"x".repeat(92)}`, label: "101 characters" },
-  { id: "terminateAll", label: "a reserved id" },
 ])("rejects a run id with $label before Cloudflare sees it", async ({ id }) => {
   const binding = cloudflareBinding("checkout")
 
@@ -62,11 +59,24 @@ it("starts and reads a run with an id that Cloudflare accepts", async () => {
   await expect(getWorkflowRun("checkout", "checkout-1042")).resolves.toMatchObject({ id: "checkout-1042", status: "running" })
 })
 
-it("reports a run id that Cloudflare rejects as unknown", async () => {
+it.each(["batch", "terminate", "terminateAll", "cf_" + "a".repeat(64)])("starts and inspects supported reserved id %s", async (id) => {
   const binding = cloudflareBinding("checkout")
+  await expect(startWorkflow("checkout", {}, { id })).resolves.toMatchObject({ id, status: "queued" })
+  await expect(getWorkflowRun("checkout", id)).resolves.toMatchObject({ id, status: "running" })
+  expect(binding.get).toHaveBeenCalledWith(id)
+})
 
+it("inspects an existing cron-generated instance id", async () => {
+  const id = "*/30 * * * *-1786001400000"
+  const binding = cloudflareBinding("checkout", [id])
+  await expect(getWorkflowRun("checkout", id)).resolves.toMatchObject({ id, status: "running" })
+  expect(binding.get).toHaveBeenCalledWith(id)
+})
+
+it("reports a missing instance as unknown after querying the binding", async () => {
+  const binding = cloudflareBinding("checkout")
   await expect(getWorkflowRun("checkout", "checkout:1042")).resolves.toEqual({ id: "checkout:1042", provider: "cloudflare", status: "unknown" })
-  expect(binding.get).not.toHaveBeenCalled()
+  expect(binding.get).toHaveBeenCalledWith("checkout:1042")
 })
 
 it("rejects the id in vite dev, where the run is inline", async () => {
