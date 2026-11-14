@@ -12,7 +12,9 @@
           <!-- The same panel and status as the server page, so the first paint does not change shape. -->
           <UDashboardPanel v-else id="console-opening">
             <template #header>
-              <UDashboardNavbar :toggle="false" :ui="{ root: 'border-0' }" />
+              <UDashboardNavbar :toggle="false" :ui="{ root: 'border-b border-default' }">
+                <template #leading><ConsoleSidebarTrigger /></template>
+              </UDashboardNavbar>
             </template>
             <template #body>
               <p role="status" class="vitehub-console-opening">
@@ -34,6 +36,7 @@ import { RouterView, useRoute } from "vue-router";
 import { isConsoleSectionId } from "../sections";
 import ConsoleFrame from "../components/console-frame.vue";
 import ConsoleProjectGate from "../components/console-project-gate.vue";
+import ConsoleSidebarTrigger from "../components/console-sidebar-trigger.vue";
 import { useConsoleProjects } from "./project-session";
 
 defineProps<{ sectionsBase: string }>();

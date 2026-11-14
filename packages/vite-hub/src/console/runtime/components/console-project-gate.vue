@@ -57,10 +57,10 @@ onMounted(() => {
   <ConsoleAccountShell v-if="accountShell" />
 
   <div v-else-if="gate.kind === 'opening'" class="vitehub-console-boot">
-    <div class="vh-primitive-rail">
-      <div class="vh-primitive-rail__surface">
-        <div class="vh-primitive-rail__header">
-          <span class="vh-primitive-rail__item"><span class="vh-primitive-rail__icon"><ConsoleMark class="vitehub-console-boot__mark" /></span></span>
+    <div class="vitehub-sidebar">
+      <div class="vitehub-sidebar__surface">
+        <div class="vitehub-sidebar__top">
+          <span class="vitehub-sidebar__item"><span class="vitehub-sidebar__icon"><ConsoleMark class="vitehub-console-boot__mark" /></span></span>
         </div>
       </div>
     </div>

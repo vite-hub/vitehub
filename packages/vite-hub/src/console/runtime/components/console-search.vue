@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { defineShortcuts } from "@nuxt/ui/composables";
-import { useRuntimeHook } from "#imports";
-import { defineAsyncComponent, ref } from "vue";
+import { defineAsyncComponent, ref, watch } from "vue";
+
+import { consoleSearchRequests } from "../client/sidebar";
 
 // The palette carries the command palette, fuzzy search, and the list virtualizer of Nuxt UI, so it loads when search
 // first opens instead of with every Console page. Props and listeners fall through to it.
@@ -15,10 +16,8 @@ function show(): void {
   open.value = true;
 }
 
-// Once the palette loads, its UDashboardSearch handles ⌘K and the rail search button. Until then, they load it.
-useRuntimeHook("dashboard:search:toggle", () => {
-  if (!requested.value) show();
-});
+// The Search row of the sidebar. Once the palette loads, its UDashboardSearch also handles ⌘K. Until then, ⌘K loads it.
+watch(consoleSearchRequests, show);
 defineShortcuts({
   // `/` opens search, as in GitHub and Linear. It does not run while an input has focus.
   "/": show,

@@ -26,7 +26,7 @@ async function mount(page: string | Component) {
   const route = defineComponent({
     setup: () => () => h(ConsoleFrame, { sectionsBase: "/sections" }, () => typeof page === "string" ? h("div", { innerHTML: page }) : h(page)),
   })
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: route }] })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", name: "vitehub-console", component: route }] })
   await router.push("/")
   const app = createApp(App as Component)
   app.use(router)

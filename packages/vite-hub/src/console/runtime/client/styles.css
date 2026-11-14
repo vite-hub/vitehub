@@ -97,7 +97,7 @@ body {
 }
 
 /*
- * The first paint, before the app mounts: the rail and an empty page panel, as `runtime/server/page.get.ts` writes them.
+ * The first paint, before the app mounts: the sidebar rail and an empty page panel.
  * The app's own loading panel uses the same status row, so the page does not change shape while it loads.
  */
 .vitehub-console-boot {
@@ -106,9 +106,8 @@ body {
   overflow: hidden;
 }
 
-.vitehub-console-boot .vh-primitive-rail__surface {
-  background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
+.vitehub-console-boot {
+  --ui-header-height: 3.25rem;
 }
 
 .vitehub-console-boot__mark {
@@ -125,8 +124,9 @@ body {
 }
 
 .vitehub-console-boot__header {
+  border-bottom: 1px solid var(--ui-border);
   flex: none;
-  height: 2.75rem;
+  height: 3.25rem;
 }
 
 .vitehub-console-opening {
@@ -180,7 +180,7 @@ body {
   align-items: center;
   display: flex;
   gap: 0.25rem;
-  height: 2.75rem;
+  height: 3.25rem;
   padding-inline: 0.5rem;
 }
 
@@ -289,7 +289,7 @@ body {
   border-bottom: 1px solid var(--ui-border);
   display: flex;
   flex-shrink: 0;
-  height: 2.75rem;
+  height: 3.25rem;
   padding-inline: 0.75rem;
 }
 
