@@ -3651,8 +3651,9 @@ export async function contributeAgentPageRealtime(context: { directory: string }
   const handler = join(context.directory, `${pageRealtimeDefinition}.mjs`)
   await mkdir(context.directory, { recursive: true })
   await writeFileIfChanged(handler, [
-    "// A room for each page that `connectPage()` joins. The Agent's `page()` Capability asks the one browser in it.",
-    "export default { access: \"public\", document: false, requests: true }",
+    "// A room for each page that `connectPage()` joins, kept per person: the Agent's `page()` Capability asks the one",
+    "// browser in the room of the run's own person. Pages need no sign-in, so the definition is public.",
+    "export default { access: \"public\", document: false, requests: true, scope: \"user\" }",
     "",
   ].join("\n"))
   return { definitions: [{ handler, name: pageRealtimeDefinition }] }

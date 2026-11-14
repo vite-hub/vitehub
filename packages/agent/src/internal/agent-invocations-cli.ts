@@ -18,6 +18,7 @@ import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
 import { invocationActivityTrace } from "../invocations/activity.ts"
+import { formatInvocationPageChanges, invocationPageChanges } from "../invocations/page-changes.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
 import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
@@ -42,9 +43,9 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "compact" | "delete" | "export" | "list" | "prune" | "show" | "tail" | "wait-idle"
+type Action = "compact" | "delete" | "export" | "list" | "prune" | "show" | "tail" | "undo" | "wait-idle"
 
-const actions = new Set<string>(["compact", "delete", "export", "list", "prune", "show", "tail", "wait-idle"] satisfies Action[])
+const actions = new Set<string>(["compact", "delete", "export", "list", "prune", "show", "tail", "undo", "wait-idle"] satisfies Action[])
 /** Actions that read or rebuild the whole journal instead of one record. */
 const journalActions = new Set<string | undefined>(["compact", "export", "list", "prune", "wait-idle"])
 function isAction(value: string): value is Action {
@@ -61,7 +62,9 @@ interface ParsedArgs {
   /** wait-idle only waits on this Agent's Invocations. */
   /** export only prints this Agent's Invocations. */
   agent?: string
-  /** The app URL from `--url`. list, show, tail, export, wait-idle, and cancel use the Console RPC under it. */
+  /** undo puts back this page change. */
+  change?: string
+  /** The app URL from `--url`. Commands use the Console RPC under it. */
   console?: URL
   /** A localhost app URL. When no Console answers there, the old local meaning runs, with AGENT_R1053. */
   consoleFallback?: boolean
@@ -131,10 +134,12 @@ const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|show|tail|export|wait-idle|cancel|delete|prune|compact> [id] [options]",
+    "Usage: vitehub agent invocations <list|show|tail|export|wait-idle|cancel|undo|delete|prune|compact> [id] [options]",
     "",
     "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
+    "show prints the changes an Agent made on a person's page. undo <id> --change <change> asks that open page",
+    "to put one change back, through the app's Console (--url).",
     "",
     "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
@@ -180,6 +185,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --observations            export every observation too.",
     "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
     "                            token usage, approvals, and errors, in order. Long text is cut.",
+    "  --change <id>             The page change that undo puts back, as show lists it.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -302,6 +308,8 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "--dry-run") parsed.dryRun = true
     else if (argument === "--observations") parsed.observations = true
     else if (argument === "--activity") parsed.activity = true
+    else if (argument === "--change") { parsed.change = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--change=")) parsed.change = argument.slice("--change=".length)
     else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
     else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
@@ -345,7 +353,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
 
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, wait-idle, cancel, delete, prune, or compact." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, wait-idle, cancel, undo, delete, prune, or compact." })
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
@@ -369,6 +377,11 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
       if (app.consolePath) parsed.deprecated = { form: "is the Console URL", use: `--url ${displayUrl(app.base)}, the app URL` }
     }
     else if (localUrl(parsed.url)) parsed.deprecated = oldLocalForm(parsed)
+  }
+  if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations show <id>` lists." })
+  if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
+  if (!parsed.help && parsed.action === "undo" && !parsed.console) {
+    throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000/_vitehub." })
   }
   if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
     throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
@@ -794,6 +807,34 @@ function cancelMessage(result: AgentInvocationCancelResult): string {
   return `${result.id} cancel requested`
 }
 
+/** What `invocations.undo` answers: the page put the value back, or why not. */
+interface PageUndoResult {
+  ok: boolean
+  change: string
+  notRestored: unknown[]
+  code?: string
+  error?: string
+}
+
+function parseUndoResult(value: unknown): PageUndoResult {
+  if (!isRuntimeRecord(value) || typeof value.ok !== "boolean" || typeof value.change !== "string") {
+    throw agentDiagnostics.AGENT_R0971({ message: "The page undo response was not valid." })
+  }
+  return {
+    ok: value.ok,
+    change: value.change,
+    notRestored: Array.isArray(value.notRestored) ? value.notRestored : [],
+    ...(typeof value.code === "string" ? { code: value.code } : {}),
+    ...(typeof value.error === "string" ? { error: value.error } : {}),
+  }
+}
+
+function undoMessage(result: PageUndoResult): string {
+  if (result.ok) return `${result.change} put back on the page`
+  if (result.code) return `${result.change} not put back: ${result.code}${result.error ? ` ${result.error}` : ""}`
+  return `${result.change} not put back: ${result.error ?? "the person changed the field since, or it left the page"}`
+}
+
 function cancelExitCode(result: AgentInvocationCancelResult): number {
   if (result.outcome === "requested") return 0
   return result.outcome === "terminal" && result.status === "cancelled" && !result.notEnforcedBy ? 0 : 1
@@ -812,12 +853,15 @@ function summary(record: AgentInvocationRecord | AgentInvocationListResult["invo
 }
 
 function writeRecord(context: AgentInvocationsCliContext, record: AgentInvocationRecord, json: boolean): void {
-  if (json) context.stdout.write(`${JSON.stringify(record, null, 2)}\n`)
+  // The changes the Agent made on a person's page, from the `agent.page.change` observations.
+  const { approvals, pageChanges } = invocationPageChanges(record.observations)
+  if (json) context.stdout.write(`${JSON.stringify(pageChanges.length || approvals.length ? { ...record, approvals, pageChanges } : record, null, 2)}\n`)
   else {
     context.stdout.write(`${summary(record)}\n`)
     for (const observation of record.observations) {
       context.stdout.write(`  ${observation.sequence} ${observation.timestamp} ${observation.name}\n`)
     }
+    for (const line of formatInvocationPageChanges(pageChanges)) context.stdout.write(`${line}\n`)
   }
 }
 
@@ -1209,6 +1253,11 @@ export async function runAgentInvocationsCli(
       if (!result) return 1
       context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${cancelMessage(result)}\n`)
       return cancelExitCode(result)
+    }
+    if (parsed.action === "undo") {
+      const result = await consoleCall({ base: parsed.console!, env: context.env, fetch: fetchImpl, timeout }, "invocations.undo", { change: parsed.change!, id: parsed.id! }, parseUndoResult)
+      context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${undoMessage(result)}\n`)
+      return result.ok ? 0 : 1
     }
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)

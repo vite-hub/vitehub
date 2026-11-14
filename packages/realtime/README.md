@@ -158,7 +158,7 @@ import { requestRealtimeRoom } from "@vite-hub/realtime/server"
 const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title" })
 ```
 
-One browser answers: a room with two browsers returns `REALTIME_ROOM_CROWDED`. A room without one waits 5 seconds (`wait`) for it to join, then returns `REALTIME_ROOM_EMPTY`. The answer must come within 30 seconds (`timeout`), from the browser that was asked, and be under 1 MiB. On Cloudflare the request goes through the Durable Object. With Redis or Postgres it reaches only browsers on the same instance (`REALTIME_ROOM_ELSEWHERE`).
+`scope: "user"` keeps a room per person: the same room id for two signed-in people is two rooms, and `requestRealtimeRoom(..., { user })` asks only that person's room (`user: null` for everyone without a session). One browser answers: a room with two browsers returns `REALTIME_ROOM_CROWDED`. A room without one waits 5 seconds (`wait`) for it to join, then returns `REALTIME_ROOM_EMPTY`. The answer must come within 30 seconds (`timeout`), from the browser that was asked, and be under 1 MiB. On Cloudflare the request goes through the Durable Object. With Redis or Postgres it reaches only browsers on the same instance (`REALTIME_ROOM_ELSEWHERE`).
 
 ## Deployment and security boundaries
 

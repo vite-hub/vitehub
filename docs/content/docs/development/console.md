@@ -715,6 +715,8 @@ History must hold valid ViteHub Messages with `user` or `assistant` roles, uniqu
 
 ### Cancel a running session
 
+A session in which an Agent changed a person's page through the [page Capability](/docs/agents/capabilities/page) has a **Page** surface: each change with its label, the values before and after, the step, the page, the person, and the time. **Undo** asks the person's open page to put one change back, through `invocations.undo`. It needs write access to the Agents section, works only while the page is open, and keeps a value the person changed after the Agent.
+
 A pending or running session shows **Cancel session** in its header when the Console has `invoke` access for its Agent. Without it, the button is hidden and `invocations.cancel` returns 403.
 
 The Console calls `invocations.cancel(id)` on the Agent's journal. A run in the same process stops at once. A run in another process sees the request at its next claim renewal, within 10 seconds. When the Driver (the code that runs the Agent) cannot stop the run, the header shows `Cancel requested, not enforced by <driver>`, and the session runs until the Driver returns. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation) for each Driver.
