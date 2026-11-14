@@ -624,6 +624,8 @@ A Workflow is a durable runner that can retry steps after a crash. Journals also
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
 
+An Agent turn on a Workflow runs its Driver at most once. When the process stops during the Driver, the provider retries the run, but the retry finds the record `running` and does not start the Driver again, because a second run could repeat model calls and tool side effects. This is true when the claim of the stopped attempt has expired too. The retry fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the Workflow run and the journal record show `failed`. A retry of a turn that never reached `running` still starts the Driver. To try again, start a new turn.
+
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.
 
 ## Store invocations in Cloudflare D1

@@ -1284,6 +1284,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_B0022: dynamicError,
     AGENT_B0023: dynamicError,
     AGENT_B0024: dynamicError,
+    AGENT_INVOCATION_DRIVER_INTERRUPTED: {
+      why: ({ id }: { id: string }) => `[vitehub] Agent Invocation ${JSON.stringify(id)} was interrupted while its Driver ran, and ViteHub did not run the Driver again. A second run could repeat model calls and tool side effects.`,
+      fix: "Start a new turn. Before you do, check the work that the interrupted Driver did, such as tool calls with side effects. The journal record and its observations show how far it got.",
+    },
     AGENT_R0872: dynamicError,
     AGENT_R0873: dynamicError,
     AGENT_R0874: dynamicError,

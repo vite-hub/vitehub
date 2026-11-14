@@ -413,6 +413,7 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 [Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations) explains recovery, which depends on who owns the store and the host lifecycle. When no process owns an Invocation:
 
 - An expired execution lease does not prove that its Driver stopped.
+- A Workflow retry of an Agent turn whose record is `running` does not run the Driver again, even when the lease has expired. It fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the record shows `failed`.
 - Cancelling a running one stores a durable request until the run owner sees it.
 - Cancelling a pending one stores a durable request that a later worker reads, and records, before it starts its Driver.
 - A pending journal status does not prove that an earlier Driver never started.
