@@ -17,7 +17,7 @@ const statusTexts: Record<number, string> = {
   451: "Unavailable For Legal Reasons",
 }
 
-/** The code and details of a refusal, as the error body's `data` and the `#denied` slot of `<Can>` carry them. */
+/** The code and details of a refusal, as the error body's `data` and the `#denied` slot of `<AuthPermission>` carry them. */
 export interface AbilityErrorData {
   code?: string
   details?: unknown

@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { kebabCase, pascalCase, splitByCase } from "scule"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
@@ -69,6 +70,8 @@ type NuxtComponent = {
 }
 
 const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
+/** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
+const abilityComponents = ["AuthPermission"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
@@ -163,11 +166,12 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 
   // The session bridge and page guard share the discovered Auth path and redirects.
   const authOptions = resolveAuthOptions()
+  const authConfig = authOptions === false ? undefined : resolveAuthConfig()
   const redirects = authOptions ? authOptions.redirects : undefined
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
   nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
-    basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
+    basePath: authConfig?.basePath ?? "/api/auth",
     redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
   }
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
@@ -177,23 +181,27 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  if (!componentsRegistered.has(nuxt) && nuxt.hook) {
+  // Without `shared/abilities.ts`, the app has no rules to check, so the name `<AuthPermission>` stays free for the app. In
+  // development, adding or removing the file restarts Nuxt (below), and this check runs again.
+  if (authConfig?.abilities && !componentsRegistered.has(nuxt) && nuxt.hook) {
     componentsRegistered.add(nuxt)
     const filePath = options.importsFrom || "@vite-hub/auth/vue"
-    // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
+    const prefix = (authOptions && authOptions.components?.prefix) || ""
+    // The same entries that `@nuxt/kit`'s addComponentExports() writes, without a dependency on `@nuxt/kit`.
     ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
-      for (const name of ["Can", "Cannot"]) {
+      for (const name of abilityComponents) {
+        const { kebabName, pascalName } = componentNames(prefix, name)
         // An app component with the same name wins.
-        if (components.some(component => component.pascalName === name)) continue
+        if (components.some(component => component.pascalName === pascalName)) continue
         components.push({
-          chunkName: `components/${name.toLowerCase()}`,
+          chunkName: `components/${kebabName}`,
           export: name,
           filePath,
           global: false,
-          kebabName: name.toLowerCase(),
+          kebabName,
           meta: {},
           mode: "all",
-          pascalName: name,
+          pascalName,
           prefetch: false,
           preload: false,
           priority: 0,
@@ -257,4 +265,16 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (!nuxt.options.nitro.plugins.includes(runtimePlugin)) {
     nuxt.options.nitro.plugins.push(runtimePlugin)
   }
+}
+
+/**
+ * The Nuxt names of a component export under a prefix. Nuxt splits the prefix of `components: [{ path, prefix }]`
+ * with the same `scule` functions, so `<name>.vue` in that directory gets the same names, unless the prefix ends with `name`.
+ *
+ * @example
+ * componentNames("custom", "AuthPermission") // { kebabName: "custom-auth-permission", pascalName: "CustomAuthPermission" }
+ */
+function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
+  const words = [...splitByCase(prefix), ...splitByCase(name)]
+  return { kebabName: kebabCase(words), pascalName: pascalCase(words) }
 }

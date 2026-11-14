@@ -78,7 +78,7 @@ vi.mock("#vitehub/auth/client", () => ({ default: { plugins: [{ id: "admin-clien
 type Plugin = { setup: (app: { payload: typeof mocks.payload, runWithContext?: <T>(run: () => T) => T }) => { provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined }
 // Each test gets new modules, so the default client and its session start empty.
 let plugin: Plugin
-let Can: typeof import("../src/vue.ts").Can
+let AuthPermission: typeof import("../src/vue.ts").AuthPermission
 let createAuthClient: typeof import("../src/vue.ts").createAuthClient
 let setSignOutHandler: typeof import("../src/vue.ts").setSignOutHandler
 let useAbility: typeof import("../src/vue.ts").useAbility
@@ -89,7 +89,7 @@ const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00
 beforeEach(async () => {
   vi.resetModules()
   plugin = (await import("../src/runtime/vue-nuxt.ts") as { default: Plugin }).default
-  ;({ Can, createAuthClient, setSignOutHandler, useAbility, useUserSession } = await import("../src/vue.ts"))
+  ;({ AuthPermission, createAuthClient, setSignOutHandler, useAbility, useUserSession } = await import("../src/vue.ts"))
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
   mocks.state = { value: undefined }
@@ -232,10 +232,10 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
   })
 
-  it("reads the session once for SSR <Can> components, and renders what the rule allows", async () => {
+  it("reads the session once for SSR <AuthPermission> components, and renders what the rule allows", async () => {
     mocks.requestFetch.mockResolvedValue(session)
     await plugin.setup(mocks.app)
-    const can = (authorId: string) => h(Can as never, { do: "posts.edit", with: { authorId, published: false } }, {
+    const can = (authorId: string) => h(AuthPermission as never, { check: "posts.edit", args: [{ authorId, published: false }] }, {
       default: () => h("button", "Edit"),
       denied: ({ code }: { code: string }) => h("span", code),
     })

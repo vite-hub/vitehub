@@ -95,7 +95,7 @@ type RefusalOf<Verdict> = Verdict extends false ? { code: undefined, details: un
       : never
 
 /**
- * Each way a rule can refuse, as `<Can>` passes it to the `#denied` slot and the server error puts it in `data`.
+ * Each way a rule can refuse, as `<AuthPermission>` passes it to the `#denied` slot and the server error puts it in `data`.
  * A signed-out visitor gets `signed-out` from every rule that is not open to guests.
  *
  * @example

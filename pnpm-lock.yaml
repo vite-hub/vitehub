@@ -1248,6 +1248,9 @@ importers:
       rou3:
         specifier: ^1.0.0
         version: 1.0.0
+      scule:
+        specifier: ^1.3.0
+        version: 1.3.0
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)

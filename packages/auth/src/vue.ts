@@ -641,7 +641,7 @@ export const authClient = createLazyAuthClient(async () => {
   return withDefaultBasePath(options)
 }) as RegisteredAuthClient
 
-/** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */
+/** Provide the app's configured client to Auth composables and `<AuthPermission>` in descendant components. */
 export function provideAuthClient(client: AuthClientLike): void {
   provide(authClientKey, client)
 }
@@ -861,107 +861,38 @@ export function useAbility(client: AuthClientLike = useAuthClient()): Ability {
   }
 }
 
-/**
- * How `<Can>` passes the arguments of a rule: no prop for a rule without arguments, `with` for a rule with one
- * (required or optional), and `args` with the list for every other rule, such as two arguments, a default after the
- * first, or a rest parameter.
- */
-type CanArguments<Args extends unknown[]> = Args extends [] ? { with?: never, args?: never }
-  : number extends Args["length"] ? { with?: never, args: Args }
-    : Exclude<Args["length"], 0> extends 1
-      ? (0 extends Args["length"] ? { with?: Args[0], args?: never } : { with: Args[0], args?: never })
-      : { with?: never, args: Args }
+/** The rule arguments use the same tuple as the server check. */
+type PermissionArguments<Args extends unknown[]> = [] extends Args ? { args?: Args } : { args: Args }
 
-/**
- * The props of `<Can>`: a rule name in `do`, its arguments in `with` or `args`, and `pending` to show nothing while
- * the data for the arguments loads.
- */
-export type CanProps<Name extends AbilityName> = { do: Name, pending?: boolean } & CanArguments<AbilityArgs<Name>>
+export type AuthPermissionProps<Name extends AbilityName> = { check: Name, pending?: boolean } & PermissionArguments<AbilityArgs<Name>>
 
-/** The slots of `<Can>`: the default slot when the rule allows, `#denied` with the refusal when it refuses. */
-export interface CanSlots<Name extends AbilityName> {
+export interface AuthPermissionSlots<Name extends AbilityName> {
   default?: () => VNode[]
+  allowed?: () => VNode[]
   denied?: (refusal: AbilityRefusal<Name>) => VNode[]
 }
 
-/** The type that vue-tsc reads for a generic component, so `do` checks the name and `with`, `args` and `#denied` follow it. */
-export type CanComponent = <const Name extends AbilityName>(props: CanProps<Name>) => VNode & {
-  __ctx?: { props: CanProps<Name>, slots: CanSlots<Name> }
+export type AuthPermissionComponent = <const Name extends AbilityName>(props: AuthPermissionProps<Name>) => VNode & {
+  __ctx?: { props: AuthPermissionProps<Name>, slots: AuthPermissionSlots<Name> }
 }
 
-/** The runtime props of `<Can>` and `<Cannot>`. */
-const abilityProps = {
-  do: { type: String, required: true },
-  with: { type: null, default: undefined },
-  args: { type: Array, default: undefined },
-  pending: { type: Boolean, default: false },
-} as const
-
-/** The refusal of the rule that the props name. It follows the session, and is `undefined` while `pending` is `true`. */
-function usePropsRefusal(props: { do: string, with: unknown, args?: unknown[], pending: boolean }): ComputedRef<AbilityCheckRefusal | null | undefined> {
-  const state = useSession()
-  return computed(() => {
-    if (props.pending) return undefined
-    // `with` is the one argument of the rule. Without it, an optional argument stays absent, as in `can(name)`.
-    const args: unknown[] = props.args ?? (props.with === undefined ? [] : [props.with])
-    return abilityRefusal(state.value, props.do, args)
-  })
-}
-
-/**
- * Shows its content when a rule from `shared/abilities.ts` allows the visitor, the `#denied` slot with the refusal when
- * it refuses, and nothing while the session is unknown or `pending` is `true`.
- *
- * @example
- * <Can do="posts.edit" :with="post">
- *   <button>Edit</button>
- *   <template #denied="{ code }">{{ code }}</template>
- * </Can>
- * <Can do="posts.move" :args="[from, to]">Move</Can>
- */
-// SAFETY: the runtime component takes the props of `CanComponent`. The cast gives templates its generic types.
-export const Can: CanComponent = defineComponent({
-  name: "Can",
-  props: abilityProps,
+/** Render the allowed or denied slot. The default slot is shorthand for allowed. */
+// SAFETY: the runtime props implement the generic component contract used by vue-tsc.
+export const AuthPermission: AuthPermissionComponent = defineComponent({
+  name: "AuthPermission",
+  props: {
+    check: { type: String, required: true },
+    args: { type: Array, default: () => [] },
+    pending: { type: Boolean, default: false },
+  },
   setup(props, { slots }) {
-    const refusal = usePropsRefusal(props)
+    const state = useSession()
+    const refusal = computed(() => props.pending ? undefined : abilityRefusal(state.value, props.check, props.args))
     return () => {
       const value = refusal.value
       if (value === undefined) return null
-      if (value === null) return slots.default?.()
+      if (value === null) return (slots.allowed ?? slots.default)?.()
       return slots.denied?.({ code: value.code, details: value.details })
     }
   },
-}) as unknown as CanComponent
-
-/** The slot of `<Cannot>`: its content, with the refusal, when the rule refuses. */
-export interface CannotSlots<Name extends AbilityName> {
-  default?: (refusal: AbilityRefusal<Name>) => VNode[]
-}
-
-/** The type that vue-tsc reads for `<Cannot>`: the props of `<Can>`, and the refusal in the default slot. */
-export type CannotComponent = <const Name extends AbilityName>(props: CanProps<Name>) => VNode & {
-  __ctx?: { props: CanProps<Name>, slots: CannotSlots<Name> }
-}
-
-/**
- * The mirror of `<Can>`: shows its content, with the refusal, only when a rule from `shared/abilities.ts` refuses the
- * visitor. It shows nothing when the rule allows, while the session is unknown, or while `pending` is `true`.
- *
- * @example
- * <Cannot do="billing.upgrade" v-slot="{ code, details }">
- *   <UpgradeHint :code="code" :limit="details.limit" />
- * </Cannot>
- */
-// SAFETY: the runtime component takes the props of `CannotComponent`. The cast gives templates its generic types.
-export const Cannot: CannotComponent = defineComponent({
-  name: "Cannot",
-  props: abilityProps,
-  setup(props, { slots }) {
-    const refusal = usePropsRefusal(props)
-    return () => {
-      const value = refusal.value
-      return value ? slots.default?.({ code: value.code, details: value.details }) : null
-    }
-  },
-}) as unknown as CannotComponent
+}) as unknown as AuthPermissionComponent

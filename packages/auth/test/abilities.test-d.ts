@@ -2,9 +2,9 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAbilities, deny, type AbilityName, type AbilityRefusal } from "../src/abilities.ts"
 import { can, requireAbility } from "../src/server.ts"
-import { Cannot, useAbility, type CanProps } from "../src/vue.ts"
+import { AuthPermission, useAbility, type AuthPermissionProps } from "../src/vue.ts"
 
-import type { AuthAnonymousAuthorization, AuthAuthorization } from "../src/types.ts"
+import type { AuthAnonymousAuthorization, AuthAuthorization, AuthOptions } from "../src/types.ts"
 import type abilities from "./fixtures/abilities.ts"
 import type { Post } from "./fixtures/abilities.ts"
 
@@ -92,39 +92,38 @@ describe("ability types", () => {
     void authorize("posts.move", "a")
   })
 
-  it("types <Cannot> with the props of <Can> and the refusal in its default slot", () => {
-    type CannotContext<Name extends AbilityName> = NonNullable<ReturnType<typeof Cannot<Name>>["__ctx"]>
-    expectTypeOf<CannotContext<"posts.edit">["props"]>().toEqualTypeOf<CanProps<"posts.edit">>()
-    expectTypeOf<CannotContext<"posts.move">["props"]>().toEqualTypeOf<CanProps<"posts.move">>()
-    expectTypeOf<Parameters<NonNullable<CannotContext<"billing.upgrade">["slots"]["default"]>>[0]>()
+  it("types rule names, argument tuples and denied slot details", () => {
+    type Context<Name extends AbilityName> = NonNullable<ReturnType<typeof AuthPermission<Name>>["__ctx"]>
+    expectTypeOf<Context<"posts.edit">["props"]>().toEqualTypeOf<AuthPermissionProps<"posts.edit">>()
+    expectTypeOf<Parameters<NonNullable<Context<"billing.upgrade">["slots"]["denied"]>>[0]>()
       .toEqualTypeOf<AbilityRefusal<"billing.upgrade">>()
-    // @ts-expect-error There is no such ability.
-    Cannot({ do: "posts.publish" })
-    // @ts-expect-error A rule with one argument takes `with`, not `args`.
-    Cannot({ do: "posts.edit", args: [post] })
-    // @ts-expect-error A rule with two arguments takes `args`, not `with`.
-    Cannot({ do: "posts.move", with: ["a", "b"] })
-    Cannot({ do: "posts.move", args: ["a", "b"], pending: true })
-  })
-
-  it("types the props of <Can> and the refusals of #denied", () => {
-    expectTypeOf<CanProps<"posts.edit">>().toEqualTypeOf<{ do: "posts.edit", pending?: boolean } & { with: Post, args?: never }>()
-    expectTypeOf<CanProps<"posts.draft">>().toEqualTypeOf<{ do: "posts.draft", pending?: boolean } & { with?: Post, args?: never }>()
-    expectTypeOf<CanProps<"posts.create">>().toEqualTypeOf<{ do: "posts.create", pending?: boolean } & { with?: never, args?: never }>()
-    expectTypeOf<CanProps<"posts.move">>().toEqualTypeOf<{ do: "posts.move", pending?: boolean } & { with?: never, args: [from: string, to: string] }>()
-    expectTypeOf<CanProps<"posts.review">["args"]>().toEqualTypeOf<[post: Post, mode?: "edit" | "read"]>()
-    expectTypeOf<CanProps<"posts.tag">["args"]>().toEqualTypeOf<string[]>()
-    // @ts-expect-error A rule with two arguments takes `args`, not `with`.
-    const twoWith: CanProps<"posts.move"> = { do: "posts.move", with: ["a", "b"] }
-    // @ts-expect-error A rule with one argument takes `with`, not `args`.
-    const oneArgs: CanProps<"posts.edit"> = { do: "posts.edit", args: [post] }
-    // @ts-expect-error A default parameter puts the rule in `args`.
-    const defaultWith: CanProps<"posts.review"> = { do: "posts.review", with: post }
-    void [twoWith, oneArgs, defaultWith]
+    AuthPermission({ check: "posts.edit", args: [post] })
+    AuthPermission({ check: "posts.draft" })
+    AuthPermission({ check: "posts.create" })
+    AuthPermission({ check: "posts.move", args: ["a", "b"], pending: true })
+    AuthPermission({ check: "posts.review", args: [post, "read"] })
+    AuthPermission({ check: "posts.tag", args: ["a", "b"] })
+    // @ts-expect-error Unknown rule.
+    AuthPermission({ check: "posts.missing" })
+    // @ts-expect-error Required argument is missing.
+    AuthPermission({ check: "posts.edit" })
+    // @ts-expect-error Arguments must match the rule tuple.
+    AuthPermission({ check: "posts.move", args: [post] })
+    // @ts-expect-error A single argument also uses args.
+    AuthPermission({ check: "posts.edit", with: post })
+    // @ts-expect-error The rule name uses check.
+    AuthPermission({ do: "posts.create" })
     expectTypeOf<AbilityRefusal<"posts.edit">>().toEqualTypeOf<{ code: "not-author", details: undefined } | { code: "signed-out", details: undefined }>()
     expectTypeOf<AbilityRefusal<"billing.upgrade">>().toEqualTypeOf<{ code: "plan-limit", details: { readonly limit: 3 } } | { code: "signed-out", details: undefined }>()
     expectTypeOf(deny("x", { status: 429 }).status).toEqualTypeOf<400 | 401 | 402 | 403 | 404 | 405 | 409 | 410 | 422 | 423 | 429 | 451>()
     // @ts-expect-error A rule refuses with a 4xx status.
     deny("x", { status: 500 })
+  })
+
+  it("takes the Nuxt component prefix in the Auth options", () => {
+    expectTypeOf<{ components: { prefix: "Auth" } }>().toExtend<AuthOptions>()
+    // @ts-expect-error The prefix is a string.
+    const numeric: AuthOptions = { components: { prefix: 1 } }
+    void numeric
   })
 })

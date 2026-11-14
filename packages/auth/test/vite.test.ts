@@ -67,7 +67,7 @@ describe("hubAuth", () => {
     await mkdir(join(root, "shared"))
     await writeFile(join(root, "shared/abilities.ts"), 'export default { "app.rule": Object.assign(() => true, { guest: true }) }\n')
     await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>')
-    await writeFile(join(root, "main.js"), 'import { Can, useAbility } from "@vite-hub/auth/vue"; console.log(Can, useAbility)')
+    await writeFile(join(root, "main.js"), 'import { AuthPermission, useAbility } from "@vite-hub/auth/vue"; console.log(AuthPermission, useAbility)')
     const installed = join(root, "node_modules/@vite-hub/auth")
     await mkdir(installed, { recursive: true })
     await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
