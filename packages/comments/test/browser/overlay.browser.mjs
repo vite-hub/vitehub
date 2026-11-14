@@ -190,6 +190,15 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       const style = getComputedStyle(area)
       return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
     }, undefined, { timeout: 5000 })
+    // The line is the comment blue, as in Drop, not grey or black.
+    const [red, green, blue] = await page.evaluate(() => {
+      const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")).borderTopColor
+      const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+      return [...context.getImageData(0, 0, 1, 1).data]
+    })
+    assert.ok(blue > red + 60 && blue > green, `the area line is rgb(${red}, ${green}, ${blue})`)
     const pin = page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='area'] [data-slot='comment-pin']")
     const corners = await pin.evaluate(element => [element, element.querySelector("[data-slot='avatar-stack-item']")].map(node => getComputedStyle(node).borderRadius))
     assert.deepEqual(corners, ["14px", "14px"])
