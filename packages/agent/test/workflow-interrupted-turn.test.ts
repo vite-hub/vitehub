@@ -29,8 +29,11 @@ const stores: Array<[string, () => Promise<AgentInvocationStore>]> = [
   }],
 ]
 
-/** After `stop()`, store calls from the first attempt get no answer, as when its process exits. */
-function interruptibleStore(backing: AgentInvocationStore) {
+/**
+ * After `stop()`, store calls from the first attempt get no answer, as when its process exits.
+ * With `failFirstRunningWrite`, the store does not write the `running` state for the first attempt.
+ */
+function interruptibleStore(backing: AgentInvocationStore, { failFirstRunningWrite = false } = {}) {
   const firstAttempt = new AsyncLocalStorage<true>()
   let stopped = false
   const frozen = () => stopped && firstAttempt.getStore() === true
@@ -40,7 +43,11 @@ function interruptibleStore(backing: AgentInvocationStore) {
     get: (...args) => frozen() ? never : backing.get(...args),
     getSummary: id => frozen() ? never : backing.getSummary(id),
     release: (...args) => frozen() ? never : backing.release(...args),
-    update: (...args) => frozen() ? never : backing.update(...args),
+    update: (id, input, claimId) => {
+      if (frozen()) return never
+      if (failFirstRunningWrite && input.status === "running" && firstAttempt.getStore() === true) return undefined
+      return backing.update(id, input, claimId)
+    },
   }
   return {
     store,
@@ -95,5 +102,35 @@ describe.each(stores)("Workflow retry of an interrupted Agent turn (%s)", (_name
       error: expect.objectContaining({ code: "AGENT_INVOCATION_DRIVER_INTERRUPTED" }),
       status: "failed",
     })
+  })
+
+  it("does not start the Driver when the running state was not written, so a retry runs it once", async () => {
+    const { store, runFirstAttempt, stop } = interruptibleStore(await createStore(), { failFirstRunningWrite: true })
+    const invocations = defineAgentInvocations({ store })
+    let driverStarted: () => void = () => {}
+    const firstDriver = new Promise<"driver started">(resolve => { driverStarted = () => resolve("driver started") })
+    let firstAttemptEnded = false
+    // A Driver of the first attempt never returns, as when its process stops during the Driver.
+    const run = vi.fn(async () => {
+      if (firstAttemptEnded) return "The retry ran the Driver."
+      driverStarted()
+      return await never
+    })
+    const agent = defineAgent({ driver: { run }, invocations, name: "interrupted-turn", runtime: false })
+    const attempt = { id: "running-write-failed-run", name: "interrupted-turn", payload: { input: { prompt: "hello" } }, provider: "openworkflow" as const }
+
+    const first = runFirstAttempt(() => runAgentWorkflowDefinition(agent, attempt, runAgentInline))
+    const outcome = await Promise.race([first.then(() => "completed", () => "failed"), firstDriver])
+    firstAttemptEnded = true
+    // The record is still pending, so a Driver started here would run again on the retry.
+    expect(outcome).toBe("failed")
+    expect(run).not.toHaveBeenCalled()
+    // The failed attempt is not the outcome of the turn: the Workflow retries it.
+    await expect(invocations.getByRunId(attempt.id, "interrupted-turn")).resolves.toMatchObject({ status: "pending" })
+    stop()
+
+    await runAgentWorkflowDefinition(agent, attempt, runAgentInline)
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId(attempt.id, "interrupted-turn")).resolves.toMatchObject({ status: "completed" })
   })
 })

@@ -416,7 +416,7 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 - A Workflow retry of an Agent turn whose record is `running` does not run the Driver again, even when the lease has expired. It fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the record shows `failed`.
 - Cancelling a running one stores a durable request until the run owner sees it.
 - Cancelling a pending one stores a durable request that a later worker reads, and records, before it starts its Driver.
-- A pending journal status does not prove that an earlier Driver never started.
+- A pending journal status does not prove that an earlier Driver never started. A Workflow-backed Agent turn is the exception: it starts its Driver only after the record is `running`.
 
 ### Link to a run before it starts
 
