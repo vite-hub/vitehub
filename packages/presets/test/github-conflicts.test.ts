@@ -115,6 +115,8 @@ it.each([
   ["frontmatter", "---\ntitle: A\n---\n\n# A\n", "title: A\n", "title: A\nlayout: landing\n", "title: A\nlayout: page\n"],
   ["a fenced code block", "# Run\n\n```sh\n```\n", "```sh\n", "```sh\ncp source target\n", "```sh\nrm source\n"],
   ["a table", "# Options\n\n| Key | Value |\n| --- | --- |\n| a | 1 |\n", "| a | 1 |\n", "| a | 1 |\n| retries | 3 |\n", "| a | 1 |\n| retries | 5 |\n"],
+  ["a table without leading pipes", "# Options\n\nKey | Value\n--- | ---\nfirst | 1\n", "first | 1\n", "first | 1\nretries | 3\n", "first | 1\nretries | 5\n"],
+  ["a code fence inside a blockquote", "# Run\n\n> ```sh\n> ```\n", "> ```sh\n", "> ```sh\n> cp source target\n", "> ```sh\n> rm source\n"],
   ["an MDC component", "# Tip\n\n::tip\nRead this.\n::\n", "Read this.\n", "Read this.\nThe PR way.\n", "Read this.\nThe main way.\n"],
 ])("leaves Markdown additions inside %s for the model", async (_, doc, anchor, pr, main) => {
   const { root, expectedHead, base } = await conflict({ "docs/guide.md": doc }, { "docs/guide.md": doc.replace(anchor, pr) }, { "docs/guide.md": doc.replace(anchor, main) });

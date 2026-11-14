@@ -164,11 +164,16 @@ async function unionAdditions(git: GitHubConflictGit, entry: Stages, sides: read
 
 interface Block { kind: "plain" | "frontmatter" | "fence" | "html"; fence?: string; components: number }
 const plain = (block: Block) => block.kind === "plain" && block.components === 0;
-const tableRow = (line: string | undefined) => line !== undefined && /^\s*\|/.test(line);
+// GFM table rows need no leading pipe ("Key | Value"), so any unescaped pipe counts. Prose rarely has one,
+// and refusing it only hands the hunk to the model.
+const tableRow = (line: string | undefined) => line !== undefined && /(?:^|[^\\])\|/.test(line);
+// Block markers also open inside blockquotes and list items: "> ```sh" starts a fence.
+const content = (line: string) => line.replace(/^(?:\s*>)+/, "");
 
 /** Markdown block state after one line: frontmatter, a code fence, an HTML block, or open MDC components. */
 function nextBlock(block: Block, line: string, first: boolean): Block {
   if (block.kind === "frontmatter") return /^(?:---|\.\.\.)\s*$/.test(line) ? { ...block, kind: "plain" } : block;
+  line = content(line);
   if (block.kind === "fence") {
     const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
     return close && close[0] === block.fence![0] && close.length >= block.fence!.length ? { kind: "plain", components: block.components } : block;
