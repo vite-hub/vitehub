@@ -3,6 +3,7 @@ import { APIError } from "better-auth"
 import { createAuthEndpoint, createAuthMiddleware, getSessionFromCtx, sensitiveSessionMiddleware } from "better-auth/api"
 import type { BetterAuthPlugin, GenericEndpointContext, SecondaryStorage } from "better-auth"
 import { parseAuthEventList, parseAuthEventWindow } from "./events.ts"
+import { authRequestEvent } from "./request.ts"
 import type { AuthDevice, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
 
 function record(value: unknown): Record<string, unknown> {
@@ -226,7 +227,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     endpoints: options.authorize ? {
       vitehubAuthEvents: createAuthEndpoint("/vitehub/events", { method: "GET", use: [sensitiveSessionMiddleware] }, async (ctx) => {
         if (!ctx.request) throw new APIError("FORBIDDEN")
-        const authorization = await options.authorize!({ request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
+        const authorization = await options.authorize!({ event: authRequestEvent(ctx.request), request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
         if (authorization instanceof Response) return authorization
         if (authorization !== true) throw new APIError("FORBIDDEN")
         ctx.setHeader("cache-control", "no-store")
