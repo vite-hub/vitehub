@@ -14,8 +14,8 @@ import {
   MenuSubContent,
   MenuSubTrigger,
   MenuTrigger,
-} from "@vite-hub/kit/menu"
-import { Menubar } from "@vite-hub/kit/menubar"
+} from "@ui-sdk/vue/menu"
+import { Menubar } from "@ui-sdk/vue/menubar"
 import { useLog } from "../log"
 
 const recent = ["Q3 roadmap", "Launch checklist", "Offsite notes"]

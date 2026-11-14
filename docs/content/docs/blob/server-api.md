@@ -241,7 +241,6 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 | `contentType` | `string` | Stored MIME type. |
 | `contentLength` | `string` | Expected content length, when the provider supports it. |
 | `customMetadata` | `Record<string, string>` | Provider custom metadata. |
-| `access` | `BlobPutOptions['access']` | `private` or `public`, when the driver supports it. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix, when the driver supports it. |
 | `prefix` | `string` | Path prefix, when the driver supports it. |
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { XIcon } from "../icons"
-import { Field, FieldDescription, FieldLabel } from "@vite-hub/kit/field"
-import { Input, InputClear, InputGroup } from "@vite-hub/kit/input"
+import { Field, FieldDescription, FieldLabel } from "@ui-sdk/vue/field"
+import { Input, InputClear, InputGroup } from "@ui-sdk/vue/input"
 import { useLog } from "../log"
 
 const log = useLog()

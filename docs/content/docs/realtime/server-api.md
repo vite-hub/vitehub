@@ -17,9 +17,10 @@ icon: i-lucide-code-2
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
 | `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
+| `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
-| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file ([Blob documents](#blob-documents)). |
+| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
 
 ViteHub generates `.vitehub/nitro/realtime/registry.mjs` and
@@ -141,8 +142,10 @@ loaded document recovers without a reset.
 ### Blob documents
 
 `blobDocument(store, { prefix, contentType })` stores each document's body as
-one private Blob file at `prefix + documentId`. The digest is the SHA-256 of
-the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
+one Blob file at `prefix + documentId`. To keep the drafts private, use a store
+that `blob.serve` does not serve, or serve it with `authorize: true`. On Vercel
+Blob, such a store also writes private objects. The digest
+is the SHA-256 of the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
 the document id stays a literal `%` in the Blob pathname, so `a%2Fb.md` and
 `a/b.md` are two files.
 
@@ -408,6 +411,44 @@ room.onChange(change => reload(change))
 
 > [!WARNING]
 > The definition must check that context against the requested document before it grants access.
+
+### Requests to a browser
+
+Server code can ask the one browser in a room of a presence definition, and wait for its answer. The [page bridge](/docs/agents/capabilities/page) uses it so that an Agent works the person's page. Set `requests: true` on the definition:
+
+```ts [server/realtime/tabs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({ access: 'public', document: false, requests: true })
+```
+
+The browser answers with `onRequest()`. The value it returns goes back as JSON:
+
+```ts fragment
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+
+const tab = crypto.randomUUID()
+const room = connectRealtimeRoom('tabs', tab)
+room.onRequest(body => ({ title: document.title, asked: body }))
+```
+
+Server code asks it with `requestRealtimeRoom(definition, room, body, options?)`:
+
+```ts fragment
+import { requestRealtimeRoom } from 'vite-hub/realtime/server'
+
+const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' })
+if (error) console.warn(error.code, error.why)
+```
+
+- One browser answers. A room with two browsers returns `REALTIME_ROOM_CROWDED`, so give each tab its own random room id.
+- A room without a browser waits `wait` milliseconds, 5 seconds by default, for one to join, such as after a reload. Then it returns `REALTIME_ROOM_EMPTY`.
+- The browser has `timeout` milliseconds to answer, 30 seconds by default. `signal` stops the request.
+- An answer only counts from the browser that was asked. A browser that leaves fails its requests at once.
+- On Cloudflare the request goes to the Durable Object that holds the rooms. On Node it reaches the rooms of this process. With Redis or Postgres, a browser on another instance gives `REALTIME_ROOM_ELSEWHERE`.
+- The room id is the only key. Anyone who knows it can join the room of a public definition, so use a random id and keep it out of URLs and logs, or set `auth: true`.
+
+[Room request errors](/docs/realtime/limits-and-errors#room-request-errors) lists every code.
 
 ### From another site
 

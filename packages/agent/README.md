@@ -315,6 +315,7 @@ Pass `--json` for the structured inspection contract.
 - `sandbox()` runs allowlisted executables through the configured Sandbox primitive. See [`@vite-hub/sandbox`](../sandbox/README.md).
 - `usage()` requests provider usage metadata, estimates missing cost from Models.dev, and exposes the normalized Agent Usage Record through its typed Finish Extension. Its `metadata.pricing` flag is false when `pricing: false` disables estimation.
 - `skills()`, `access()`, `memory()`, and `fetch()` cover prompt skills, workspace scope, durable notes, and HTTP reads.
+- `page()` lets the Agent work the person's open page through ui-sdk's agent bridge: `page_snapshot`, `page_query`, and `page_act`, with ui-sdk's own descriptions. The page connects with `connectPage(createAgent(), { join: connectRealtimeRoom })` from `vite-hub/agent/page` and passes it to `useChat(agent, { page })`, which names the page in the `x-vitehub-page` header. Each call goes over a Realtime room to that tab (`capabilities.realtime`, `agentRealtime` from `@vite-hub/realtime/agent`, which ViteHub passes when the app has Realtime). A run without a page gets no page tools; a page that is gone answers `{ ok: false, code, error }`. The bridge's own `allow` decides each step, and every change reaches the page with `source: "agent"`. See [Page](https://vitehub.dev/docs/agents/capabilities/page).
 
 ```ts fragment
 import { openapi } from "@vite-hub/agent/capabilities";

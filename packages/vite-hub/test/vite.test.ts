@@ -808,6 +808,7 @@ describe("vitehub", () => {
         email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
+        realtime: false,
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
       workspaceDependencyRuntimeImports: {
