@@ -6,6 +6,7 @@ import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
 import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { observationRecordProjection } from "./observation-projection.ts"
+import { observationRowChanges, parsedObservation } from "./observation-rows.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
@@ -22,6 +23,7 @@ import type {
 import type { Client, InStatement, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
+import type { ObservationRow } from "./observation-rows.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -78,19 +80,6 @@ function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
   return stringify(record)
 }
 
-function parsedObservation(value: unknown): TraceEventLogEntry | undefined {
-  if (typeof value !== "string") return
-  const parsed: unknown = JSON.parse(value)
-  if (parsed === null || typeof parsed !== "object" || !("name" in parsed) || typeof parsed.name !== "string") return
-  // SAFETY: Observation rows are written from records that applyAgentInvocationStoreUpdate() produced.
-  return parsed as TraceEventLogEntry
-}
-
-interface ObservationRow {
-  observation: TraceEventLogEntry
-  position: number
-}
-
 function observationRows(rows: readonly Row[]): ObservationRow[] {
   return rows.flatMap((row) => {
     const observation = parsedObservation(row.observation)
@@ -101,33 +90,6 @@ function observationRows(rows: readonly Row[]): ObservationRow[] {
 function withObservationRows(record: AgentInvocationRecord, rows: readonly Row[]): AgentInvocationRecord {
   if (!rows.length) return record
   return { ...record, observations: [...record.observations, ...observationRows(rows).map(row => row.observation)] }
-}
-
-/**
- * Returns the row changes when an update kept the record's observations and the order of existing rows.
- * Appends and evictions of appended observations qualify. Any other change returns undefined.
- */
-function observationRowChanges(
-  inRecord: readonly TraceEventLogEntry[],
-  rows: readonly ObservationRow[],
-  observations: readonly TraceEventLogEntry[],
-): { added: TraceEventLogEntry[], removed: number[] } | undefined {
-  if (observations.length < inRecord.length || inRecord.some((observation, index) => observations[index] !== observation)) return
-  const positions = new Map(rows.map(row => [row.observation, row.position]))
-  const kept = new Set<number>()
-  const added: TraceEventLogEntry[] = []
-  let lastPosition = -1
-  for (const observation of observations.slice(inRecord.length)) {
-    const position = positions.get(observation)
-    if (position === undefined) {
-      added.push(observation)
-      continue
-    }
-    if (added.length || position <= lastPosition) return
-    lastPosition = position
-    kept.add(position)
-  }
-  return { added, removed: rows.flatMap(row => kept.has(row.position) ? [] : [row.position]) }
 }
 
 function parsedRecord(value: unknown): Omit<AgentInvocationRecord, "cursor"> | undefined {

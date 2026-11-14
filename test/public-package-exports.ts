@@ -35,6 +35,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // `getAgentInvocationsDatabase()` returns Drizzle types and loads drizzle-orm when it is called.
   ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  ["@vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],
   ["@vite-hub/auth/agent", { "@vite-hub/agent": "both" }],
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
@@ -78,6 +79,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  ["vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console keeps the Agent journal in libSQL.

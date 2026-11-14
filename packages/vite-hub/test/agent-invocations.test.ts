@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -10,7 +10,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 
 import { defineAgent } from "../src/agent.ts"
 import { agentInvocationsDisabledKey, installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
-import { renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
+import { agentInvocationsDatabaseContributions, renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
 import {
   consoleInvocationsIdentityKey,
   consoleInvocationsIdentityRootKey,
@@ -312,6 +312,43 @@ describe("vitehub({ agent: { invocations } })", () => {
     expect(agentInvocationsPlugin({ agent: true, database: true, host: "node" })).toBeDefined()
     expect(agentInvocationsPlugin({ agent: { invocations: "memory" }, host: "node" })).toBeDefined()
     expect(agentInvocationsPlugin({ database: true, host: "node" })).toBeUndefined()
+  })
+
+  it("adds the Postgres journal tables to the migrations of a Postgres target Database only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-postgres-"))
+    const definition = (body: string) => writeFile(join(root, "server/databases/default.ts"), `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ ${body}schema: {} })\n`)
+    try {
+      await mkdir(join(root, "server/databases"), { recursive: true })
+      await definition(`dialect: "postgresql", `)
+      const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+      const plugins = vitehub({ agent: true, database: true, host: "node" })
+      const context = { plugins, projectRoot: root, root, rootDir: root }
+      const { tables } = await collectDatabaseContributions(plugins, context)
+      expect(tables.filter(table => table.name === "agent-invocations")).toEqual([expect.objectContaining({
+        database: "default",
+        definition: { export: "agentInvocationsPostgresSchema", module: "vite-hub/agent/invocations/postgres" },
+        dialect: "postgresql",
+        plugin: "vite-hub/agent-invocations",
+      })])
+      // The contributed names are the SQL names of the tables in the schema module.
+      const { agentInvocationsPostgresSchema } = await import("@vite-hub/agent/invocations/postgres")
+      const { getTableName } = await import("drizzle-orm")
+      await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([expect.objectContaining({
+        tables: Object.fromEntries(Object.entries(agentInvocationsPostgresSchema).map(([key, table]) => [key, getTableName(table)])),
+      })])
+      // The app-wide journal names another Database, which does not exist.
+      await expect(agentInvocationsDatabaseContributions(context, { database: "journal", store: "database" })).resolves.toEqual([])
+      await definition("")
+      await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])
+      // Without a Definition, another Postgres contribution makes the implicit `default` Database use Postgres.
+      await rm(join(root, "server/databases/default.ts"))
+      const postgresUse = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
+      await expect(agentInvocationsDatabaseContributions({ ...context, plugins: [...plugins, postgresUse] }, undefined)).resolves.toEqual([expect.objectContaining({ database: "default", dialect: "postgresql" })])
+      await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("requires Database for the Database journal and a Nitro Agent host", () => {

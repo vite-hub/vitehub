@@ -125,6 +125,11 @@
       "import": "./dist/invocations/drizzle.js",
       "default": "./dist/invocations/drizzle.js"
     },
+    "./invocations/postgres": {
+      "types": "./dist/invocations/postgres.d.ts",
+      "import": "./dist/invocations/postgres.js",
+      "default": "./dist/invocations/postgres.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
@@ -255,9 +260,11 @@
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@whatwg-node/node-fetch": "0.8.6",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
     "miniflare": "4.20260730.0",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

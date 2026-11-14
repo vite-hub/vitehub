@@ -55,8 +55,9 @@ the same behavior.
 | `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
 | `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
 | `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
-| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
+| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub Database: SQLite, libSQL, D1, or Postgres. |
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
+| `vite-hub/agent/invocations/postgres` | `postgresAgentInvocationTables()`: the Drizzle tables of the Agent Invocation Journal on a Postgres Database. Needs `drizzle-orm`. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | `defineConsoleAuthorize()` for `console.authorize`, and its context types. |

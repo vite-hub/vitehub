@@ -9,7 +9,7 @@ icon: i-lucide-database
 
 An Invocation is one run of an Agent. The Invocation journal logs each run's status, metadata, and chosen trace content, so you can inspect runs in the CLI and the Console. To run or stream an Agent, read [Invocations](/docs/agents/invocations) first.
 
-The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), start with `invocations: 'database'`. If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
+The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), including Postgres, start with `invocations: 'database'`. If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
 
 ## Store invocation history
 
@@ -27,7 +27,7 @@ export default defineAgent({
 | Value | Journal |
 | --- | --- |
 | Omitted | The app-wide journal: [`agent.invocations`](#use-one-journal-for-every-agent), or the [default journal](#use-the-default-journal). |
-| `'database'` | The `default` [ViteHub Database](/docs/database). |
+| `'database'` | The `default` [ViteHub Database](/docs/database): SQLite, libSQL, D1, or Postgres. |
 | `'memory'` | Process memory. Lost on restart, not shared between replicas. |
 | `false` | No journal, also not the app-wide one. |
 | `{ store: 'database' \| 'memory', ...options }` | A built-in store with journal options. |
@@ -44,7 +44,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle.
+ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle. A local SQLite file and the `'memory'` journal belong to one server instance. D1, remote libSQL, and a [Postgres Database](#store-invocations-in-a-postgres-database) are shared, so every instance reads the same Invocations. Only the journal is shared: Agent State, startup recovery, and process hosts still expect one Node instance.
 
 ## Use the default journal
 
@@ -234,7 +234,7 @@ An observation is one trace event, such as a tool call. During a run, each one g
 - **Claims.** Enforce `claim(id, claimId, leaseMs, { expectedClaimIds })` atomically. Unless `replaceExisting` is `true`, it claims an unclaimed record or replaces a listed claim ID, and rejects any other owner, even an expired one.
 - **Release.** `release(id, claimId)` releases only that claim ID. Journals rotate claim IDs on handoff and after an uncertain renewal, so a timed-out attempt's cleanup cannot release a newer claim.
 
-The memory, libSQL, and D1 stores follow these rules.
+The memory, libSQL, D1, and Postgres stores follow these rules.
 
 An update with `reopen: true` moves a `failed` record to `pending` and clears `error`, `failedAt`, and `retryPending`. Other records stay unchanged. The webhook queue sends it when it retries a failed delivery, and `applyAgentInvocationStoreUpdate()` applies it. A store that returns the unchanged `failed` record keeps terminal reuse. An unconfirmed reopen blocks dispatch until confirmed.
 
@@ -263,7 +263,7 @@ The result has only observations with a greater `sequence`. `0` returns all obse
 
 The store can still add an observation with a lower `sequence` later, for example from a second writer, and size limits can drop observations. A follower can miss these observations. If you need every observation, read the whole record once when the Invocation ends.
 
-D1 and libSQL filter in storage, so only the selected observations leave the database. The memory store filters before it copies the record. Custom stores can ignore the read options, because the wrapper still filters the result.
+D1 and libSQL filter in storage, so only the selected observations leave the database. Postgres filters the appended observation rows in storage and the record in the server. The memory store filters before it copies the record. Custom stores can ignore the read options, because the wrapper still filters the result.
 
 ## Set retention limits
 
@@ -344,9 +344,50 @@ export default defineAgent({
 })
 ```
 
-The adapter looks up the named Database per operation and creates the journal tables on first use. It supports local SQLite, hosted libSQL through Drizzle, and a native Cloudflare D1 binding. It supports `maxAge` and `maxRecords`, but not `maxSize`, because the Database holds other tables. Set `database` to use another discovered Database. It does not open, close, or migrate an existing custom journal. It applies the D1 rules everywhere, including the 1,000,000-byte observation cap and the 1,900,000-byte row budget. See [D1 row limits](#store-invocations-in-cloudflare-d1) for truncation and rejected writes.
+The adapter looks up the named Database per operation. On local SQLite, hosted libSQL through Drizzle, and a native Cloudflare D1 binding, it creates the journal tables on first use. On [Postgres](#store-invocations-in-a-postgres-database), the Database migrations create them. It supports `maxAge` and `maxRecords`, but not `maxSize`, because the Database holds other tables. Set `database` to use another discovered Database. It does not open, close, or migrate an existing custom journal. On SQLite, libSQL, and D1 it applies the D1 rules, including the 1,000,000-byte observation cap and the 1,900,000-byte row budget. Postgres keeps the observation limits of the journal. See [D1 row limits](#store-invocations-in-cloudflare-d1) for truncation and rejected writes.
 
 Use the direct SQLite adapter when the journal has its own URL, the [`d1` adapter](#store-invocations-in-cloudflare-d1) when the Agent gets a D1 binding, and the Database adapter, the portable choice, when the host already selects the Database.
+
+### Store invocations in a Postgres Database
+
+On a Postgres Database, the adapter uses two tables:
+
+| Table | Content |
+| --- | --- |
+| `vitehub_agent_invocations` | One row for each Invocation: the record and its summary as JSON text, the status, Agent name, and other columns that lists filter on, a revision, and the claim of the run that owns it (`claim_id`, `claim_token`, `claim_expires_at`). |
+| `vitehub_agent_invocations_observations` | The observations that a running Invocation appends, one row each. When the Invocation ends, the store moves them into its record and deletes the rows. Deleting an Invocation deletes its rows. |
+
+The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. Write and apply their migration with the other tables:
+
+```sh
+pnpm vitehub database generate
+pnpm vitehub database migrate
+```
+
+- Claims expire by the database clock, `now()`. Instances with different clocks agree on who owns an Invocation, and a stale owner cannot write after another instance takes over.
+- Each update locks its record row in a transaction, so concurrent appends from several instances keep every observation.
+- `maxAge` and `maxRecords` delete only terminal records. Retention skips a record that another transaction writes and deletes it on a later prune.
+- `maxSize` is not supported, and `migrate` has no effect.
+- For another Database, or another `tablePrefix`, add the tables yourself with `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres`, and pass the same `tablePrefix` to `createDatabaseAgentInvocationStore()`. On Postgres, the prefix has at most 25 lowercase letters, digits, and underscores, and does not start with a digit. Another prefix fails with `AGENT_R0910`:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { postgresAgentInvocationTables } from 'vite-hub/agent/invocations/postgres'
+
+const journal = postgresAgentInvocationTables({ tablePrefix: 'support_' })
+
+export default defineDatabase({
+  dialect: 'postgresql',
+  schema: {
+    supportInvocations: journal.invocations,
+    supportInvocationObservations: journal.observations,
+  },
+})
+```
+
+#### AGENT_R1044: Postgres journal tables are missing
+
+The first journal operation fails with `AGENT_R1044` when a table does not exist. The error names the tables. Run `vitehub database generate` and `vitehub database migrate`, or add `postgresAgentInvocationTables()` to the schema of the Database that the store uses.
 
 ## Delete or prune records
 
@@ -362,7 +403,7 @@ await invocations.prune() // applies the store's maxAge, maxRecords, and maxSize
 
 `prune()` returns `{ dryRun, ids, size? }`. With `olderThanMs`, it selects terminal records last updated before the cutoff. The age must be a non-negative safe integer within JavaScript's Date range, or it fails with `AGENT_R0929`. Without it, the store's retention applies. With `maxSize`, prune also applies that limit and returns `size: { beforeBytes, afterBytes, budgetBytes }`. `dryRun: true` only lists IDs: SQLite size pruning rolls back a transaction, and D1 only selects.
 
-The SQLite, D1, and memory stores support both operations. Custom stores need `store.delete()` and `store.prune()`. Your app owns retention of files that a Capability (a tool or behavior add-on) writes to Blob storage, because they are not keyed by the journal record.
+The SQLite, D1, Postgres, and memory stores support both operations. Custom stores need `store.delete()` and `store.prune()`. Your app owns retention of files that a Capability (a tool or behavior add-on) writes to Blob storage, because they are not keyed by the journal record.
 
 ## Rerun a recorded prompt
 
@@ -592,7 +633,7 @@ vitehub agent invocations prune --max-records 1000 --max-size 2GB
 - `--max-size` takes the same values as `maxSize` and prints live data before and after, and the budget.
 - Use `--table-prefix` when the store sets `tablePrefix`.
 - They refuse a missing file and never print URL credentials or tokens.
-- For D1, call `invocations.prune()` from a Worker.
+- For D1, call `invocations.prune()` from a Worker. For Postgres, call it from the server.
 
 ## Compact a journal file
 

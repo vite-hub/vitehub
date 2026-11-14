@@ -327,7 +327,7 @@ Pass a store to `defineAgentInvocations()` for a separate SQLite or libSQL journ
 
 ### Store invocations in a ViteHub Database
 
-`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, and native D1.
+`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, native D1, and [Postgres](/docs/agents/invocation-storage#store-invocations-in-a-postgres-database).
 
 ### Redact stored evidence
 

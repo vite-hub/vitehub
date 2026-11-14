@@ -2,12 +2,15 @@ import { sql, type SQL } from "drizzle-orm"
 import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
 import { useDatabase } from "@vite-hub/database"
-import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
+import { trackD1Database, trackPostgresClient } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "./d1.ts"
+import { createPostgresAgentInvocationStore } from "./postgres-store.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "./d1.ts"
 import type { AgentInvocationStore } from "../invocations.ts"
+import type { AgentInvocationPostgresClient } from "./postgres-store.ts"
 
+/** `migrate` applies only to SQLite, libSQL, and D1. A Postgres Database gets its tables from its migrations. */
 export interface DatabaseAgentInvocationStoreOptions extends Omit<D1AgentInvocationStoreOptions, "database"> {
   /** ViteHub database name. Defaults to "default". */
   database?: string
@@ -136,25 +139,74 @@ function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {
   }
 }
 
-/** Agent Invocation store backed by a ViteHub SQLite database. It creates its table on first use. */
+/** A postgres.js client, as the Drizzle database of a Postgres Database Definition holds it in `$client`. */
+function postgresClient(value: unknown): AgentInvocationPostgresClient | undefined {
+  if (typeof value !== "function" || typeof Reflect.get(value, "begin") !== "function" || typeof Reflect.get(value, "unsafe") !== "function") return
+  // SAFETY: The runtime shape check verifies the postgres.js begin and unsafe methods used by the Postgres store.
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
+  return value as unknown as AgentInvocationPostgresClient
+}
+
+/**
+ * Agent Invocation store backed by a ViteHub Database. On SQLite, libSQL, and D1 it creates its table on first use.
+ * On Postgres it uses the tables of `postgresAgentInvocationTables()`, which the Database migrations create.
+ */
 export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocationStoreOptions = {}): AgentInvocationStore {
   const { database: name = "default", ...storeOptions } = options
   const adapters = new WeakMap<object, InvocationDatabase>()
-  return createD1AgentInvocationStore({
+  const trackedClients = new WeakMap<AgentInvocationPostgresClient, AgentInvocationPostgresClient>()
+  // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
+  const runtime = (): RuntimeDatabase => (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
+  const sqlite = createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
-      // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
-      const runtime = (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
+      const runtimeDatabase = runtime()
       // Runtime proxies can change drivers between requests; validate each operation before any writes.
-      for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
-      const client = runtime.$client
-      const identity = isRecord(client) ? client : runtime
+      for (const rows of await runBatch(runtimeDatabase, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
+      const client = runtimeDatabase.$client
+      const identity = isRecord(client) ? client : runtimeDatabase
       let adapter = adapters.get(identity)
       if (!adapter) {
-        adapter = invocationDatabase(runtime)
+        adapter = invocationDatabase(runtimeDatabase)
         adapters.set(identity, adapter)
       }
       return adapter
     },
   })
+  const { migrate: _migrate, ...postgresOptions } = storeOptions
+  // Created on the first Postgres operation, so a tablePrefix that only SQLite accepts does not fail a SQLite Database.
+  let postgres: Required<Omit<AgentInvocationStore, "open">> | undefined
+  const postgresStore = () => postgres ??= createPostgresAgentInvocationStore({
+    ...postgresOptions,
+    database: name,
+    client() {
+      const client = postgresClient(runtime().$client)
+      // Internal invariant: the driver was Postgres when this store was created.
+      if (!client) throw new TypeError(`[vitehub] Database "${name}" changed from Postgres to another driver.`)
+      // Count the journal's queries in the request's database stats. One tracked client per pool keeps the table check cached.
+      let tracked = trackedClients.get(client)
+      if (!tracked) {
+        tracked = trackPostgresClient(client)
+        trackedClients.set(client, tracked)
+      }
+      return tracked
+    },
+  })
+  // A runtime proxy resolves its driver per request, so each operation picks the store for the current client.
+  const store = (): Required<Omit<AgentInvocationStore, "open">> => postgresClient(runtime().$client) ? postgresStore() : sqlite
+  return {
+    claim: async (...args) => await store().claim(...args),
+    create: async input => await store().create(input),
+    delete: async id => await store().delete(id),
+    get: async (...args) => await store().get(...args),
+    getClaimToken: async id => await store().getClaimToken(id),
+    getSummary: async id => await store().getSummary(id),
+    list: async listOptions => await store().list(listOptions),
+    listAgentNames: async () => await store().listAgentNames(),
+    listCapabilityIds: async agentName => await store().listCapabilityIds(agentName),
+    listTriggeredBy: async agentName => await store().listTriggeredBy(agentName),
+    prune: async pruneOptions => await store().prune(pruneOptions),
+    release: async (...args) => await store().release(...args),
+    update: async (...args) => await store().update(...args),
+  }
 }

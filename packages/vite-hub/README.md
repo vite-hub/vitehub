@@ -290,6 +290,8 @@ Set `agent: { invocations: "database" }` in the `vitehub()` options to give ever
 
 The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
+On a Postgres Database, the store does not create tables. ViteHub adds `vitehub_agent_invocations` and `vitehub_agent_invocations_observations` to that Database, so `vitehub database generate` writes their migration and `vitehub database migrate` applies it. Without the tables, the first journal operation fails with `AGENT_R1044`. Claims expire by the database clock, so several Node instances can share one journal.
+
 Retention defaults to 30 days and 10,000 terminal records. To change a limit, pass `createDatabaseAgentInvocationStore({ maxAge, maxRecords })` from `vite-hub/agent/invocations/database` to `defineAgentInvocations({ store })` from `vite-hub/agent/server`. Set either limit to `false` to disable it. The Console shows a configured journal but does not own its retention settings.
 
 ## Invoke Agents from the Console

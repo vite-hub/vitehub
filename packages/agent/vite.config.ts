@@ -86,6 +86,7 @@ export default defineConfig({
       "src/invocations/app.ts",
       "src/invocations/database.ts",
       "src/invocations/drizzle.ts",
+      "src/invocations/postgres.ts",
       "src/state.ts",
       "src/cloudflare/state.ts",
       "src/runtime/registry.ts",

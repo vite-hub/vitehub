@@ -1434,6 +1434,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1033: dynamicError,
     AGENT_R1034: dynamicError,
     AGENT_R1035: dynamicError,
+    AGENT_R1044: {
+      why: ({ database, tables }: { database: string, tables: string[] }) => `[vitehub] The Postgres Database "${database}" has no Agent Invocation table ${tables.map(table => JSON.stringify(table)).join(" or ")}. The journal does not create its tables, because a Database user can lack the CREATE privilege.`,
+      fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds the journal tables to the target Database of `invocations: 'database'`. For another Database or tablePrefix, add `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres` to its schema.",
+    },
     AGENT_R1029: {
       why: "The default Agent Invocation journal cannot open a file: URL in a Cloudflare Worker.",
       fix: "Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL or agent.invocations.databaseUrl to a remote libSQL URL, or remove the file URL to use the host default journal.",
