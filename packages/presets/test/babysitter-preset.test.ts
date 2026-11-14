@@ -70,7 +70,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories; hostCapacity?: Parameters<typeof createBabysitterRuntime>[0]["hostCapacity"] } = {}) {
   const number = preset.number ?? 12;
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
@@ -240,7 +240,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     return { stdout: data.map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
   });
   let workerDirectory: string | undefined;
-  const prepare = vi.fn(async (directory: string) => {
+  const prepare = vi.fn(async (directory: string, _options?: { complete?: boolean; restoreInstructions?: boolean }) => {
     workerDirectory = directory;
     if (preset.gitWorkspace) await promisify(execFile)("git", ["init", "--quiet", directory]);
   });
@@ -360,6 +360,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
     mergeabilityRetryDelayMs: 1,
     ...(preset.workspaces ? { workspaces: preset.workspaces } : {}),
+    ...(preset.hostCapacity ? { hostCapacity: preset.hostCapacity } : {}),
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string; environment?: NodeJS.ProcessEnv }> = [];
   const operationResults: unknown[] = [];
@@ -3789,6 +3790,64 @@ describe("Babysitter preset runtime", () => {
         await expect(readFile(join(directory as string, ".git", "vitehub-install.json"))).rejects.toThrow();
       } finally { f.restore(); await f.runtime.inbox.close(); }
     }, 15_000);
+
+    it("starts no conflict preparation while sampled memory admits no worker", async () => {
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "resource pressure (cpu=0.02, memory=0.31)" }));
+      const f = await conflictOnly({ hostCapacity });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).toHaveBeenCalledWith(expect.objectContaining({ active: 0 }));
+        expect(f.prepare).not.toHaveBeenCalled();
+        expect(prepareGitHubRepairBase).not.toHaveBeenCalled();
+        expect(f.install).not.toHaveBeenCalled();
+        expect(f.push).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+        const current = (await f.runtime.inbox.get("acme/app", 12))!;
+        expect(current).toMatchObject({ status: "waiting", lease: null });
+        expect(current.wait?.retryAt).toBeGreaterThan(Date.now());
+        expect(current.lastResult).toContain("resource pressure (cpu=0.02, memory=0.31)");
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("places the model fallback only after the host push is ruled out", async () => {
+      const release = vi.fn();
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+      const f = await conflictOnly({ placement: { place } });
+      vi.mocked(prepareGitHubRepairBase).mockResolvedValue({ ...resolvedMerge, conflicted: [...resolvedMerge.conflicted, "src/a.ts"], remaining: ["src/a.ts"] });
+      try {
+        await f.reconcile();
+        expect(place).toHaveBeenCalledOnce();
+        // The host tried its merge first, then the placed Sandbox prepared its own copy from the host checkout.
+        expect(vi.mocked(prepareGitHubRepairBase).mock.invocationCallOrder[0]).toBeLessThan(place.mock.invocationCallOrder[0]!);
+        expect(vi.mocked(prepareGitHubRepairBase).mock.calls.at(-1)?.[0]).toBe(f.checkout);
+        expect(sandboxDefinitions).toHaveBeenCalled();
+        expect(f.passes).toHaveLength(1);
+        expect(release).toHaveBeenCalledOnce();
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("waits for placement capacity when the model fallback finds none", async () => {
+      const place = vi.fn(() => { throw new BabysitterPlacementCapacityError("All hosts are full.", 45_000); });
+      const f = await conflictOnly({ placement: { place } });
+      vi.mocked(prepareGitHubRepairBase).mockResolvedValue({ ...resolvedMerge, conflicted: [...resolvedMerge.conflicted, "src/a.ts"], remaining: ["src/a.ts"] });
+      try {
+        await f.reconcile();
+        expect(place).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(0);
+        expect((await f.runtime.inbox.get("acme/app", 12))?.wait).toMatchObject({ kind: "external", reasonCode: "placement-capacity" });
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("pushes a host-resolved merge without asking placement", async () => {
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
+      const f = await conflictOnly({ placement: { place }, hostCapacity: async () => ({ concurrency: 1 }) });
+      try {
+        await f.reconcile();
+        expect(place).not.toHaveBeenCalled();
+        expect(f.push).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(0);
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
 
     it("leaves the conflict queued when host pressure closes admission", async () => {
       const admission = async () => ({ accepting: false, accounting: "best-effort-retained-journal" as const, hostOnly: true, reason: "memory-pressure", limits: resolveBabysitterAdmissionLimits(), state: { windows: babysitterBudgetWindows(Date.now()), tmpDir: "/tmp" } });

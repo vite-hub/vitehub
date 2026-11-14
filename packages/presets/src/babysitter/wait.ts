@@ -256,13 +256,17 @@ function hasActionableThread(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "wo
 /**
  * Why a conflicting PR needs a model pass besides its conflict. Empty means the pass would only resolve
  * the conflict, so a merge whose every conflict the host resolved can be pushed without one.
- * `requiredChecks` attributes failures that the base shares to the base. `assessedFeedback` holds the
- * fingerprints of feedback that an earlier pass assessed.
+ * `checks.inheritedCheckIds` are failing checks that the base fails the same way; they are the base's
+ * work. `assessedFeedback` holds the fingerprints of feedback that an earlier pass assessed.
  */
-export function conflictOnlyBlockers(s: Snapshot, requiredChecks: GitHubRequiredCheckState, policy: BabysitterWaitPolicy, assessedFeedback: ReadonlySet<string>): string[] {
+export function conflictOnlyBlockers(s: Snapshot, checks: { state: GitHubRequiredCheckState; inheritedCheckIds: readonly number[] }, policy: BabysitterWaitPolicy, assessedFeedback: ReadonlySet<string>): string[] {
   const work: string[] = [];
   // pull_request CI does not run while a PR conflicts, so these are the checks of its last clean merge.
-  if (requiredChecks === "failed") work.push("failed-check");
+  // Any failure there that the base does not share is model work, required or not.
+  const inherited = new Set(checks.inheritedCheckIds);
+  const settledReviews = reviewPushBudgetSpent(s, policy) ? policy.pendingReviewChecks : undefined;
+  if (checks.state === "failed" || latestCheckSignals(s).some(signal => failed.has(String(signal.conclusion ?? signal.state))
+    && !inherited.has(Number(signal.id)) && !settledReviews?.has(String(signal.name).toLowerCase()))) work.push("failed-check");
   if ((s.humanFeedbackGeneration ?? 0) > s.handled) work.push("human-feedback");
   const feedbackPolicy = { ...policy, automatedReviewSettled: reviewPushBudgetSpent(s, policy), severeReviewSettled: severeReviewSettled(s, policy) };
   const legacy = feedbackFingerprints(s, feedbackPolicy, true);
