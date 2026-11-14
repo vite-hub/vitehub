@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="t">
+<title id="t">Email labeller: labels new Gmail with your rules first and Jev for the rest</title>
+<defs>
+<pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#fff" fill-opacity=".06"/></pattern>
+<radialGradient id="glow" cx="1060" cy="420" r="520" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffad47" stop-opacity=".16"/><stop offset="1" stop-color="#ffad47" stop-opacity="0"/></radialGradient>
+<clipPath id="frame"><rect width="1280" height="400" rx="24"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect width="1280" height="400" fill="#0a0a0a"/>
+<rect width="1280" height="400" fill="url(#dots)"/>
+<rect width="1280" height="400" fill="url(#glow)"/>
+<g transform="translate(80 72) scale(1.25)">
+<rect width="64" height="64" rx="14" fill="#171717" stroke="#262626" stroke-width=".8"/>
+<path d="M14 22h36v22H14z" fill="none" stroke="#737373" stroke-width="3" stroke-linejoin="round"/>
+<path d="M14 22l18 13 18-13" fill="none" stroke="#737373" stroke-width="3" stroke-linejoin="round"/>
+<path d="M38 38h12l5 5-5 5H38z" fill="#ffad47"/>
+</g>
+<g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="188" y="140" fill="#fafafa" font-size="72" font-weight="700" letter-spacing="-3">email-labeller</text>
+<text x="80" y="214" fill="#a3a3a3" font-size="28">Your rules first. Jev labels the rest.</text>
+<text x="80" y="306" fill="#fafafa" font-size="56" font-weight="700" letter-spacing="-2">1<tspan fill="#ffad47"> file</tspan></text>
+<text x="80" y="340" fill="#737373" font-size="20">labels, rules, cleanup</text>
+<text x="330" y="306" fill="#fafafa" font-size="56" font-weight="700" letter-spacing="-2">5<tspan fill="#ffad47"> min</tspan></text>
+<text x="330" y="340" fill="#737373" font-size="20">or instant with Pub/Sub</text>
+<text x="610" y="306" fill="#fafafa" font-size="56" font-weight="700" letter-spacing="-2">0</text>
+<text x="610" y="340" fill="#737373" font-size="20">changes in dry run</text>
+</g>
+<rect x="820" y="72" width="390" height="256" rx="16" fill="#121212" stroke="#262626"/>
+<g font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17">
+<text x="846" y="112" fill="#525252" font-size="15">INBOX</text>
+<text x="846" y="158" fill="#d4d4d4">Your sign-in code</text>
+<rect x="1088" y="141" width="96" height="24" rx="12" fill="#fb4c2f"/><text x="1136" y="158" fill="#fff" font-size="14" text-anchor="middle">Security</text>
+<text x="846" y="210" fill="#d4d4d4">Your order has shipped</text>
+<rect x="1088" y="193" width="96" height="24" rx="12" fill="#43d692"/><text x="1136" y="210" fill="#000" font-size="14" text-anchor="middle">Orders</text>
+<text x="846" y="262" fill="#d4d4d4">[vite-hub] PR merged</text>
+<rect x="1088" y="245" width="96" height="24" rx="12" fill="#4a86e8"/><text x="1136" y="262" fill="#fff" font-size="14" text-anchor="middle">GitHub</text>
+<text x="846" y="308" fill="#737373">Weekly digest</text>
+<rect x="1088" y="291" width="96" height="24" rx="12" fill="#c9daf8"/><text x="1136" y="308" fill="#000" font-size="14" text-anchor="middle">Newsletters</text>
+</g>
+</g>
+</svg>

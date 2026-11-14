@@ -29,6 +29,7 @@ function fixture(chunks: string[] = []) {
   const container = {
     fs: {},
     mount: vi.fn(async () => {}),
+    setPreviewScript: vi.fn(async () => {}),
     spawn: vi.fn(async () => process),
     teardown: vi.fn(),
     on(event: string, listener: (...args: unknown[]) => void) {
@@ -47,6 +48,16 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("WebContainer lifecycle", () => {
+  it("installs the preview script before it mounts the files", async () => {
+    const { container } = fixture()
+    await bootWebContainer({ files: { "index.html": "" }, previewScript: "window.ready = true" })
+    expect(container.setPreviewScript).toHaveBeenCalledWith("window.ready = true")
+    expect(container.setPreviewScript.mock.invocationCallOrder[0]).toBeLessThan(container.mount.mock.invocationCallOrder[0]!)
+    const other = fixture()
+    await bootWebContainer()
+    expect(other.container.setPreviewScript).not.toHaveBeenCalled()
+  })
+
   it("reports each server-ready event for custom commands and supports unsubscribing", async () => {
     const { events, exited } = fixture()
     const app = await bootWebContainer()

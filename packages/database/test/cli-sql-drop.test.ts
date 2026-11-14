@@ -36,7 +36,7 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
     databaseNames: Object.keys(resolved),
     databases: resolved,
     rootDir,
-  }) as unknown as ResolvedDBViteConfig, { readStdin: async () => undefined, ...io })!
+  }) as unknown as ResolvedDBViteConfig, undefined, { readStdin: async () => undefined, ...io })!
 
   async function run(name: "drop" | "sql", args: string[], options: { env?: NodeJS.ProcessEnv, fetch?: typeof fetch } = {}) {
     const stdout = { write: vi.fn() }

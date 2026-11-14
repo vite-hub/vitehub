@@ -12,7 +12,7 @@ import {
   type WaterfallData,
   type WaterfallBarLabelDetails,
   type WaterfallDataItem,
-} from "@vite-hub/kit/waterfall"
+} from "@ui-sdk/vue/waterfall"
 
 const requests: WaterfallData = [
   { value: "document", label: "/", start: 0, duration: 182 },

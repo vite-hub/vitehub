@@ -181,6 +181,34 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
+  await t.test("an area is a soft line, and its thread opens in Drop's small card behind a round face", async () => {
+    await page.keyboard.press("Escape")
+    await page.mouse.move(5, 5)
+    // Once no thread is open or hovered, its area is a 1px line with no fill. The fill fades out in 120ms.
+    await page.waitForFunction(() => {
+      const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")
+      const style = getComputedStyle(area)
+      return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
+    }, undefined, { timeout: 5000 })
+    // The line is the comment blue, as in Drop, not grey or black.
+    const [red, green, blue] = await page.evaluate(() => {
+      const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")).borderTopColor
+      const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+      return [...context.getImageData(0, 0, 1, 1).data]
+    })
+    assert.ok(blue > red + 60 && blue > green, `the area line is rgb(${red}, ${green}, ${blue})`)
+    const pin = page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='area'] [data-slot='comment-pin']")
+    const corners = await pin.evaluate(element => [element, element.querySelector("[data-slot='avatar-stack-item']")].map(node => getComputedStyle(node).borderRadius))
+    assert.deepEqual(corners, ["14px", "14px"])
+    await pin.click()
+    const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
+    await thread.waitFor({ timeout: 5000 })
+    assert.equal(await thread.getAttribute("data-size"), "sm")
+    await page.keyboard.press("Escape")
+  })
+
   await t.test("a drag past the end of a short page draws no area that would be cut", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
@@ -329,24 +357,110 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const file = api.files.get(key)
     assert.equal(file.type, "image/webp")
     if (evidence) await writeFile(`${evidence}/highlight-picture.webp`, file.data)
-    // The picture is the screen, with the yellow ink on the highlighted line and the page's white elsewhere.
+    // The picture is the screen, with the pink ink on the highlighted line and the page's white elsewhere.
     const picture = await page.evaluate(async ({ bytes, at }) => {
       const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/webp" }))
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
       const context = canvas.getContext("2d")
       context.drawImage(bitmap, 0, 0)
       const row = (y, from, to) => context.getImageData(from, y, to - from, 1).data
-      // Yellow ink over the white page, between the letters: much more red and green than blue.
-      const yellow = (data) => {
+      // Pink ink multiplied over the white page, between the letters: much more red than green.
+      const pink = (data) => {
         let count = 0
-        for (let index = 0; index < data.length; index += 4) if (data[index] > 200 && data[index + 1] > 170 && data[index + 2] < 200) count++
+        for (let index = 0; index < data.length; index += 4) if (data[index] > 220 && data[index] - data[index + 1] > 30 && data[index + 2] > 180) count++
         return count
       }
-      return { width: bitmap.width, height: bitmap.height, ink: yellow(row(at.y, at.left, at.right)), blank: yellow(row(at.y + 120, at.left, at.right)) }
+      return { width: bitmap.width, height: bitmap.height, ink: pink(row(at.y, at.left, at.right)), blank: pink(row(at.y + 120, at.left, at.right)) }
     }, { bytes: [...file.data], at: { left: Math.round(line.left), right: Math.round(line.right), y: Math.round(line.y) } })
     assert.deepEqual([picture.width, picture.height], [1024, 720])
-    assert.ok(picture.ink > 60, `${picture.ink} yellow pixels on the highlighted line`)
+    assert.ok(picture.ink > 60, `${picture.ink} pink pixels on the highlighted line`)
     assert.equal(picture.blank, 0)
+  })
+
+  await t.test("draws with the pen, an arrow, and a label, in four colors, and the picture carries each", async () => {
+    const tips = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      await tips.goto(`http://127.0.0.1:${port}/`)
+      await tips.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      await tips.mouse.click(900, 600)
+      await tips.keyboard.press("b")
+      const layer = tips.locator("vitehub-marker .layer")
+      await layer.waitFor({ timeout: 5000 })
+      const pick = label => tips.locator(`vitehub-tool button[aria-label='${label}']`).click()
+      const line = await tips.evaluate(() => {
+        const box = document.querySelector("#second").getBoundingClientRect()
+        return { left: box.left + 4, right: box.left + 300, y: box.top + 14 }
+      })
+      // The marker, pink, over a line of text.
+      await drag(tips, { x: line.left, y: line.y }, { x: line.right, y: line.y })
+      // The pen, blue, under the text. P picks it.
+      await tips.keyboard.press("p")
+      await pick("Blue ink")
+      await drag(tips, { x: 220, y: 470 }, { x: 420, y: 470 })
+      // An arrow, green.
+      await pick("Arrow")
+      await pick("Green ink")
+      await drag(tips, { x: 460, y: 600 }, { x: 620, y: 480 })
+      // A label, amber: a click places it, Enter puts it down.
+      await tips.keyboard.press("t")
+      await pick("Amber ink")
+      await tips.mouse.click(660, 560)
+      await tips.keyboard.type("Too big")
+      assert.equal(await tips.locator("vitehub-marker input[aria-label='Label']").inputValue(), "Too big")
+      if (evidence) await tips.screenshot({ path: `${evidence}/tips-typing.png` })
+      await tips.keyboard.press("Enter")
+      await tips.locator("vitehub-marker .label").waitFor({ timeout: 5000 })
+      assert.equal(await tips.locator("vitehub-marker path.marker").count(), 1)
+      assert.equal(await tips.locator("vitehub-marker path.pen").count(), 1)
+      assert.equal(await tips.locator("vitehub-marker path.arrow").count(), 1)
+      assert.equal(await tips.locator("vitehub-tool button[aria-label='Text']").getAttribute("aria-pressed"), "true")
+      if (evidence) await tips.screenshot({ path: `${evidence}/tips-drawing.png` })
+
+      await tips.locator("vitehub-tool button", { hasText: "Done" }).click()
+      const box = tips.locator("vitehub-comments textarea[aria-label='Comment']")
+      await box.waitFor({ timeout: 10000 })
+      const file = tips.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='attachment'] img")
+      await file.waitFor({ timeout: 10000 })
+      await box.fill("Each tip, in its color")
+      if (evidence) await tips.screenshot({ path: `${evidence}/tips-comment.png` })
+      // The picture: each tip's ink where it was drawn, in its color.
+      const counts = await file.evaluate(async (image, at) => {
+        const blob = await (await fetch(image.src)).blob()
+        const bitmap = await createImageBitmap(blob)
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const context = canvas.getContext("2d")
+        context.drawImage(bitmap, 0, 0)
+        const count = (left, top, width, height, test) => {
+          const data = context.getImageData(left, top, width, height).data
+          let found = 0
+          for (let index = 0; index < data.length; index += 4) if (test(data[index], data[index + 1], data[index + 2])) found++
+          return found
+        }
+        return {
+          size: [bitmap.width, bitmap.height],
+          picture: [...new Uint8Array(await blob.arrayBuffer())],
+          pink: count(at.left, at.y - 2, at.right - at.left, 4, (r, g, b) => r > 220 && r - g > 30 && b > 180),
+          blue: count(230, 466, 180, 8, (r, g, b) => b > 180 && r < 80 && g < 140),
+          green: count(500, 500, 100, 90, (r, g, b) => g > 120 && r < 60 && b < 110),
+          amber: count(655, 548, 20, 24, (r, g, b) => r > 220 && g > 130 && g < 180 && b < 60),
+          dark: count(660, 548, 70, 24, (r, g, b) => r < 40 && g < 40 && b < 40),
+          // Nothing drawn in the blank band between the text and the pen.
+          blank: count(220, 420, 400, 20, (r, g, b) => !(r > 240 && g > 240 && b > 240)),
+        }
+      }, { left: Math.round(line.left), right: Math.round(line.right), y: Math.round(line.y) })
+      if (evidence) await writeFile(`${evidence}/tips-picture.webp`, Buffer.from(counts.picture))
+      assert.deepEqual(counts.size, [1024, 720])
+      assert.ok(counts.pink > 60, `${counts.pink} pink pixels on the marked line`)
+      assert.ok(counts.blue > 150, `${counts.blue} blue pixels on the pen's line`)
+      assert.ok(counts.green > 100, `${counts.green} green pixels on the arrow`)
+      assert.ok(counts.amber > 100, `${counts.amber} amber pixels in the label`)
+      // Amber is light, so the label's words are near-black.
+      assert.ok(counts.dark > 20, `${counts.dark} dark pixels of the label's words`)
+      assert.equal(counts.blank, 0)
+    }
+    finally {
+      await tips.close()
+    }
   })
 
   await t.test("the picture keeps sticky and fixed parts of a scrolled page where they are on screen", async () => {

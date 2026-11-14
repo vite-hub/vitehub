@@ -33,7 +33,7 @@ async function waitFor(check: () => boolean, timeout = 5_000): Promise<boolean> 
 }
 
 function realtimeDefinition(adapter: RealtimeDocumentDefinition["document"]): RealtimeDocumentDefinition {
-  return { document: adapter, editor: createStubEditor().editor }
+  return { access: "public", document: adapter, editor: createStubEditor().editor }
 }
 
 const opened: RealtimeBus[] = []

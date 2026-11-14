@@ -58,6 +58,11 @@ export interface BootWebContainerOptions {
    * @default 3000
    */
   port?: number
+  /**
+   * JavaScript that runs first in every HTML page of the preview, such as a script that reports the page address to
+   * the parent page. The preview origin is cross-origin, so this is the only way to run code in its pages.
+   */
+  previewScript?: string
   /** Called on every status change, from the first check on. */
   onStatus?: (status: WebContainerStatus) => void
 }
@@ -341,6 +346,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     loading.catch(() => {})
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
+    if (options.previewScript) await booted.setPreviewScript(options.previewScript)
     if (options.snapshot || options.files) {
       status.enter("mounting")
       const snapshot = await loading

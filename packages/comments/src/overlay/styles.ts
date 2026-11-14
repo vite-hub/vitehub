@@ -9,10 +9,13 @@ export const overlayStyles = `
   all: initial;
   --ui-bg: #fff; --ui-bg-elevated: #f5f5f5; --ui-bg-accented: #e5e5e5; --ui-bg-muted: #fafafa; --ui-border: #e5e5e5;
   --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #2563eb;
+  /* The comment blue of ViteHub's theme (--ring in @vite-hub/ui/theme.css), for the areas of comments here and in Drop. */
+  --vh-ui-comment-mark: oklch(0.588 0.158 241.966);
 }
 :host(.dark) {
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
   --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #60a5fa;
+  --vh-ui-comment-mark: oklch(0.746 0.16 232.661);
 }
 .root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
@@ -119,11 +122,9 @@ export const overlayStyles = `
   }
 }
 
-/* The area that a drag in comment mode draws. The areas of threads are in areaStyles, under the page's floating controls. */
-[data-slot="comment-layer-area"] {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ui-text-highlighted); border-radius: 3px;
-  background: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent); pointer-events: none;
-}
+/* The area that a drag in comment mode draws, in the comment blue as @vite-hub/ui draws it. The overlay is fixed to the
+   screen. The areas of threads are in areaStyles, under the page's floating controls. */
+[data-slot="comment-layer-area"] { position: fixed; }
 
 /* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
 .selection-bar {
@@ -187,7 +188,7 @@ export const pillBarStyles = `
 .divider { width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
 .count { min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--vitehub-pill-hover); font-size: 10px; line-height: 17px; text-align: center; }
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
-/* The colors stay one row of square buttons, also when the pill docks to a side and stacks the other controls. */
+/* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
 .swatch, .icon { width: 28px; padding: 0; justify-content: center; }
 .icon { align-self: flex-start; }
@@ -216,16 +217,18 @@ html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 
 /**
  * The areas that threads point at, in their own element at z-index 1 of the page: over its text, under its own
- * floating controls, such as a menu button, which a box must not cross. A resolved area is dashed and faint.
+ * floating controls, such as a menu button, which a box must not cross. An area is a thin line in the comment blue at
+ * half strength, with no fill, so a page with many of them stays readable. The area of the open or hovered thread is
+ * full blue with a faint tint. A resolved area is dashed and grey. Drop draws its review areas the same way.
  */
 export const areaStyles = `
-:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --ink: #171717; --muted: #737373; }
-:host(.dark) { --ink: #fafafa; --muted: #a3a3a3; }
+:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --mark: oklch(0.588 0.158 241.966); --muted: #737373; }
+:host(.dark) { --mark: oklch(0.746 0.16 232.661); --muted: #a3a3a3; }
 .area {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 3px;
-  background: color-mix(in oklab, var(--ink) 6%, transparent); transition: background-color 120ms ease-out;
+  position: fixed; box-sizing: border-box; border: 1px solid color-mix(in oklab, var(--mark) 50%, transparent); border-radius: 4px;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
 }
-.area[data-status="active"] { background: color-mix(in oklab, var(--ink) 14%, transparent); }
-.area[data-status="resolved"] { border-style: dashed; border-color: var(--muted); background: none; opacity: .6; }
+.area[data-status="active"] { border-color: var(--mark); background: color-mix(in oklab, var(--mark) 8%, transparent); }
+.area[data-status="resolved"] { border-style: dashed; border-color: color-mix(in oklab, var(--muted) 50%, transparent); }
 @media (prefers-reduced-motion: reduce) { .area { transition: none; } }
 `

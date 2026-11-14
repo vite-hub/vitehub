@@ -47,10 +47,18 @@ console.log(error.toJSON())
 | `AUTH_C0060` | Both `shared/abilities.ts` and another `shared/abilities.*` file exist. Keep one. |
 | `AUTH_C0061` | A callback returns `database: true` or `{ name }`. Return `authDatabase()` or another Better Auth adapter. See [Storage adapters](/docs/auth/configure#storage-adapters). |
 | `AUTH_C0062` | A callback returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
+| `AUTH_C0063` | A production build or server has an Auth Definition without `database` or `preset`. Set `database: authDatabase()`, use `preset: stateless()`, or set `database: "memory"` to keep users in one process. |
+| `AUTH_C0064` | `access.public` is not an inline array of route strings that start with `/`. |
+| `AUTH_C0065` | `access.policy` has no `allow` function, or `recheck` is not a number of milliseconds, 0 or more. |
+| `AUTH_C0066` | `access.policy` is set, but Better Auth has no `database` or `secondaryStorage` adapter, so it cannot end a session. |
+| `AUTH_C0067` | `forwardAuth()` has no `header` or no `verify` function. |
+| `AUTH_C0068` | An `access.routes` entry uses route pattern syntax, such as `/api/users/:id`, `/api/admin/*`, or the encoded `/api/users/%3Aid`, or a `.` or `..` segment, such as `/api/x/../billing`. Access routes match literal paths. Use a final `/**`, such as `/api/users/**`, and check the parameter in the handler. |
 | [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
 | `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
+| `AUTH_R0022` | `vitehub({ publicUrl })` gives several origins and the request host is none of them. Auth does not take its base URL from the request Host. |
+| `AUTH_R0023` | The `verify` function of `forwardAuth()` returned a value that is neither `null` nor an identity with `providerId`, `accountId`, `email`, `name`, and `emailVerified`. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, and invalid Auth Definitions, `authenticated()` config, or custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
@@ -129,6 +137,26 @@ The operation needs a database adapter or plugin API. Add it to the primary Auth
 ## AUTH_CONSOLE_PROVIDER_FAILED
 
 Better Auth or a computed column reader failed. Read the error cause in server code, and never send it to clients.
+
+## AUTH_GITHUB_ORG_REQUIRED
+
+`checkGitHubOrgMember()` got an empty organization login. Pass the login, for example `checkGitHubOrgMember(token, 'acme')`. `isGitHubOrgMember()` returns `false` instead.
+
+## AUTH_GITHUB_TOKEN_INVALID
+
+`checkGitHubOrgMember()` got no token, or GitHub answered `401`: the token expired or was revoked. Ask the user to sign in with GitHub again.
+
+## AUTH_GITHUB_ORG_ACCESS_DENIED
+
+GitHub answered `403`, or `404` to a classic OAuth token without the `read:org` scope. The organization can use SAML single sign-on that the token is not authorized for, or restrict OAuth apps. Ask the user to sign in with GitHub again with `read:org`, and to authorize single sign-on when GitHub asks. An organization owner may have to approve the OAuth app.
+
+## AUTH_GITHUB_UNAVAILABLE
+
+`checkGitHubOrgMember()` got no membership from GitHub: a network error, a timeout, a `429` or `5xx` answer, a rate limit, or a body that is not a membership. Deny access for now and ask the user to try again later. `error.cause` holds the network error.
+
+## AUTH_GITHUB_NOT_ORG_MEMBER
+
+The GitHub user is not an active member of the organization: GitHub answered `404`, or the invitation is still pending. Deny access, or invite the user.
 
 ## AUTH_MCP_OAUTH_MISSING
 

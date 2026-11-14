@@ -96,6 +96,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, looked }: { database: string, looked: string }) => `The database "${database}" found no connection. It looked for ${looked}.`,
       fix: "Set the environment variable or add the Cloudflare D1 binding that `connectDatabase()` reads, or pass another location, such as `file:./data/app.sqlite`.",
     },
+    DATABASE_URL_VARIABLE_IGNORED: {
+      why: ({ database, file, variable }: { database: string, file: string, variable: string }) => `The database "${database}" has no \`connection\`, so it uses the local SQLite file ${file}. \`${variable}\` is set, but a Database Definition does not read it.`,
+      fix: ({ token, variable }: { token?: string, variable: string }) => `To use it, set \`connection: { url: process.env.${variable}${token ? `, authToken: process.env.${token}` : ""} }\` in the Database Definition. To keep the local file, unset \`${variable}\`.`,
+    },
     DATABASE_UNSUPPORTED_URL: {
       why: ({ database, value }: { database: string, value: string }) => `The database "${database}" cannot connect to ${value}.`,
       fix: "Use `d1:BINDING`, `env:VARIABLE` with a libSQL URL, a `libsql://` or `https://` URL, or a `file:` path on Node.",
@@ -140,6 +144,18 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
       fix: "Build with the Node host and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
+    DATABASE_MIGRATION_BACKUP_FAILED: {
+      why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
+      fix: "Make the backup folder writable and give it free space, or set `migrateOnStart.backup.dir` to another folder. Then start the server again.",
+    },
+    DATABASE_MIGRATION_BACKUP_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`migrateOnStart.backup\` copies only local SQLite files${database ? `, and cannot copy the database "${database}"` : ""}. ${problem}`,
+      fix: "Use a `file:` connection URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or the snapshots of your libSQL provider. Set `keep` to a whole number of 1 or more.",
+    },
+    DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
+    },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
     DATABASE_EXPORT_FAILED: {
@@ -158,6 +174,20 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_DROP_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot drop the tables of the database "${database}". ${problem}`,
       fix: "Read the problem in `why`. The drop runs in one transaction, so a failure drops nothing. Without `--remote`, it drops the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`.",
+    },
+
+    // Seed errors. `vitehub database seed` prints them and exits with code 1.
+    DATABASE_SEED_NOT_FOUND: {
+      why: ({ database, file }: { database: string, file: string }) => `The database "${database}" has no seed file. ViteHub looks for ${file}.`,
+      fix: "Create the file with a default export, such as `export default async ({ db, schema }) => { await db.insert(schema.users).values({ name: 'Ada' }) }`. To seed another database, add `--database <name>`.",
+    },
+    DATABASE_SEED_PENDING_MIGRATIONS: {
+      why: ({ database, migrations }: { database: string, migrations: readonly string[] }) => `The database "${database}" has pending migrations, so the seed would not see the current tables:${fileList(migrations)}`,
+      fix: "Run `vitehub database migrate` with the same `--remote` and `--stage` flags, then run `vitehub database seed` again.",
+    },
+    DATABASE_SEED_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot seed the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub database seed` writes only the local database: the SQLite file or the PGlite folder. With `--remote`, it needs the same connection as `vitehub database export --remote`. A seed that throws keeps the rows that it wrote before the error. Write them in `db.transaction()` to keep all or none.",
     },
 
     // Definition errors. `defineDatabase()` throws them.
