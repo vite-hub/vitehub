@@ -275,8 +275,8 @@ async function reopen(): Promise<void> {
           @close="close"
         >
           <template #actions>
-            <UTooltip v-if="link" text="Open page">
-              <UButton aria-label="Open page" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
+            <UTooltip v-if="link" :text="view.link?.label ?? 'Open page'">
+              <UButton :aria-label="view.link?.label ?? 'Open page'" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
             </UTooltip>
           </template>
           <template #anchor="{ thread: current }">

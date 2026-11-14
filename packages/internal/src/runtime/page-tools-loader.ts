@@ -31,6 +31,12 @@ export interface ViteHubPageToolContext {
   signal: AbortSignal
   /** Whether the tool should open on startup, through query selection, activation, or restored state. */
   open: boolean
+  /**
+   * Whether a link picked this tool: `?vitehub=<tool id>`, or the tool's own `param`, such as `?comment=3`. A tool with
+   * a main action starts it, as Comments turns comment mode on. The loader removes `?vitehub` from the address once the
+   * tools start, so read this flag, not the address. The tool's own `param` stays for the tool to read and remove.
+   */
+  linked: boolean
   createWindow(options: Omit<ViteHubPageWindowOptions, "signal">): ViteHubPageWindow
   /**
    * Adds a tab to the pill: a `<vitehub-tab slot="tab">` that stands on the bar's inner side, like a tab on top of a chat
@@ -457,7 +463,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
               exitChecks.add(guard)
               attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
             }, tool, bar, signal: attempt.signal,
-            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit: () => exit(),
+            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), linked: show && tool.id === open, exit: () => exit(),
             createWindow: options => {
               const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => {
                 remember(tool.id, false)
@@ -535,5 +541,14 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   }))
   const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
   if (tools.length === 0) pillController.abort()
+  // The tools are on and the linked tool knows it was linked, so `?vitehub` has done its work. A copied address or a
+  // reload then shows the page as it is, and the browser's stored choices decide the tools.
+  else {
+    const url = new URL(location.href)
+    if (url.searchParams.has(viteHubPageToolsQuery)) {
+      url.searchParams.delete(viteHubPageToolsQuery)
+      history.replaceState(history.state, "", url)
+    }
+  }
   return tools
 }

@@ -1,4 +1,5 @@
 import { CommentLayer, CommentPanel } from "@vite-hub/ui/comments"
+import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { useComments } from "@vite-hub/ui/headless"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
@@ -77,6 +78,8 @@ export interface OverlayControl {
   /** Whether a box holds text that was not sent. */
   hasUnsentComment: () => boolean
   showPanel: () => void
+  /** What the Comments button does, for a `?vitehub=comments` link: comment mode, or the list for a reader. */
+  pressComments: () => void
   setMode: (mode: Mode) => void
   /** Saves or drops the inline edit, when one is open. */
   finishEdit: (save: boolean) => Promise<void>
@@ -196,6 +199,17 @@ function clip(box: MarkerBox, element: Element): MarkerBox {
 }
 
 /** Elements of the overlay, the pill, and its windows. Anchors skip them, as they skip the comment parts. */
+/** The query of a link to a thread, `?comment=<n>`. `useComments` reads it, and the session route names it the tool's `param`. */
+const threadParam = "comment"
+
+/** Removes `?comment=<n>` from the address, without a navigation. */
+function dropThreadLink() {
+  const url = new URL(location.href)
+  if (!url.searchParams.has(threadParam)) return
+  url.searchParams.delete(threadParam)
+  history.replaceState(history.state, "", url)
+}
+
 function ignored(element: Element): boolean {
   for (let node: Element | null = element; node;) {
     if (node.closest("[data-comments-ui], vitehub-pill, vitehub-window")) return true
@@ -532,7 +546,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** Why this person cannot comment, with **Sign in with GitHub** when the site offers it. */
   function denied(current: CommentsSession) {
-    const signIn = current.signIn && `${current.signIn.url}?return=${encodeURIComponent(location.pathname + location.search + location.hash)}`
+    // The way back opens Comments again: the loader dropped the `?vitehub` that may have brought the person here.
+    const back = new URL(location.href)
+    back.searchParams.set(viteHubPageToolsQuery, "comments")
+    const signIn = current.signIn && `${current.signIn.url}?return=${encodeURIComponent(back.pathname + back.search + back.hash)}`
     const github = current.github
     if (github && current.signOut) {
       const url = current.signOut
@@ -662,6 +679,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       watch(() => state.status.value, (status) => {
         if (status === "ready" && !room) void joinRoom()
       })
+      // The listed threads let `useComments` open the thread of a `?comment=<n>` link. Then the address drops the link,
+      // as the loader drops `?vitehub`, so a reload or a copied address shows the page as it is.
+      watch(() => state.status.value === "ready", (ready) => {
+        if (ready) void nextTick(dropThreadLink)
+      }, { immediate: true })
       watch(() => state.counts.value.open, () => tick.value++)
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
@@ -981,6 +1003,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     })
   }
 
+  /** What the Comments button does: comment mode for a person who may comment, the list for a reader. */
+  function pressComments() {
+    if (canComment.value) setMode("comment")
+    else showPanel()
+  }
+
   const hasUnsentComment = () => [shadow, panelTarget.value?.getRootNode()].some(node =>
     node instanceof ShadowRoot && node.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
 
@@ -988,6 +1016,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     app,
     hasUnsentComment,
     showPanel,
+    pressComments,
     setMode,
     finishEdit: edit.finish,
     navigated(next) {

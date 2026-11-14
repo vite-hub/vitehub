@@ -99,8 +99,11 @@ class CommentsOverlay extends HTMLElement {
     this.listen()
     this.context?.onOpen(() => this.control?.showPanel())
     this.context?.beforeExit(() => !this.control?.hasUnsentComment() || window.confirm("Turn off tools without sending your comment?"))
-    // A `?comment=<n>` link opens its thread on the page, not the list.
-    if (this.context?.open && !new URLSearchParams(location.search).has("comment")) this.control.showPanel()
+    // A `?comment=<n>` link opens its thread on the page, not the list. `?vitehub=comments` presses the Comments button,
+    // so a person who may comment is in comment mode at once. A tool that opens again shows its list, as it was.
+    if (new URLSearchParams(location.search).has("comment")) return
+    if (this.context?.linked) this.control.pressComments()
+    else if (this.context?.open) this.control.showPanel()
   }
 
   disconnectedCallback() {
