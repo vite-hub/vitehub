@@ -57,7 +57,7 @@ describe("Console Go to chord focus", () => {
     }
     const body = document.activeElement
     try {
-      expect(Object.keys(shortcuts.value).sort()).toEqual(["[", "g-a", "g-k", "g-o"])
+      expect(Object.keys(shortcuts.value).sort()).toEqual(["g-a", "g-k", "g-o"])
       focus(editor)
       key("g")
       focus(body)

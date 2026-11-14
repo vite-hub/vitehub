@@ -10,7 +10,7 @@ import { operationItems } from "../client/operation-view";
 import { showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired, requestConsoleOperation } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
-import { closeConsoleSidebarDrawer, consoleAddPrimitiveOpen, openConsoleSearch, toggleConsoleSidebar } from "../client/sidebar";
+import { closeConsoleSidebarDrawer, consoleAddPrimitiveOpen, openConsoleSearch } from "../client/sidebar";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionGroupLabels, consoleSectionShortcut, groupConsoleSections, resolveConsoleSectionGroup } from "../sections";
 import ConsoleProjectSwitcher from "./console-project-switcher.vue";
@@ -24,7 +24,7 @@ const ConsoleAccountMenu = defineAsyncComponent(() => import("./console-account-
 
 /**
  * The sidebar of an open app: the app tile, Overview, the app's sections in groups, and Add a primitive. It owns the
- * "Go to" chords and the `[` key that opens and closes the sidebar, because it is on every page of an app.
+ * "Go to" chords, because it is on every page of an app.
  */
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -114,7 +114,7 @@ let goToStartedOutsideEditor = false;
 
 function editing(): boolean {
   const active = document.activeElement;
-  return active instanceof HTMLElement && (active.matches("input, textarea, select") || active.isContentEditable);
+  return active instanceof HTMLElement && (active.matches("input, textarea") || active.isContentEditable);
 }
 
 function trackGoToStart(event: KeyboardEvent): void {
@@ -136,7 +136,6 @@ defineShortcuts(
   computed(() => {
     const shortcuts: Record<string, () => void> = {
       [consoleOverviewShortcut.join("-")]: () => openShortcut("vitehub-console"),
-      "[": () => { if (!editing()) toggleConsoleSidebar(); },
     };
     for (const section of sections.value) {
       if (section.shortcut) shortcuts[section.shortcut.join("-")] = () => openShortcut(section.routeName);
