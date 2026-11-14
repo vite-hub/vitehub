@@ -1738,7 +1738,8 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || typeof address === "string") throw agentDiagnostics.AGENT_R0699({ message: "[vitehub] Provider Agent Driver failed to start its Capability tool server." })
+  // Internal invariant: a server that listens on 127.0.0.1 port 0 always reports an AddressInfo after "listening".
+  if (!address || typeof address === "string") throw new Error("[vitehub] Provider Agent Driver failed to start its Capability tool server.")
   return {
     async close() {
       http.closeAllConnections()
@@ -3306,7 +3307,8 @@ async function* runProvider<
       effectiveSignal?.throwIfAborted()
       providerLaunchDiagnosticSecrets = providerLaunchSecretValues(launch)
       onProviderExit = launch.onExit
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      // Internal invariant: launchRoot is created whenever driver.launch is set.
+      if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, providerLaunchDiagnosticSecrets, providerCwd),
         effectiveSignal,
@@ -3473,7 +3475,8 @@ async function* runProvider<
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     if (options.sandbox) {
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      // Internal invariant: launchRoot is created whenever the Agent has a sandbox.
+      if (!launchRoot) throw new Error("[vitehub] Provider launcher root was not prepared.")
       const configuredCommand = options.providerSettings?.binaryPath
       if (configuredCommand !== undefined && typeof configuredCommand !== "string") {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
@@ -3910,7 +3913,8 @@ async function* runProvider<
         await closeWorkspace(
           context,
           workspaceSession,
-          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          // Internal invariant: closeWorkspace() only checks that an error is present, so this error never reaches the app.
+          caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")),
           signal,
         )
       }

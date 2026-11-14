@@ -1,6 +1,5 @@
 import { cp, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative } from "node:path"
-import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 type SkillProvider = "claude-code" | "codex"
@@ -86,7 +85,8 @@ export async function selectProviderSkills(input: {
     const skillRoot = skillRoots.find(root => path.startsWith(`${root}/`))
     const [name, ...rest] = skillRoot ? path.slice(skillRoot.length + 1).split("/") : []
     if (!name || name === ".." || rest.includes("..")) {
-      throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside a provider skill root." })
+      // Internal invariant: discovery and agentWithSkills() put every colocated Skill under .agents/skills/<name>.
+      throw new Error("[vitehub] Colocated Skill path must stay inside a provider skill root.")
     }
     // Discovery includes root documentation, which does not belong to a Skill.
     if (!rest.length) continue
