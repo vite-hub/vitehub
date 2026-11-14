@@ -715,12 +715,11 @@ describe("hubDatabase", () => {
     ].join("\n"))
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
-      "import definition from './databases/default.ts'",
       "import { useDatabase } from '@vite-hub/database'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ DB: binding }, async () => {",
       "  const { db, schema } = useDatabase('default')",
-      "  return { definition: await definition.select().from(definition.schema.notes), registry: await db.select().from(schema.notes) }",
+      "  return { registry: await db.select().from(schema.notes) }",
       "})",
       "",
     ].join("\n"))
@@ -744,14 +743,14 @@ describe("hubDatabase", () => {
     try {
       // SAFETY: This fixture writes the module before Vite evaluates its public Database imports.
       const module = await server.ssrLoadModule(queryFile) as {
-        query: (binding: typeof localBinding) => Promise<{ definition: Array<{ title: string }>, registry: Array<{ title: string }> }>
+        query: (binding: typeof localBinding) => Promise<{ registry: Array<{ title: string }> }>
       }
-      await expect(module.query(localBinding)).resolves.toEqual({ definition: [{ title: "real note" }], registry: [{ title: "real note" }] })
+      await expect(module.query(localBinding)).resolves.toEqual({ registry: [{ title: "real note" }] })
       expect(nativeQueries).toEqual([])
-      expect(requests).toEqual(Array.from({ length: 2 }, () => ({
+      expect(requests).toEqual([{
         authorization: "Bearer api-token",
         url: "https://api.cloudflare.com/client/v4/accounts/account-id/d1/database/real-database-id/raw",
-      })))
+      }])
       expect(warn).toHaveBeenCalledWith("[vitehub] Database \"default\" is remote: `vite dev` queries the real D1 database real-database-id over HTTP. Writes change real data.")
     }
     finally {
@@ -831,12 +830,11 @@ describe("hubDatabase", () => {
     const definition = await writeDefinition(rootDir, "server/databases/default.ts")
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
-      "import definition from './databases/default.ts'",
       "import { useDatabase } from '@vite-hub/database'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ HOST_DB: binding }, async () => {",
       "  const { db, schema } = useDatabase('default')",
-      "  return { definition: await definition.select().from(definition.schema.notes), registry: await db.select().from(schema.notes) }",
+      "  return { registry: await db.select().from(schema.notes) }",
       "})",
       "",
     ].join("\n"))
@@ -854,12 +852,12 @@ describe("hubDatabase", () => {
       async function query() {
         // SAFETY: This fixture writes the module before Vite evaluates its public Database imports.
         const module = await server.ssrLoadModule(queryFile) as {
-          query: (nativeBinding: typeof binding) => Promise<{ definition: Array<{ title: string }>, registry: Array<{ title: string }> }>
+          query: (nativeBinding: typeof binding) => Promise<{ registry: Array<{ title: string }> }>
         }
         return module.query(binding)
       }
-      await expect(query()).resolves.toEqual({ definition: [{ title: "host note" }], registry: [{ title: "host note" }] })
-      expect(nativeQueries).toHaveLength(2)
+      await expect(query()).resolves.toEqual({ registry: [{ title: "host note" }] })
+      expect(nativeQueries).toHaveLength(1)
       nativeQueries.length = 0
 
       await writeFile(definition, [
@@ -876,9 +874,9 @@ describe("hubDatabase", () => {
       server.moduleGraph.invalidateModule(changedModule)
       await resolveHotUpdate(plugin)({ file: definition, server })
 
-      await expect(query()).resolves.toEqual({ definition: [{ title: "application note" }], registry: [{ title: "application note" }] })
+      await expect(query()).resolves.toEqual({ registry: [{ title: "application note" }] })
       expect(nativeQueries).toEqual([])
-      expect(requests).toEqual(["POST /application/raw", "POST /application/raw"])
+      expect(requests).toEqual(["POST /application/raw"])
     }
     finally {
       await Promise.all([server.close(), closeHttpServer(proxy)])

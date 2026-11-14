@@ -847,7 +847,7 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: ViteHubOpt
 /** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
-  getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
+  getModuleDependencies: (nuxt?: unknown) => Promise<Record<string, { optional?: boolean; defaults?: Record<string, unknown>; overrides?: Record<string, unknown> }>>
   getMeta: () => Promise<{
     compatibility: { server: "nitro3" }
     configKey: "vitehub"
@@ -1616,13 +1616,32 @@ viteHubNuxtModule.getMeta = async () => ({
   name: "vite-hub/nuxt",
 })
 
-viteHubNuxtModule.getModuleDependencies = async () => {
+viteHubNuxtModule.getModuleDependencies = async (nuxt) => {
   // Nuxt asks for the dependencies first on each start of the app, also after a start that failed before Vite closed
   // its plugins. Forget the package checks of an earlier start, so a reload sees the packages installed since then.
   startPackageChecks()
-  if (!isPackageInstalled("@nuxt/ui")) return {}
+  const content = await resolveNuxtContentDatabaseDependencies(nuxt)
+  if (!isPackageInstalled("@nuxt/ui")) return content
   const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-  return ui?.viteHubUIIconDependencies ?? {}
+  return { ...ui?.viteHubUIIconDependencies, ...content }
+}
+
+/**
+ * The Nuxt Content `database` default that the default Database gives, such as Postgres or remote libSQL. Nuxt applies
+ * dependency defaults before it sets up any module, so Content reads it in any module order. A Database with an explicit
+ * `driver` keeps its own Content wiring, and Cloudflare keeps Content on D1.
+ */
+async function resolveNuxtContentDatabaseDependencies(nuxtInstance: unknown) {
+  // SAFETY: Nuxt passes its instance to `getModuleDependencies`; NuxtLike describes only the options read here.
+  const nuxtOptions = (nuxtInstance as NuxtLike | undefined)?.options
+  if (!nuxtOptions || nuxtOptions.dev) return {}
+  const configured = { ...nuxtOptions.vitehub } as ViteHubNuxtOptions
+  if ((configured.host ?? detectHost()) === "cloudflare") return {}
+  const project = { projectRoot: resolveViteHubProjectRoot(nuxtOptions.rootDir || process.cwd()), serverDirs: resolveNuxtServerDirs(nuxtOptions) }
+  const { database } = withConnectionsDatabase(resolveCmsPresetFeatures(withComments(configured as ViteHubOptions), project))
+  if (!database || (database !== true && database.driver !== undefined)) return {}
+  const owner = await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt"))
+  return owner?.hubDatabase(database === true ? {} : { ...database }).getModuleDependencies(nuxtInstance) ?? {}
 }
 
 export default viteHubNuxtModule

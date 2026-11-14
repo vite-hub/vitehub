@@ -89,7 +89,7 @@ Each Database is `server/databases/<name>.ts`, or `server/databases/<name>/index
 
 `db`, `schema`, and `useDatabase()` from `@vite-hub/database` read the Databases that the Vite integration generates for server code that Nitro builds. Nitro is the only host output. In plain `node`, outside Vite, `db` throws `DATABASE_DISABLED` and `useDatabase()` throws `DATABASE_NOT_FOUND`.
 
-Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names. It returns `{ db, schema, relations }`.
+Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names. It returns `{ db, schema, relations }`. Query `useDatabase(name).db`. `defineDatabase()` returns only the Definition, not a Drizzle database, because only the generated database has the merged relations and the migrations folder of the build.
 
 Pass `relations` from Drizzle's `defineRelations(schema, r => ({ ... }))` to `defineDatabase()` to read related rows with `db.query.<table>.findMany({ with })`. The result of `with` is typed. Without `relations`, ViteHub uses `defineRelations(schema)`: every table, with no relations. A relation to a table that the merged database does not hold, or that a later layer replaced, fails with `DATABASE_INVALID_RELATIONS`.
 
@@ -250,7 +250,7 @@ ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdri
 
 Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
 
-`vitehub database generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub database migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Query a Postgres Definition through `useDatabase()`; `defineDatabase()` returns only the Definition.
+`vitehub database generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub database migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Query a Postgres Definition through `useDatabase()`.
 
 Without a Hyperdrive binding, a URL, and PG* variables, `vite dev`, `nuxt dev`, app tests, and `vitehub database migrate` run a Postgres Database on [PGlite](https://pglite.dev), a Postgres in the Node process. Install `@electric-sql/pglite` in the app; ViteHub loads it only then. The data is in `.vitehub/data/database/pglite`, or `.vitehub/data/database/<name>.pglite` for a Named Database, and app tests get an in-memory PGlite with the migrations. PGlite opens its folder in one process, so stop the dev server before `vitehub database migrate`. `driver: "pglite"` uses PGlite there even with a URL, and a production build with it fails with `DATABASE_PGLITE_IN_BUILD`. Production output never includes PGlite.
 
@@ -279,6 +279,8 @@ export default defineNuxtConfig({
 Run `vitehub provision run --provider cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
 
 A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `vitehub.database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
+
+Off Cloudflare, a production build gives Nuxt Content the default Database when the app sets no `content.database`: Postgres with `connection.url` becomes `{ type: "postgresql" }`, and a remote or env libSQL URL becomes `{ type: "libsql" }`. Env values stay empty in the build, and a generated Nitro plugin reads them when the server starts. See [Nuxt Content](https://vitehub.dev/docs/database/hosts#nuxt-content).
 
 `@vite-hub/database/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 

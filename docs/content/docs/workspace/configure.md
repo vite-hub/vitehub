@@ -111,18 +111,20 @@ export default defineDatabase({ name: 'history', schema: workspaceHistorySchema 
 
 ```ts [server/workspaces/drop.ts]
 import { blob } from 'vite-hub/blob'
+import { useDatabase } from 'vite-hub/database'
 import { defineWorkspace } from 'vite-hub/workspace'
 import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
-import historyDatabase from '../databases/history/index'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
-  database: historyDatabase,
+  database: () => useDatabase('history').db,
   workspace: 'drop-123',
 })
 
 export default defineWorkspace({ store: dropStore })
 ```
+
+`database` takes a function that returns the Drizzle database. The Store calls it on first use, because the build loads the Workspace Definition without your Databases. Do not pass the Database Definition: it holds options only. `useDatabase('history').db` has the migrations and relations of the build. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
 
 `vite-hub/workspace/blob-database` also exports the constructor and schema. This subpath needs `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.
 

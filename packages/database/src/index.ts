@@ -11,7 +11,6 @@ export type {
   CloudflareHyperdriveConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
-  Database,
   DatabaseDefinition,
   DatabaseDefinitionOptions,
   DatabaseDialect,
