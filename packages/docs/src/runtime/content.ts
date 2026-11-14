@@ -89,7 +89,7 @@ export function docsContent(): DocsContent {
     seo: {
       ...config.site.url ? { site: siteUrl } : {},
       sitemap: true,
-      markdown: { prefix: "/raw" },
+      markdown: { prefix: "/raw", pages: config.markdownPages },
       llms: { title: config.site.name, ...config.site.description ? { description: config.site.description } : {}, ...agent.llms },
       mcp: config.mcp ? { name: config.mcp.name } : false,
     },

@@ -210,6 +210,7 @@ Most changes are options in `nuxt.config.ts`:
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
+| `markdownPages` | `true` | A Markdown copy of each app page that is not a docs page, converted from its HTML, at its URL plus `.md` and for `Accept: text/markdown`. `false` turns it off. |
 | `parser` | None | Path of a module whose default export is the parser options: `{ comarkUi, examples, plugins }`. See [Comark plugins](#comark-plugins). |
 | `examples` | `examples` | Folder, inside `app/`, of the Vue files that `::example{name}` shows. See [Examples](#examples). |
 
@@ -323,6 +324,7 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 | `/sitemap.md`, `/sitemap.xml` | Every page, for agents and for search engines. |
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Agent Skills from the `skills/` folder of the app, when it has one. |
+| `/<page>.md` | Any other app page, such as `/index.md` for the home page, converted from its HTML by Content. `markdownPages: false` turns it off. |
 
 Product landing components become plain Markdown, with the hero tagline, hosts, channels, linked feature titles, and descriptions. Component syntax inside code examples stays literal.
 

@@ -279,7 +279,7 @@ it("passes the Auth session user to every Content reader except robots.txt", asy
     expect(await read("robots.mjs")).not.toContain("useAuth")
     // Entries that load when the server starts import Auth on the first request that asks.
     const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
-    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
+    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), { render: request => serverFetch(request), ${lazyUser.slice(2)})`)
     expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
     expect(await read("markdown.mjs")).not.toContain("import { useAuth }")
   }

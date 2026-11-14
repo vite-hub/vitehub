@@ -159,6 +159,12 @@ export interface DocsModuleOptions {
    */
   rawMarkdown?: (markdown: string, page: DocsPage) => string | Promise<string>
   /**
+   * A Markdown copy of every app page that is not a docs page, such as the home page, at its URL plus `.md` and for
+   * `Accept: text/markdown`. Content converts the HTML that the app renders for the same request. Docs pages keep their
+   * exact copy. `false` turns it off.
+   */
+  markdownPages?: boolean
+  /**
    * The share image of every page, rendered by `nuxt-og-image` while the build prerenders. By default it shows the
    * site, the page title and description, and the section. `component` names the app's own template in
    * `components/OgImage/`, such as `Docs` for `OgImage/Docs.takumi.vue`; it gets the same props. A page sets
@@ -209,6 +215,8 @@ export interface DocsPublicConfig {
   github: { repo: string, branch: string, dir: string, url: string, stars: number | null } | false
   icons: DocsIcons
   mcp: { name: string, url: string, guide: string | null } | false
+  /** Whether app pages that are not docs pages get a converted Markdown copy. */
+  markdownPages: boolean
   assistant: { agent: string } | false
   ogImage: { component: string } | false
 }
@@ -696,6 +704,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })
     }
     if (config.mcp) addServerHandler({ route: "/mcp", handler: resolver.resolve("./runtime/server/mcp.js") })
+    if (config.markdownPages) addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/markdown.js") })
 
     /**
      * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
@@ -943,6 +952,7 @@ function publicConfig(options: DocsModuleOptions, base: string, appBase: string)
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
     icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", stroke: 1.5, ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
+    markdownPages: options.markdownPages !== false,
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
   }

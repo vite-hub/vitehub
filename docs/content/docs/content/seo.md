@@ -282,7 +282,7 @@ export default defineContent({
 
 | `seo` option | Description |
 | --- | --- |
-| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. |
+| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. `{ pages: true }` also gives [every other app page](#app-pages-as-markdown) a copy, converted from its HTML. |
 | `llms` | `true`, or `{ title, description, details, sections }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. `details` is text under the description, such as rules for agents. `sections` adds sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages. |
 
 The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
@@ -320,6 +320,25 @@ export default defineContent({
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 
 An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. Every response at a URL with a copy varies on `Accept`, including JSON, assets, and redirects. URLs without copies keep their headers unless they return a 404. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+
+### App pages as Markdown
+
+`seo: { markdown: { pages: true } }` gives a copy to the app pages that are not Content documents, such as a pricing page or a dashboard. A Markdown request for such a page renders the page inside the server, without a network hop, for the same request with its cookies and `Authorization` header. Content converts the HTML with [mdream](https://github.com/harlan-zw/mdream): it keeps the `<main>` part and leaves out navigation, footers, buttons, forms, scripts, and hidden elements. When the content has no heading first, the page `<title>` becomes the heading. A Content document keeps its exact copy.
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+
+export default defineContent({
+  seo: { site: 'https://example.com', markdown: { pages: true } },
+})
+```
+
+- Only a `200` HTML page gets a copy. A page with `X-Robots-Tag: noindex` gets none. The copy keeps the page's `X-Robots-Tag` and its robots meta tag as `X-Robots-Tag`.
+- A `404` page gets the Markdown 404. A redirect, such as to a sign-in page, or an error is the answer for the copy too.
+- A copy of a page that the request's cookies or `Authorization` header can change has `Cache-Control: private, no-store`, so no shared cache gives it to another reader. The page's own `Set-Cookie` headers stay.
+- The copy has `Link: <page>; rel="canonical"`, so search engines index the page and not the copy.
+
+Off by default. [Docs sites](/docs/docs-site/configure#agent-resources) turn it on. ViteHub renders the page with `serverFetch` from `nitro`. In another server, pass your own renderer: `defineContentMarkdownHandler(content, { render: request => app.fetch(request) })`.
 
 Check the output from code:
 

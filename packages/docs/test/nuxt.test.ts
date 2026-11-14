@@ -16,7 +16,7 @@ import { findDocsPage } from "../src/navigation.ts"
 type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
-const handlers: Array<{ route: string, method?: string }> = []
+const handlers: Array<{ route: string, method?: string, handler?: string, middleware?: boolean }> = []
 let templateDir = "/build"
 const updateTemplates = vi.hoisted(() => vi.fn<(options: { filter: (template: { filename: string }) => boolean }) => Promise<void>>())
 const logger = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() }))
@@ -31,7 +31,7 @@ vi.mock("@nuxt/kit", () => ({
     templates.set(template.filename, template.getContents)
     return { dst: `/build/${template.filename}` }
   },
-  addServerHandler: (handler: { route: string, method?: string }) => handlers.push(handler),
+  addServerHandler: (handler: { route: string, method?: string, handler?: string, middleware?: boolean }) => handlers.push(handler),
   addComponent: vi.fn(),
   addComponentsDir: vi.fn(),
   addImportsDir: vi.fn(),
@@ -300,6 +300,15 @@ describe("docs Nuxt setup", () => {
     const [file] = readdirSync(join(options.buildDir, "docs/styles"))
     expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
     expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
+  })
+
+  it("gives app pages a Markdown copy unless markdownPages is false", async () => {
+    const markdown = (handler: { route?: string, handler?: string }) => handler.handler?.endsWith("runtime/server/markdown.js")
+    expect((await setupDocs({})).runtimeConfig.public.docs.markdownPages).toBe(true)
+    expect(handlers.filter(markdown)).toEqual([expect.objectContaining({ middleware: true })])
+    handlers.length = 0
+    expect((await setupDocs({ markdownPages: false })).runtimeConfig.public.docs.markdownPages).toBe(false)
+    expect(handlers.filter(markdown)).toEqual([])
   })
 
   it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
@@ -695,7 +704,10 @@ describe("docs Nuxt setup", () => {
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/mcp",
+      // The Markdown copies of app pages: middleware, with no route.
+      undefined,
     ])
+    expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])
   })
