@@ -1548,6 +1548,7 @@ export { getRuntimeContext, getStandardContext, type RequestRuntimeContext, type
 
 export {
   deserializeResponse,
+  isResponse,
   isSerializedResponse,
   serializeResponse,
   toResponse,

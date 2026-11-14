@@ -89,8 +89,8 @@ function isErrorLike(value: unknown): value is Error {
   return value instanceof Error || (isRecord(value) && typeof value.message === "string")
 }
 
-// Inline runs store the handler result as a serialized `Response`. Read its body
-// so that the CLI shows the value that the Workflow returned.
+// A handler can return a `Response`. Read its body so that the CLI shows the
+// value that the Workflow returned.
 async function readResult(result: unknown): Promise<unknown> {
   if (!isResponse(result)) return result
   const text = await result.clone().text()

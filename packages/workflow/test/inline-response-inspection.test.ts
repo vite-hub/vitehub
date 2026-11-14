@@ -73,3 +73,13 @@ it("records a failed run when its response body cannot be retained", async () =>
 
   expect(await workflow.getRun("run-1")).toMatchObject({ status: "failed", metadata: cause, result: undefined })
 })
+
+it("returns a plain handler value, not a Response, on inspection and duplicate start", async () => {
+  setWorkflowRuntimeConfig({ provider: "vercel" })
+  const workflow = createWorkflow("plain-inspection", () => ({ ok: true }))
+  await workflow.start(undefined, { id: "run-1" })
+  await getWorkflowRunState(workflow.name, "run-1")!.promise
+
+  await expect(workflow.getRun("run-1")).resolves.toMatchObject({ result: { ok: true }, status: "completed" })
+  await expect(workflow.start(undefined, { id: "run-1" })).resolves.toMatchObject({ result: { ok: true }, status: "completed" })
+})

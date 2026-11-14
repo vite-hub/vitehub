@@ -12744,11 +12744,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("support-agent", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
       await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "completed" })
       const record = await invocations.getByRunId(run.id, "support-agent")
       expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
@@ -13634,11 +13632,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("support-agent-abort-signal", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toEqual(false)
+      expect(completedRun.result).toEqual(false)
     })
 
     it("delivers durable failure fallbacks with completed write tool results", async () => {
@@ -14811,9 +14807,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-result", run.id)
-      expect(completed.result).toBeInstanceOf(Response)
-      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      const result = await completed.result.json()
+      const { result } = completed
       expect({ ...completed, result }).toMatchObject({
         result: {
           text: "portable text",
@@ -15518,11 +15512,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("portable-response", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         raw: {
           body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "Text/Plain" },
           headers: [
@@ -15561,9 +15553,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-binary-response", run.id)
-      expect(completed.result).toBeInstanceOf(Response)
-      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      const result = await completed.result.json()
+      const { result } = completed
       expect({ ...completed, result }).toMatchObject({
         result: {
           raw: {
@@ -15605,11 +15595,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("request-url", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         method: "GET",
         tenant: null,
         url: "https://calories.example/messages?source=telegram",
@@ -15668,11 +15656,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("portable-attachments", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toEqual([
+      expect(completedRun.result).toEqual([
         { data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" },
         { data: "data:audio/mpeg;base64,BAUG", mediaType: "audio/mpeg", type: "audio" },
         { data: "data:application/pdf;base64,BwgJ", mediaType: "application/pdf", type: "file" },
@@ -15768,11 +15754,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("portable-storage", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.json()).resolves.toMatchObject({
+        expect(completedRun.result).toMatchObject({
           blobs: { blobs: [{ pathname: "workflow/input.jpg" }] },
           schema: { database: "default", schema: { meals: true } },
         })
@@ -15851,11 +15835,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("portable-console", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("https://example.test/linked-invocation")
+        expect(completedRun.result).toEqual("https://example.test/linked-invocation")
         expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
           request: expect.objectContaining({ url: "https://example.test/portal/api/agent" }),
         }))
@@ -15889,11 +15871,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("capability-boundary", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.json()).resolves.toEqual([])
+        expect(completedRun.result).toEqual([])
         expect(loadConsole).not.toHaveBeenCalled()
       } finally {
         setAgentWorkflowCapabilityLoaders({})
@@ -15965,11 +15945,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("summary-run-events", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("done")
+      expect(completedRun.result).toEqual("done")
       expect(resolveStore).toHaveBeenCalledTimes(2)
       expect(innerRunId).toBe(run.id)
       expect(published).toEqual([
@@ -16041,9 +16019,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("support", run.id)
-      expect(completedRun).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("registry:hello")
+      expect(completedRun.result).toEqual("registry:hello")
     })
 
     it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
@@ -16093,11 +16069,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("named-discovered", run.id)
-      expect(completedRun).toMatchObject({
-        result: expect.any(Response),
-      })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         marker: "registry",
         payload: { capabilities: { blob: false } },
       })
@@ -16122,9 +16094,7 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks.splice(0))
       const completedRun1 = await getWorkflowRun("cache-boundary", discoveredRun.id)
-      expect(completedRun1).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.text()).resolves.toEqual("registry")
+      expect(completedRun1.result).toEqual("registry")
 
       setWorkflowRuntimeRegistry(undefined)
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16135,9 +16105,7 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks)
       const completedRun2 = await getWorkflowRun("cache-boundary", directRun.id)
-      expect(completedRun2).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.text()).resolves.toEqual("inline")
+      expect(completedRun2.result).toEqual("inline")
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
@@ -16286,11 +16254,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("browser", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("keeps one discovered Agent Definition isolated across host identities", async () => {
@@ -16328,18 +16294,14 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun(docsIdentity.name, docsRun.id)
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toEqual(docsIdentity)
+      expect(completedRun1.result).toEqual(docsIdentity)
       const completedRun2 = await getWorkflowRun(supportIdentity.name, supportRun.id)
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toEqual(supportIdentity)
+      expect(completedRun2.result).toEqual(supportIdentity)
       await expect(resolveRegisteredWorkspaceDefinition(docsIdentity.workspace)).resolves.toMatchObject({ name: docsIdentity.workspace })
       await expect(resolveRegisteredWorkspaceDefinition(supportIdentity.workspace)).resolves.toMatchObject({ name: supportIdentity.workspace })
       expect(agent.runtime).toBe(originalRuntime)
@@ -16391,17 +16353,11 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun("identity-binding-wins", bindingRun.id)
-      expect(completedRun1).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toEqual(hostIdentity)
+      expect(completedRun1.result).toEqual(hostIdentity)
       const completedRun2 = await getWorkflowRun("identity-definition-wins", definitionRun.id)
-      expect(completedRun2).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toEqual(hostIdentity)
+      expect(completedRun2.result).toEqual(hostIdentity)
       const completedRun3 = await getWorkflowRun(hostIdentity.name, hostRun.id)
-      expect(completedRun3).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun3.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun3.result.json()).resolves.toEqual(hostIdentity)
+      expect(completedRun3.result).toEqual(hostIdentity)
     })
 
     it("resolves workspace names from explicit configuration before host identity", async () => {
@@ -16463,11 +16419,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("reviewer", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("requires direct unnamed workflow runtime bindings to provide a name", async () => {
@@ -16521,11 +16475,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun("configured-agent", run.id)
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toMatchObject({ text: "configured" })
+      expect(completedRun1.result).toMatchObject({ text: "configured" })
       expect(runtimeConfig).toEqual({ region: "iad" })
     })
 
@@ -16562,11 +16514,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun2 = await getWorkflowRun("falsey-configured-agent", run.id)
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toMatchObject({ text: "configured" })
+      expect(completedRun2.result).toMatchObject({ text: "configured" })
       expect(runtimeConfig).toBe(configuredRuntime)
     })
 
@@ -16608,18 +16558,14 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun("support-agent", first.id)
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.text()).resolves.toEqual("received first")
+      expect(completedRun1.result).toEqual("received first")
       const completedRun2 = await getWorkflowRun("support-agent", second.id)
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.text()).resolves.toEqual("received second")
+      expect(completedRun2.result).toEqual("received second")
     })
 
     it("uses trigger run ids as workflow run ids", async () => {
@@ -16659,11 +16605,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("portal-agent", "portal:run")
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("maps invalid trigger run ids to deterministic Workflow ids", async () => {
@@ -16701,11 +16645,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("telegram-agent", workflowRunId)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual(workflowRunId)
+      expect(completedRun.result).toEqual(workflowRunId)
 
       consumerRunId = workflowRunId
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16741,11 +16683,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("explicit-cloudflare-env-agent", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("explicit.nuxt.com")
+      expect(completedRun.result).toEqual("explicit.nuxt.com")
     })
 
     it("passes the active Cloudflare env through workflow inline fallback", async () => {
@@ -16776,11 +16716,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("cloudflare-agent", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("nuxt.com")
+        expect(completedRun.result).toEqual("nuxt.com")
       })
     })
   })

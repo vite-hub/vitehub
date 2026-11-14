@@ -1,5 +1,5 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
-import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
+import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
@@ -86,12 +86,22 @@ export async function runWorkflowHandler<TPayload, TResult>(
   return toResponse(value)
 }
 
+/**
+ * The stored result of a run. A `Response` from the handler is stored as a serialized Response. Any other value is
+ * stored as JSON, so every provider returns the same plain value.
+ */
+async function toStoredWorkflowResult(value: unknown): Promise<unknown> {
+  if (isResponse(value)) return await serializeResponse(value)
+  const json = JSON.stringify(value)
+  return json === undefined ? undefined : JSON.parse(json)
+}
+
 /** Encode inside the root step so both checkpoints and final outputs survive replay. */
 export async function runSerializedWorkflowHandler<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
-): Promise<SerializedResponse> {
-  const run = async () => serializeResponse(toResponse(await definition.handler(context.payload, toExecutionContext(context))))
+): Promise<unknown> {
+  const run = async () => await toStoredWorkflowResult(await definition.handler(context.payload, toExecutionContext(context)))
   return definition.options?.rootStep === false
     ? await run()
     : await runProviderStep(context.step, context.name, run)
