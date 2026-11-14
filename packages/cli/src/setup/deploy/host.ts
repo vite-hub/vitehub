@@ -77,6 +77,34 @@ export interface DeployAdapter {
   deploy: () => Promise<DeployResult>
 }
 
+/** The host environment that receives the values of a stage: `production`, or `preview` for preview deploys. */
+export type HostEnvTarget = "production" | "preview"
+
+/** What a host env reader and writer reads. The link names the host project. */
+export interface HostEnvContext {
+  root: string
+  link: SetupLink
+  target: HostEnvTarget
+  env: NodeJS.ProcessEnv
+  run: DeployRun
+  fetch: typeof fetch
+  /** Values that no output may show, such as the values being pushed and host tokens. */
+  secrets: readonly string[]
+}
+
+/** The variables of one host target. Values go over stdin or in a request body, never in argv. */
+export interface HostEnv {
+  /** The variable names that the host has for the target. Hosts do not return secret values, so this never reads one. */
+  listSecretNames: () => Promise<string[]>
+  /** Creates or replaces one variable. `secret` asks the host to never show the value again, where the host can. */
+  setSecret: (name: string, value: string, options: { secret: boolean }) => Promise<void>
+}
+
+/** A failed host CLI that may print values on stdout, such as `vercel env ls --json`: only stderr goes into the reason. */
+export function hostListFailed(step: string, result: DeployRunResult, secrets: readonly string[]): SetupFailure {
+  return hostCliFailed(step, { ...result, stdout: "" }, secrets)
+}
+
 /** Where a deployment came from, when the host says. */
 export type HostDeploymentSource = "cli" | "git" | "dashboard" | "api" | "unknown"
 

@@ -5,10 +5,10 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { findUrl, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
+import { findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
 
 import type { SetupLink } from "../link.ts"
-import type { DeployAdapter, DeployContext, HostDeployment, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployContext, HostDeployment, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 /** The first line of the `deploy.mjs` that ViteHub's Deno build writes (`packages/internal/src/build/deno-runtime-packages.ts`). */
 const runnerFirstLine = "import { spawn } from \"node:child_process\""
@@ -39,6 +39,49 @@ export function denoOrganization(link: SetupLink | undefined, env: NodeJS.Proces
   const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
   if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
   return organization
+}
+
+/**
+ * One `KEY='value'` line for `deno deploy env load`, which parses the file with `@std/dotenv`. A single-quoted value
+ * is taken as it is. A value with a quote or a line break has no safe dotenv form, so it is refused.
+ */
+function dotenvLine(name: string, value: string): string {
+  if (/['\r\n]/u.test(value)) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "It has a single quote or a line break, and `deno deploy env load` reads a dotenv file." }), setupExitCodes.conflict)
+  return `${name}='${value}'\n`
+}
+
+/**
+ * The environment variables of the linked app. Deno Deploy CLI 0.0.9909 (`deno deploy env list --help`, `deno deploy env
+ * load --help`, in test/fixtures/host-cli-help/). `env add` takes the value as an argument, so the value goes to
+ * `env load /dev/stdin` as a dotenv line. `env load` sets a variable for every context, and Deno decides from the name
+ * whether it is secret; `--non-secrets` keeps a plain value readable. ViteHub deploys Deno to production only.
+ */
+export function denoEnv(context: HostEnvContext): HostEnv {
+  const deno = hostCli("deno", "deno", context.root, context.env)
+  const app = ["--org", denoOrganization(context.link, context.env), "--app", context.link.project.name]
+  const run = (args: readonly string[], stdin?: string) =>
+    context.run(deno[0], [...deno.slice(1), "deploy", "env", ...args, "--json", "--non-interactive", ...app], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin }) })
+
+  return {
+    async listSecretNames() {
+      const result = await run(["list"])
+      if (result.exitCode !== 0) throw hostListFailed("deno deploy env list", result, context.secrets)
+      const start = result.stdout.indexOf("[")
+      let value: unknown
+      try {
+        value = JSON.parse(result.stdout.slice(start))
+      }
+      catch {
+        throw hostListFailed("deno deploy env list printed no JSON", result, context.secrets)
+      }
+      return Array.isArray(value) ? value.flatMap(item => isRecord(item) && typeof item.key === "string" ? [item.key] : []) : []
+    },
+    async setSecret(name, value, { secret }) {
+      if (process.platform === "win32") throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
+      const result = await run(["load", "/dev/stdin", "--replace", ...(secret ? [] : ["--non-secrets", name])], dotenvLine(name, value))
+      if (result.exitCode !== 0) throw hostCliFailed(`deno deploy env load (${name})`, result, context.secrets)
+    },
+  }
 }
 
 function denoState(value: unknown): HostDeployment["state"] {

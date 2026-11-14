@@ -58,6 +58,28 @@ interface ViteHubCliLoadedConfig {
 
 const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
 
+/**
+ * `vitehub env diff` and `vitehub env push` read the names of the last build and the variables of the linked host, so
+ * they run before the project config loads. The other `env` features come from `hubEnv()`.
+ */
+const hostEnvFeatures: ViteHubCliCommandNamespace = {
+  features: [
+    {
+      description: "Compare the env names of the last build with the names on the linked host. Exits with 1 when a required name is missing. Never reads values.",
+      name: "diff",
+      run: async (args, context) => await (await import("./setup/env.ts")).runEnvCommand({ ...hostEnvFeatures.features[0]!, name: "diff" }, args, context),
+      usage: "vitehub env diff [--host <host>] [--stage <name>] [--json]",
+    },
+    {
+      description: "Set the host variables of the build's env names from the shell and .env.<stage>, with the host CLI. Prints names, never values. Never deletes a host variable.",
+      name: "push",
+      run: async (args, context) => await (await import("./setup/env.ts")).runEnvCommand({ ...hostEnvFeatures.features[1]!, name: "push" }, args, context),
+      usage: "vitehub env push [--host <host>] [--stage <name>] [--only <NAME>]... [--yes] [--json]",
+    },
+  ],
+  name: "env",
+}
+
 // The setup commands load Babel, semver, and diff, so the CLI imports them only to run one or to print the root help.
 async function loadSetupCommands(): Promise<readonly ViteHubCliCommand[]> {
   return (await import("./setup/commands.ts")).setupCommands
@@ -260,9 +282,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
-  const runtimeFeatures = options.runtimeFeatures?.find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
+  const runtimeFeatures = [...options.runtimeFeatures ?? [], hostEnvFeatures].find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
   if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
-    return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
+    return await runNamespace(runtimeFeatures, args, { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
 
   // Provider Output and host resources must match what a production build deploys.
@@ -296,6 +318,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     createProvisionNamespace(contribution.provision),
     ...runtimeNamespaces,
   ]
+  // Help lists `env diff` and `env push` next to the `env` features of `hubEnv()`.
+  const envIndex = namespaces.findIndex(namespace => namespace.name === hostEnvFeatures.name)
+  const envNamespace = namespaces[envIndex]
+  if (envNamespace) namespaces[envIndex] = { ...envNamespace, features: [...envNamespace.features, ...hostEnvFeatures.features.filter(feature => !envNamespace.features.some(item => item.name === feature.name))] }
+  else namespaces.push(hostEnvFeatures)
 
   const context: ViteHubCliContext = {
     cwd,
@@ -317,7 +344,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const namespace = namespaces.find(item => item.name === namespaceName)
   if (!namespace) {
     stderr.write(`Unknown ViteHub CLI namespace: ${namespaceName}\n`)
-    if (namespaces.length === 2 && namespaces.every(item => BUILTIN_NAMESPACE_NAMES.has(item.name))) {
+    if (namespaces.every(item => BUILTIN_NAMESPACE_NAMES.has(item.name) || item === hostEnvFeatures)) {
       stderr.write(`No ViteHub integration contributed the "${namespaceName}" commands. Run this from a configured project and enable the matching integration in vite.config.ts or nuxt.config.ts.\n`)
     }
     writeRootHelp(namespaces, await loadCommands(), stderr)

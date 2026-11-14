@@ -200,5 +200,25 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    SETUP_ENV_FILE_TRACKED: {
+      fix: ({ file }: { file?: unknown, names?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add \`.env*\` to .gitignore, and rotate the values that git has seen. Or set the values in the shell for this command.`,
+      why: ({ file, names }: { file?: unknown, names?: unknown }) => `${String(file)} is tracked by git and holds the secret ${String(names)}. \`vitehub env push\` does not push a secret that is in git.`,
+    },
+    SETUP_ENV_NAME_UNKNOWN: {
+      fix: "Pass names that `vitehub env diff` lists, or build again after you declare the name.",
+      why: ({ names }: { names?: unknown }) => `The build output lists no variable named ${String(names)}.`,
+    },
+    SETUP_ENV_STAGE_UNSUPPORTED: {
+      fix: ({ host, stage }: { host?: unknown, stage?: unknown }) => stage !== "preview"
+        ? "Use --stage production or --stage preview, the stages of `vitehub deploy` and `vitehub deploy --preview`."
+        : host === "cloudflare"
+          ? "A Worker has one set of secrets for every version. Push production values with --stage production."
+          : "`vitehub deploy` deploys this host to production only. Push with --stage production.",
+      why: ({ host, stage }: { host?: unknown, stage?: unknown }) => `The ${String(host)} host has no environment for the ${String(stage)} stage.`,
+    },
+    SETUP_ENV_VALUE_UNSUPPORTED: {
+      fix: ({ host }: { host?: unknown, name?: unknown, reason?: unknown }) => `Set this value in the ${String(host)} dashboard.`,
+      why: ({ host, name, reason }: { host?: unknown, name?: unknown, reason?: unknown }) => `The value of ${String(name)} cannot go to ${String(host)} without a terminal prompt or argv. ${String(reason)}`,
+    },
   },
 })
