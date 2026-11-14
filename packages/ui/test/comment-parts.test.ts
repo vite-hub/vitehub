@@ -205,6 +205,20 @@ describe("composer mentions", () => {
     expect(wrapper.emitted("cancel")).toHaveLength(1);
   });
 
+  it("keeps the text unchanged while a send runs, and shows Send as loading", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, busy: true, layout: "row", modelValue: "On its way" } }));
+    const field = wrapper.get("textarea");
+    expect(field.attributes("readonly")).toBeDefined();
+    expect(field.attributes("aria-busy")).toBe("true");
+    const send = wrapper.findAll("button").at(-1)!;
+    expect(send.attributes("disabled")).toBeDefined();
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(wrapper.emitted("submit")).toBeUndefined();
+    await wrapper.setProps({ busy: false });
+    expect(wrapper.get("textarea").attributes("readonly")).toBeUndefined();
+  });
+
   it("keeps the text while Esc is held down", async () => {
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
     const field = wrapper.get("textarea");

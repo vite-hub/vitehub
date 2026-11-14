@@ -45,6 +45,8 @@ export const PromptInput = defineComponent({
     /** Prevent adding and removing files while a consumer submits them. Text stays editable. */
     filesDisabled: { default: false, type: Boolean },
     filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
+    /** The text is being sent: the field is read-only, Enter does nothing, and Send shows a spinner. */
+    readonly: { default: false, type: Boolean },
     modelValue: { default: "", type: String },
     multiple: { default: true, type: Boolean },
     placeholder: { type: String },
@@ -157,10 +159,12 @@ export const PromptInput = defineComponent({
               if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
               if (touchOnly()) return;
               event.preventDefault();
-              if (props.status === "ready") form.value?.requestSubmit();
+              if (props.status === "ready" && !props.readonly) form.value?.requestSubmit();
             },
             onPaste: paste,
             placeholder: props.placeholder,
+            "aria-busy": props.readonly ? "true" : undefined,
+            readonly: props.readonly,
             rows: 1,
             value: props.modelValue,
           }),
@@ -201,10 +205,10 @@ export const PromptInput = defineComponent({
                 "aria-label": props.status === "ready" && props.submitLabel ? props.submitLabel : submitLabels[props.status],
                 class: "rounded-full",
                 color: "neutral",
-                disabled: props.status === "ready" && !canSubmit.value,
+                disabled: props.status === "ready" && (!canSubmit.value || props.readonly),
                 icon: icons.value[submitIcons[props.status]],
                 // Stop and Retry stay pressable while attachments convert; only Send waits for them.
-                loading: props.status === "ready" && preparingFiles.value,
+                loading: props.status === "ready" && (preparingFiles.value || props.readonly),
                 onClick: pressSubmit,
                 size: "sm",
                 square: true,
