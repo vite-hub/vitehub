@@ -29,6 +29,7 @@ export const playgroundTemplates: PlaygroundTemplateSource[] = [
   { id: "rate-limit", label: "Rate Limit", description: "Allow three requests a minute.", fixture: "playground-rate-limit", open: "server/api/upload.get.ts", preview: "/api/upload" },
   { id: "agent", label: "Agent", description: "An Agent that a route invokes.", fixture: "first-agent", open: "server/agents/greeting.ts", preview: "/api/health" },
   { id: "channels", label: "Channels", description: "Chat with an Agent in a simulated Slack.", fixture: "playground-channels", open: "server/agents/support.ts", preview: "/api/_vitehub/agents/support/webhooks/slack" },
+  { id: "ui", label: "ViteHub UI", description: "A Vue app with a dialog, tabs, a menu, and toasts.", fixture: "playground-ui", open: "src/App.vue", preview: "/" },
 ];
 
 /**

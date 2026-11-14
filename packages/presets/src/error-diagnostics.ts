@@ -19,6 +19,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ variables }: { variables: string[] }) => `The Babysitter cannot start without ${variables.join(", ")}.`,
       fix: "Set each listed variable on the host, or declare it in env.server.github. Create the GitHub App, its private key and its webhook secret as the Babysitter guide's Minimal setup shows.",
     },
+    PRESETS_GITHUB_APP_OWNER_MISSING: {
+      why: "`createGitHubAppCredentials()` got `installationId` without `owner`. An installation belongs to one repository owner.",
+      fix: "Pass `owner`, the repository owner of the installation, or map owners to installations in `installations`.",
+    },
     PRESETS_BABYSITTER_PLACEMENT_CAPACITY: {
       why: ({ reason }: { reason: string }) => reason,
       fix: "The Babysitter retries the pull request after `retryAfterMs`. To run more passes at once, add hosts or slots to the placement.",
@@ -30,6 +34,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_REVIEW_REASON_REQUIRED: {
       why: ({ outcome }: { outcome: string }) => `A ${outcome} review thread needs a one-sentence reason.`,
       fix: "Pass a non-empty reason that explains the outcome. Only fixed may omit the reason.",
+    },
+    PRESETS_REVIEW_SEVERE_DECLINED: {
+      why: "A valid P0 or P1 finding cannot be declined, whatever the review push budget.",
+      fix: "Fix the finding in this pull request, or answer it as disproved, pre-existing or duplicate with the evidence. When the finding is valid but lower than P1, start the reason with that class, such as \"P2: ...\".",
     },
     PRESETS_REVIEW_MENTION_FORBIDDEN: {
       why: "Comments cannot contain GitHub mentions; use the guarded mention capability.",

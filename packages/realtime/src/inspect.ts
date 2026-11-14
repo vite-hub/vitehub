@@ -101,6 +101,10 @@ function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string,
   const values = properties(object)
   const editor = values.get("editor")
   const auth = literal(values.get("auth")) === true
+  const publicAccess = literal(values.get("access")) === "public"
+  const authorization = (rule: string) => values.has("authorize")
+    ? rule
+    : publicAccess ? "public: anyone may read and write" : auth ? "every identified user" : "missing: the server rejects this definition"
   const perDocument = editor?.type === "ArrowFunctionExpression" || editor?.type === "FunctionExpression"
   const identity = {
     label: "Identity",
@@ -112,14 +116,14 @@ function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string,
     return [
       { label: "Document", value: "none: presence only, nothing stored" },
       identity,
-      { label: "Authorization", value: values.has("authorize") ? "authorize() per room, read only" : "every connection may join" },
+      { label: "Authorization", value: authorization("authorize() per room, read only") },
     ]
   }
   return [
     { label: "Document", value: describeDocument(values.get("document")) },
     { label: "Editor", value: editor ? perDocument ? "custom codec per document" : `custom codec${editor.type === "Identifier" ? ` (${editor.name})` : ""}` : "built-in Markdown kit" },
     identity,
-    { label: "Authorization", value: values.has("authorize") ? "authorize() per document and mode" : "every connection may read and write" },
+    { label: "Authorization", value: authorization("authorize() per document and mode") },
     { label: "Persistence", value: describePersistence(values.get("persistence")) },
     { label: "History", value: values.has("history") ? "history.checkpoint() enabled" : "none" },
   ]

@@ -57,8 +57,6 @@ export type EnvSource =
     names?: string[]
     /** The canonical name, `VITEHUB_<PATH>`, which the ordered names read first. */
     canonical?: string | false
-    /** Treat empty host values as missing when reading the ordered names. */
-    skipEmpty?: boolean
     serializable: true
   }
   | {

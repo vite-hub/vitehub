@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
-import { Tabs, TabsList, TabsTab } from "@vite-hub/kit/tabs";
+import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";
 import { useElementSize } from "@vueuse/core";
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";

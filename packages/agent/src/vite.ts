@@ -1,4 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
+import { pageRealtimeDefinition } from "./internal/page.ts"
 import { channelSimulationEnv } from "./internal/channel-simulation.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
@@ -315,6 +316,8 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "email", name: "email", packageName: "@vite-hub/email", pluginName: "@vite-hub/email/vite" },
   { importName: "agentI18n", name: "i18n", packageName: "@vite-hub/i18n/server", pluginName: "@vite-hub/i18n/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
+  // The `page()` Capability asks the person's page through a Realtime room.
+  { importName: "agentRealtime", name: "realtime", packageName: "@vite-hub/realtime/agent", pluginName: "@vite-hub/realtime/vite" },
 ]
 
 function configuredGeneratedAgentRuntimeCapabilities(
@@ -3638,3 +3641,20 @@ export { processAgentHost } from './process-host-vite.ts'
 
 export { agentHostRoutes } from './host-routes-vite.ts'
 export type { AgentHostRoute } from './host-routes-vite.ts'
+
+/**
+ * The Realtime Definition of page rooms, for `hubRealtime({ contribute })`: a presence room per page, which takes
+ * requests, so the `page()` Capability can ask the page through `requestRealtimeRoom()`. vite-hub adds it when the app
+ * has Agents and Realtime.
+ */
+export async function contributeAgentPageRealtime(context: { directory: string }): Promise<{ definitions: Array<{ handler: string, name: string }> }> {
+  const handler = join(context.directory, `${pageRealtimeDefinition}.mjs`)
+  await mkdir(context.directory, { recursive: true })
+  await writeFileIfChanged(handler, [
+    "// A room for each page that `connectPage()` joins, kept per person: the Agent's `page()` Capability asks the one",
+    "// browser in the room of the run's own person. Pages need no sign-in, so the definition is public.",
+    "export default { access: \"public\", document: false, requests: true, scope: \"user\" }",
+    "",
+  ].join("\n"))
+  return { definitions: [{ handler, name: pageRealtimeDefinition }] }
+}

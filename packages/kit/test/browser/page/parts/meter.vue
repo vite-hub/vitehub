@@ -5,7 +5,7 @@ import {
   MeterLabel,
   MeterTrack,
   MeterValue,
-} from "@vite-hub/kit/meter"
+} from "@ui-sdk/vue/meter"
 </script>
 
 <template>

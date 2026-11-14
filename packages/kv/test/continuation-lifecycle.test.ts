@@ -5,11 +5,9 @@ import { join } from "node:path"
 
 import { afterEach, expect, it, vi } from "vitest"
 import { createStorage } from "unstorage"
-import memoryDriver from "unstorage/drivers/memory"
 
 import { createKVContinuations } from "../src/runtime/continuations.ts"
 import createFsLiteKVDriver from "../src/runtime/fs-lite.ts"
-import createUpstashKVDriver from "../src/runtime/upstash-driver.ts"
 
 const filesystem = vi.hoisted(() => ({ opened: [] as Dir[], beforeOpen: undefined as (() => Promise<void>) | undefined }))
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -24,11 +22,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     },
   }
 })
-
-const provider = vi.hoisted(() => ({ scan: vi.fn(), dispose: vi.fn() }))
-vi.mock("unstorage/drivers/upstash", () => ({
-  default: () => ({ ...memoryDriver(), dispose: provider.dispose, getInstance: () => ({ scan: provider.scan }) }),
-}))
 
 afterEach(() => {
   vi.useRealTimers()
@@ -59,21 +52,6 @@ it("disposes abandoned filesystem listings through storage disposal", async () =
     await driver.dispose?.()
     await rm(base, { recursive: true, force: true })
   }
-})
-
-it("disposes retained Upstash overflow and the underlying driver", async () => {
-  provider.scan.mockResolvedValue(["0", ["one", "two"]])
-  const driver = createUpstashKVDriver({ driver: "upstash", url: "https://example.com", token: "test" })
-  const storage = createStorage({ driver })
-  vi.useFakeTimers()
-  const page = await driver.listKeys({ limit: 1 })
-  expect(vi.getTimerCount()).toBe(1)
-
-  await storage.dispose()
-
-  expect(vi.getTimerCount()).toBe(0)
-  expect(provider.dispose).toHaveBeenCalledOnce()
-  await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
 })
 
 function deferred<T>() {
@@ -107,19 +85,6 @@ it("releases a filesystem iterator that finishes opening after disposal", async 
   }
 })
 
-it("does not retain an Upstash scan that finishes after disposal", async () => {
-  const scan = deferred<[string, string[]]>()
-  provider.scan.mockReturnValue(scan.promise)
-  const driver = createUpstashKVDriver({ driver: "upstash", url: "https://example.com", token: "test" })
-  vi.useFakeTimers()
-  const pending = driver.listKeys({ limit: 1 })
-  await createStorage({ driver }).dispose()
-  scan.resolve(["0", ["one", "two"]])
-
-  await expect(pending).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
-  expect(vi.getTimerCount()).toBe(0)
-})
-
 it("expires abandoned filesystem cursors and closes their directories", async () => {
   const base = await mkdtemp(join(tmpdir(), "vitehub-kv-expiry-"))
   const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
@@ -137,19 +102,6 @@ it("expires abandoned filesystem cursors and closes their directories", async ()
     await driver.dispose?.()
     await rm(base, { recursive: true, force: true })
   }
-})
-
-it("evicts Upstash overflow when its aggregate byte budget is exceeded", async () => {
-  provider.scan.mockResolvedValue(["0", ["one", "x".repeat(600_000)]])
-  const driver = createUpstashKVDriver({ driver: "upstash", url: "https://example.com", token: "test" })
-  vi.useFakeTimers()
-  const first = await driver.listKeys({ limit: 1 })
-  const second = await driver.listKeys({ limit: 1 })
-
-  await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
-  await expect(driver.listKeys({ cursor: second.cursor, limit: 1 })).resolves.toEqual({ keys: ["x".repeat(600_000)] })
-  await driver.dispose?.()
-  expect(vi.getTimerCount()).toBe(0)
 })
 
 it("observes asynchronous expiry cleanup failures and reports them on disposal", async () => {

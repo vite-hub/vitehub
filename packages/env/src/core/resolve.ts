@@ -458,7 +458,8 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
     case "env":
       for (const name of source.names || [source.name]) {
         const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
-        if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
+        // An empty variable counts as missing, the same as on the server.
+        if (typeof value !== "undefined" && value !== "") {
           return { label: `env:${name}`, value }
         }
       }

@@ -311,7 +311,7 @@ export const labeller: LabellerAgent = defineAgent({
 })
 
 export interface CleanupLabellerOptions {
-  /** Move the matches to Trash. Without it, or while the Agent has `dryRun: true`, the function only lists them. */
+  /** Move the matches to Trash. Without it, or while the Agent has `dryRun: true` or `trashEnabled: false`, the function only lists them. */
   apply?: boolean
   /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
   runtime?: AgentRuntimeContext
@@ -342,7 +342,7 @@ const messageList = v.object({ messages: v.optional(v.array(v.object({ id: v.str
 export async function cleanupLabeller(agent: LabellerAgent, options: CleanupLabellerOptions = {}): Promise<CleanupLabellerResult> {
   const channel = agent.channels?.gmail
   if (!channel) throw new TypeError("[vitehub] cleanupLabeller() expects an Agent that extends labeller.")
-  const apply = options.apply === true && agent.options.dryRun === false
+  const apply = options.apply === true && agent.options.dryRun === false && agent.options.trashEnabled === true
   const rules = Object.entries(agent.options.cleanup)
   if (!rules.length) return { applied: apply, rules: [] }
   const client = await gmailClient(channel, options.runtime ? { runtime: options.runtime } : {})

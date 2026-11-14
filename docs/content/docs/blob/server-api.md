@@ -110,6 +110,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or returns `null`. |
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
+| `blob.copy(from, to, options?)` | Copies a file in the same store, with its content type and custom metadata. Read [Copy a file](#copy-a-file). |
 | `blob.delete(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
 | `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
@@ -120,6 +121,26 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+
+### Copy a file
+
+`blob.copy(from, to)` copies a file in the same store and returns the new `BlobObject`. The copy keeps the content type and the custom metadata of the source. `to` follows the pathname rules of `put()`.
+
+```ts [server/api/reports/[id]/archive.post.ts] fragment
+const [error, archived] = await blob.copy(`reports/${id}.pdf`, `archive/${id}.pdf`)
+if (error?.code === 'BLOB_NOT_FOUND') throw createError({ statusCode: 404 })
+if (error) throw error
+```
+
+A missing source returns [`BLOB_NOT_FOUND`](/docs/blob/limits-and-errors#blob_not_found). A file at `to` returns [`BLOB_CONFLICT`](/docs/blob/limits-and-errors#blob_conflict), as in `media.move()`. Pass `{ overwrite: true }` to replace it. ViteHub checks `to` before it copies, so two calls at the same time can both write. To move a file, call `blob.delete(from)` after the copy. Use [`media.move()`](/docs/blob/media) for a file that has a media record.
+
+| Driver | How it copies |
+| --- | --- |
+| `fs` | Copies the file and writes the metadata of the source for it. |
+| `cloudflare-r2` | Reads the object from the binding and streams it into the new key. Without a binding, R2 copies on the server through the S3 API. |
+| `s3`, `minio`, `gcs`, `azure` | The provider copies the object on the server. |
+| `vercel-blob` | Vercel copies the object on the server. ViteHub reads the source first to keep its content type. |
+| `netlify-blobs` | Reads the object and writes it again. |
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
@@ -220,7 +241,6 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 | `contentType` | `string` | Stored MIME type. |
 | `contentLength` | `string` | Expected content length, when the provider supports it. |
 | `customMetadata` | `Record<string, string>` | Provider custom metadata. |
-| `access` | `BlobPutOptions['access']` | `private` or `public`, when the driver supports it. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix, when the driver supports it. |
 | `prefix` | `string` | Path prefix, when the driver supports it. |
 
@@ -234,6 +254,15 @@ stored as `Q3 100_25-<uuid>.pdf`. Renamed files get a fresh UUID suffix before t
 It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
+
+With `multiple: false` and `ensure.maxSize`, a request whose `Content-Length`
+is more than `maxSize` plus 64 KB for the form framing gets a 413 error before
+the body is read. With more than one file, the total has no limit, so the body
+is read before `ensure` runs. Limit the request body on your host too.
+
+`event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
+`Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
+the event.
 
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
@@ -305,13 +334,38 @@ The route answers four requests:
 
 | Action | Method | Request | Result |
 | --- | --- | --- | --- |
-| `create` | `POST` | JSON `{ contentType? }` | `{ action, pathname, uploadId }` |
+| `create` | `POST` | JSON `{ contentType?, size? }` | `{ action, pathname, uploadId }` |
 | `upload` | `PUT` | `?uploadId=…&partNumber=…`, part bytes | `{ action, part }` |
 | `complete` | `POST` | `?uploadId=…`, JSON `{ parts }` | `{ action, object }` |
 | `abort` | `DELETE` | `?uploadId=…` | `{ action }` |
 
 Pass `{ create: { contentType, prefix, addRandomSuffix } }` to set create
 options on the server. This `contentType` replaces the one the client sends.
+
+Pass `ensure` to limit the upload, with the same options as
+[`ensureBlob()`](#ensureblobblob-options). The client chooses the pathname and
+the content type, so set it when users who are not fully trusted can upload:
+
+```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The client chooses the pathname.
+  const [error, result] = await blob.handleMultipartUpload(event, {
+    ensure: { maxSize: '1GB', types: ['video'] },
+  })
+  if (error) throw error
+  return result
+})
+```
+
+- `create` checks `types` against the content type. It also checks `maxSize`
+  against the `size` that the client declares.
+- `upload` rejects a part that is larger than `maxSize`. A `Content-Length`
+  above `maxSize` gets a 413 error before the part is read.
+- `complete` deletes the joined object and throws a 400 error when it is larger
+  than `maxSize` or its stored content type fails `types`.
 
 In Vue, `useMultipartUpload()` sends the parts and tracks progress:
 
