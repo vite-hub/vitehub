@@ -41,6 +41,23 @@ describe("the design system inside an app", () => {
     expect(primary).toEqual([])
   })
 
+  it("keeps the app's shadcn/ui tokens, such as --radius, and gives the theme's tokens their values", () => {
+    const css = postcss.parse(docsThemeCss(file))
+    const declared = new Set<string>()
+    const values = new Map<string, string>()
+    css.walkDecls(/^--/, (declaration) => {
+      declared.add(declaration.prop)
+      const rule = declaration.parent
+      if (rule?.type === "rule" && rule.selector === ":root:where(.vh-docs)") values.set(declaration.prop, declaration.value)
+    })
+
+    // A shadcn/ui name that theme.css adds must join the list in src/theme-css.ts, or it overrides the app's own token.
+    expect([...declared].filter(name => !/^--(?:ui|vh|trees|tw|font)-/.test(name))).toEqual([])
+    expect(values.get("--ui-bg")).toBe("oklch(1 0 0)")
+    expect(values.get("--ui-radius")).toBe("0.25rem")
+    expect(values.get("--vh-focus")).toMatch(/^oklch\(/)
+  })
+
   it("scans the shared component classes from the generated stylesheet's location", () => {
     const sources: string[] = []
     postcss.parse(docsThemeCss(file)).walkAtRules("source", rule => { sources.push(JSON.parse(rule.params)) })

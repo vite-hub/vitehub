@@ -24,6 +24,14 @@ const vercel = vi.hoisted(() => {
     calls: [] as Array<Record<string, unknown>>,
     objects,
     module: {
+      async copy(from: string, to: string, options: Record<string, unknown>) {
+        const source = objects.get(toPathname(from))
+        if (!source) throw missing()
+        if (options.allowOverwrite === false && objects.has(to)) throw new Error("Vercel Blob: This blob already exists")
+        // Like the service, the copy keeps only the content type that the call passes.
+        objects.set(to, { body: source.body, contentType: options.contentType as string | undefined, etag: `"v${++version}"`, uploadedAt: new Date() })
+        return describe(to)
+      },
       async del(pathnames: string | string[]) {
         for (const pathname of [pathnames].flat()) objects.delete(toPathname(pathname))
       },

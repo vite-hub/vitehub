@@ -181,7 +181,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       } : {}),
       resolveReviewThread: {
         name: "resolveReviewThread",
-        description: "Answer and resolve a review thread belonging to this PR. The outcome and reason are posted as a reply on the thread before it is resolved: fixed (the current code fixes it; reason optional, name the commit), disproved (the finding is wrong for the current code), declined (valid, but out of this PR's scope or below the severity bar; name the class, for example P2), pre-existing (the PR did not introduce it) or duplicate (already answered in another thread). Every outcome other than fixed needs a one-sentence reason.",
+        description: "Answer and resolve a review thread belonging to this PR. The outcome and reason are posted as a reply on the thread before it is resolved: fixed (the current code fixes it; reason optional, name the commit), disproved (the finding is wrong for the current code), declined (valid, but out of this PR's scope or below the severity bar; start the reason with its class, for example 'P2: ...'; a P0 or P1 is never declined, and declining a finding its reviewer labeled P0 or P1 leaves the thread open for a person), pre-existing (the PR did not introduce it) or duplicate (already answered in another thread). Every outcome other than fixed needs a one-sentence reason.",
         inputSchema: {
           type: "object",
           properties: {
@@ -196,8 +196,10 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           const outcome = stringField(input, "outcome");
           if (!isReviewThreadOutcome(outcome)) throw presetsErrorDiagnostics.PRESETS_REVIEW_OUTCOME_INVALID();
           const reason = isRuntimeRecord(input) && "reason" in input ? stringField(input, "reason", true) : undefined;
-          await operations.resolveThread(stringField(input, "id"), { outcome, reason });
-          return { resolved: true };
+          const { held } = await operations.resolveThread(stringField(input, "id"), { outcome, reason });
+          return held
+            ? { resolved: false, held: true, note: "The reviewer labeled this finding P0 or P1, so the reply is posted and the thread stays open. The PR does not merge until a person resolves or answers it, or a later pass fixes it. Say so in the result." }
+            : { resolved: true };
         },
       },
       updatePullRequest: {

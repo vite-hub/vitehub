@@ -32,6 +32,10 @@ The form is wrong: `schema` is not a Standard Schema, a limit is out of range, o
 
 A file of `server/forms/` has a name that is not lowercase letters, digits, and dashes, or two files define the same form. Rename the file.
 
+### FORMS_B0002
+
+A build has forms that store messages, but the app has no Database, so the messages would be lost. Remove `database: false`, or set `store: false` with `notify` or `onSubmit` in each form that the error names. A development server keeps the messages in memory instead.
+
 ### FORMS_R0001
 
 The Database could not read or write a message. Most often the table is missing: run `vitehub database generate` and `vitehub database migrate`.

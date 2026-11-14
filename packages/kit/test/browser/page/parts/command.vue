@@ -19,7 +19,7 @@ import {
   CommandList,
   CommandSeparator,
   CommandShortcut,
-} from "@vite-hub/kit/command"
+} from "@ui-sdk/vue/command"
 
 const suggestions = [
   { value: "calendar", label: "Calendar", icon: CalendarIcon },
