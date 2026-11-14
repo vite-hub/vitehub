@@ -25,12 +25,17 @@ const inventorySchema = v.object({
   env: v.optional(v.object({ secret: v.array(v.string()), provider: v.array(v.string()) })),
   /** Server directories of the app and its Nuxt layers, relative to the project root. */
   serverDirs: v.optional(v.array(v.string())),
+  /** Direct dependencies whose installed `package.json` needs `@nuxthub/core`. */
+  nuxtHubDependents: v.optional(v.array(v.object({ name: v.string(), field: v.picklist(["peerDependencies", "dependencies"]) }))),
 })
 export type ViteHubInventory = {
   definitions: Partial<Record<DefinitionKind, DiscoveredFile[]>>
   env?: { secret: string[], provider: string[] }
   serverDirs?: string[]
+  nuxtHubDependents?: NuxtHubDependent[]
 }
+/** A dependency that lists `@nuxthub/core` in `field`, so installing it also installs NuxtHub. */
+export type NuxtHubDependent = { name: string, field: "peerDependencies" | "dependencies" }
 export type DiscoveredFile = {
   name: string
   file: string
@@ -143,6 +148,48 @@ function relativeImports(root: string, file: string): { imports?: string[] } {
   return imports.length ? { imports } : {}
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readJson(file: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(readFileSync(file, "utf8"))
+    return isRecord(value) ? value : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/** The installed `package.json` of `name`, from the nearest `node_modules` at or above `root`. */
+function installedManifest(root: string, name: string): Record<string, unknown> | undefined {
+  for (let dir = resolve(root); ; dir = dirname(dir)) {
+    const file = resolve(dir, "node_modules", name, "package.json")
+    if (existsSync(file)) return readJson(file)
+    if (dirname(dir) === dir) return undefined
+  }
+}
+
+/** Direct dependencies of the app that need `@nuxthub/core`. pnpm installs it for them, and their module starts it. */
+function readNuxtHubDependents(root: string): NuxtHubDependent[] {
+  const manifest = readJson(resolve(root, "package.json"))
+  if (!manifest) return []
+  const names = new Set(["dependencies", "devDependencies"].flatMap((field) => {
+    const value = manifest[field]
+    return isRecord(value) ? Object.keys(value) : []
+  }))
+  names.delete("@nuxthub/core")
+  return [...names].sort().flatMap((name) => {
+    const installed = installedManifest(root, name)
+    const field = (["peerDependencies", "dependencies"] as const).find((key) => {
+      const dependencies = installed?.[key]
+      return isRecord(dependencies) && Object.hasOwn(dependencies, "@nuxthub/core")
+    })
+    return field ? [{ name, field }] : []
+  })
+}
+
 export const viteHubInventoryContributor: ProjectInventoryContributor = {
   name: inventoryName,
   async contribute(project) {
@@ -172,10 +219,12 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
     catch {
       env = undefined
     }
+    const nuxtHubDependents = readNuxtHubDependents(root)
     return {
       definitions,
       serverDirs: serverDirs.map(dir => relative(root, dir).replaceAll("\\", "/")),
       ...(env ? { env } : {}),
+      ...(nuxtHubDependents.length ? { nuxtHubDependents } : {}),
     } satisfies ViteHubInventory
   },
 }

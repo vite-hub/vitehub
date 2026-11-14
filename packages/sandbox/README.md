@@ -105,6 +105,10 @@ Spawned `cloudflare` processes stream `stdout` and `stderr` through `streamProce
 
 For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation.
 
+A `timeout` or an aborted `signal` stops only that command, on every runtime. The Sandbox and its other processes keep running. `exec()` rejects with the abort reason. For `spawn()`, the runtime kills the process and `wait()` rejects with the abort reason.
+
+`child.kill(signal)` sends the signal that you name, or rejects. The `vercel` runtime sends `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL`, `SIGTERM`, `SIGCONT`, `SIGSTOP`, or a signal number. The `crabbox` runtime sends only `SIGTERM`. Other signals reject with `SANDBOX_R0165`.
+
 A spawned `SandboxProcess` can also expose `stdin` as a `WritableStream<Uint8Array>`. The `trusted-host` and `crabbox` runtimes always forward it to the process. The `vercel` runtime forwards it only when you pass `stdin: true`, because a command that reads its input then waits until you close the writer. Close the writer to end the process input. Runtimes that cannot forward input leave `stdin` undefined:
 
 ```ts fragment
@@ -137,7 +141,7 @@ export async function openHostedSandboxes(namespace: CloudflareDurableObjectName
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
 
-The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds each transport operation with a deadline. It retries only operations that are safe to repeat, such as file reads and full file writes, when Cloudflare marks the error `retryable`. It retries a command or a new process only when the Container was not ready to receive it; other errors keep the Cloudflare flag in `error.data.retryable`. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
+The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds each transport operation with a deadline. It retries only operations that are safe to repeat, such as file reads and full file writes, when Cloudflare marks the error `retryable`. It retries a command or a new process only when the Container was not ready to receive it; other errors keep the Cloudflare flag in `error.data.retryable`. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. Its `cancelExec(id)` must stop the `exec` command that was started with that `id`, and nothing else. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
 
 If Cloudflare Sandbox or Vercel cleanup fails, retry `session.close()`. The session rejects new operations after the first close attempt. Concurrent close calls wait for the same cleanup.
 

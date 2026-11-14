@@ -99,13 +99,15 @@ describe("Auth below an application base path", () => {
     expect(await access(new Request("https://example.com/public"))).toBeUndefined()
   })
 
-  it("preserves the trailing slash for exact root access routes", async () => {
+  it("guards the base path with and without its trailing slash for exact root access routes", async () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
     const definition = defineFixedAuth({ access: { routes: ["/"] }, appName: "ViteHub", secret })
     const access = createAuthAccessHandler([{ route: "/" }], definition)
 
+    // rou3 ignores one trailing slash, so Nitro sends both paths to the root handler.
     expect((await access(new Request("https://example.com/app/")))?.status).toBe(401)
-    expect(await access(new Request("https://example.com/app"))).toBeUndefined()
+    expect((await access(new Request("https://example.com/app")))?.status).toBe(401)
+    expect(await access(new Request("https://example.com/app/page"))).toBeUndefined()
   })
 
   it("keeps a base path that already includes the application base path", () => {
