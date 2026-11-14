@@ -314,7 +314,7 @@ describe("installOpenWorkflow", () => {
     consoleWarn.mockRestore()
   })
 
-  it.each(["WORKFLOW_R0040", "WORKFLOW_R0038"])("stops trying when only a configuration change can fix the setup: %s", async (code) => {
+  it.each(["WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING", "WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED"])("stops trying when only a configuration change can fix the setup: %s", async (code) => {
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     fake.state.connectErrors = [Object.assign(new Error("No connection URL."), { code })]
@@ -334,8 +334,8 @@ describe("installOpenWorkflow", () => {
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
     // Other boot traffic fills the pool twice, then a connection is free.
     fake.state.connectErrors = [
-      Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" }),
-      Object.assign(new Error("No second connection."), { code: "WORKFLOW_R0037" }),
+      Object.assign(new Error("No second connection."), { code: "WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE" }),
+      Object.assign(new Error("No second connection."), { code: "WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE" }),
     ]
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -352,7 +352,7 @@ describe("installOpenWorkflow", () => {
       for (let current = error; current instanceof Error; current = current.cause) found.push(Reflect.get(current, "code"))
       return found
     }
-    for (const [error] of app.captureError.mock.calls) expect(codes(error)).toContain("WORKFLOW_R0037")
+    for (const [error] of app.captureError.mock.calls) expect(codes(error)).toContain("WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE")
     expect(consoleWarn.mock.calls.map(call => String(call[0]))).toEqual([
       expect.stringContaining("tries again in 500 ms"),
       expect.stringContaining("tries again in 1000 ms"),
