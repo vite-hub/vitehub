@@ -337,6 +337,10 @@ function refusal(request: Request, route: string, caller: McpToolCaller | undefi
   return undefined
 }
 
+function bearerToken(request: Request): string | undefined {
+  return /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
+}
+
 /** The `401` that starts the OAuth flow of an MCP client, with the location of the protected resource metadata. */
 function unauthorized(request: Request, route: string, error: { code: string, message: string }): Response {
   const metadata = resourceMetadata(request, route)
@@ -371,19 +375,24 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
   const resources = Object.entries(options.resources ?? {}).map(([name, definition]) => ({ definition, name }))
   return async (event) => {
     const request = event.req
+    const hooks = options.hooks
     let caller: McpToolCaller | undefined
     let anonymous = false
     if (options.verify) {
       const [error, verified] = await options.verify(request)
+      caller = verified
       anonymous = optional && error?.code === "AUTH_MCP_TOKEN_MISSING"
       if (error && !anonymous) {
-        // Read no body for a rejected request. Some dev proxies drop the connection when a body is left unread.
-        await request.body?.cancel().catch(() => undefined)
-        return unauthorized(request, options.route, error)
+        const verifyToken = hooks?.verifyToken
+        const token = error.code === "AUTH_MCP_TOKEN_INVALID" && verifyToken ? bearerToken(request) : undefined
+        caller = token ? await verifyToken?.({ event, token }) : undefined
+        if (!caller) {
+          // Read no body for a rejected request. Some dev proxies drop the connection when a body is left unread.
+          await request.body?.cancel().catch(() => undefined)
+          return unauthorized(request, options.route, token ? { code: "AUTH_MCP_TOKEN_INVALID", message: "The token is not an access token of this server, and verifyToken did not accept it." } : error)
+        }
       }
-      caller = verified
     }
-    const hooks = options.hooks
     const signedIn = caller
     let context: Promise<McpToolContext> | undefined
     const scope: McpRequestScope = {

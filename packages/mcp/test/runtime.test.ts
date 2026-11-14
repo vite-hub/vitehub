@@ -354,6 +354,31 @@ describe("optional sign-in on one route", () => {
     expect(response.headers.get("www-authenticate")).toContain("scope=\"lessons:write\"")
   })
 
+  it("leaves a request without a token anonymous and accepts another bearer token through verifyToken", async () => {
+    const notOAuth = async (request: Request) => request.headers.has("authorization")
+      ? [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+      : [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Lesson script", scopes: ["lessons:read"], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "key_valid" ? keyCaller : undefined)
+    const keyed = { ...options, hooks: { verifyToken }, verify: notOAuth }
+
+    expect((await rpc(keyed, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello guest", type: "text" }])
+    expect((await rpc(keyed, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })).body.result.content).toEqual([{ text: "Sign in to call create_lesson. Ask the user to connect their account.", type: "text" }])
+    expect((await rpc(keyed, "resources/list")).body.result.resources).toEqual([{ name: "player", uri: "ui://lessons/player.html" }])
+    expect(verifyToken).not.toHaveBeenCalled()
+
+    const key = { authorization: "Bearer key_valid" }
+    expect((await rpc(keyed, "tools/call", { name: "show_lesson" }, key)).body.result.content).toEqual([{ text: "Hello Grace", type: "text" }])
+    expect((await rpc(keyed, "resources/list", undefined, key)).body.result.resources).toHaveLength(2)
+    expect((await rpc(keyed, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" }, key)).body.result.content).toEqual([{ text: "Sign in again and approve lessons:write to call create_lesson. Ask the user to reconnect their account.", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "key_valid" })
+
+    const revoked = await rpc(keyed, "tools/list", undefined, { authorization: "Bearer key_revoked" })
+    expect(revoked.response.status).toBe(401)
+    expect(revoked.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
   it("still answers 401 without a token when sign-in is required", async () => {
     expect((await rpc({ ...options, optional: false, tools: { create_lesson: createLesson } }, "tools/list")).response.status).toBe(401)
   })
@@ -380,6 +405,28 @@ describe("app MCP hooks", () => {
     await rpc(options, "initialize")
     await rpc(options, "tools/list")
     expect(resolveCaller).toHaveBeenCalledTimes(3)
+  })
+
+  it("accepts another bearer token through verifyToken and gives its caller to resolveCaller", async () => {
+    const notOAuth = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Budget script", scopes: [], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "fin_valid" ? keyCaller : undefined)
+    const resolveCaller = vi.fn(({ caller }: { caller: McpToolCaller | undefined }) => ({ team: `team-of-${caller?.user.id}` }))
+    const options = { hooks: { resolveCaller, verifyToken }, tools: { team }, verify: notOAuth }
+
+    const { body } = await rpc(options, "tools/call", { name: "team" }, { authorization: "Bearer fin_valid" })
+    expect(body.result.content).toEqual([{ text: "Team team-of-u2", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "fin_valid" })
+    expect(resolveCaller).toHaveBeenCalledWith(expect.objectContaining({ caller: keyCaller }))
+
+    const refused = await rpc(options, "tools/list", undefined, { authorization: "Bearer fin_revoked" })
+    expect(refused.response.status).toBe(401)
+    expect(refused.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+
+    // A request without a token, or with an access token of mcpOAuth(), never reaches verifyToken.
+    expect((await rpc({ ...options, verify: async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "No token." }, undefined] as const }, "tools/list")).response.status).toBe(401)
+    expect((await rpc({ ...options, verify }, "tools/list", undefined, { authorization: "Bearer jwt" })).response.status).toBe(200)
+    expect(verifyToken).toHaveBeenCalledTimes(2)
   })
 
   it("refuses the call with the message of a 4xx error from resolveCaller", async () => {

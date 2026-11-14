@@ -122,9 +122,15 @@ export interface McpToolCall<TCaller = McpCaller> {
 /** The default export of `server/mcp.ts`: functions that the app MCP server calls for each request. */
 export interface McpHooks<TCaller = McpToolCaller | undefined> {
   /**
+   * Accepts a bearer token that is not an access token of `mcpOAuth()`, such as an API key, and returns its caller.
+   * `resolveCaller` and the handlers then get it as they get the caller of an access token. Return `undefined` to
+   * answer `401`. It runs only when the server checks tokens, for a token that `mcpOAuth()` did not accept.
+   */
+  verifyToken?(context: { event: H3Event, token: string }): McpToolCaller | undefined | Promise<McpToolCaller | undefined>
+  /**
    * Maps the caller of a request to the app's own identity, such as a user row with its team. The server calls it once
    * per request, before the first tool, prompt, or resource handler, and passes its result as `caller`. `caller` here is
-   * the signed-in caller of `mcpOAuth()`, else `undefined`. Throw an error with a 4xx `status` to refuse the call with
+   * the signed-in caller of `mcpOAuth()` or of `verifyToken`, else `undefined`. Throw an error with a 4xx `status` to refuse the call with
    * its message.
    */
   resolveCaller?(context: { event: H3Event, caller: McpToolCaller | undefined }): TCaller | Promise<TCaller>
@@ -140,6 +146,7 @@ export interface McpHooks<TCaller = McpToolCaller | undefined> {
  * import { defineMcpHooks } from "vite-hub/mcp"
  *
  * export default defineMcpHooks({
+ *   verifyToken: ({ token }) => token.startsWith("key_") ? findApiKeyCaller(token) : undefined,
  *   resolveCaller: ({ caller }) => caller && findMember(caller.user.id),
  *   onToolCall: ({ name, durationMs, result }) => console.info(name, durationMs, result.isError),
  * })
