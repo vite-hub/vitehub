@@ -91,12 +91,10 @@ function captureWebAssemblyModule(): { constructor: unknown, exports: unknown } 
 // Each capture is pure, so a bundle that never checks trace values drops it.
 const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
-export interface AccessAuthorizationContext {
-  /**
-   * The request event. In a Nitro route it is the H3 event, so `event.context`, `useAuth(event)`, and helpers that
-   * take the event work. A direct Fetchable call passes the Request, with Standard Context.
-   */
-  event: ViteHubContext
+/** `TEvent` is the input of the guard, such as the H3 event of a Nitro route. */
+export interface AccessAuthorizationContext<TEvent = ViteHubContext> {
+  /** The input of the guard: the H3 event in a Nitro route, so `event.context` and helpers that take the event work. */
+  event: TEvent
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
   session: Record<string, unknown>
   user: Record<string, unknown> & { id: string }
@@ -105,14 +103,14 @@ export interface AccessAuthorizationContext {
 export type AccessAuthorizeResult = boolean | Response
 
 /** Decides whether a signed-in user can access one request. Return `false` for `403` or a custom `Response`. */
-export type AccessAuthorize = (context: AccessAuthorizationContext) => MaybePromise<AccessAuthorizeResult>
+export type AccessAuthorize<TEvent = ViteHubContext> = (context: AccessAuthorizationContext<TEvent>) => MaybePromise<AccessAuthorizeResult>
 
 /** `true` requires a signed-in session. A callback also decides each request after sign-in. */
-export type AccessAuthorizeOption = true | AccessAuthorize
+export type AccessAuthorizeOption<TEvent = ViteHubContext> = true | AccessAuthorize<TEvent>
 
 /** A signed-out caller. `session` and `user` are `null`. */
-export interface AnonymousAccessAuthorizationContext {
-  event: AccessAuthorizationContext["event"]
+export interface AnonymousAccessAuthorizationContext<TEvent = ViteHubContext> {
+  event: TEvent
   request: AccessAuthorizationContext["request"]
   session: null
   user: null
@@ -122,8 +120,8 @@ export interface AnonymousAccessAuthorizationContext {
  * Decides whether a signed-in or signed-out caller can access one request.
  * Check `user` before you read it. Return `false` for `403` (`401` when signed out) or a custom `Response`.
  */
-export type AnonymousAccessAuthorize = (
-  context: AccessAuthorizationContext | AnonymousAccessAuthorizationContext,
+export type AnonymousAccessAuthorize<TEvent = ViteHubContext> = (
+  context: AccessAuthorizationContext<TEvent> | AnonymousAccessAuthorizationContext<TEvent>,
 ) => MaybePromise<AccessAuthorizeResult>
 
 export interface ExecutionAuthority {

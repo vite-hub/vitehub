@@ -1440,7 +1440,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("return withAuthorization(true, () => serveBlob(request))(input)")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1497,7 +1497,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("return withAuthorization(authorize, () => serveBlob(request))(input)")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1568,7 +1568,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("return withAnonymousAuthorization(authorize, () => serveBlob(request))(input)")
+        expect(handler).toContain("export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
@@ -1654,7 +1654,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).not.toContain(JSON.stringify(join(root, "server", "blob.ts")))
-        expect(handler).toContain("return withAuthorization(true, () => serveBlob(request))(input)")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
       }
       finally {
         await rm(root, { force: true, recursive: true })

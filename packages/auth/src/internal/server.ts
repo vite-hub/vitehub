@@ -14,6 +14,7 @@ import { withSessionMarker } from "../session-marker.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "../client-address.ts"
 import { createAuthAccessRouteMatcher } from "../runtime/server.ts"
 import { checkAbility } from "../ability-check.ts"
+import { runWithAuthEvent } from "../event-plugin.ts"
 import { AbilityError } from "../ability-error.ts"
 import {
   authForRequest,
@@ -261,7 +262,7 @@ export function handleAuthRequest(
   // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
   const auth = requestProvider(definition, resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) }))
-  return auth.handler(setRequestClientAddress(toRequest(request), address))
+  return runWithAuthEvent(event, () => auth.handler(setRequestClientAddress(toRequest(request), address)))
 }
 
 /** Return a Web Request itself, or the request in the Standard Context of a request event. */
@@ -692,16 +693,16 @@ async function checkAuthRequest(
     : createRefusalResponse("SIGNED_OUT"))
 }
 
-async function checkAuthorizeRequest(
-  input: AuthRequestInput,
-  authorize: AccessAuthorizeOption,
+async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
+  input: TInput,
+  authorize: AccessAuthorizeOption<TInput>,
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
-  const { event, request, session } = await readRequestSession(input, definition)
+  const { request, session } = await readRequestSession(input, definition)
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
-  const rejection = await runAccessAuthorize(authorize, { ...authorization, event })
+  const rejection = await runAccessAuthorize(authorize, { ...authorization, event: input })
   return rejection.response ? reject(rejection.response) : { authorization }
 }
 
@@ -711,7 +712,7 @@ async function checkAuthorizeRequest(
  * `false` returns `401` for a signed-out caller and `403` for a signed-in one. It never redirects to sign-in.
  */
 export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AuthAnonymousAuthorize,
+  authorize: AuthAnonymousAuthorize<TInput>,
   handler: AuthAnonymousGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
@@ -722,13 +723,13 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAnonymousAuthorization() requires a handler function." })
   }
   return async (input) => {
-    const { event, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
+    const { request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
     const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
       ? Object.freeze({ request, session: session.session, user: session.user })
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
-    const rejection = await runAccessAuthorize(authorize, { ...authorization, event }, deny)
+    const rejection = await runAccessAuthorize(authorize, { ...authorization, event: input }, deny)
     if (rejection.response) return rejection.response
     return handler(input, authorization)
   }
@@ -758,7 +759,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
  * It never redirects to sign-in, so image and fetch requests receive a status code.
  */
 export function withAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AccessAuthorizeOption,
+  authorize: AccessAuthorizeOption<TInput>,
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
@@ -836,9 +837,9 @@ export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition
  * It rejects like `withAuthorization()`: `401` without a session, `403` when `authorize` returns `false`, or the
  * status and headers of the callback's `Response`. It never redirects to sign-in.
  */
-export function requireAuthorization(
-  event: AuthRequestInput,
-  authorize: AccessAuthorizeOption,
+export function requireAuthorization<TInput extends AuthRequestInput>(
+  event: TInput,
+  authorize: AccessAuthorizeOption<TInput>,
   definition?: AuthDefinition,
 ): Promise<AuthAuthorization> {
   if (authorize !== true && typeof authorize !== "function") {

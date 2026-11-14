@@ -300,7 +300,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
-    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
+    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`, "import { defineHandler } from 'nitro/h3'"] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
     "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
@@ -370,19 +370,11 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "",
     ...(serve.authorize
       ? [
-          `type RouteInput = Parameters<Parameters<typeof ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"}>[1]>[0]`,
-          "",
-          "// Authorize before the store read and before conditional request handling. Nitro calls the function with the",
-          "// H3 event, so `authorize` gets it as `event`. A direct Fetchable call passes the Request.",
-          "function authorized(input: RouteInput, request: Request) {",
+          // `defineHandler()` also gives the route a `fetch()` that makes an H3 event for a direct call.
+          "// Authorize before the store read and before conditional request handling. `authorize` gets the H3 event.",
           serve.anonymous
-            ? "  return withAnonymousAuthorization(authorize, () => serveBlob(request))(input)"
-            : `  return withAuthorization(${authorizeModule ? "authorize" : "true"}, () => serveBlob(request))(input)`,
-          "}",
-          "",
-          "export default Object.assign((event: RouteInput & { req: Request }) => authorized(event, event.req), {",
-          "  fetch: (request: Request) => authorized(request, request),",
-          "})",
+            ? "export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))"
+            : `export default defineHandler(event => withAuthorization(${authorizeModule ? "authorize" : "true"}, () => serveBlob(event.req))(event))`,
         ]
       : ["export default { fetch: serveBlob }"]),
     "",
