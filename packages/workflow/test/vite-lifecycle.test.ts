@@ -74,7 +74,7 @@ vi.mock("../src/discovery.ts", () => ({
 
 vi.mock("../src/internal/vite-build.ts", () => ({
   createCloudflareWorkflowNitroConfig: () => ({}),
-  createOptionalViteDevtoolsPlugin: () => undefined,
+  createOptionalPackagesPlugin: () => undefined,
   createVercelWorkflowTransformPlugin: () => undefined,
   discoverWorkflowProviderSources: () => ({ agentInstructions: new Map(), paths: [] }),
   generateWorkflowProviderOutputs: () => undefined,

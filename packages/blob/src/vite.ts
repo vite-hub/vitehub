@@ -293,6 +293,9 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   // Authorized objects belong to one user, so shared caches must not store them unless the app sets its own policy.
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
+  // Error responses keep only the CORS headers, like the error responses of `serve()`.
+  const cors = Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => name.toLowerCase().startsWith("access-control-")))
+  const errorInit = (status: number) => Object.keys(cors).length ? `{ headers: ${JSON.stringify(cors)}, status: ${status} }` : `{ status: ${status} }`
   // A `:name` segment matches any one segment, like the Nitro route.
   const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
@@ -343,7 +346,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "async function serveBlobResponse(request: Request): Promise<Response> {",
     "  const url = new URL(request.url)",
     "  const pathname = blobPathname(request, url)",
-    "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
+    `  if (!pathname) return Response.json({ error: 'Blob not found.' }, ${errorInit(404)})`,
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string, headers?: Record<string, string> } = { cacheControl: ${JSON.stringify(cacheControl)}${headers ? `, headers: ${JSON.stringify(headers)}` : ""} }`,
     "  try {",
@@ -351,7 +354,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
-    "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
+    `    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, ${errorInit(400)})`,
     "  }",
     ...(serve.authorize
       ? [

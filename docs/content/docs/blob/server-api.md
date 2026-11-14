@@ -152,7 +152,7 @@ The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`.
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses (`400`, `404`, `405`) get only its CORS headers, the ones that start with `Access-Control-`, so a player on another origin can read a `404`. Other headers, such as an immutable `Cache-Control`, would describe a file that does not exist, so they stay off.
 
 In a Nitro 3 or H3 2 handler:
 
