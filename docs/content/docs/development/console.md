@@ -336,7 +336,7 @@ The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehu
 
 ## Self-host the Console
 
-The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite or on Cloudflare Workers with D1. Its README shows how to build, configure, and deploy it.
+The Console app is [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). It runs on Node.js with SQLite, on Cloudflare Workers with D1, or on Vercel with hosted libSQL. Its README shows how to build, configure, and deploy it.
 
 ## Protect the Console route
 

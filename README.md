@@ -91,13 +91,13 @@ export default defineEventHandler(async () => {
 
 This route does not change between hosts. The host selects the provider:
 
-| Host       | KV                   | Blob                  | Database          |
-| ---------- | -------------------- | --------------------- | ----------------- |
-| Cloudflare | Workers KV           | R2                    | D1                |
-| Vercel     | Upstash Redis        | Vercel Blob           | libSQL or D1 HTTP |
-| Netlify    | Upstash Redis        | Netlify Blobs         | libSQL            |
-| Deno       | Deno KV              | S3-compatible         | libSQL            |
-| Node       | `fs-lite` or Upstash | `fs` or S3-compatible | SQLite or libSQL  |
+| Host       | KV                                           | Blob                  | Database                     |
+| ---------- | -------------------------------------------- | --------------------- | ---------------------------- |
+| Cloudflare | Workers KV                                   | R2                    | D1                           |
+| Vercel     | Upstash Redis                                | Vercel Blob           | libSQL or D1 HTTP            |
+| Netlify    | Upstash Redis                                | Netlify Blobs         | libSQL                       |
+| Deno       | Deno KV                                      | S3-compatible         | libSQL                       |
+| Node       | Postgres table, `fs-lite`, Redis, or Upstash | `fs` or S3-compatible | SQLite, libSQL, or Postgres |
 
 Support is different for each primitive. Read the [support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before you select a host.
 
