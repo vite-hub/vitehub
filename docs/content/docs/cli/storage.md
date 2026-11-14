@@ -7,11 +7,9 @@ navigation.group: Commands
 icon: i-lucide-hard-drive
 ---
 
-Start the dev server, then run these commands in another terminal. Each command runs an [operation](/docs/console/operations) of the app, so it uses the app's data. With `--url`, it runs on a deployed app with the Console on, with the credentials in [Call a deployed app](/docs/cli/operations#call-a-deployed-app).
+These commands let you look at and fix the data your app stores, from a terminal. Start the dev server and run them in another terminal, or pass `--url` to work on a deployed app with the Console on, as [Call a deployed app](/docs/cli/operations#call-a-deployed-app) describes. They use the same [operations](/docs/console/operations) as the Console pages, so you need access to the matching Console section: `blob`, `kv`, or `rate-limits`.
 
 ## Read and write blobs
-
-The `vitehub blob` commands run the `blob.*` operations.
 
 ```bash [Terminal]
 pnpm vitehub blob list --prefix avatars/ --limit 20
@@ -24,33 +22,28 @@ pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png --json
 ```
 
-Each write command prints what it changed:
+Each write prints what it changed:
 
 ```txt [Output]
 Created blob avatars/ada.png in store default (48213 B, image/png).
 Deleted blob avatars/ada.png from store default.
 ```
 
-Every command takes `--store <name>`, `--json`, `--url <url>` for a deployed app, and `--timeout <ms>`. The default Blob store is used unless you pass `--store`. Store names come from `blob.stores`. An unknown store fails and lists the stores, `default` first.
+| Command | What it does |
+| --- | --- |
+| `list` | Prints pathname, size, content type, and upload time, every object included, also those under `_vitehub/` that the Console hides. `--limit` defaults to 100, at most 250. When more exist, stderr shows the `--cursor` of the next page. |
+| `head` | Prints one blob's metadata. A missing blob exits with status 1. |
+| `get` | Writes the bytes unchanged to stdout, so redirect them, or to `--output <file>` with a summary. `--json` needs `--output`. |
+| `put` | Uploads a file relative to the current directory and says if the blob was created or replaced. Without `--content-type`, the type comes from the pathname. It replaces an existing blob without asking. |
+| `delete` | Says if the blob existed. Deleting a missing blob exits with status 0. It asks first on a terminal and refuses elsewhere, so scripts pass `--yes` (or `-y`). |
+| `media` | Prints the blob's [media record](/docs/blob/media), with its served route URL. A missing record is built and stored, as `blob.media.get()` does. |
+| `variants` | Lists cached image variants and crop replacements, with transform key, type, and size. |
 
-- `list` prints pathname, size, content type, and upload time. `--limit` defaults to 100, at most 250. When more blobs exist, stderr shows the `--cursor` for the next page.
-- `head` prints one blob's metadata. A missing blob exits with status 1.
-- `get` writes the bytes unchanged, to stdout by default, so redirect them. `--output <file>` writes the file and prints a summary. `--json` needs `--output`.
-- `put` uploads a file relative to the current directory. Without `--content-type`, Blob storage guesses the type from the pathname. The output says if the blob was created or replaced. This label is a best guess from a metadata read just before the write, so eventual consistency and concurrent writers can make it wrong.
-- `media` prints the blob's [media record](/docs/blob/media). A missing record is built from the object and stored, as `blob.media.get()` does. A missing blob exits with status 1.
-- `variants` lists a blob's cached image variants and crop replacements, with transform key, type, and size.
-- `put` and `delete` refuse paths under `_vitehub/` (`BLOB_RESERVED_PATH`), which ViteHub keeps for itself. `get` and `head` can read them. The CLI replaces an existing blob without asking. The Console asks first (`overwrite: false` makes `blob.put` fail with `BLOB_EXISTS`).
-- `delete` says if the blob existed, which is a best guess for the same reason. Deleting a missing blob changes nothing and exits with status 0.
+Every command takes `--store <name>` (a name from `blob.stores`, else the default store), `--json`, `--url`, and `--timeout <ms>`. An unknown store fails and lists the stores. Errors go to stderr, or to `{ "error": { "code", "message" } }` on stdout with `--json`.
 
-Files travel as base64 in a JSON call, so `put` and `get` handle up to 8 MiB. The CLI checks an upload's size before it reads the file. Larger blobs fail with `BLOB_UPLOAD_TOO_LARGE` or `BLOB_DOWNLOAD_TOO_LARGE`, so use the app or your provider's tools. There is no `sign` command. `list` shows every object, including those under `_vitehub/` that the Console hides by default.
-
-Errors go to stderr, or to `{ "error": { "code", "message" } }` on stdout with `--json`. The commands print no object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted.
-
-The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `blob` section. `blob.put` writes and `blob.delete` is destructive. `vitehub blob delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console Blob page uses the same operations.
+Files travel as base64 in a JSON call, so `get` and `put` stop at 8 MiB with `BLOB_DOWNLOAD_TOO_LARGE` or `BLOB_UPLOAD_TOO_LARGE`. Use the app or your provider's tools for bigger files. `put` and `delete` refuse paths under `_vitehub/`, which ViteHub keeps for itself (`BLOB_RESERVED_PATH`). The output never shows object URLs or a `sign` command, because a signed URL can carry credentials, and metadata values under secret names such as `token` are redacted.
 
 ## Read and write KV keys
-
-The `vitehub kv` commands run the `kv.*` operations.
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users: --limit 20
@@ -62,28 +55,27 @@ pnpm vitehub kv set template @./fixtures/template.txt
 pnpm vitehub kv delete settings
 ```
 
-Each write command prints what it changed:
-
 ```txt [Output]
 Created key settings in store default (object).
 Created key session:42 in store default (string, TTL 3600 s).
 Deleted key settings from store default.
 ```
 
-Every command takes `--store <name>`, `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173`, and `--timeout <ms>`. Commands use the default KV store. `--store` picks a named store from `kv.stores`. An unknown store fails and lists the stores, `default` first.
+| Command | What it does |
+| --- | --- |
+| `list` | Prints one key per line, so use `--json` when keys contain line breaks. `--limit` defaults to 100, at most 1000, and stderr shows the next `--cursor`. Some drivers count scanned entries, so a page can hold fewer keys, or none, and still have a cursor. |
+| `get` | Writes a string unchanged with no added newline, other JSON values formatted, and binary values as bytes (base64 with `"encoding": "base64"` in `--json`). A missing key exits with status 1. |
+| `has` | Exits with status 0 when the key exists and 1 when it does not. |
+| `set` | Writes a string and says if the key was created or updated. `--json-value` parses JSON, and a value that starts with `@` reads a UTF-8 file. `--ttl <seconds>` sets an expiry in positive seconds, fractions allowed, and the output shows the real TTL when the driver changes it. |
+| `delete` | Says if the key was found. Deleting a missing key exits with status 0. It asks first on a terminal and refuses elsewhere, so scripts pass `--yes` (or `-y`). |
 
-- `list` prints one key per line. Use `--json` when keys contain line breaks. `--limit` defaults to 100, at most 1000. When more keys exist, stderr shows the `--cursor` for the next page. Some drivers count scanned entries toward the limit, so a page can hold fewer keys, or none, and still have a next cursor.
-- `get` writes a string value unchanged, with no added newline, and other JSON values as formatted JSON. Binary values go to stdout as bytes, or as base64 with `"encoding": "base64"` in `--json` output. A missing key exits with status 1.
-- `has` exits with status 0 when the key exists and 1 when it does not.
-- `set` writes a string. `--json-value` parses the value as JSON. JSON input rejects values that underflow to zero or whose decimal size changes when parsed, so use strings for those and for integers outside JavaScript's safe range. A value that starts with `@` reads a UTF-8 file relative to the current directory. The output says if the key was created or updated.
-- `--ttl <seconds>` on `set` sets an expiry, and takes positive fractional seconds. Cloudflare KV rounds up to whole seconds, at least 60. Upstash needs at least one second and rounds up to whole seconds. The output shows the real TTL and a notice when the driver changes it.
-- `delete` says if the key was found. Deleting a missing key changes nothing and exits with status 0.
+Every command takes `--store <name>` (a name from `kv.stores`, else the default store), `--json`, `--url`, and `--timeout <ms>`. There is no `clear` command, so each delete is explicit.
 
-KV storage parses stored strings that look like JSON, so `"2026"` can read back as the number `2026`. There is no `clear` command, so each delete is explicit.
+KV storage parses stored strings that look like JSON, so `"2026"` can read back as the number `2026`. `--json-value` rejects numbers that underflow to zero or lose precision, so store those, and integers past JavaScript's safe range, as strings. Cloudflare KV rounds a TTL up to whole seconds, at least 60, and Upstash rounds up to whole seconds, at least 1.
 
-Errors go to stderr, or to `{ "error": { "code", "message" } }` on stdout with `--json`. Like the Console KV page, the commands print values as stored, without redaction. Do not store credentials in keys you inspect in shared logs.
-
-The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.delete`, in the `kv` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `kv` section. `kv.delete` is destructive: `vitehub kv delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console KV page uses the same operations.
+::warning
+The commands print values as stored, without redaction, like the Console KV page. Do not keep credentials in keys that you read in shared logs.
+::
 
 ## Read and reset Rate Limit counters
 
@@ -94,9 +86,6 @@ pnpm vitehub rate-limit peek <id> <key>
 pnpm vitehub rate-limit reset <id> <key> [--yes]
 ```
 
-`<id>` is the stable ID of `requireRateLimit()`. `<key>` is the limited key, such as a client IP or user ID. Put `--` before a key that starts with a dash. Both commands take `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, they call this project's dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/console) on, and sign with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
+`<id>` is the stable ID of `requireRateLimit()`, and `<key>` is the limited key, such as a client IP or a user ID. Put `--` before a key that starts with a dash. `peek` reads without using a token. `reset` deletes the counter, so it asks first on a terminal and refuses elsewhere without `--yes`. Both take `--json`, `--url`, and `--timeout <ms>`.
 
-The commands run `rate-limit.peek` (a read) and `rate-limit.reset` in the `rate-limits` Console section. `reset` is destructive: it asks for confirmation on a terminal and refuses elsewhere, so scripts pass `--yes`. The Console **Rate Limits** page uses the same operations.
-
-- The memory provider keeps counters in the server process, so you see only the counters of the process that answers.
-- The Cloudflare binding has only `limit()`, which uses a token, so both commands report `unsupported` and exit with status 1.
+The memory provider keeps counters in the server process, so you see only the process that answers. The Cloudflare binding has only `limit()`, which uses a token, so both commands report `unsupported` and exit with status 1.

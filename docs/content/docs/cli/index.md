@@ -1,37 +1,39 @@
 ---
 title: ViteHub CLI
-description: Run package-owned development workflows through the local Vite config with the vitehub command, from your terminal, CI, or an Agent.
+description: Run the workflows of every ViteHub package from your terminal, CI, or an Agent with one vitehub command that reads your Vite config.
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start
 icon: i-lucide-terminal-square
 ---
 
-The `vitehub` CLI is one entry point for developers and agents. It loads your Vite config and collects the commands each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads each active plugin's commands and Provision Steps once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
-
-The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. An app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
+The `vitehub` command is where you deploy the app, read its KV keys, run a task, or talk to an Agent. It loads your Vite config and picks up the commands that each active ViteHub package adds, so every command comes from the package that knows the work.
 
 ## Install and open help
 
-The `vite-hub` package includes the CLI. Commands come from active Vite plugins, so a package that is not set up has no commands.
+The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships the `vitehub` binary.
 
 ```bash [Terminal]
 pnpm add vite-hub
 pnpm vitehub --help
 ```
 
-`@vite-hub/cli` is the command runner that the `vitehub` binary uses. It has no binary of its own.
+Help lists the **namespaces**, the command groups, of the packages your app turns on. A package that is not set up adds no commands.
 
-Help lists the namespaces (command groups) you have:
+| Namespace | Shows when |
+| --- | --- |
+| `agent`, `channels`, `conversations` | `hubAgent()` is active. |
+| `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, `workspace` | Its plugin is active: `hubBlob()`, `hubDatabase()`, `hubEnv()`, `hubKV()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, or `hubWorkspace()`. |
+| `content` | The app defines `server/content.ts`. |
+| `console` | `console` is on. |
+| `types`, `task`, `decisions`, `sandbox` | Always. The framework adds them. |
+| `inspect`, `provision` | Always. They are built into the CLI, and a plugin command named `inspect` is ignored. |
 
-- `agent`, `channels`, and `conversations` when `hubAgent()` is active.
-- `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDatabase()`, `hubEnv()`, `hubKV()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
-- `content` when the app defines `server/content.ts`.
-- `console` when `console` is on.
-- `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
-- `inspect` and `provision`, built into the CLI. Plugin commands named `inspect` are ignored.
+::note
+`decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite. `@vite-hub/cli` is the runner behind the `vitehub` binary and has no binary of its own.
+::
 
-The [command reference](/docs/cli/reference) shows the full help output and every command with its owner package.
+The [command reference](/docs/cli/reference) has the full help output and every command with its owner package.
 
 ## Find a command
 
@@ -53,7 +55,7 @@ The [command reference](/docs/cli/reference) shows the full help output and ever
 
 ## Next steps
 
-- Use [Agent Evals](/docs/agents/evals) for behaviour checks.
-- Use [Workspace](/docs/workspace) for Workspace Sessions and write access.
-- Use [Provisioning](/docs/development/provisioning) for provider resource ids.
-- Use [Config options](/docs/reference/config-options) for package integration switches.
+- [Agent Evals](/docs/agents/evals) check what an Agent does.
+- [Workspace](/docs/workspace) covers Workspace Sessions and write access.
+- [Provisioning](/docs/development/provisioning) explains provider resource ids.
+- [Config options](/docs/reference/config-options) lists the package integration switches.

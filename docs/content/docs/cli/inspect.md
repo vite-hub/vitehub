@@ -7,11 +7,11 @@ navigation.group: Operate
 icon: i-lucide-scan-search
 ---
 
-`inspect` and `provision` are built into the CLI, so every ViteHub app has them.
+`vitehub inspect` shows what ViteHub found in your code and what it will ask the host for, and `vitehub provision` creates the missing host resources. Both are built into the CLI, so every ViteHub app has them.
 
 ## Inspect Definitions and Provider Output
 
-`vitehub inspect` prints the summaries the Console shows, without a server or provider call. A Definition is the code that declares one resource, such as a queue or a rate limit. Each active package adds its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
+`inspect definitions` prints the summaries the Console shows, with no server. A **Definition** is the code that declares one resource, such as a queue or a rate limit, and each active package adds its kind: `agent`, `auth`, `browser`, `channel`, `collection`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
@@ -29,23 +29,21 @@ Rate Limits (rate-limit): 1
     Source location: 4:9
 ```
 
-`--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` (from the project root), `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the kinds.
+`--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`, where each Definition has `name`, `file` (from the project root), `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the kinds.
 
-`inspect output` lists the Provider Output files (the files a build writes for the host) and shows which exist. Deployment paths use the host's output directory, such as `.output` or `.vercel/output`. Run a production build first.
+`inspect output` lists the **Provider Output** files, the files a build writes for the host, and shows which exist. Run a production build first, because the paths use the host's output directory, such as `.output` or `.vercel/output`.
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect output
 pnpm vitehub inspect output --json
 ```
 
-`--json` includes the parsed content of each JSON file. The CLI redacts values under secret keys such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with credentials. See [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
+`--json` includes the parsed content of each JSON file, with values under secret keys such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with credentials redacted. [Provider output](/docs/reference/provider-output) lists each file's owner and purpose.
 
-`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, and the Vercel Blob store. Each entry shows the host, the resource kind, the Definition or store, the resource name, the binding, the id if one is known, and where the id came from. Like `inspect output`, it loads the configuration that a production build uses. It reads local files only and never calls a provider API.
+`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, and the Vercel Blob store. It reads the production build configuration from local files, never a provider API.
 
 ```bash [Terminal]
 pnpm vitehub inspect resources
-pnpm vitehub inspect resources --json
 ```
 
 ```txt [Output]
@@ -60,26 +58,30 @@ cloudflare	cloudflare-r2-bucket	default
   Source: bound by name
 ```
 
+Each entry ends with where its id came from. `--json` prints `{ "resources": [...] }` with the same fields and redaction.
+
 | Source | Meaning |
 | --- | --- |
 | `config` | The Definition or the integration options set the id or the Vercel Blob token. |
-| `env` | An env variable set the id. `env` names the variable. |
+| `env` | An env variable set the id, and `env` names it. |
 | `provision-state` | `vitehub provision run` recorded the id in `.vitehub/provision.json`. |
 | `provider-output` | Only the generated Wrangler config of the last build names the id. |
-| `name` | The host binds the resource by its name and needs no id, as for R2 buckets and Cloudflare Queues. |
+| `name` | The host binds the resource by name and needs no id, as for R2 buckets and Cloudflare Queues. |
 | none | No id is known yet. Run `vitehub provision run` or set the id. |
 
-For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the store is reached through `BLOB_READ_WRITE_TOKEN`, and the CLI reports only whether the token is set, never its value. A configured `token` that overrides the environment is reported as `config`, without a store id or token value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
+For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the CLI reports only whether `BLOB_READ_WRITE_TOKEN` is set, never its value, and a configured `token` shows as `config` with no store id or token. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
 
-Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
+::note
+Package authors add summaries through `vitehub.inspect` on the Vite plugin, and host resources with `resources()`.
+::
 
 ## Preview provisioning
 
-Use `--dry-run` before you create provider resources.
-Provision never deletes or changes existing resources. It writes non-secret ids only when a real run applies actions.
+`provision run --dry-run` shows the provider resources it would create, before you create them.
 
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
+Provision never deletes or changes an existing resource, and writes non-secret ids only when a real run applies actions. `vitehub provision status` shows the recorded ids, ids that no Definition declares, and pending plan actions. [Provisioning](/docs/development/provisioning) covers the full flow.

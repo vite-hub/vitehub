@@ -7,13 +7,11 @@ navigation.group: Commands
 icon: i-lucide-messages-square
 ---
 
-The Agent package adds the `channels` and `conversations` namespaces when `hubAgent()` is active.
+The `channels` and `conversations` commands register your Agent's webhooks with the provider and get its conversations back out. `hubAgent()` adds them.
 
 ## Synchronize Channel webhooks
 
-Deploy the stage before you register its Channel webhooks. `channels sync` loads the Agent Definitions for the Vite stage, checks that every webhook route is live at the exact public HTTPS origin, and compares the provider state. Telegram is the first supported provider.
-
-The command only reads by default. Use `--json` to get a sanitized plan to review.
+Deploy the stage first, then compare its Channel webhooks with the provider. `channels sync` only reads by default, and `--json` gives a sanitized plan to review. Telegram is the first supported provider.
 
 ```bash [Terminal]
 pnpm vitehub channels sync \
@@ -22,9 +20,9 @@ pnpm vitehub channels sync \
   --json
 ```
 
-Without `--url`, the command uses `vitehub({ publicUrl })` when it is one string. `--stage staging` loads stage env files such as `.env.staging`, and process environment values win. Keep the Telegram bot token and webhook secret in Server Env. The command takes no credential flags and never prints credentials.
+The command checks that every webhook route is live at the exact public HTTPS origin, which defaults to `vitehub({ publicUrl })` when that is one string. `--stage staging` loads `.env.staging`, and process values win. Keep the Telegram bot token and webhook secret in Server Env, because the command takes no credential flags and never prints them.
 
-To apply the plan, repeat the exact origin in `--confirm-origin`. This works without prompts, so developers, CI, and agents never pick a deployment by accident. The configured `publicUrl` needs no confirmation, but a `--confirm-origin` you add must match it.
+To apply the plan, repeat the origin you typed in `--confirm-origin`, so nobody applies to the wrong deployment by accident. The configured `publicUrl` needs none, but a `--confirm-origin` you add anyway must match it.
 
 ```bash [Terminal]
 pnpm vitehub channels sync \
@@ -34,30 +32,34 @@ pnpm vitehub channels sync \
   --confirm-origin https://staging.example.com
 ```
 
-`--agent <name>` or `--channel <id>` narrows an app with many Agents. Switching a Telegram Channel to polling, or setting `webhooks: false`, plans to remove its webhook. Applying that also needs `--allow-delete`, and the current provider URL must belong to the confirmed origin. ViteHub keeps pending updates during registration and removal.
+| Flag | What it does |
+| --- | --- |
+| `--agent <name>`, `--channel <id>` | Narrow an app with many Agents. |
+| `--allow-delete` | Allow removing a webhook, which the plan does when a Telegram Channel switches to polling or sets `webhooks: false`. The current provider URL must belong to the confirmed origin. |
+| `--force` | Reapply when the URL matches but credentials or subscriptions changed. Telegram's `getWebhookInfo` does not return the secret token or allowed updates, so the plan marks them as unverifiable. |
 
-Telegram's `getWebhookInfo` returns the URL and delivery errors, but not the secret token or allowed update list, so the plan marks those as unverifiable. Use `--force` to reapply them when the URL matches but credentials or subscriptions changed. Telegram accepts ports 443, 80, 88, and 8443. The CLI rejects other explicit ports before it applies.
+Telegram accepts ports 443, 80, 88, and 8443, and the CLI rejects any other port before it applies. Pending updates are kept.
 
-`channels sync` only registers the webhook. The Telegram synchronizer subscribes to message updates, the one inbound event the built-in Channel supports. Admission rules, allowed users, secrets, and other update types stay in the app. An app that needs a custom adapter, certificate, fixed IP, or connection policy must manage the provider itself. An app-owned `adapter` is not synced.
+::note
+`channels sync` only registers the webhook for message updates, the one event the built-in Channel supports. Admission rules, allowed users, secrets, and other update types stay in the app. An app-owned `adapter` is not synced, so an app with a custom adapter, certificate, fixed IP, or connection policy manages the provider itself.
+::
 
 ## Export a Channel conversation
 
-When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages).
-
-`conversations export` calls the `conversations.export` [operation](/docs/console/operations) on the dev server, or on the app at `--url` with the credentials in [Call a deployed app](/docs/cli/operations#call-a-deployed-app). It needs no webhook secret, only Console access to the `channels` section.
+`conversations export` writes one conversation as Markdown or JSON from the dev server, or from the app at `--url` as [Call a deployed app](/docs/cli/operations#call-a-deployed-app) describes. It needs Console access to the `channels` section, not the webhook secret.
 
 ```bash [Terminal]
 pnpm vitehub conversations export support telegram telegram:456 > chat.md
 pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat --url https://app.example.com
 ```
 
-Without `--output`, the text goes to stdout without attachments, and a retention warning goes to stderr. With `--output`, the directory must not exist. It gets the file (`history.json` or `<thread>.md`) and attachments in `media/`. `--media` and `--no-media` override the default. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
+Without `--output`, the text goes to stdout without attachments, and a retention warning goes to stderr. `--output` names a new directory that gets the file (`history.json` or `<thread>.md`) and the attachments in `media/`. `--media` and `--no-media` override the default. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
+
+When the app has the Channel operations, `channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `channels status <agent> <channel>` shows the sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages).
 
 ## Download Channel history
 
-`channels history` loads the stage's Agent and Channel configuration and calls the deployed webhook route with its webhook secret. Adapter-backed Channels use the Chat SDK export. A Channel with `history` exports its Collection items, takes repeatable `--query key=value` and optional `--thread`, and pages to the end. `--invocations` joins kept Invocations and recorded deliveries to each item.
-
-The join uses `vitehub.channel.key` annotations first. For older Invocations, a Channel can give `history.invocationItem(invocation)`, which returns a history item or `undefined`, and the exporter calls `history.key()` and optional `history.thread()` on it. The journal keeps observations and run annotations, but not raw webhook input or trusted `input.context`, so recover only identities the kept data supports. A missing item, invalid key, or throwing hook leaves the Invocation unjoined. The exporter scans the journal once per Collection page. It never runs the Channel trigger or changes journal records.
+`channels history` downloads a deployed conversation and its attachments with the stage's webhook secret, into the same archive as `conversations export --format json --output`.
 
 ```bash [Terminal]
 pnpm vitehub channels history \
@@ -68,17 +70,31 @@ pnpm vitehub channels history \
   --output ./channel-history
 ```
 
-`--url` defaults to `vitehub({ publicUrl })` when it is one string. A Telegram direct-message Channel finds its thread when the adapter allows exactly one user. Pass `--thread <provider-thread-id>` for groups and for adapters where one Channel serves many conversations, issues, or tickets. When a Channel declares several webhook registrations, pick the route and its authentication with `--webhook <id>`.
+| Flag | What it does |
+| --- | --- |
+| `--url <origin>` | The deployed origin. The default is `vitehub({ publicUrl })` when that is one string. |
+| `--thread <id>` | The provider thread. A Telegram direct-message Channel finds it when the adapter allows exactly one user. Groups, and adapters that serve many conversations, issues, or tickets, need it. |
+| `--webhook <id>` | The webhook registration, and its authentication, when a Channel declares several. |
+| `--webhook-path <path>` | Export through another path on the confirmed origin, for example the built-in route of an older deployment that does not serve a declared `webhooks.path` yet. |
+| `--query <key=value>` | Filter a Channel with `history`. Repeat it for several values. The export pages to the end. |
+| `--invocations` | Join the kept Invocations and recorded deliveries to each item. |
 
-`--webhook-path <path>` exports through another path on the confirmed origin, with the selected registration's authentication. Use it to reach the built-in route on an older deployment that does not serve a declared `webhooks.path` yet.
+Adapter-backed Channels export only the history the adapter or its State Adapter can give. Telegram cannot backfill, so it keeps the `threadHistory` window, 100 messages for seven days by default.
 
-A custom Channel export holds the items of its history Collection. With `--invocations`, each item has `invocations` with `id`, `status`, `createdAt`, `updatedAt`, `dryRun`, `label`, `deliveries: [{ channel, text }]`, and optional final `text`. Delivery text is the validated reply before app formatting, including dry-run writes. To keep it, you need Invocation content storage or `metadataContent` with `channel.effect.content`.
+::tip
+For a recovery archive of a Telegram Channel, export before that seven-day window ends.
+::
 
-A Chat SDK export holds only history the adapter or its State Adapter can give. Telegram's Bot API cannot backfill old messages, so it uses the `threadHistory` window: 100 messages kept for seven days by default. For a recovery archive, export before that window ends.
+A Channel with `history` exports its Collection items. With `--invocations`, each item has `invocations` with `id`, `status`, `createdAt`, `updatedAt`, `dryRun`, `label`, `deliveries: [{ channel, text }]`, and optional final `text`. Delivery text is the validated reply before app formatting, dry-run writes included, and keeping it needs Invocation content storage or `metadataContent` with `channel.effect.content`. The join matches `vitehub.channel.key` annotations, and [`history.invocationItem()`](/docs/agents/channels#replay-channel-history) joins older Invocations. The export never runs the Channel trigger or changes the journal.
 
 ## Replay Channel history
 
-`vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox` records each run with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` for several values, as with `--filter`. Labels are not part of the history query. They must be non-empty, at most 512 characters. For a query field named `label`, use `--query label=value`.
+`channels replay` sends saved Channel history through an Agent again.
 
-Replay needs the development project token or deployed Console authentication. With `--url`, the command calls the `channels.replay` operation on the Console RPC of the deployed app, one page per call. The Agent must allow Console invocation. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
+```bash [Terminal]
+pnpm vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox
+```
 
+Each run is recorded with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` for several values. A label has 1 to 512 characters and is not part of the history query, so filter a field named `label` with `--query label=value`.
+
+Replay runs saved items through the Channel trigger without rechecking old provider signatures, while public webhooks still verify them. It needs the development project token, or Console authentication with `--url`, where the Agent must allow Console invocation. In `vite dev`, local dry runs need no Invocation setup in the app.

@@ -7,11 +7,11 @@ navigation.group: Commands
 icon: i-lucide-list-checks
 ---
 
-The `decisions` namespace comes from the framework. It does not load the project config, so it works when the app does not start.
+`vitehub decisions` lets you try a Decision from the terminal before you wire it into a route. It does not load the project config, so it works when the app does not start.
 
 ## Run a Decision
 
-A Decision is a `defineChoices()` result that picks options from a text. `decisions list` finds files that call `defineChoices()`, loads them, and prints the exports that hold the result. It skips `node_modules`, `dist`, `build`, `coverage`, and dot folders. There is no registry: the file path is the address. A file that fails to load is listed with its error, and the command exits with status `1`.
+A **Decision** is a `defineChoices()` result that picks options from a text. `decisions list` finds them by file. There is no registry, so the file path is the address.
 
 ```sh
 pnpm vitehub decisions list
@@ -24,14 +24,16 @@ server/utils/forecast-choices.ts  forecast  forecast
 Run one with: vitehub decisions run server/utils/forecast-choices.ts "<text>"
 ```
 
-`decisions run <file> <text>` loads the file, calls `resolve()` with the text, and prints the selection as JSON. It calls the definition's gateway, so it reads the app's keys, such as `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`, from the shell or the project's `.env` files. `--inspect` prints the questions and state that `resolve()` would send, without a model call.
+The list skips `node_modules`, `dist`, `build`, `coverage`, and dot folders. A file that fails to load is listed with its error, and the command exits with status `1`.
+
+`decisions run <file> <text>` calls `resolve()` with the text and prints the selection as JSON. The gateway call reads the app's keys, such as `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`, from the shell or the project's `.env` files.
 
 ```sh
 pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except vak supply"
 pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect
 ```
 
-The first command's output, with the offline gateway of the [Decisions tutorial](/docs/decisions/get-started):
+With the offline gateway of the [Decisions tutorial](/docs/decisions/get-started), the first command prints:
 
 ```json [Output]
 {
@@ -40,12 +42,15 @@ The first command's output, with the offline gateway of the [Decisions tutorial]
 }
 ```
 
-| Option | Meaning |
+| Flag | What it does |
 | --- | --- |
 | `--export <name>` | The export to run when the file has more than one `defineChoices()` export. |
 | `--context <json>` | The `context` for `options` functions, such as `'{"tenantId":"t1"}'`. |
-| `--inspect` | Print the plan of `inspect()` instead of calling the gateway. |
+| `--inspect` | Print the questions and state of `inspect()` instead of calling the gateway. |
 | `--json` | `decisions list` only: print the files as JSON. |
 
-A Decision error prints `{ "error": { "code", "message" } }` and exits with status `1`. The command loads the file with Vite but without the project config, so imports must use relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not work. See [Decisions server API](/docs/decisions/server-api) for `resolve()` and `inspect()`.
+A Decision error prints `{ "error": { "code", "message" } }` and exits with status `1`. See [Decisions server API](/docs/decisions/server-api) for `resolve()` and `inspect()`.
 
+::note
+The command loads the file with Vite but without the project config, so imports must use relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not work.
+::
