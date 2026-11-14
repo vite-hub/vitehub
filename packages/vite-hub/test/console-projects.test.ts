@@ -271,6 +271,12 @@ describe("account Console", () => {
     }
   })
 
+  it("keeps the problem page when the app's server fails with a page that is not JSON", async () => {
+    const { module, state } = await account(operationRpcFetch(async () => new Response("<!doctype html><title>502 Bad Gateway</title>", { headers: { "content-type": "text/html" }, status: 502 })))
+    await module.openConsoleProject()
+    expect(state.gate.value).toMatchObject({ kind: "problem" })
+  })
+
   it("starts with the empty state when the team has no project", async () => {
     vi.stubGlobal("fetch", vi.fn())
     const module = await import("../src/console/runtime/client/project-session.ts")
