@@ -73,7 +73,8 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     },
   })
   const db: SyncDatabase = drizzle({ client: counted })
-  const clock = { now: 1_000_000_000_000 }
+  // The real time: the triggers stamp the change log with the time of the Database, and compaction compares it.
+  const clock = { now: Date.now() }
   const services: SyncServices = {
     db,
     now: () => clock.now,

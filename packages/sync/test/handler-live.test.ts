@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { defineSync } from "../src/define.ts"
 import { liveResponse } from "../src/live.ts"
-import { createSyncHandler, recordSyncChanges } from "../src/runtime.ts"
+import { createSyncHandler } from "../src/runtime.ts"
 import { createHarness, readEvents, teamsOf } from "./handler-harness.ts"
 
 import type { SyncPullResponse } from "../src/protocol.ts"
@@ -129,25 +129,48 @@ describe("live", () => {
   })
 })
 
-it("wakes a stream of the installed handler at once after recordSyncChanges()", async () => {
-  const app = await setup(undefined)
-  // The installed handler checks the change log every second, and has its own services object, as in a ViteHub app.
-  const handler = createSyncHandler({ definitions: { notes: app.definition }, db: () => app.db, session: app.services.identify! })
+it("streams a write of server code on the next check of the change log", async () => {
+  const app = await setup({ interval: 50, seconds: 30 })
   const held = await app.start(alice)
-  const controller = new AbortController()
-  const url = new URL(`/api/_vitehub/sync/notes?live=1&cursor=${held.cursor}&scope=${held.scope}&version=${held.version}`, "https://app.test")
-  const response = await handler.fetch(new Request(url, { signal: controller.signal, headers: { "x-user": "alice", "x-teams": "a" } }))
-  expect(response.status).toBe(200)
+  const { response, abort } = await app.live(alice, as(held))
   const events = readEvents(response)
   expect(await events.next(100)).toBe("timeout")
 
   const started = performance.now()
   await app.db.insert(notes).values({ id: "n1", teamId: "a", body: "From a job" })
-  expect(await recordSyncChanges("notes", { put: ["n1"] })).toEqual([undefined, { recorded: 1 }])
+  const event = await events.next(2000)
+  expect(performance.now() - started).toBeLessThan(1000)
+  if (typeof event !== "object") throw new Error("No event")
+  expect(pullOf(event.data).rows).toEqual([{ id: "n1", teamId: "a", body: "From a job" }])
+  abort()
+  expect(await events.next(1000)).toBe("end")
+})
+
+it("wakes the streams of every definition of a table at once after a push", async () => {
+  const app = await setup(undefined)
+  // Two definitions of one table in one installed handler, which checks the change log every second.
+  const everyone = defineSync({ table: notes, where: () => ({}), write: false })
+  const handler = createSyncHandler({ definitions: { notes: app.definition, everyone }, db: () => app.db, session: app.services.identify! })
+  const first = await (await handler.fetch(new Request("https://app.test/api/_vitehub/sync/everyone", { headers: { "x-user": "alice", "x-teams": "a" } }))).json() as SyncPullResponse
+  const controller = new AbortController()
+  const url = new URL(`/api/_vitehub/sync/everyone?live=1&cursor=${first.cursor}&scope=${first.scope.id}&version=${first.version}`, "https://app.test")
+  const response = await handler.fetch(new Request(url, { signal: controller.signal, headers: { "x-user": "alice", "x-teams": "a" } }))
+  expect(response.status).toBe(200)
+  const events = readEvents(response)
+  expect(await events.next(100)).toBe("timeout")
+
+  const held = await (await handler.fetch(new Request("https://app.test/api/_vitehub/sync/notes", { headers: { "x-user": "bob", "x-teams": "a" } }))).json() as SyncPullResponse
+  const started = performance.now()
+  const pushed = await handler.fetch(new Request("https://app.test/api/_vitehub/sync/notes", {
+    method: "POST",
+    headers: { "content-type": "application/json", "origin": "https://app.test", "x-user": "bob", "x-teams": "a" },
+    body: JSON.stringify({ account: held.account, mutations: [{ id: "m1", op: "insert", value: { id: "n1", teamId: "a", body: "Hello" } }] }),
+  }))
+  expect(pushed.status).toBe(200)
   const event = await events.next(2000)
   expect(performance.now() - started).toBeLessThan(500)
   if (typeof event !== "object") throw new Error("No event")
-  expect(pullOf(event.data).rows).toEqual([{ id: "n1", teamId: "a", body: "From a job" }])
+  expect(pullOf(event.data).rows).toEqual([{ id: "n1", teamId: "a", body: "Hello" }])
   controller.abort()
   expect(await events.next(1000)).toBe("end")
 })

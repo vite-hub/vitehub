@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 
 import { syncChanges, syncMutations, syncState } from "../src/database.ts"
 import { defineSync } from "../src/define.ts"
-import { createSyncHandler, recordSyncChanges } from "../src/runtime.ts"
 import { createHarness, day } from "./handler-harness.ts"
 
 import type { DefineSyncOptions } from "../src/types.ts"
@@ -113,10 +112,6 @@ describe("pull", () => {
 
     // 520 rows that server code wrote, with a few of another owner in between.
     await app.db.insert(todos).values(Array.from({ length: 520 }, (_, index) => ({ id: `s${String(index).padStart(3, "0")}`, ownerId: index % 50 === 0 ? "bob" : "alice", title: "y" })))
-    await createSyncHandler({ definitions: { todos: app.definition }, db: () => app.db })
-    const [error, recorded] = await recordSyncChanges("todos", { put: Array.from({ length: 520 }, (_, index) => `s${String(index).padStart(3, "0")}`) })
-    expect(error).toBeUndefined()
-    expect(recorded).toEqual({ recorded: 520 })
     const first = (await app.pull("alice", { cursor: body.cursor, ...as(alice) })).body
     expect(first).toMatchObject({ reset: false, more: true })
     expect(first.rows).toHaveLength(500 - 10)
@@ -126,23 +121,17 @@ describe("pull", () => {
     expect(new Set([...first.rows, ...second.rows].map(row => row.ownerId))).toEqual(new Set(["alice"]))
   })
 
-  it("shows writes that server code recorded with recordSyncChanges()", async () => {
+  it("shows writes that server code makes with Drizzle", async () => {
     const app = await setup()
-    createSyncHandler({ definitions: { todos: app.definition }, db: () => app.db })
     const alice = await app.start("alice")
     const bob = await app.start("bob")
     await app.db.insert(todos).values({ id: "srv", ownerId: "alice", title: "From the server" })
-    expect(await recordSyncChanges("todos", { put: ["srv"] })).toEqual([undefined, { recorded: 1 }])
     const added = (await app.pull("alice", { cursor: alice.cursor, ...as(alice) })).body
     expect(added.rows).toEqual([{ id: "srv", ownerId: "alice", title: "From the server", done: false }])
 
-    const [row] = await app.db.delete(todos).where(eq(todos.id, "srv")).returning()
-    expect(await recordSyncChanges("todos", { delete: [row!] })).toEqual([undefined, { recorded: 1 }])
+    await app.db.delete(todos).where(eq(todos.id, "srv"))
     expect((await app.pull("alice", { cursor: added.cursor, ...as(alice) })).body).toMatchObject({ rows: [], deleted: ["srv"] })
     expect((await app.pull("bob", { cursor: bob.cursor, ...as(bob) })).body).toMatchObject({ rows: [], deleted: [] })
-
-    const [unknown] = await recordSyncChanges("nope", { put: ["x"] })
-    expect(unknown?.code).toBe("SYNC_UNKNOWN_NAME")
   })
 })
 
@@ -308,12 +297,6 @@ describe("push", () => {
     expect((await open.push(null, { ...as(guest), mutations: [insert("m1", { id: "v1", ownerId: "v", title: "x" })] })).body.results).toEqual([{ id: "m1", status: "applied" }])
   })
 
-  it("does not start when two definitions sync the same table", async () => {
-    const app = await setup()
-    const everyone = defineSync({ table: todos, where: () => ({}), write: false })
-    expect(() => createSyncHandler({ definitions: { todos: app.definition, everyone }, db: () => app.db })).toThrow(expect.objectContaining({ code: "SYNC_INVALID_DEFINITION", message: expect.stringContaining("both sync the table \"todos\". Use one definition whose `where` returns different values") }))
-  })
-
   it("refuses cross-site, oversized, and malformed pushes", async () => {
     const app = await setup()
     const held = as(await app.start("alice"))
@@ -336,7 +319,7 @@ describe("push", () => {
     app.clock.now += 31 * day
     await app.push("alice", { ...as(alice), mutations: [update("m4", "a2", { done: true })] })
     const [state] = await app.db.select().from(syncState)
-    expect(state).toEqual({ name: "todos", floor: current })
+    expect(state).toEqual({ tableName: "todos", floor: current })
     expect(await app.db.select().from(syncChanges).where(eq(syncChanges.op, "delete"))).toEqual([])
     expect((await app.db.select().from(syncMutations)).map(row => row.id)).toEqual(["m4"])
 

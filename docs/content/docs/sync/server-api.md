@@ -21,7 +21,7 @@ icon: i-lucide-code
 | `actions` | none | Named writes with server logic. See [Actions](#actions). |
 | `live` | `true` | `false` turns off [live pulls](#live-pulls) for this table. |
 
-`user` comes from `identify`, else from [Auth](/docs/auth) when the app has it, else it is `null`. `session` is the Auth session, or `null`. Sync keeps its tables and reads `table` in the default [Database](/docs/database), else in the only one. Two definitions cannot sync the same table: the server does not start, with `SYNC_INVALID_DEFINITION`. Use one definition whose `where` returns different values for each kind of caller.
+`user` comes from `identify`, else from [Auth](/docs/auth) when the app has it, else it is `null`. `session` is the Auth session, or `null`. Sync keeps its tables and reads `table` in the default [Database](/docs/database), else in the only one. Two definitions can sync the same table, such as one of each person's rows and one of every row for admins. Each gets the writes of the other.
 
 ### `where`
 
@@ -202,7 +202,7 @@ The stream is `GET <route>?live&cursor&scope&version&where`, as Server-Sent Even
 1. Checks who the caller is once, when the stream opens. A refused caller gets 401 or 403 before the stream starts.
 2. Sends the comment `: open` at once, so the headers reach the browser at once. Then it sends an `event: pull` with `id: <cursor>`, if anything changed since the cursor.
 3. Reads the newest cursor of the change log every second, and sends a pull when it moved and the change is in the caller's scope.
-4. Wakes at once after a push or `recordSyncChanges()` in the same server process.
+4. Wakes at once after a push in the same server process. A write of server code shows at the next check.
 5. Sends the comment `: ping` every 15 seconds, and ends the stream after 25 seconds, also while it sends a long backlog. The browser then opens a new one.
 
 The cost is one indexed query for each second and each open stream. Only one tab of each browser opens a stream. Set `live: false` to turn streams off for a table: the browser then pulls on focus, on reconnect, on a timer, and after writes.
@@ -225,36 +225,28 @@ Each write applies in one transaction with its id. A write that the server appli
 
 ## Writes from server code
 
-The browser sees a write that went through Sync. When server code writes the table itself, such as a webhook or a job, record the change, so that browsers pull it:
-
-```ts [server/api/todos/import.post.ts] fragment
-import { recordSyncChanges } from 'vite-hub/sync'
-
-// After you wrote the rows with Drizzle
-const [error] = await recordSyncChanges('todos', { put: insertedIds, delete: deletedRows })
-```
-
-| Field | Takes |
-| --- | --- |
-| `put` | Keys of rows that you inserted or changed. |
-| `delete` | The deleted rows, as they were before the delete, so that only callers that could see a row learn that it was deleted. |
-| `moved` | Rows whose `where` or `subsets` column you changed, such as a move to another team, as they were before the change. |
+Any write to the table reaches the browsers: a write from the browser, an action, and also server code that writes the table itself, such as a webhook, a job, an Agent, or a Workflow. Write the table with Drizzle or SQL, as you do for any table:
 
 ```ts [server/api/issues/move.post.ts] fragment
-import { recordSyncChanges } from 'vite-hub/sync'
+import { useDatabase } from 'vite-hub/database'
 import { eq } from 'drizzle-orm'
+import { issues } from '../../databases/default'
 
-const [before] = await db.select().from(issues).where(eq(issues.id, id))
-await db.update(issues).set({ teamId: 'design' }).where(eq(issues.id, id))
-const [error] = await recordSyncChanges('issues', { moved: [before] })
+// The issue leaves the browsers of the old team and shows on the browsers of the new team
+await useDatabase().db.update(issues).set({ teamId: 'design' }).where(eq(issues.id, id))
 ```
 
-It returns `[error, { recorded }]`, and wakes the live streams of this server process at once.
+Three triggers on the table write the change log: `vitehub_sync_<table>_insert`, `vitehub_sync_<table>_update`, and `vitehub_sync_<table>_delete`.
+
+- Sync adds the triggers at its first request on each server. It adds them again when they are missing or old, such as after a migration that rebuilt the table. When they were missing, writes can have gone without a change, so each browser gets every row again.
+- A new value in a scope column moves the row. The scope columns are the columns of `subsets` and each column that a `where` result returned. Sync adds a column of `where` before it sends rows of a scope that uses it.
+- The triggers read only the key and the scope columns, so a migration can drop any other column. See [Limits](/docs/sync/limits-and-errors#not-in-sync-yet) to drop a scope column.
+- A live stream shows a write of server code at its next check of the change log, within a second.
 
 ## Inspect
 
 ```bash [terminal]
-# Each Sync name with its table, key column, write mode, live, subsets, actions, rows, changes, exits, and last cursor
+# Each Sync name with its table, key column, write mode, live, subsets, actions, rows, changes, exits, last cursor, triggers, and scope columns
 vitehub sync list
 
 # The last changes of one name: cursor, key, put, delete or move, and time. No row data.
@@ -265,12 +257,13 @@ Both read the `sync.list` and `sync.changes` operations, which the Console and A
 
 ## Tables
 
-Sync adds three tables to the default Database, else the only one:
+Sync adds four tables to the default Database, else the only one:
 
 | Table | Holds |
 | --- | --- |
-| `vitehub_sync_changes` | The newest change of each key, with its cursor. For each delete or move, an exit with the row as it was before, to check who may learn about it. |
+| `vitehub_sync_changes` | For each synced table, the newest change of each key, with its cursor. For each delete or move, an exit with the key and the scope columns as they were before, to check who may learn about it. |
+| `vitehub_sync_columns` | The scope columns of each synced table. |
 | `vitehub_sync_mutations` | The ids of applied writes and actions, so each applies once, and the result of each action. |
-| `vitehub_sync_state` | The oldest cursor that the server still keeps for each name. |
+| `vitehub_sync_state` | The oldest cursor that the server still keeps for each table. |
 
 The server removes write ids after 7 days and exits after 30 days. A browser with an older cursor gets every row again.

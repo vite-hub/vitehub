@@ -38,7 +38,7 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
     },
     SYNC_READ_ONLY: {
       why: "This Sync definition has `write: false`, so the browser cannot change its rows.",
-      fix: "Change the rows in server code and call `recordSyncChanges()`, or remove `write: false`.",
+      fix: "Change the rows in server code or in an action, or remove `write: false`.",
     },
     SYNC_INVALID: {
       why: message,
