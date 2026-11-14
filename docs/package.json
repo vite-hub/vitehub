@@ -50,6 +50,7 @@
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
+    "@json-render/core": "0.21.0",
     "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
     "playwright-core": "catalog:browser",
