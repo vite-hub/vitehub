@@ -1397,6 +1397,9 @@ importers:
       files-sdk:
         specifier: catalog:storage
         version: 3.1.1(d4059aca71470e012475dfe9c367261b)
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.261103-rc
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1

@@ -10,7 +10,7 @@ import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions,
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
-import { normalizeRoute } from "h3"
+import { normalizeRoute } from "nitro/h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
