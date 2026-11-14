@@ -3,7 +3,8 @@ import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, Cod
 import { computed, ref, watch } from "vue";
 
 import type { ConsoleNavigation } from "../client/sections";
-import { consoleAddablePrimitives, consoleAddCommand, consoleAddPrimitiveChoice, consoleAddPrimitiveOpen, consoleAddPrompt, groupConsolePrimitives } from "../client/add-primitive";
+import { consoleAddablePrimitives, consoleAddCommand, consoleAddPrimitiveChoice, consoleAddPrompt, groupConsolePrimitives } from "../client/add-primitive";
+import { consoleAddPrimitiveOpen } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
 import { consolePrimitives } from "../sections";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -51,6 +52,7 @@ function copyFailed(): void {
     :title="title"
     :description="chosen ? chosen.pitch : 'Pick one. The Console gives you the vitehub add command for it.'"
     :ui="{ content: 'sm:max-w-[35rem]', body: chosen ? undefined : 'p-0 sm:p-0' }"
+    @after:leave="choose(undefined)"
   >
     <template v-if="chosen" #title>
       <span class="flex items-center gap-2">

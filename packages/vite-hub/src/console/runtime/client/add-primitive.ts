@@ -1,12 +1,10 @@
 import { ref } from "vue"
 
+import { consoleAddPrimitiveOpen } from "./sidebar"
 import type { ConsolePrimitive, ConsoleSectionGroupId, ConsoleSectionId } from "../sections"
 import { consolePrimitives, consoleSectionGroupLabels, groupConsoleSections, resolveConsoleSectionGroup } from "../sections"
 
-/** The "Add a primitive" dialog is open. The sidebar, the Overview, and the search palette open it. */
-export const consoleAddPrimitiveOpen = ref(false)
-
-/** The primitive that the dialog shows. Unset, it lists the primitives to choose from. */
+/** The primitive that the dialog shows. Unset, it lists the primitives to choose from. The dialog unsets it when it closes. */
 export const consoleAddPrimitiveChoice = ref<ConsoleSectionId>()
 
 /** Opens the dialog at the list, or at the steps for one primitive. */
