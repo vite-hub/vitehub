@@ -1024,7 +1024,7 @@
     "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "evlog": "^2.28.1",
     "nitro": "catalog:nitro-compat",
     "openworkflow": "catalog:workflow",
