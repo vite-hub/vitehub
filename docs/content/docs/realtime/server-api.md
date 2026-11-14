@@ -20,7 +20,7 @@ icon: i-lucide-code-2
 | `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
-| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file ([Blob documents](#blob-documents)). |
+| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
 
 ViteHub generates `.vitehub/nitro/realtime/registry.mjs` and
@@ -142,8 +142,10 @@ loaded document recovers without a reset.
 ### Blob documents
 
 `blobDocument(store, { prefix, contentType })` stores each document's body as
-one private Blob file at `prefix + documentId`. The digest is the SHA-256 of
-the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
+one Blob file at `prefix + documentId`. To keep the drafts private, use a store
+that `blob.serve` does not serve, or serve it with `authorize: true`. On Vercel
+Blob, such a store also writes private objects. The digest
+is the SHA-256 of the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
 the document id stays a literal `%` in the Blob pathname, so `a%2Fb.md` and
 `a/b.md` are two files.
 

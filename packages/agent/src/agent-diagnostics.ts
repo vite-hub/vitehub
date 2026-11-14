@@ -1582,6 +1582,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ problem }: { problem: string }) => `[vitehub] page() has an invalid rule: ${problem}`,
       fix: "Give each rule in `deny` and `requireApproval` a non-empty `label`, a `component`, or `confirm: true`, such as `{ label: \"Project name\" }`.",
     },
+    AGENT_R1053: {
+      why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
+      fix: ({ use }: { use: string }) => `Pass ${use}.`,
+    },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",

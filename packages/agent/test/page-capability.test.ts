@@ -247,6 +247,45 @@ describe("connectPage()", () => {
     })
   })
 
+  it("revokes pending approval and queued calls when the page closes", async () => {
+    vi.stubGlobal("window", {})
+    const fake = room()
+    const page = settings()
+    let approve!: (value: boolean) => void
+    const allow = vi.fn((_step: PageStep, { signal }: { signal: AbortSignal }) => {
+      expect(signal.aborted).toBe(false)
+      return new Promise<boolean>((resolve) => { approve = resolve })
+    })
+    const connected = connectPage(page.create, { join: () => fake.value, allow })
+    const active = fake.ask({ method: "act", input: { steps: [{ ref: "Save changes", action: "press" }, { ref: "Default region", action: "setValue", args: ["fra"] }] }, rules })
+    await vi.waitFor(() => expect(allow).toHaveBeenCalledOnce())
+    const queued = fake.ask({ method: "act", input: { steps: [{ ref: "Default region", action: "setValue", args: ["fra"] }] }, rules })
+    const rejected = expect(queued).rejects.toThrow("This page is closed")
+    connected.close()
+    // Closing settles the call even if the person's UI never answers.
+    await expect(active).resolves.toMatchObject({ result: { ok: false }, changes: [] })
+    await rejected
+    approve(true)
+    await Promise.resolve()
+    expect(page.components[1]!.value).toBe("iad")
+    expect(page.components[2]!.value).toBeUndefined()
+    expect(connected.changes()).toEqual([])
+    expect(page.value.act).toHaveBeenCalledOnce()
+  })
+
+  it.each(["deny", "requireApproval"] as const)("refuses ambiguous container presses under %s rules", async (list) => {
+    vi.stubGlobal("window", {})
+    const fake = room()
+    const page = bridge([{ ref: "dialog", component: "dialog", label: "Settings", value: "before" }])
+    const allow = vi.fn(() => true)
+    connectPage(page.create, { join: () => fake.value, allow })
+    const policy = { ...noRules, [list]: [{ label: "Save changes" }] }
+    await expect(fake.ask({ method: "act", input: { steps: [{ ref: "dialog", action: "press", args: ["Save changes"] }] }, rules: policy }))
+      .resolves.toMatchObject({ refused: { code: "AGENT_R1047" }, changes: [] })
+    expect(allow).not.toHaveBeenCalled()
+    expect(page.components[0]!.value).toBe("before")
+  })
+
   it("refuses a step that needs approval when the page has no way to ask", async () => {
     vi.stubGlobal("window", {})
     const fake = room()

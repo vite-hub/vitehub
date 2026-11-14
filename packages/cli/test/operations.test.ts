@@ -321,6 +321,17 @@ describe("generated operation commands", () => {
       }
     })
 
+    it.each([
+      ["http://localhost:3000/_vitehub", "http://localhost:3000"],
+      ["https://app.example.com/base/_vitehub/agents/support", "https://app.example.com/base"],
+    ])("rejects the Console URL %s and names the app URL", async (url, app) => {
+      const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+      const result = await run(["reports", "list", "acme", "--url", url], { env, fetch })
+      expect(fetch).not.toHaveBeenCalled()
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain(`CLI_R0003: --url is the app URL, not the Console URL. Pass --url ${app}.`)
+    })
+
     it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("signs calls to safe RPC URL %s, and sends no bearer token or cookie", async (url) => {
       const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         const headers = new Headers(init?.headers)

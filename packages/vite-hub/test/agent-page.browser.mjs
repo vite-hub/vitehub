@@ -308,6 +308,9 @@ import { useAgent, useChat } from "vite-hub/agent/vue"
 import { connectRealtimeRoom } from "vite-hub/realtime/client"
 import { onMounted } from "vue"
 import ProjectSettings from "./ProjectSettings.vue"
+import { Button } from "@ui-sdk/vue/button"
+import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogClose } from "@ui-sdk/vue/dialog"
+const policyClicks = []
 
 const asks = []
 const page = connectPage(createAgent, {
@@ -322,6 +325,19 @@ onMounted(() => {
   const heard = []
   Object.assign(window, {
     pageTest: {
+      policyProbe: async rules => {
+        let answer
+        const probe = connectPage(createAgent, {
+          allow: () => true,
+          join: () => ({ onRequest: fn => { answer = fn; return () => {} }, onUpdate: () => () => {}, status: () => "connected", destroy: () => {} }),
+        })
+        try {
+          const dialog = probe.agent.snapshot().find(item => item.component === "dialog" && item.label === "Policy dialog")
+          if (!dialog) throw new Error("Policy dialog was not registered")
+          const result = await answer({ method: "act", rules, input: { steps: [{ ref: dialog.ref, action: "press", args: ["Policy save"] }] } })
+          return { result, clicks: policyClicks.length }
+        } finally { probe.close() }
+      },
       id: page.id,
       changes,
       asks: () => asks.map(ask => ask.step),
@@ -359,6 +375,14 @@ onMounted(() => {
 
 <template>
   <main>
+    <Dialog>
+      <DialogTrigger>Open policy dialog</DialogTrigger>
+      <DialogContent>
+        <DialogTitle>Policy dialog</DialogTitle>
+        <Button @click="policyClicks.push(true)">Policy save</Button>
+        <DialogClose>Close policy dialog</DialogClose>
+      </DialogContent>
+    </Dialog>
     <ProjectSettings />
   </main>
 </template>
@@ -565,6 +589,15 @@ for (const item of cases) {
     const ada = { app, ...await signIn(app, "Ada Lovelace", "ada@acme.dev") }
     const grace = { app, ...await signIn(app, "Grace Hopper", "grace@acme.dev") }
     t.after(() => Promise.all([ada.context.close(), grace.context.close()]))
+    await ada.page.getByText("Open policy dialog", { exact: true }).click()
+    for (const list of ["deny", "requireApproval"]) {
+      for (const rule of [{ label: "Policy save" }, { component: "button" }]) {
+        const probe = await ada.page.evaluate(({ list, rule }) => window.pageTest.policyProbe({ deny: [], requireApproval: [], [list]: [rule] }), { list, rule })
+        assert.equal(probe.clicks, 0)
+        assert.equal(probe.result.refused.code, "AGENT_R1047")
+      }
+    }
+    await ada.page.getByText("Close policy dialog", { exact: true }).click()
     const pageId = await ada.page.evaluate(() => window.pageTest.id)
 
     // Grace joins Ada's page id. Every call below must still reach only Ada's tab.

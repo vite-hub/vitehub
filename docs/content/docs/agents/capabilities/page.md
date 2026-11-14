@@ -134,6 +134,8 @@ The developer decides, on the server, with two lists of rules:
 
 A rule names a component: `label` (compared without case or accents), `component` (its kind, like `select` or `button`), or `confirm: true` (an element inside `data-agent-confirm`). Every field a rule sets must match. A rule covers every action on its component, so a step cannot pass it with another action, another argument, or the component's ref id from a snapshot. Rules match page text, so a changed label stops matching: mark the element with `data-agent-confirm` and use `{ confirm: true }` for what must never slip. In development, the page warns in the console when a label rule matches nothing on the page.
 
+With rules present, press a registered button directly. Container presses (for example, pressing a named button through a dialog) are refused with `AGENT_R1047`, because the current ui-sdk hook does not identify the descendant target.
+
 The page applies the rules. ui-sdk resolves each step to its component first, then calls the `allow` that `connectPage()` gave it:
 
 1. A `deny` match is refused.

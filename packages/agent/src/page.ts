@@ -188,6 +188,7 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     return { id: "", headers: {}, ready: Promise.resolve(), agent: undefined, changes: () => [], undo: async () => [], onChange: () => () => {}, close: () => {} }
   }
   if (typeof options?.join !== "function") throw agentDiagnostics.AGENT_R1046()
+  const lifetime = new AbortController()
   const pageAllow = options.allow
   let mode: CallMode | undefined
   const changes: PageChange[] = []
@@ -196,13 +197,30 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     for (const listener of listeners) listener()
   }
 
+  async function askPage(step: PageStep, context: { signal: AbortSignal }): Promise<boolean> {
+    const signal = AbortSignal.any([context.signal, lifetime.signal])
+    if (signal.aborted || !pageAllow) return false
+    let cancel: () => void = () => {}
+    const aborted = new Promise<boolean>((resolve) => {
+      cancel = () => resolve(false)
+      signal.addEventListener("abort", cancel, { once: true })
+    })
+    try {
+      const approved = await Promise.race([pageAllow(step, { signal }), aborted])
+      return !signal.aborted && approved
+    }
+    finally {
+      signal.removeEventListener("abort", cancel)
+    }
+  }
+
   async function needsPerson(step: PageStep, context: { signal: AbortSignal }, current: Extract<CallMode, { kind: "act" }> | undefined): Promise<boolean> {
     const asked: PageStep = { ...step, confirm: step.confirm ?? `Allow the Agent to ${describeStep(step)}?` }
     if (!pageAllow) {
       if (current) current.refusal = "AGENT_R1048"
       return false
     }
-    const approved = await pageAllow(asked, context)
+    const approved = await askPage(asked, context)
     if (current) {
       current.approvals.push({ id: crypto.randomUUID(), ...(step.label === undefined ? {} : { label: step.label }), component: step.component, action: step.action, args: step.args, confirm: asked.confirm!, approved, at: new Date().toISOString() })
       if (!approved) current.refusal = "AGENT_R1049"
@@ -212,9 +230,16 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
 
   // ui-sdk calls this for every step after it resolves it. The server's rules apply only while an Agent call runs.
   const allow: PageAllow = async (step, context) => {
+    if (lifetime.signal.aborted || context.signal.aborted) return false
     const current = mode
     if (current?.kind === "undo") return step.confirm === undefined || await needsPerson(step, context, undefined)
-    if (!current) return pageAllow ? await pageAllow(step, context) : step.confirm === undefined
+    if (!current) return pageAllow ? await askPage(step, context) : step.confirm === undefined
+    // The pinned SDK identifies a container, not the descendant button it presses. Refuse that
+    // ambiguous path under policy; callers can press the registered button directly instead.
+    if (step.action === "press" && step.component !== "button" && (current.rules.deny.length || current.rules.requireApproval.length)) {
+      current.refusal = "AGENT_R1047"
+      return false
+    }
     if (current.rules.deny.some(rule => pageRuleMatches(rule, step))) {
       current.refusal = "AGENT_R1047"
       return false
@@ -222,7 +247,7 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
     if (step.confirm !== undefined || current.rules.requireApproval.some(rule => pageRuleMatches(rule, step))) return await needsPerson(step, context, current)
     current.refusal = undefined
     if (!pageAllow) return true
-    const allowed = await pageAllow(step, context)
+    const allowed = await askPage(step, context)
     if (!allowed) current.refusal = undefined
     return allowed
   }
@@ -256,7 +281,10 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
   // One Agent call at a time, in order, so the rules of one call never apply to another.
   let queue: Promise<unknown> = Promise.resolve()
   const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
-    const next = queue.then(run)
+    const next = queue.then(() => {
+      if (lifetime.signal.aborted) throw new Error("This page is closed.")
+      return run()
+    })
     queue = next.catch(() => {})
     return next
   }
@@ -397,6 +425,9 @@ export function connectPage<Bridge extends PageBridge>(createAgent: CreatePageAg
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    close: () => room.destroy(),
+    close: () => {
+      lifetime.abort()
+      room.destroy()
+    },
   }
 }

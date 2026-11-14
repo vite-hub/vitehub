@@ -528,7 +528,7 @@ vitehub agent invocations show INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With a deployed `--url`, such as `https://app.example.com`, `list`, `show`, `tail`, and `cancel` use that deployment's Console.
+Without `--url`, the CLI reads `http://localhost:5173/api/invocations`. Use `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
 See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
