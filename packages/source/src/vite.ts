@@ -262,8 +262,13 @@ export function mergeGeneratedSourceNitroConfig(
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
-    const duplicate = !handler.middleware && handlers.some(candidate =>
+    const duplicate = handler.middleware ? undefined : handlers.find(candidate =>
       !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
+    if (duplicate && handler.route === "/mcp") {
+      // The app MCP server of `vitehub({ mcp })` writes its entry below .vitehub/nitro/mcp/.
+      const other = duplicate.handler.replaceAll("\\", "/").includes("/.vitehub/nitro/mcp/") ? "the app MCP server of vitehub({ mcp })" : `the handler ${duplicate.handler}`
+      throw sourceErrorDiagnostics.SOURCE_B0010({ route: handler.route, other })
+    }
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }

@@ -328,6 +328,7 @@ describe("contentSource", () => {
     })
 
     const content = defineContent({
+      access: "public",
       plugins: [testPlugin("async-init", (content) => {
         content.addParser([".slow"], async ({ partial, read }) => {
           await delay(10)
@@ -371,6 +372,7 @@ describe("contentSource", () => {
     let expectedBlockedParsers = 2
     let parsersStarted = deferred()
     const content = defineContent({
+      access: "public",
       plugins: [testPlugin("overlap", (content) => {
         content.addParser([".slow"], async ({ partial, read }) => {
           const firstText = await read()
@@ -465,6 +467,7 @@ describe("contentSource", () => {
     const lateParserFinished = deferred()
     const parsed: string[] = []
     const content = defineContent({
+      access: "public",
       logger: false,
       onError: "throw",
       plugins: [testPlugin("load-error", (content) => {
@@ -704,6 +707,7 @@ describe("contentSource", () => {
     const adapted = contentSource(input, { prefix: "/base", schema, url: "/:id" })
     const source = contentSource(adapted, { prefix: "/docs" })
     const content = defineContent({
+      access: "public",
       sources: {
         docs: source,
         overridden: contentSource(adapted, { prefix: "/other", url: ({ id }) => `/custom/${id}` }),

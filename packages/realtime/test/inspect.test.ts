@@ -46,7 +46,7 @@ export default defineRealtime({
 
     expect(fields.docs).toEqual({
       Authority: "memory: one Node process, rooms lost on restart",
-      Authorization: "every connection may read and write",
+      Authorization: "every identified user",
       Document: "Workspace \"docs\" (Markdown file per path)",
       Editor: "built-in Markdown kit",
       History: "history.checkpoint() enabled",
@@ -78,6 +78,23 @@ export default defineRealtime({ auth: true, authorize: () => true, document: fal
       Authorization: "authorize() per room, read only",
       Document: "none: presence only, nothing stored",
       Identity: "ViteHub Auth session, required",
+    })
+  })
+
+  it("shows public access and a definition that sets no access rule", async () => {
+    const root = await project({
+      "server/realtime/open.ts": `import { defineRealtime } from "vite-hub/realtime"
+export default defineRealtime({ access: "public", document: { workspace: "docs" } })
+`,
+      "server/realtime/unset.ts": `export default { document: false }`,
+    })
+
+    const summaries = await inspectRealtimeDefinitions({ authority: "memory", projectRoot: root })
+    const authorization = Object.fromEntries(summaries.map(summary => [summary.name, summary.fields.find(field => field.label === "Authorization")?.value]))
+
+    expect(authorization).toEqual({
+      open: "public: anyone may read and write",
+      unset: "missing: the server rejects this definition",
     })
   })
 

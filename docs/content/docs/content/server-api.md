@@ -165,6 +165,8 @@ export default defineEventHandler(async (event) => {
 | `posts.editing` | `{ lease }` from the definition's `editing` option. |
 | `content.sitemap(options?)` | [Sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents and Source documents that have a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
+| `content.markdown(path, options?)` | The [Markdown copy](/docs/content/seo#markdown-for-agents) that a path such as `/blog/hello.md` names, or `null`. |
+| `content.hasMarkdown(path)` | Whether `content.markdown(path)` has a copy, without rendering it. |
 
 To work on documents from a terminal during development, use [`vitehub content`](/docs/content/cli).
 

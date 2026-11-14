@@ -100,7 +100,7 @@ export default defineContent({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time. To keep the store off your personal rate limit, use a GitHub App instead: set `VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and `VITEHUB_GITHUB_INSTALLATION_ID` ([GitHub Store](/docs/workspace/configure#github-store)).
+Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time. To keep the store off your personal rate limit, use a GitHub App instead: set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` ([GitHub Store](/docs/workspace/configure#github-store)).
 
 - `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with the GitHub store. `blob` does not.
 - Set `store: 'github'` without `repo` only when the repository comes from `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`.

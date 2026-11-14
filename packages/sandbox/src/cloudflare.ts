@@ -17,6 +17,7 @@ import {
   withCloudflareRequest,
 } from "./internal/cloudflare-transport.ts";
 import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
+import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 import type { CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
 
@@ -42,6 +43,8 @@ export interface CloudflareDurableObjectNamespace {
 }
 
 export interface CloudflareSandboxStub {
+  /** Stops the `exec` command started with this `id`, without stopping the Sandbox. */
+  cancelExec(id: string): Promise<void>;
   deleteFile?(path: string): Promise<{ success: boolean } | void>;
   destroy(): Promise<void>;
   exec(
@@ -49,6 +52,7 @@ export interface CloudflareSandboxStub {
     options?: {
       cwd?: string;
       env?: Record<string, string | undefined>;
+      id?: string;
       timeout?: number;
     },
   ): Promise<{
@@ -152,6 +156,7 @@ function getCloudflareSandbox(
   // List each method: a Durable Object stub answers every property name, and the session
   // only falls back to shell commands for methods the stub lacks (listFiles, exposePort).
   return {
+    cancelExec: async id => (await ready(), await target.cancelExec(id)),
     deleteFile: async path => (await ready(), await target.deleteFile(path)),
     destroy: async () => (await ready(), await target.destroy()),
     exec: async (command, execOptions) => (await ready(), await target.exec(command, execOptions)),
@@ -195,14 +200,17 @@ function createCloudflareSession(
     workingDirectory?: string;
   }, idempotent = false) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
+    const execId = crypto.randomUUID();
     const result = await abortable(
       request("exec", { idempotent, timeout }, async () => await stub.exec(options.command, {
         cwd: options.workingDirectory ?? "/workspace",
         env: { ...baseEnv, ...options.env },
+        id: execId,
         timeout,
       })),
       options.abortSignal,
-      destroy,
+      // Stop only this command. The Sandbox and its other processes keep running.
+      () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
     );
     return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
   };
@@ -315,7 +323,7 @@ function createCloudflareSession(
             const logs = stub.streamProcessLogs
               ? request("streamProcessLogs", { idempotent: true }, async () => await stub.streamProcessLogs!(process.id))
               : undefined;
-            return cloudflareProcess(process, logs);
+            return killOnAbort(cloudflareProcess(process, logs), commandOptions.abortSignal);
           },
         }
       : {}),

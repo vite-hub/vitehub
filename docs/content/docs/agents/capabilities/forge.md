@@ -37,7 +37,7 @@ Credentials come only from [Server Env](/docs/env), ViteHub's typed server envir
 
 | Forge | Default instance | Server Env variables |
 | --- | --- | --- |
-| GitHub | `https://api.github.com` | `VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`, optional `VITEHUB_GITHUB_INSTALLATION_ID`; or `VITEHUB_GITHUB_TOKEN` |
+| GitHub | `https://api.github.com` | `VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`, optional [installations](/docs/forge/configure#installations); or `VITEHUB_GITHUB_TOKEN` |
 | GitLab | `https://gitlab.com` | `VITEHUB_GITLAB_BASE_URL`, `VITEHUB_GITLAB_TOKEN` |
 | Forgejo | `https://codeberg.org` | `VITEHUB_FORGEJO_BASE_URL`, `VITEHUB_FORGEJO_TOKEN` |
 

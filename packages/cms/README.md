@@ -43,9 +43,10 @@ At build time `hubCms()` reads `server/content.ts` without running it, so import
 // server/auth.ts
 import { admin } from "better-auth/plugins"
 import { defineAuth } from "vite-hub/auth"
+import { authDatabase } from "vite-hub/auth/database"
 import { cmsAccess } from "vite-hub/cms/access"
 
-export default defineAuth({ plugins: [admin(cmsAccess)] })
+export default defineAuth({ database: authDatabase(), plugins: [admin(cmsAccess)] })
 ```
 
 | Role | Content | Comments |
