@@ -148,6 +148,17 @@ describe("driver: \"node-postgres\"", () => {
       vi.unstubAllEnvs()
     }
   })
+
+  it("opens one pg Pool per read replica, and `db.$replica` reads from one of them", async () => {
+    const { createNodePostgresDatabase } = await import("../src/runtime/node-postgres.ts")
+    const db = createNodePostgresDatabase({ ...definition, connection: { replicas: ["postgres://replica/app"], url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+
+    const primary: unknown = Reflect.get(db, "$client")
+    expect(fake.pools.map(pool => pool.options.connectionString)).toEqual(["postgres://primary/app", "postgres://replica/app"])
+    expect(Reflect.get(primary as object, "options")).toMatchObject({ connectionString: "postgres://primary/app" })
+    expect(Reflect.get(Reflect.get(db.$replica, "$client") as object, "options")).toMatchObject({ connectionString: "postgres://replica/app" })
+    expect(postgresJs.loaded).toBe(false)
+  })
 })
 
 const adminUrl = process.env.VITEHUB_TEST_POSTGRES_URL
