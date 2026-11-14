@@ -37,7 +37,7 @@ import { createContentPreview, createRequestScope } from "./preview.ts"
 import { contentRefTokenParameter } from "./preview-parameters.ts"
 import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
-import { contentLabel, contentMarkdownCopy, contentMarkdownCopyPage, contentRoutedPages, contentSitemapEntries, markdownPrefix, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
+import { contentLabel, contentMarkdownCopy, contentMarkdownCopyExists, contentMarkdownCopyPage, contentRoutedPages, contentSitemapEntries, markdownPrefix, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
 import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
 import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
@@ -420,6 +420,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * Markdown document has that URL.
    */
   markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
+  /** Whether `markdown(path)` has a copy, without rendering it. The Markdown middleware links the copies it finds. */
+  hasMarkdown(path: string): Promise<boolean>
   /**
    * The published Markdown pages that the sitemap lists, as `{ title, path, description, url }`: collection documents
    * and the pages of Sources with a `url`, read at the head commit of a `github()` Source. At most 1,000 per call; pass
@@ -860,6 +862,11 @@ export function defineContent<
       if (copy !== null) return copy
       const page = await sourceCopyPage(path, site)
       return page ? await pageMarkdown(page, site, true) : null
+    },
+    hasMarkdown: async (path: string) => {
+      const prefix = markdownPrefix(seo)
+      if (documentsRuntime && await contentMarkdownCopyExists(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path)) return true
+      return await sourceCopyPage(path, configuredSite) !== undefined
     },
     llms: async (llmsOptions: ContentLlmsOptions = {}) => {
       const llms = seo?.llms
