@@ -70,7 +70,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories; hostCapacity?: Parameters<typeof createBabysitterRuntime>[0]["hostCapacity"] } = {}) {
   const number = preset.number ?? 12;
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
@@ -240,7 +240,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     return { stdout: data.map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
   });
   let workerDirectory: string | undefined;
-  const prepare = vi.fn(async (directory: string) => {
+  const prepare = vi.fn(async (directory: string, _options?: { complete?: boolean; restoreInstructions?: boolean }) => {
     workerDirectory = directory;
     if (preset.gitWorkspace) await promisify(execFile)("git", ["init", "--quiet", directory]);
   });
@@ -360,6 +360,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
     mergeabilityRetryDelayMs: 1,
     ...(preset.workspaces ? { workspaces: preset.workspaces } : {}),
+    ...(preset.hostCapacity ? { hostCapacity: preset.hostCapacity } : {}),
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string; environment?: NodeJS.ProcessEnv }> = [];
   const operationResults: unknown[] = [];
@@ -3710,7 +3711,7 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it.each([false, true])("logs host-resolved conflicts and names them in the Sandbox prompt (Sandbox: %s)", async sandbox => {
+  it.each([false, true])("logs host-resolved conflicts and names them in the prompt (Sandbox: %s)", async sandbox => {
     const f = await fixture(false, false, { sandbox, mergeableState: "dirty" });
     vi.mocked(prepareGitHubRepairBase).mockImplementationOnce(async () => ({
       conflicted: ["package.json", "pnpm-lock.yaml", "src/a.ts"],
@@ -3723,10 +3724,213 @@ describe("Babysitter preset runtime", () => {
         head_sha: f.pr().head.sha, conflicted: 3, resolved: 2, remaining: 1,
         resolved_files: ["package.json (package-json)", "pnpm-lock.yaml (pnpm-lockfile)"], remaining_files: ["src/a.ts"],
       }));
-      // Without a Sandbox the provider launch prepares the merge after the prompt; the model reads .git/vitehub-merge.json.
-      if (sandbox) expect(f.passes[0]!.prompt).toContain("<host-resolved-conflicts>\nThe host resolved and staged these merge conflicts mechanically. Review them instead of redoing them:\n- package.json (package-json)\n- pnpm-lock.yaml (pnpm-lockfile)\nStill conflicted: src/a.ts.");
-      else expect(f.passes[0]!.prompt).not.toContain("<host-resolved-conflicts>");
+      expect(f.passes[0]!.prompt).toContain("<host-resolved-conflicts>\nThe host resolved and staged these merge conflicts mechanically. Review them instead of redoing them:\n- package.json (package-json)\n- pnpm-lock.yaml (pnpm-lockfile)\nStill conflicted: src/a.ts.");
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  describe("host-resolved conflicts", () => {
+    const resolvedMerge = { conflicted: ["docs/guide.md", "package.json"], resolved: [{ path: "docs/guide.md", rule: "markdown-union" as const }, { path: "package.json", rule: "package-json" as const }], remaining: [] };
+    /** A conflicting PR whose only feedback is a no-findings review, with a verified frozen install in the prepared tree. */
+    async function conflictOnly(preset: Parameters<typeof fixture>[2] = {}) {
+      const f = await fixture(false, false, { mergeableState: "dirty", gitWorkspace: true, ...preset, options: { noFindingsReviews: ["Fix value"], dailyPushBudget: 2, ...preset.options } });
+      vi.mocked(prepareGitHubRepairBase).mockResolvedValue(resolvedMerge);
+      const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockImplementation(async directory => {
+        await writeFile(join(directory, ".git", "vitehub-install.json"), JSON.stringify({ status: "installed" }));
+      });
+      const current = vi.spyOn(githubInstalls, "hasCurrentGitHubDependencies").mockResolvedValue(true);
+      const verify = vi.spyOn(githubInstalls, "assertGitHubDependenciesCurrent").mockResolvedValue();
+      const restore = () => { install.mockRestore(); current.mockRestore(); verify.mockRestore(); vi.mocked(prepareGitHubRepairBase).mockReset(); };
+      return { ...f, install, verify, restore };
+    }
+
+    it.each([true, false])("pushes the merge without a model pass or daily pass (model admission open: %s)", async accepting => {
+      const admission = async () => ({ accepting, accounting: "best-effort-retained-journal" as const, hostOnly: true, reason: "token-budget-hourly" as const, limits: resolveBabysitterAdmissionLimits(), state: { windows: babysitterBudgetWindows(Date.now()), tmpDir: "/tmp" } });
+      const f = await conflictOnly({ admission });
+      let pushed = "";
+      let cancelled = false;
+      // The host commit is the provider checkout's HEAD, which proves the synchronize below is the worker's own push.
+      f.commit.mockImplementationOnce(async directory => {
+        const git = (...args: string[]) => promisify(execFile)("git", ["-C", directory, "-c", "user.name=Test", "-c", "user.email=test@example.test", ...args]);
+        await git("commit", "--allow-empty", "--quiet", "-m", "Merge main into fix");
+        pushed = (await git("rev-parse", "HEAD")).stdout.trim();
+        return pushed;
+      });
+      f.push.mockImplementationOnce(async (_target, options) => {
+        await options?.beforePush?.(pushed);
+        f.advanceHead(pushed);
+        await options?.afterPush?.(pushed);
+        // The worker's own push arrives as a synchronize webhook while the pass still runs.
+        await f.runtime.inbox.ingest("own-merge-synchronize", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        cancelled = options?.signal?.aborted === true;
+        return pushed;
+      });
+      try {
+        await f.reconcile();
+        expect(createProviderRuntime).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+        expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
+        const [directory] = f.prepare.mock.calls[0]!;
+        expect(f.prepare.mock.calls[0]![1]).toEqual({ complete: true });
+        expect(f.commit).toHaveBeenCalledExactlyOnceWith(directory, { message: "Merge main into fix", paths: ["docs/guide.md", "package.json"] }, { verifyDependencies: true });
+        expect(f.verify).toHaveBeenCalled();
+        expect(f.push).toHaveBeenCalledOnce();
+        expect(cancelled).toBe(false);
+        expect(f.events).toHaveBeenCalledWith("babysitter.conflict.host_pushed", expect.objectContaining({
+          head_sha: "a".repeat(40), pushed_head: pushed, resolved_files: ["docs/guide.md (markdown-union)", "package.json (package-json)"],
+        }));
+        const current = (await f.runtime.inbox.get("acme/app", 12))!;
+        expect(current).toMatchObject({ status: "waiting", lease: null, wait: { headSha: pushed } });
+        expect(current.lastResult).toContain("without a model pass");
+        // The push counts in the push window and as progress, never as a model pass.
+        expect(current.dailyPassBudget?.passes ?? []).toEqual([]);
+        expect(await f.runtime.inbox.meta("repair-pushes:acme/app#12")).toHaveLength(1);
+        expect(current.progressBudget?.count ?? 0).toBe(0);
+        expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeUndefined();
+        await expect(readFile(join(directory as string, ".git", "vitehub-install.json"))).rejects.toThrow();
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    }, 15_000);
+
+    it("starts no conflict preparation while sampled memory admits no worker", async () => {
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "resource pressure (cpu=0.02, memory=0.31)" }));
+      const f = await conflictOnly({ hostCapacity });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).toHaveBeenCalledWith(expect.objectContaining({ active: 0 }));
+        expect(f.prepare).not.toHaveBeenCalled();
+        expect(prepareGitHubRepairBase).not.toHaveBeenCalled();
+        expect(f.install).not.toHaveBeenCalled();
+        expect(f.push).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+        const current = (await f.runtime.inbox.get("acme/app", 12))!;
+        expect(current).toMatchObject({ status: "waiting", lease: null });
+        expect(current.wait?.retryAt).toBeGreaterThan(Date.now());
+        expect(current.lastResult).toContain("resource pressure (cpu=0.02, memory=0.31)");
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("places the model fallback only after the host push is ruled out", async () => {
+      const release = vi.fn();
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+      const f = await conflictOnly({ placement: { place } });
+      vi.mocked(prepareGitHubRepairBase).mockResolvedValue({ ...resolvedMerge, conflicted: [...resolvedMerge.conflicted, "src/a.ts"], remaining: ["src/a.ts"] });
+      try {
+        await f.reconcile();
+        expect(place).toHaveBeenCalledOnce();
+        // The host tried its merge first, then the placed Sandbox prepared its own copy from the host checkout.
+        expect(vi.mocked(prepareGitHubRepairBase).mock.invocationCallOrder[0]).toBeLessThan(place.mock.invocationCallOrder[0]!);
+        expect(vi.mocked(prepareGitHubRepairBase).mock.calls.at(-1)?.[0]).toBe(f.checkout);
+        expect(sandboxDefinitions).toHaveBeenCalled();
+        expect(f.passes).toHaveLength(1);
+        expect(release).toHaveBeenCalledOnce();
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("waits for placement capacity when the model fallback finds none", async () => {
+      const place = vi.fn(() => { throw new BabysitterPlacementCapacityError("All hosts are full.", 45_000); });
+      const f = await conflictOnly({ placement: { place } });
+      vi.mocked(prepareGitHubRepairBase).mockResolvedValue({ ...resolvedMerge, conflicted: [...resolvedMerge.conflicted, "src/a.ts"], remaining: ["src/a.ts"] });
+      try {
+        await f.reconcile();
+        expect(place).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(0);
+        expect((await f.runtime.inbox.get("acme/app", 12))?.wait).toMatchObject({ kind: "external", reasonCode: "placement-capacity" });
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("pushes a host-resolved merge without asking placement", async () => {
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
+      const f = await conflictOnly({ placement: { place }, hostCapacity: async () => ({ concurrency: 1 }) });
+      try {
+        await f.reconcile();
+        expect(place).not.toHaveBeenCalled();
+        expect(f.push).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(0);
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("leaves the conflict queued when host pressure closes admission", async () => {
+      const admission = async () => ({ accepting: false, accounting: "best-effort-retained-journal" as const, hostOnly: true, reason: "memory-pressure", limits: resolveBabysitterAdmissionLimits(), state: { windows: babysitterBudgetWindows(Date.now()), tmpDir: "/tmp" } });
+      const f = await conflictOnly({ admission });
+      try {
+        await f.reconcile();
+        expect(f.prepare).not.toHaveBeenCalled();
+        expect(f.push).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+        expect(f.events).toHaveBeenCalledWith("babysitter.conflict.host_push_skipped", expect.objectContaining({ blockers: ["host-admission"] }));
+        expect((await f.runtime.inbox.get("acme/app", 12))).toMatchObject({ status: "ready", lease: null });
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("hands a merge with remaining conflicts to the model in the prepared tree", async () => {
+      const f = await conflictOnly();
+      vi.mocked(prepareGitHubRepairBase).mockResolvedValue({ ...resolvedMerge, conflicted: [...resolvedMerge.conflicted, "src/a.ts"], remaining: ["src/a.ts"] });
+      try {
+        await f.reconcile();
+        expect(f.commit).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(1);
+        expect(f.passes[0]!.prompt).toContain("Still conflicted: src/a.ts.");
+        // One merge and one install: the model continues in the tree the host prepared.
+        expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
+        expect(f.install).toHaveBeenCalledOnce();
+        expect(f.cwds[0]).toBe(f.prepare.mock.calls[0]![0]);
+        expect(f.events).toHaveBeenCalledWith("babysitter.conflict.host_push_skipped", expect.objectContaining({ reason: "conflicts-remain" }));
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("hands a fully resolved merge to the model while other work is pending", async () => {
+      // Without the no-findings prefix, the bot review is feedback no pass assessed yet.
+      const f = await conflictOnly({ options: { noFindingsReviews: [] } });
+      try {
+        await f.reconcile();
+        expect(f.commit).not.toHaveBeenCalled();
+        expect(f.push).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(1);
+        expect(f.passes[0]!.prompt).toContain("No conflicted file remains; review the merge, validate it and pass these paths to commitRepair.");
+        expect(f.events).toHaveBeenCalledWith("babysitter.conflict.host_push_skipped", expect.objectContaining({ reason: "model-work", blockers: ["feedback"] }));
+        expect((await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget?.passes).toHaveLength(1);
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("hands the merge to the model when dependency verification fails", async () => {
+      const f = await conflictOnly();
+      f.verify.mockRejectedValueOnce(new Error("Dependency inputs changed since the install."));
+      try {
+        await f.reconcile();
+        expect(f.commit).not.toHaveBeenCalled();
+        expect(f.push).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(1);
+        expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
+        expect(f.events).toHaveBeenCalledWith("babysitter.conflict.host_push_skipped", expect.objectContaining({ reason: "commit: Dependency inputs changed since the install." }));
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("retries the claim when the push is refused", async () => {
+      const f = await conflictOnly();
+      f.push.mockRejectedValueOnce(new Error("! [rejected] fix -> fix (stale info)"));
+      try {
+        await f.reconcile("babysitter.owner.failed");
+        expect(f.passes).toHaveLength(0);
+        const current = (await f.runtime.inbox.get("acme/app", 12))!;
+        expect(current).toMatchObject({ status: "ready", lease: null });
+        expect(current.wait?.headSha).toBeUndefined();
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("retries the claim when another push takes the lease before the host push", async () => {
+      const f = await conflictOnly();
+      f.commit.mockImplementationOnce(async () => {
+        f.advanceHead("e".repeat(40));
+        await f.runtime.inbox.ingest("external-push", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+        return "a".repeat(40);
+      });
+      try {
+        await f.reconcile();
+        expect(f.push).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+        expect((await f.runtime.inbox.get("acme/app", 12))).toMatchObject({ status: "ready", lease: null });
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
   });
 
   it.each([
