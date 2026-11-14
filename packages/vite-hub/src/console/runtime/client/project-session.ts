@@ -37,6 +37,13 @@ export type ConsoleProjectGate =
   | { kind: "setup", project: ConsoleAccountProject }
   /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
   | { kind: "home", page: ConsoleAccountPage }
+  /**
+   * An `/open` link from `GET /_vitehub` of an app: the Console asks the app for a Site access link and goes back to
+   * `page` of the app, signed in.
+   */
+  | { kind: "site", page: string, state: string }
+  /** The Console could not sign the browser in to the app of a `/_vitehub` link. `linked` is false for an app of no team project. */
+  | { kind: "site-refused", url: string, page: string, linked: boolean, message?: string }
   | { kind: "ready" }
 
 /** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
@@ -351,6 +358,20 @@ export function consoleOpenLink(search: string, projects: readonly { id: string,
 }
 
 /**
+ * The app page and state of an `/open` link from `GET /_vitehub`, `/open?project=<app URL>&site=<page>&state=<state>`,
+ * or `undefined` for another link. `page` is a path of the app below its base, such as `/runs/42`.
+ */
+export function consoleSiteLink(search: string): { url: string, page: string, state: string } | undefined {
+  const query = new URLSearchParams(search)
+  const url = comparableProjectUrl(query.get("project") ?? "")
+  const page = query.get("site")
+  const state = query.get("state") ?? ""
+  if (!url || page === null || !/^[\w-]{43}$/.test(state)) return undefined
+  if (!page.startsWith("/") || page.startsWith("//") || page.includes("\\")) return undefined
+  return { url, page, state }
+}
+
+/**
  * The address of an `/open` link that the Console opens again after a sign-in, such as
  * `/open?project=https%3A%2F%2Fapp.example.com&path=%2Fkv`. It keeps only the project and the path of the link.
  * `undefined` when the link names no project URL or a path that is not a Console page.
@@ -360,7 +381,9 @@ export function consoleOpenReturnPath(home: string, search: string): string | un
   const project = query.get("project") ?? ""
   const path = query.get("path") ?? "/"
   if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
-  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+  const site = consoleSiteLink(search)
+  const back = site ? `&site=${encodeURIComponent(site.page)}&state=${site.state}` : ""
+  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}`
 }
 
 /**
@@ -384,17 +407,23 @@ export async function startConsoleAccount(options: {
   const storage = memoryProjectStorage()
   let missingApp = false
   let address: string | undefined
+  const openPath = options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
+  const site = openPath ? consoleSiteLink(options.search ?? "") : undefined
+  let siteGate: ConsoleProjectGate | undefined
   if (account) {
     // A link to one app, `/?app=<id>`, opens that app. `/open?project=<URL>&path=<page>` opens a page of the app with
     // that URL. Other links open the app that this browser used last.
     const home = options.home.replace(/\/+$/, "")
     const openLink = options.pathname.replace(/\/+$/, "") === `${home}/open`
     const opened = openLink ? consoleOpenLink(options.search ?? "", account.projects) : undefined
-    if (opened) address = `${home}${opened.path}`
+    if (opened && !site) address = `${home}${opened.path}`
     const requested = opened?.id ?? new URLSearchParams(options.search ?? "").get("app") ?? undefined
     if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
+    // A `/_vitehub` link of an app that is no project of the team says so, with the way back to the app.
+    else if (site) siteGate = { kind: "site-refused", url: site.url, page: site.page, linked: false }
     // An app of another team, or one that is gone, opens Home instead of another app.
     else if (requested || openLink) missingApp = true
+    if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state }
     const remembered = rememberedAccountProject(account.teamId)
     const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
     storage.setItem(consoleProjectsStorageKey, JSON.stringify({
@@ -412,9 +441,32 @@ export async function startConsoleAccount(options: {
     ? consoleOpenReturnPath(options.home, options.search ?? "")
     : undefined
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}), ...(returnTo ? { returnTo } : {}) }
+  else if (siteGate) started.gate.value = siteGate
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
   return address ?? (missingApp ? options.home : undefined)
+}
+
+/**
+ * Sign the browser in to the app of a `/_vitehub` link: ask the app for a Site access link bound to the state of that
+ * route, and replace this page with it, so Back does not open the used link again. A refusal shows why.
+ */
+export async function openConsoleSite(): Promise<void> {
+  const projects = useState()
+  const gate = projects.gate.value
+  const current = projects.current.value
+  if (gate.kind !== "site" || !current) return
+  try {
+    const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
+    const answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
+    const url: unknown = Reflect.get(Object(answer), "url")
+    if (String(url) !== url) throw new Error("The app did not return a link.")
+    const location: unknown = Reflect.get(globalThis, "location")
+    Reflect.apply(Reflect.get(Object(location), "replace"), location, [url])
+  }
+  catch (error) {
+    projects.gate.value = { kind: "site-refused", url: current.url, page: gate.page, linked: true, message: error instanceof Error ? error.message : "Try again." }
+  }
 }
 
 /** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */

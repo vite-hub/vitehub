@@ -9,13 +9,18 @@ import ConsoleAccountSnippet from "./console-account-snippet.vue";
  * opens the project, which shows the variable to set on the app until the app accepts the token.
  */
 const open = defineModel<boolean>("open", { required: true });
+/** The app URL that the form starts with, such as the app of a `/_vitehub` link. */
+const props = defineProps<{ url?: string }>();
 const url = ref("");
 const label = ref("");
 const busy = ref(false);
 const problem = ref<string>();
 
 watch(open, (value) => {
-  if (value) return;
+  if (value) {
+    url.value = props.url ?? "";
+    return;
+  }
   url.value = "";
   label.value = "";
   problem.value = undefined;
