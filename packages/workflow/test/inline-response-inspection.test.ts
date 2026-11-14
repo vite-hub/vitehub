@@ -71,5 +71,5 @@ it("records a failed run when its response body cannot be retained", async () =>
   await workflow.start(undefined, { id: "run-1" })
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
-  expect(await workflow.getRun("run-1")).toMatchObject({ status: "failed", metadata: cause, result: undefined })
+  expect(await workflow.getRun("run-1")).toMatchObject({ error: { message: "output stream failed" }, status: "failed", result: undefined })
 })

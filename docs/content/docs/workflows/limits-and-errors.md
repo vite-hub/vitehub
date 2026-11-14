@@ -27,7 +27,7 @@ export default defineWorkflow('transcribe', async (payload: { recordingId: strin
 })
 ```
 
-Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`. It leaves out `cause`, which stays on the error in memory for debugging. Built-in codes have the `WorkflowErrorCode` type, with a message and details per code. Set retries on the Workflow Step. A thrown error does not change its retry policy.
+Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`. It leaves out `cause`, which stays on the error in memory for debugging. Built-in codes have the `WorkflowErrorCode` type, with a message and details per code. When a run fails, `getWorkflowRun()` returns the thrown error as `run.error`: its `message`, and its `name` when it is not `Error`. Inline runs and native Vercel runs also keep its `code`. Cloudflare and OpenWorkflow store only the name and the message, so `code` is not there. The stack, `cause`, and `details` stay out. Set retries on the Workflow Step. A thrown error does not change its retry policy.
 
 ## Production checks
 

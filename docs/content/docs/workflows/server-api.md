@@ -72,6 +72,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
 | `result` | `TResult` | Result, when completed. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
+| `error` | `WorkflowRunError` | `{ message, name?, code? }` when the status is `failed`. Every provider sets it. It is safe to send as JSON. |
 | `metadata` | `unknown` | Provider metadata. |
 
 ## Inspect a run

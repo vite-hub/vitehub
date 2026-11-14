@@ -397,7 +397,7 @@ describe("workflow runtime", () => {
     expect(calls).toBe(1)
   })
 
-  it("preserves failure metadata for repeated inline runs", async () => {
+  it("preserves the failure of repeated inline runs", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     const failure = new Error("inline failure")
     const workflow = createWorkflow("inline-failure-idempotent", async () => {
@@ -405,13 +405,13 @@ describe("workflow runtime", () => {
     })
 
     const first = await workflow.start({ input: true }, { id: "failed-id" })
-    await vi.waitFor(async () => expect(await workflow.getRun("failed-id")).toMatchObject({ status: "failed", metadata: failure }))
+    await vi.waitFor(async () => expect(await workflow.getRun("failed-id")).toMatchObject({ error: { message: "inline failure" }, status: "failed" }))
     const repeated = await workflow.start({ input: true }, { id: "failed-id" })
 
     expect(first).toMatchObject({ payload: { input: true }, status: "queued" })
     expect(repeated).toMatchObject({
+      error: { message: "inline failure" },
       id: "failed-id",
-      metadata: failure,
       payload: { input: true },
       provider: "vercel",
       status: "failed",
@@ -1872,7 +1872,7 @@ describe("workflow runtime", () => {
     const run = await startWorkflow("welcome", {}, { id: "existing-run" })
 
     expect(run).toMatchObject({
-      ...(error ? { metadata: error } : { result: output }),
+      ...(error ? { error: { message: error.message } } : { result: output }),
       id: "existing-run",
       provider: "openworkflow",
       status,

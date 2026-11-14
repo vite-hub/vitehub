@@ -2,6 +2,7 @@ import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -267,16 +268,18 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
 
   // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
   const result = (isSerializedResponse(run.output) ? deserializeResponse(run.output) : run.output) as TResult | undefined
+  const status = normalizeOpenWorkflowStatus(run.status)
   return {
+    ...(status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
     id: run.id,
-    metadata: run.error || {
+    metadata: {
       namespaceId: run.namespaceId,
       version: run.version,
       workflowName: run.workflowName,
     },
     provider: "openworkflow",
     result,
-    status: normalizeOpenWorkflowStatus(run.status),
+    status,
   }
 }
 
@@ -305,9 +308,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name)
     return {
       ...serialized,
-      metadata: serialized.status === "failed"
-        ? serialized.metadata
-        : { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
+      metadata: { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
       payload,
     }
   })
