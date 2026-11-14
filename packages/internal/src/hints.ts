@@ -36,25 +36,20 @@ interface HintsRun {
   file: string
   report: ViteHubHintsReport
   keys: Set<string>
-  warn: (message: string) => void
 }
 
-// Each feature package bundles its own copy of this module, so every copy shares one map through the global.
-const runsKey = Symbol.for("vitehub.hints.runs")
-const shared = globalThis as typeof globalThis & { [runsKey]?: WeakMap<object, HintsRun> }
-const runs = shared[runsKey] ??= new WeakMap<object, HintsRun>()
+type HintsConfig = Pick<ResolvedConfig, "root" | "command" | "logger">
 
-function hintRun(config: Pick<ResolvedConfig, "root" | "command" | "logger">): HintsRun {
-  let run = runs.get(config)
-  if (!run) {
-    run = {
-      file: resolve(config.root, viteHubHintsFile),
-      report: { version: 1, command: config.command, startedAt: new Date().toISOString(), hints: [] },
-      keys: new Set(),
-      warn: message => config.logger.warn(message),
-    }
-    runs.set(config, run)
-  }
+// Each feature package bundles its own copy of this module, so every copy shares one map through the global. Runs
+// are keyed by the report file: a Vite environment has its own config object, but the same project root.
+const runsKey = Symbol.for("vitehub.hints.runs")
+const shared = globalThis as typeof globalThis & { [runsKey]?: Map<string, HintsRun> }
+const runs = shared[runsKey] ??= new Map<string, HintsRun>()
+
+function startRun(config: HintsConfig): HintsRun {
+  const file = resolve(config.root, viteHubHintsFile)
+  const run = { file, report: { version: 1 as const, command: config.command, startedAt: new Date().toISOString(), hints: [] }, keys: new Set<string>() }
+  runs.set(file, run)
   return run
 }
 
@@ -67,8 +62,8 @@ function write(run: HintsRun): void {
  * Reports a hint from a Vite plugin hook: prints it once with its fix and docs link, and adds it to
  * {@link viteHubHintsFile}. Build the diagnostic from the package's nostics catalog, so its code has a docs page.
  */
-export function reportViteHubHint(config: Pick<ResolvedConfig, "root" | "command" | "logger">, diagnostic: Diagnostic): void {
-  const run = hintRun(config)
+export function reportViteHubHint(config: HintsConfig, diagnostic: Diagnostic): void {
+  const run = runs.get(resolve(config.root, viteHubHintsFile)) ?? startRun(config)
   const hint: ViteHubHint = {
     code: diagnostic.code,
     why: diagnostic.why,
@@ -81,7 +76,7 @@ export function reportViteHubHint(config: Pick<ResolvedConfig, "root" | "command
   run.keys.add(key)
   run.report.hints.push(hint)
   write(run)
-  run.warn(formatDiagnostic(diagnostic))
+  config.logger.warn(formatDiagnostic(diagnostic))
 }
 
 /**
@@ -92,7 +87,7 @@ export function viteHubHintsPlugin(): Plugin {
   return {
     name: "vite-hub/hints",
     configResolved(config) {
-      write(hintRun(config))
+      write(startRun(config))
     },
   }
 }

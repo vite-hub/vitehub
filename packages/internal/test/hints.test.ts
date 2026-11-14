@@ -38,9 +38,11 @@ describe("ViteHub hints", () => {
 
   it("prints each hint once with its fix and docs, and lists it in the report", async () => {
     const resolved = await config()
+    // A Vite environment passes its own config object for the same project.
+    const environment = { ...resolved }
     reportViteHubHint(resolved, diagnostics.DEMO_B0001())
-    reportViteHubHint(resolved, diagnostics.DEMO_B0001())
-    reportViteHubHint(resolved, Object.assign(diagnostics.DEMO_B0002({ file: "a.ts" }), { sources: ["src/a.ts:3:1"] }))
+    reportViteHubHint(environment, diagnostics.DEMO_B0001())
+    reportViteHubHint(environment, Object.assign(diagnostics.DEMO_B0002({ file: "a.ts" }), { sources: ["src/a.ts:3:1"] }))
 
     expect(resolved.logger.warn).toHaveBeenCalledTimes(2)
     expect(resolved.logger.warn.mock.calls[0]![0]).toContain("Use a shared store.")
