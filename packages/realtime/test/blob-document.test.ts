@@ -91,7 +91,7 @@ describe("blobDocument", () => {
     vi.useFakeTimers()
     const { files, store } = memoryBlob()
     await store.put("page", "Start", { contentType: "text/markdown" })
-    const server = createTestServer({ document: blobDocument(store), editor: createStubEditor().editor })
+    const server = createTestServer({ access: "public", document: blobDocument(store), editor: createStubEditor().editor })
     const client = await server.connect("page")
     await settle()
     await vi.advanceTimersByTimeAsync(60)
