@@ -97,7 +97,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
     for (const { codemod, detection } of found) {
       try {
-        const planned = await codemod.run({ cwd: scratch })
+        const planned = await codemod.run({ cwd: scratch, dependencyRoot: cwd })
         const result: CodemodResult = {
           ...planned,
           summary: unscratch(planned.summary),

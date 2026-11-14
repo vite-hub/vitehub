@@ -82,7 +82,11 @@
       "import": "./dist/vue.js",
       "default": "./dist/vue.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client/browser.js": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client/browser.js"
+    }
   },
   "scripts": {
     "build": "vp pack",

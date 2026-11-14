@@ -81,8 +81,10 @@ catalogs:
     "@electric-sql/pglite": ^0.5.15
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
+    "@types/pg": ^8.15.0
     drizzle-kit: 1.0.0-rc.5
     drizzle-orm: 1.0.0-rc.5
+    pg: ^8.16.0
     postgres: ^3.4.9
   esbuild-v27:
     esbuild: ^0.27.7
@@ -158,7 +160,7 @@ catalogs:
     zod: ^4.6.7
   sandbox:
     "@cloudflare/sandbox": ^1.0.3
-    "@vercel/sandbox": ^3.9.1
+    "@vercel/sandbox": ^3.9.1 || ^4.0.0
   shell:
     just-bash: ^3.6.0
     sh-syntax: 0.8.3

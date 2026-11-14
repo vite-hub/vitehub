@@ -201,7 +201,7 @@ describe("docs in an existing app", () => {
     writeFileSync(join(app.srcDir, "main.css"), '@import "tailwindcss";\n@import "@nuxt/ui";\n')
     const options = await setupDocs(mapped ? { sources: [app.dir] } : { dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
     const docsCss = templates.get("docs/docs.css")!
-    expect(docsCss()).toContain('@import "tailwindcss";')
+    expect(docsCss()).toMatch(/@import "\/.+\/tailwindcss\/index\.css";/)
     options.alias["~"] = app.srcDir
     options.css.push("~/main.css")
     expect(docsCss()).not.toContain("tailwindcss")
@@ -221,8 +221,10 @@ describe("docs in an existing app", () => {
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, docsCss())
 
-    expect(docsCss()).toContain('@import "tailwindcss";')
-    expect(docsCss()).toContain('@import "@nuxt/ui";')
+    // Absolute files, so they resolve from a template outside the app and in an app that lists neither package.
+    expect(docsCss()).toMatch(/@import "\/.+\/tailwindcss\/index\.css";/)
+    expect(docsCss()).toMatch(/@import "\/.+\/@nuxt\/ui\/dist\/runtime\/index\.css";/)
+    for (const [, file] of docsCss().matchAll(/@import "([^"]+(?:tailwindcss|@nuxt\/ui)[^"]+)";/g)) expect(existsSync(file!)).toBe(true)
   })
 
   it("lets docs pages link to the app's own pages, which the build does not prerender", async () => {
