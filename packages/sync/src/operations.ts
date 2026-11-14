@@ -23,8 +23,8 @@ function defineSyncOperation<Input, Output>(definition: Omit<OperationDefinition
 function formatList(rows: SyncSummary[]): string {
   if (!rows.length) return "No Sync definitions.\n"
   return `${table([
-    ["NAME", "TABLE", "KEY", "WRITE", "ROWS", "CHANGES", "FLOOR", "LAST SEQ"],
-    ...rows.map(row => [row.name, row.table, row.key, row.write, String(row.rows), String(row.changes), String(row.floor), String(row.lastSeq)]),
+    ["NAME", "TABLE", "KEY", "WRITE", "LIVE", "ACTIONS", "ROWS", "CHANGES", "EXITS", "FLOOR", "LAST SEQ"],
+    ...rows.map(row => [row.name, row.table, row.key, row.write, row.live ? "yes" : "no", row.actions.join(",") || "-", String(row.rows), String(row.changes), String(row.exits), String(row.floor), String(row.lastSeq)]),
   ])}\n`
 }
 
@@ -38,7 +38,7 @@ function formatChanges(rows: SyncChangeEntry[]): string {
 
 const list = defineSyncOperation<Record<string, never>, SyncSummary[]>({
   cli: { default: true, format: formatList },
-  description: "List the Sync definitions with their row count, change count, floor, and last seq.",
+  description: "List the Sync definitions with their write mode, live streams, action names, row count, change count, exit count, floor, and last seq.",
   input: v.object({}),
   kind: "read",
   name: "sync.list",
@@ -50,7 +50,7 @@ const list = defineSyncOperation<Record<string, never>, SyncSummary[]>({
 
 const changes = defineSyncOperation<{ name: string, limit?: number, before?: number }, SyncChangeEntry[]>({
   cli: { format: formatChanges, positional: ["name"] },
-  description: "List the newest changes of one Sync definition: seq, op, key, and time, without row data.",
+  description: "List the newest changes of one Sync definition: seq, op (put, delete, or move), key, and time, without row data.",
   input: v.object({
     name: v.pipe(v.string(), v.minLength(1), v.description("The Sync name, such as todos.")),
     limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(500))),
