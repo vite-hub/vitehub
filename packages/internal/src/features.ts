@@ -309,12 +309,12 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
     hosts: {
-      cloudflare: native("d1", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development."),
-      deno: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Deno-native database driver is provided."),
+      cloudflare: native("d1", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development. A PostgreSQL Database Definition connects through Hyperdrive or `connection.url`."),
+      deno: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. No Deno-native database driver is provided."),
       dev: native("sqlite", "SQLite", "Local SQLite through libSQL and Drizzle.", "single-host"),
-      netlify: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Netlify-native database driver is provided."),
-      node: native("sqlite", "SQLite / libSQL", "SQLite or hosted libSQL through the selected Database connection.", "single-host"),
-      vercel: explicit("database.connection", "libSQL / D1", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. The default local SQLite file is not supported in Vercel functions."),
+      netlify: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. No Netlify-native database driver is provided."),
+      node: native("sqlite", "SQLite / libSQL / Postgres", "SQLite or hosted libSQL through the selected Database connection, or a PostgreSQL Database Definition.", "single-host"),
+      vercel: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. The default local SQLite file is not supported in Vercel functions."),
     },
     id: "database",
     packages: ["@vite-hub/database", "drizzle-orm"],
@@ -359,7 +359,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
       cloudflare: native("cloudflare-kv-binding", "Workers KV", "Cloudflare Workers KV binding."),
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
-      netlify: explicit("kv.driver", "Upstash", "Configure a remote Upstash store. No Netlify-native KV output is provided."),
+      netlify: explicit("kv.driver", "Upstash / Redis", "Set `kv.driver` to `upstash`, `redis`, or `database`, or set Upstash REST credentials at build time. No Netlify-native KV output is provided. Without them, KV uses a Postgres Default Database, else `fs-lite` files that other function instances cannot read."),
       node: native("fs-lite", "Redis / Postgres / fs-lite", "A table in a Postgres Default Database, else local files. Redis requires kv: { driver: 'redis' }; REDIS_URL supplies its URL on every server. Upstash with REST credentials at build time.", "single-host"),
       vercel: native("upstash", "Upstash", "Upstash Redis with KV REST credentials."),
     },
@@ -428,6 +428,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
     definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
 
 export default defineRealtime({
+  auth: true,
   document: { workspace: "${name}" },
 })
 `),

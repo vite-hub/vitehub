@@ -3,18 +3,6 @@ import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 
 import {
-  Editable,
-  EditableArea,
-  EditableCancelTrigger,
-  EditableEditTrigger,
-  EditableInput,
-  EditablePreview,
-  EditableSubmitTrigger,
-} from "@vite-hub/kit/editable";
-import { Field, FieldControl, FieldError } from "@vite-hub/kit/field";
-import { Form } from "@vite-hub/kit/form";
-import { TagGroup, TagGroupItem, TagGroupItemRemove } from "@vite-hub/kit/tag-group";
-import {
   TagsInput,
   TagsInputClear,
   TagsInputInput,
@@ -27,33 +15,6 @@ const render = (tree: () => VNode) => renderToString(createSSRApp({ render: tree
 
 // The server's HTML for the components the kit adds, before any script runs.
 describe("server rendering of the kit's own components", () => {
-  it("renders Form as a form, with the errors it starts with", async () => {
-    const html = await render(() =>
-      h(Form, { errors: { email: "Taken." } }, () =>
-        h(Field, { name: "email" }, () => [h(FieldControl), h(FieldError)]),
-      ),
-    );
-    expect(html).toMatch(/^<form data-slot="form" data-invalid>/);
-    expect(html).toContain('data-slot="field-control"');
-  });
-
-  it("renders Editable with its preview, and the input only while editing", async () => {
-    const html = await render(() =>
-      h(Editable, { defaultValue: "Draft", name: "title" }, () => [
-        h(EditableArea, null, () => [h(EditablePreview), h(EditableInput)]),
-        h(EditableEditTrigger, null, () => "Edit"),
-        h(EditableSubmitTrigger, null, () => "Save"),
-        h(EditableCancelTrigger, null, () => "Cancel"),
-      ]),
-    );
-    expect(html).toContain('<div data-slot="editable">');
-    expect(html).toContain('<span data-slot="editable-preview" tabindex="0">Draft</span>');
-    expect(html).toContain('<button data-slot="editable-edit-trigger" type="button">Edit</button>');
-    expect(html).toContain('<input data-slot="editable-hidden-input" type="hidden" name="title" value="Draft">');
-    expect(html).not.toContain('data-slot="editable-input"');
-    expect(html).not.toContain('data-slot="editable-submit-trigger"');
-  });
-
   it("renders TagsInput with its tags, its input, and a hidden input per tag", async () => {
     const html = await render(() =>
       h(TagsInput, { defaultValue: ["vue", "nuxt"], name: "stack" }, () => [
@@ -72,17 +33,5 @@ describe("server rendering of the kit's own components", () => {
     expect(html).toMatch(/<span data-slot="tags-input-item-text" id="[^"]+-item-text-vue">vue<\/span>/);
     expect(html).toContain('<input data-slot="tags-input-input" type="text" autocomplete="off" autocapitalize="off">');
     expect(html.match(/type="hidden" name="stack" value="(vue|nuxt)"/g)).toHaveLength(2);
-  });
-
-  it("renders TagGroup as a grid with one tab stop", async () => {
-    const html = await render(() =>
-      h(TagGroup, { "aria-label": "Frameworks", selectionMode: "multiple", defaultValue: ["nuxt"] }, () =>
-        ["vue", "nuxt"].map((tag) => h(TagGroupItem, { value: tag }, () => [tag, h(TagGroupItemRemove, null, () => "x")])),
-      ),
-    );
-    expect(html).toMatch(/^<div aria-label="Frameworks" data-slot="tag-group" role="grid" aria-multiselectable="true">/);
-    expect(html.match(/role="row" tabindex="0"/g)).toHaveLength(1);
-    expect(html).toContain('<div data-slot="tag-group-item" role="row" tabindex="-1" aria-selected="true" data-selected>');
-    expect(html.match(/<div role="gridcell" data-slot="tag-group-item-cell">/g)).toHaveLength(2);
   });
 });

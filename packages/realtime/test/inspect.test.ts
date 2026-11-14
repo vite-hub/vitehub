@@ -46,7 +46,7 @@ export default defineRealtime({
 
     expect(fields.docs).toEqual({
       Authority: "memory: one Node process, rooms lost on restart",
-      Authorization: "every connection may read and write",
+      Authorization: "every identified user",
       Document: "Workspace \"docs\" (Markdown file per path)",
       Editor: "built-in Markdown kit",
       History: "history.checkpoint() enabled",
@@ -61,6 +61,40 @@ export default defineRealtime({
       History: "none",
       Identity: "identify()",
       Persistence: "idle save after 500 ms (at most 10000 ms) and when the last client leaves",
+    })
+  })
+
+  it("describes a definition without a document", async () => {
+    const root = await project({
+      "server/realtime/presence.ts": `import { defineRealtime } from "vite-hub/realtime"
+export default defineRealtime({ auth: true, authorize: () => true, document: false })
+`,
+    })
+
+    const [summary] = await inspectRealtimeDefinitions({ authority: "memory", projectRoot: root })
+
+    expect(Object.fromEntries(summary!.fields.map(field => [field.label, field.value]))).toEqual({
+      Authority: "memory: one Node process, rooms lost on restart",
+      Authorization: "authorize() per room, read only",
+      Document: "none: presence only, nothing stored",
+      Identity: "ViteHub Auth session, required",
+    })
+  })
+
+  it("shows public access and a definition that sets no access rule", async () => {
+    const root = await project({
+      "server/realtime/open.ts": `import { defineRealtime } from "vite-hub/realtime"
+export default defineRealtime({ access: "public", document: { workspace: "docs" } })
+`,
+      "server/realtime/unset.ts": `export default { document: false }`,
+    })
+
+    const summaries = await inspectRealtimeDefinitions({ authority: "memory", projectRoot: root })
+    const authorization = Object.fromEntries(summaries.map(summary => [summary.name, summary.fields.find(field => field.label === "Authorization")?.value]))
+
+    expect(authorization).toEqual({
+      open: "public: anyone may read and write",
+      unset: "missing: the server rejects this definition",
     })
   })
 

@@ -1,4 +1,4 @@
-import { forgeEnv, githubAppCredentials, readForgeEnv, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { forgeEnv, githubAppCredentials, githubInstallationFor, githubInstallationRouting, readForgeEnv, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
@@ -89,7 +89,12 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
       const privateKey = appId ? await readGitHubAppPrivateKey(readForgeEnv(forgeEnv.github.privateKey, env), readForgeEnv(forgeEnv.github.privateKeyPath, env)) : undefined
       if (appId && privateKey) {
         const app = githubAppCredentials({ appId, privateKey, baseUrl: apiUrl, ...(options.fetch ? { fetch: options.fetch } : {}), userAgent: "vitehub-comments" })
-        const installation = readForgeEnv(forgeEnv.github.installationId, env) ?? await app.installation(repository)
+        const routing = githubInstallationRouting({
+          installationId: readForgeEnv(forgeEnv.github.installationId, env),
+          appOwner: readForgeEnv(forgeEnv.github.appOwner, env),
+          appInstallations: readForgeEnv(forgeEnv.github.appInstallations, env),
+        })
+        const installation = githubInstallationFor(routing, repository) ?? await app.installation(repository)
         return (await app.installationToken(installation)).token
       }
       const token = readForgeEnv(forgeEnv.github.token, env)

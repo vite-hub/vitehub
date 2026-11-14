@@ -65,6 +65,9 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
+  if (hasObjectProperty(objectLiteral(options) ?? readReturnedObject(options), "runtime")) {
+    throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
+  }
   if (options.type === "ObjectExpression") {
     assertAuthDatabasePlacement(options, options, authDatabase)
     return { authDatabase, body: options, callback: false }
@@ -91,16 +94,11 @@ function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression
     const unconditional = options.body.body.some(statement => statement.type === "ReturnStatement" && statement.argument && unwrapExpression(statement.argument) === body)
     if (returns !== 1 || !unconditional) throw authDatabasePlacementError()
   }
-  const runtime = readObjectPropertyValue(body, "runtime")
-  const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
-  if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
-  for (const options of [body, runtimeBody]) {
-    for (const model of ["user", "session", "account", "verification"]) {
-      const config = objectLiteral(readObjectPropertyValue(options, model))
-      const additionalFields = readObjectPropertyValue(config, "additionalFields")
-      const fields = objectLiteral(additionalFields)
-      if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
-    }
+  for (const model of ["user", "session", "account", "verification"]) {
+    const config = objectLiteral(readObjectPropertyValue(body, model))
+    const additionalFields = readObjectPropertyValue(config, "additionalFields")
+    const fields = objectLiteral(additionalFields)
+    if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
   }
   const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
   const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
@@ -248,18 +246,21 @@ function isPlacementLiteral(expression: Expression | undefined, keys: ReadonlySe
   return object !== undefined && readObjectEntries(object).every(entry => keys.has(entry.key))
 }
 
-/** `database` and `secondaryStorage` take Better Auth adapters only. A static Definition can hold only `authDatabase()`. */
+/**
+ * `database` and `secondaryStorage` take Better Auth adapters only. A static Definition can hold only `authDatabase()` or
+ * `"memory"`.
+ */
 function assertAuthStorageConfig(body: ObjectExpression | undefined, callback: boolean, authDatabase: ReadonlySet<string>): void {
-  if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase)) {
-    const database = readObjectPropertyValue(body, "database")
+  const database = readObjectPropertyValue(body, "database")
+  if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase) && staticString(database) !== "memory") {
     if (!callback || isPlacementLiteral(database, new Set(["dedicated", "name"]))) {
-      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback or `runtime`." })
+      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
     }
   }
   if (hasObjectProperty(body, "secondaryStorage")) {
     const secondaryStorage = readObjectPropertyValue(body, "secondaryStorage")
     if (!callback || isPlacementLiteral(secondaryStorage, new Set(["store"]))) {
-      throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback or `runtime`. `true` and `{ store }` do not create storage." })
+      throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback. `true` and `{ store }` do not create storage." })
     }
   }
 }
@@ -294,5 +295,6 @@ export function resolveAuthViteConfig(
     rootDir,
     route: readAuthRouteConfig(body),
     tables: readAuthTablesConfig(body, definitionObject.authDatabase),
+    ...(!definitionObject.callback && !["database", "preset"].some(key => hasObjectProperty(body, key)) ? { implicitMemory: true as const } : {}),
   }
 }

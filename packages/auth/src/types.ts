@@ -61,9 +61,11 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
   requestOrigin: string
 }
 
-export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">> & { events?: AuthEventsConfiguration | false }
-export type AuthRuntimeOptionsResolver = (context: AuthRuntimeContext) => AuthRuntimeOptions
-export type AuthRuntimeConfiguration = AuthRuntimeOptions | AuthRuntimeOptionsResolver
+export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath" | "database">> & {
+  /** A Better Auth adapter, or `"memory"` to keep users and sessions in the memory of one server process. */
+  database?: BetterAuthOptions["database"] | "memory"
+  events?: AuthEventsConfiguration | false
+}
 
 export interface AuthSignInConfiguration {
   callbackURL?: string
@@ -122,14 +124,16 @@ export interface AuthViteHubOptions {
   basePath?: string
   /**
    * `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
-   * Auth adapter from the Definition callback or `runtime`.
+   * Auth adapter from the Definition callback. `"memory"` keeps them in the memory of one server process,
+   * and a restart removes them. Without `database` or `preset`, Auth uses memory only on a development server.
    */
-  database?: AuthAppDatabase
+  database?: AuthAppDatabase | "memory"
   /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
   preset?: AuthPreset
   route?: false
-  runtime?: AuthRuntimeConfiguration
-  /** Return a Better Auth `secondaryStorage` adapter from the Definition callback or `runtime`. */
+  /** Removed. Pass a callback that returns all options: `defineAuth(({ env }) => ({ ... }))`. */
+  runtime?: never
+  /** Return a Better Auth `secondaryStorage` adapter from the Definition callback. */
   secondaryStorage?: never
 }
 
@@ -138,11 +142,12 @@ export type AuthRuntimeOnlyOptions = {
 }
 
 export type AuthDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthBetterAuthOptions> =
-  TOptions & AuthViteHubOptions & AuthRuntimeOnlyOptions
+  // An inferred `database` replaces the declared union, because `AuthAppDatabase & "memory"` does not reduce to `never`.
+  TOptions & Omit<AuthViteHubOptions, Extract<keyof TOptions, "database">> & AuthRuntimeOnlyOptions
 
 export type AuthResolvedDefinitionOptions<TOptions extends AuthBetterAuthOptions = AuthBetterAuthOptions> =
   TOptions
-  & Omit<AuthViteHubOptions, "database" | "runtime" | "secondaryStorage">
+  & Omit<AuthViteHubOptions, "database" | "secondaryStorage">
   & AuthRuntimeOptions
 
 export type AuthDefinitionResolver<TOptions extends AuthResolvedDefinitionOptions = AuthResolvedDefinitionOptions> =
@@ -175,6 +180,8 @@ export interface ResolvedAuthViteConfig {
   basePath: string
   /** The app Database that `authDatabase()` names, which gets the Better Auth tables. `false` without the call. */
   tables: false | { database: string }
+  /** `true` when the static Definition sets no `database` or `preset`, so only a development server can run it. */
+  implicitMemory?: true
   definition: DiscoveredAuthDefinition
   rootDir: string
   route: false | string
