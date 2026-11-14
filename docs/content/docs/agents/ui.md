@@ -27,7 +27,7 @@ A spec draws no inputs. To ask for values, a `Form` names a form of [`vite-hub/f
 The catalog needs `zod` and json-render. The Vue components also need `@ui-sdk/vue`:
 
 ```bash pm [commands/install-agent-ui]
-pnpm add zod @json-render/core @json-render/vue @ui-sdk/vue
+pnpm add zod @json-render/vue @ui-sdk/vue
 ```
 
 ## Define the catalog
@@ -115,12 +115,11 @@ A Button and a Form tell the Agent what the person did with one action, `event`.
 
 ## Check the spec on the server
 
-Build the spec from the answer with `compileSpecStream()` of json-render, then check it with `validateSpec()`. When the spec is wrong, send the diagnostics back to the model and ask again:
+Build and check the spec from the answer with `specFromText()`. When the spec is wrong, send the diagnostics back to the model and ask again:
 
 ```ts [server/utils/ask-for-ui.ts]
-import { compileSpecStream } from '@json-render/core'
 import { runAgent } from 'vite-hub/agent'
-import { validateSpec } from 'vite-hub/agent/ui'
+import { specFromText } from 'vite-hub/agent/ui'
 import type { CatalogSpec } from 'vite-hub/agent/ui'
 import { catalog } from '../../shared/agent-ui'
 import deploys from '../agents/deploys'
@@ -131,7 +130,7 @@ export async function askForUI(prompt: string): Promise<CatalogSpec> {
     const [error, result] = await runAgent(deploys, { prompt: next })
     if (error) throw error
     const answer = result.text ?? ''
-    const checked = validateSpec(compileSpecStream(answer), { surface: 'web', catalog })
+    const checked = specFromText(answer, { surface: 'web', catalog })
     if (checked.valid) return checked.spec
     next = [
       prompt,
@@ -143,7 +142,7 @@ export async function askForUI(prompt: string): Promise<CatalogSpec> {
 }
 ```
 
-- `compileSpecStream()` skips the lines that are not patches, so it also reads an `inline` answer.
+- `specFromText()` skips the lines that are not patches, so it also reads an `inline` answer. It refuses a patch that writes `__proto__`, `constructor`, or `prototype`, so a model cannot change the objects of your server.
 - Each diagnostic is plain JSON with a `code`, a `message`, a `fix`, a `docs` link, and a `path`, the JSON Pointer to the wrong part of the spec. The model reads it as it is.
 - A spec has at most 128 elements and 20 levels.
 
