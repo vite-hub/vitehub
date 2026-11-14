@@ -89,6 +89,29 @@ describe("blob.serve() with edgeCache in workerd", () => {
     expect(reads).toHaveLength(1)
   })
 
+  it.each([
+    "bytes=0-1,4-5", "bytes=5-2", "items=0-1", "bytes=-50", "bytes=-0", "bytes=99-", "bytes=2-5", " BYTES=2-50 ",
+  ])("preserves storage semantics for %s, including conditional precedence", async (range) => {
+    const { reads, storage } = memoryStore()
+    const pathname = `parity-${encodeURIComponent(range)}.txt`
+    await storage.put(pathname, new Blob(["0123456789"], { type: "text/plain" }))
+    const { response } = await serveOnce(storage, pathname)
+    const etag = response.headers.get("etag")!
+    for (const condition of [undefined, etag, `W/${etag}`, `"other", ${etag}`, "*", "\"other\""]) {
+      const headers: Record<string, string> = { range }
+      if (condition) headers["if-none-match"] = condition
+      const cold = await storage.serve(request(`/files/${pathname}`, { headers }).req, pathname)
+      const count = reads.length
+      const warm = await storage.serve(request(`/files/${pathname}`, { headers }).req, pathname, { edgeCache })
+      expect(warm.status).toBe(cold.status)
+      for (const name of ["content-length", "content-range", "content-type", "etag"]) {
+        expect(warm.headers.get(name)).toBe(cold.headers.get(name))
+      }
+      expect(await warm.text()).toBe(await cold.text())
+      expect(reads).toHaveLength(count)
+    }
+  })
+
   it("keeps the sandbox of an active content type on a cached answer", async () => {
     const { reads, storage } = memoryStore()
     await storage.put("page.html", new Blob(["<script>1</script>"], { type: "text/html" }))

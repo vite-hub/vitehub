@@ -1,6 +1,8 @@
 import { expectTypeOf, it } from "vitest"
 
-import { defineSkill, serveSkills, skillsMcp } from "../src/skills.ts"
+import { defineSkill, serveSkills, skillSettings, skillsMcp } from "../src/skills.ts"
+
+import type { KVStorage } from "@vite-hub/kv"
 
 import type { Skill } from "../src/skills.ts"
 
@@ -26,4 +28,17 @@ it("accepts a list or a function that returns one", () => {
   // @ts-expect-error A list of names is not a list of skills.
   serveSkills(new Request("https://a.test"), ["release"])
   expectTypeOf<Skill["files"][number]["bytes"]>().toEqualTypeOf<Uint8Array<ArrayBuffer>>()
+})
+
+it("takes a ViteHub KV store and keeps the skill type", async () => {
+  const kv = {} as KVStorage
+  const skill = { ...defineSkill({ "SKILL.md": "" }), source: "https://example.com" }
+  const settings = skillSettings([skill], { store: kv })
+  expectTypeOf(await settings.enabled()).toEqualTypeOf<typeof skill[]>()
+  serveSkills(new Request("https://a.test"), settings.enabled)
+  skillsMcp(settings.enabled)
+  const [error] = await settings.set("release", false)
+  if (error) expectTypeOf(error.code).toEqualTypeOf<"SKILL_NOT_FOUND" | "SKILL_SETTINGS_UNAVAILABLE">()
+  // @ts-expect-error A store needs `get` and `set`.
+  skillSettings([skill], { store: { get: kv.get } })
 })

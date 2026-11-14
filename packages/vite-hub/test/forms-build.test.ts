@@ -20,33 +20,18 @@ const _standardContext: NonNullable<Parameters<typeof createFormsHandler>[0]["co
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Forms in a built Nitro 3 app", () => {
-  it("stores submissions in memory when Database is off", async () => {
+  it("fails the build when Database is off and a form stores submissions", async () => {
     const root = await createProject({
       "index.html": "<!doctype html><title>Forms</title>\n",
       "package.json": JSON.stringify({ name: "forms-memory-build", private: true, type: "module" }),
       "server/forms/contact.ts": "import * as v from 'valibot'\nimport { defineForm } from 'vite-hub/forms'\nexport default defineForm({ schema: v.object({ message: v.string() }) })\n",
-      "server/routes/inbox.get.ts": "import { installedForms } from 'vite-hub/forms/runtime'\nexport default { fetch: async () => Response.json((await installedForms()!.inbox.list())[1]) }\n",
     })
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-    const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub({ database: false, host: "node" }), nitro() as never], root } as never)
-    await builder.buildApp()
-    const generated = await readFile(join(root, ".vitehub/nitro/forms/handler.mjs"), "utf8")
-    expect(generated).not.toContain("databases")
-
-    const server = await startBuiltServer(root, {})
-    try {
-      expect(await (await server.fetch("/inbox")).json()).toEqual([])
-      const response = await server.fetch("/api/_vitehub/forms/contact", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "In memory" }),
-      })
-      expect(response.status).toBe(201)
-      expect(await (await server.fetch("/inbox")).json()).toEqual([expect.objectContaining({ data: { message: "In memory" } })])
+    const build = async () => {
+      const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub({ database: false, host: "node" }), nitro() as never], root } as never)
+      await builder.buildApp()
     }
-    finally {
-      server.close()
-    }
+    await expect(build()).rejects.toMatchObject({ code: "FORMS_B0002", message: expect.stringContaining("server/forms/contact.ts") })
   }, 240_000)
 
   it("turns the Database on, adds the table, and stores, validates, and limits submissions on the built server", async () => {

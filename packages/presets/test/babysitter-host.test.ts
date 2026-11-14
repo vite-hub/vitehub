@@ -46,6 +46,19 @@ it("normalizes escaped PEM newlines from host environment secrets", async () => 
   await expect(readGitHubAppEnvironment()).resolves.toMatchObject({ appId: 123, installationId: 456, privateKey: pem });
 });
 
+it("fails on a fixed installation without its owner", async () => {
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "key");
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "456");
+  vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", "");
+  await expect(readGitHubAppEnvironment()).rejects.toMatchObject({ code: "FORGE_INVALID_ENV", why: expect.stringContaining("VITEHUB_GITHUB_INSTALLATION_ID needs VITEHUB_GITHUB_APP_OWNER") });
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "");
+  vi.stubEnv("VITEHUB_GITHUB_APP_INSTALLATIONS", "{\"Acme\":\"7\"}");
+  await expect(readGitHubAppEnvironment()).resolves.toMatchObject({ installations: { acme: 7 } });
+  vi.stubEnv("VITEHUB_GITHUB_APP_INSTALLATIONS", "[7]");
+  await expect(readGitHubAppEnvironment()).rejects.toMatchObject({ code: "FORGE_INVALID_ENV" });
+});
+
 it("names a missing webhook secret at startup with the App settings present", async () => {
   vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123");
   vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "key");

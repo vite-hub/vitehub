@@ -286,7 +286,7 @@ describe("Blob response transforms", () => {
   it("preserves the configured store access for cached derivatives", async () => {
     const put = driver.put.bind(driver)
     vi.spyOn(driver, "put").mockImplementation(async (path, body, settings) => {
-      if (settings?.access) throw new Error("object access differs from store access")
+      if (Object.hasOwn(settings ?? {}, "access")) throw new Error("object access differs from store access")
       return put(path, body, settings)
     })
     for (let count = 0; count < 2; count++) {
@@ -383,7 +383,7 @@ describe("Blob response transforms", () => {
 
   it("rejects an edgeCache maxAge that is not a positive integer", async () => {
     for (const maxAge of [0, -1, 1.5, Number.NaN]) {
-      await expect(storage.serve(request(), "private/original", { edgeCache: { maxAge } })).rejects.toMatchObject({ code: "BLOB_R0045" })
+      await expect(storage.serve(request(), "private/original", { edgeCache: { maxAge } })).rejects.toMatchObject({ code: "BLOB_R0047" })
     }
   })
 

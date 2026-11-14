@@ -42,8 +42,10 @@ export interface BlobListResult {
   hasMore: boolean
 }
 
+/**
+ * Options of one write. Access is not one of them: who can read an object depends on the store and on `blob.serve`.
+ */
 export interface BlobPutOptions {
-  access?: "private" | "public"
   addRandomSuffix?: boolean
   contentLength?: string
   contentType?: string
@@ -66,7 +68,7 @@ export type BlobSignOptions =
     contentType?: string
     createOnly?: boolean
     expiresIn: number
-    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` driver binds it. */
+    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel-blob` drivers bind it. */
     maxSize?: BlobSize
     method: "PUT"
   }
@@ -168,7 +170,44 @@ export interface BlobUploadOptions {
   ensure?: BlobEnsureOptions
   /** Options for each `put()`. The file name is the pathname. */
   put?: BlobPutOptions
+  /**
+   * Also accept direct uploads. The client asks this route for a signed `PUT`, sends the file straight to storage, and
+   * then asks this route to complete the upload. The file skips the request body limit of the host. Needs
+   * `VITEHUB_SECRET`. The route still accepts a form.
+   */
+  direct?: boolean
+  /**
+   * Runs for each file before it is stored or signed. Throw to reject the file, for example with an H3 error. Return
+   * `{ pathname }` to store the file under another pathname. `put.prefix` and `put.addRandomSuffix` still apply.
+   */
+  onBeforeUpload?: (file: BlobBeforeUploadFile) => BlobBeforeUploadResult | Promise<BlobBeforeUploadResult>
+  /**
+   * Runs for each stored file. In direct mode, it runs in the `complete` step, which the client sends. A client that
+   * stops after the `PUT`, such as a closed tab, skips it.
+   */
+  onCompleted?: (object: BlobObject, request: Request) => void | Promise<void>
 }
+
+/** A file that `handleUpload()` is about to store or sign. */
+export interface BlobBeforeUploadFile {
+  /** The pathname before `put.prefix` and `put.addRandomSuffix`: the file name, without folders. */
+  pathname: string
+  /** The content type that the client sent. `ensure.types` already checked it. */
+  contentType: string
+  /** The size in bytes. In direct mode it is the size that the client declares, and `complete` checks it again. */
+  size: number
+  request: Request
+}
+
+export type BlobBeforeUploadResult = void | { pathname?: string }
+
+/**
+ * A step of a direct upload that `handleUpload({ direct: true })` returns. `sign` gives the `PUT` to send and the
+ * ticket for `complete`. `form` means that the store cannot sign uploads, so the client sends the file as a form.
+ */
+export type BlobDirectUploadStep =
+  | { action: "sign", pathname: string, request: BlobSignedRequest, ticket: string }
+  | { action: "form" }
 
 export interface BlobMultipartHandlerOptions {
   /** Options for `createMultipartUpload()`. The client sends only the content type. */
@@ -328,7 +367,13 @@ export interface BlobStorage {
   /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
   handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>>
   /** Store the files of a `multipart/form-data` request. */
-  handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions): Promise<Result<BlobObject[], BlobErrorCode>>
+  handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions & { direct?: false }): Promise<Result<BlobObject[], BlobErrorCode>>
+  /**
+   * Store the files of a form, or answer a step of a direct upload: `sign` returns a `BlobDirectUploadStep`, and
+   * `complete` checks the stored object and returns it in an array.
+   */
+  handleUpload(event: BlobUploadEvent, options: BlobUploadOptions & { direct: true }): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
+  handleUpload(event: BlobUploadEvent, options: BlobUploadOptions): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
   head(pathname: string): Promise<Result<BlobObject | null, BlobErrorCode>>
   list(options?: BlobListOptions): Promise<Result<BlobListResult, BlobErrorCode>>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<Result<BlobObject, BlobErrorCode>>
@@ -529,20 +574,35 @@ export interface BlobStoreRegistry {}
 /** A key of `blob.stores`. Before ViteHub writes the generated types, any name type checks. */
 export type BlobStoreName = [keyof BlobStoreRegistry] extends [never] ? "default" | (string & {}) : Extract<keyof BlobStoreRegistry, string>
 
-export type BlobServeOptions = boolean | {
-  /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
-  authorize?: boolean
-  /**
-   * Also runs the `authorize` export for signed-out callers, with `session` and `user` set to `null`.
-   * Requires `authorize: true` and an `authorize` export (type `BlobServeAnonymousAuthorize`).
-   */
-  anonymous?: boolean
+interface BlobServeRouteOptions {
   headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
   /** A key of `blob.stores`. Defaults to `"default"`. */
   store?: string
 }
+
+/** Serves every object of the store to anyone who has its URL, without sign-in. */
+export interface BlobPublicServeOptions extends BlobServeRouteOptions {
+  access: "public"
+  anonymous?: never
+  authorize?: never
+}
+
+/** Serves an object only when the request passes Auth, and the `authorize` export of `server/blob.ts` when it exists. */
+export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
+  /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
+  authorize: true
+  /**
+   * Also runs the `authorize` export for signed-out callers, with `session` and `user` set to `null`.
+   * Requires an `authorize` export (type `BlobServeAnonymousAuthorize`).
+   */
+  anonymous?: boolean
+  access?: never
+}
+
+/** The serve route. Choose `access: "public"` or `authorize: true`: ViteHub does not pick public access for you. */
+export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
 export type BlobServeAuthorize = AccessAuthorize
@@ -551,6 +611,7 @@ export type BlobServeAuthorize = AccessAuthorize
 export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
 
 export interface BlobServeConfig {
+  access?: "public"
   anonymous?: true
   authorize?: true
   headers?: Record<string, string>
@@ -562,7 +623,7 @@ export interface BlobServeConfig {
 interface BlobModuleBaseOptions {
   /** Image variants of served objects. Set `false` to always serve originals. */
   images?: false | BlobImagesOptions
-  serve?: BlobServeOptions
+  serve?: false | BlobServeOptions
 }
 
 export interface BlobStoresConfig extends BlobModuleBaseOptions {

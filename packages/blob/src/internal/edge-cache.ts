@@ -1,5 +1,7 @@
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
+import { matchesETag, selectByteRange } from "./serve-request.ts"
+
 // A body that the response streams and the cache copy reads at different speeds is buffered in between, and a Worker
 // has 128 MB of memory.
 const maxBytes = 25 * 1024 * 1024
@@ -29,20 +31,33 @@ export function edgeCacheKey(request: Request, store: string, pathname: string):
 }
 
 /**
- * The cached answer to a `GET`, with its range and `If-None-Match` applied by the cache: `200`, `206`, `304`, or `416`.
- * Cloudflare does not evaluate `If-Range`, so such a request reads storage.
+ * Read metadata without delegating conditional or range parsing to Cloudflare. Normalize a selected range only after
+ * checking If-None-Match, so cache hits follow the same rules as storage reads.
+ * Cloudflare does not evaluate If-Range, so such a request reads storage.
  */
 export async function matchEdgeCache(request: Request, key: string): Promise<Response | undefined> {
   if (request.method !== "GET" || request.headers.has("if-range")) return undefined
   const cache = edgeCache()
   if (!cache) return undefined
-  const headers = new Headers()
-  for (const name of ["range", "if-none-match"]) {
-    const value = request.headers.get(name)
-    if (value) headers.set(name, value)
-  }
   try {
-    return await (await cache).match(new Request(key, { headers }))
+    const opened = await cache
+    const whole = await opened.match(new Request(key))
+    if (!whole) return undefined
+    const etag = whole.headers.get("etag") ?? undefined
+    if (matchesETag(request.headers.get("if-none-match"), etag)) {
+      await whole.body?.cancel()
+      return new Response(null, { headers: whole.headers, status: 304 })
+    }
+    const range = selectByteRange(request, etag, Number(whole.headers.get("content-length")))
+    if (!range) return whole
+    await whole.body?.cancel()
+    if (range === "unsatisfiable") {
+      const headers = new Headers(whole.headers)
+      headers.set("Content-Range", `bytes */${whole.headers.get("content-length")}`)
+      headers.set("Content-Length", "0")
+      return new Response(null, { headers, status: 416 })
+    }
+    return await opened.match(new Request(key, { headers: { Range: `bytes=${range.start}-${range.end}` } }))
   }
   catch {
     return undefined

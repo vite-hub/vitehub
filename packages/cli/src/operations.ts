@@ -133,7 +133,7 @@ function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
     "  --input <json|@file>  Pass the whole input as JSON or from a file. Flags override it.",
     "  --json         Print JSON.",
     ...(operation.kind === "destructive" ? ["  --yes          Run without asking. This operation changes or removes data."] : []),
-    "  --url <origin> Call a deployed app. Without it the command calls the running dev server.",
+    "  --url <origin> The app URL, such as https://app.example.com. Without it the command calls the running dev server.",
     "  --timeout <ms> Wait this long for the answer. Default 30000.",
     "  -h, --help     Show this help.",
     "",
@@ -350,6 +350,12 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
     }
     if (base.username || base.password || base.search || base.hash) {
       return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
+    }
+    // The command adds the Console path itself, so a pasted Console URL would call `/_vitehub/_vitehub/rpc`.
+    const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(base.pathname)
+    if (consolePath) {
+      const app = `${base.origin}${base.pathname.slice(0, consolePath.index).replace(/\/$/, "")}`
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: `--url is the app URL, not the Console URL. Pass --url ${app}.` })) }
     }
     return { target: parsed.url }
   }
