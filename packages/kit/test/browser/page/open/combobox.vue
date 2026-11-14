@@ -10,7 +10,7 @@ import {
   ComboboxLabel,
   ComboboxList,
   ComboboxTrigger,
-} from "@vite-hub/kit/combobox"
+} from "@ui-sdk/vue/combobox"
 
 const frameworks = [
   { value: "next", label: "Next.js" },

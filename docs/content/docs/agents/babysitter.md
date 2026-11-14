@@ -367,7 +367,7 @@ Set these variables on the host, or declare them in `env.server.github`:
 | `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object that maps repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
 | `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. Production builds need it. |
 
-Declare the fixed ID as `env.server.github.installationId` with `appOwner`; without an owner, ViteHub ignores it. Other owners use GitHub App discovery, which needs access to the App API.
+Declare the fixed ID as `env.server.github.installationId` with `appOwner`; without an owner, startup fails with `FORGE_INVALID_ENV`. Other owners use GitHub App discovery, which needs access to the App API.
 
 The worker (the provider session of a pass) gets no GitHub tokens, only tools bound to its pull request:
 
