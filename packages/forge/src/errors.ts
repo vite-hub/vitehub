@@ -7,7 +7,7 @@ export const forgeErrors = /*#__PURE__*/ defineErrors({
     // Runtime errors. `useForge()` operations return them as `[error, undefined]`.
     FORGE_APP_NOT_INSTALLED: {
       why: ({ repository }: { repository: string }) => `The GitHub App is not installed on ${repository}.`,
-      fix: "Install the GitHub App on the repository, or set VITEHUB_GITHUB_INSTALLATION_ID to an installation that can reach it.",
+      fix: "Install the GitHub App on the repository, or map its owner to an installation that can reach it in VITEHUB_GITHUB_APP_INSTALLATIONS.",
     },
     FORGE_REQUEST_FAILED: {
       why: ({ operation, status }: { operation: string, status?: number }) => status === undefined
@@ -27,7 +27,7 @@ export const forgeErrors = /*#__PURE__*/ defineErrors({
     },
     FORGE_MISSING_INSTALLATION: {
       why: "The GitHub App needs an installation. The call has no `repository`, and VITEHUB_GITHUB_INSTALLATION_ID is not set.",
-      fix: "Pass `{ repository: 'owner/name' }`, or set VITEHUB_GITHUB_INSTALLATION_ID.",
+      fix: "Pass `{ repository: 'owner/name' }`, or set VITEHUB_GITHUB_INSTALLATION_ID with VITEHUB_GITHUB_APP_OWNER.",
     },
     FORGE_NOT_APP: {
       why: "`forge.app()` needs a GitHub App, and this Forge uses a token.",

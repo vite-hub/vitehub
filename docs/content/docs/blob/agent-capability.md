@@ -70,7 +70,7 @@ The Capability decodes each pathname once and removes leading slashes, as the Bl
 - `reports/a.txt` and `/reports/a.txt` are inside. `reports`, `reports-private/a.txt`, `reports/../secret.txt`, and `reports%2F..%2Fsecret.txt` are not.
 - For `put`, the check covers `options.prefix` joined before `pathname`, because the Blob primitive writes to that joined pathname.
 - `list` without `prefix`, or with `reports`, lists `reports/`. A list prefix outside the folder fails. The result keeps only objects and folders inside it.
-- A pathname outside the folder fails with `AGENT_R1045` and the store is not called.
+- A pathname outside the folder fails with `AGENT_R1056` and the store is not called.
 
 ## Provider artifacts
 
@@ -157,7 +157,7 @@ await blob_edit({
 | `mode` | `"read" \| "write"` | `"read"` | `"write"` adds `blob_edit`. Other values fail when the Agent loads. |
 | `assetPaths` | `boolean \| string \| string[]` | `false` | Write mode and Provider-backed Drivers only. Copies out these Workspace paths and publishes files from this run that the final Markdown links. `true` uses `screenshots`. |
 | `store` | `string` | default store | Named store, through `store()` on the Blob handle. |
-| `prefix` | `string` | none (whole store) | Limits `blob_read` and `blob_edit` to pathnames under this folder, such as `reports/`. An empty prefix, or one with `.` or `..` segments, `\`, or percent-encoding, fails with `AGENT_R1044` when the Agent loads. |
+| `prefix` | `string` | none (whole store) | Limits `blob_read` and `blob_edit` to pathnames under this folder, such as `reports/`. An empty prefix, or one with `.` or `..` segments, `\`, or percent-encoding, fails with `AGENT_R1055` when the Agent loads. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | none (calls run) | Policy for `blob_edit`. Does not affect artifact publishing. |
 
 ## Related pages

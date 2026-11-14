@@ -118,7 +118,7 @@ function blobScope(prefix: string | undefined): string | undefined {
   if (prefix === undefined) return
   const scope = typeof prefix === "string" ? prefix.trim().replace(/\/+/g, "/").replace(/^\/|\/$/g, "") : ""
   if (!scope || hasBlobDotSegment(scope) || scope.includes("\\") || /%[\da-f]{2}/i.test(scope)) {
-    throw agentDiagnostics.AGENT_R1044({ capability: "blob", prefix })
+    throw agentDiagnostics.AGENT_R1055({ capability: "blob", prefix })
   }
   return scope
 }
@@ -130,7 +130,7 @@ function inBlobScope(pathname: string, scope: string): boolean {
 
 function assertBlobScope(pathname: string, scope: string | undefined, label: string): string {
   if (scope !== undefined && !inBlobScope(decodeBlobPathname(pathname), scope)) {
-    throw agentDiagnostics.AGENT_R1045({ label, prefix: `${scope}/`, value: pathname })
+    throw agentDiagnostics.AGENT_R1056({ label, prefix: `${scope}/`, value: pathname })
   }
   return pathname
 }
@@ -145,7 +145,7 @@ function assertBlobPutScope(pathname: string, putOptions: Record<string, unknown
     .replace(/\/+/g, "/")
     .replace(/^\/+/, "")
   if ((putPrefix !== undefined && typeof putPrefix !== "string") || !inBlobScope(joined, scope)) {
-    throw agentDiagnostics.AGENT_R1045({ label: "blob_edit pathname", prefix: `${scope}/`, value: joined })
+    throw agentDiagnostics.AGENT_R1056({ label: "blob_edit pathname", prefix: `${scope}/`, value: joined })
   }
 }
 

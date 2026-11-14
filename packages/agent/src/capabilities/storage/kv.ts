@@ -39,7 +39,7 @@ function hasDotSegment(key: string): boolean {
 function kvScope(prefix: string | undefined): string | undefined {
   if (prefix === undefined) return
   const scope = typeof prefix === "string" ? normalizeKVKey(prefix.trim()) : ""
-  if (!scope || hasDotSegment(scope)) throw agentDiagnostics.AGENT_R1044({ capability: "kv", prefix })
+  if (!scope || hasDotSegment(scope)) throw agentDiagnostics.AGENT_R1055({ capability: "kv", prefix })
   return scope
 }
 
@@ -49,7 +49,7 @@ function inKVScope(key: string, scope: string): boolean {
 }
 
 function scopedKVKey(key: string, scope: string | undefined, label: string): string {
-  if (scope !== undefined && !inKVScope(key, scope)) throw agentDiagnostics.AGENT_R1045({ label, prefix: `${scope}:`, value: key })
+  if (scope !== undefined && !inKVScope(key, scope)) throw agentDiagnostics.AGENT_R1056({ label, prefix: `${scope}:`, value: key })
   return key
 }
 
