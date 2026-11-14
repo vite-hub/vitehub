@@ -243,8 +243,11 @@ export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
   options?: QueueDefinitionOptions
 }
 
+/**
+ * Options of `sendQueue()` and `send()`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey`
+ * on a provider that supports it.
+ */
 export interface QueueEnqueueOptions {
-  id?: string
   contentType?: CloudflareQueueContentType
   delaySeconds?: number
   idempotencyKey?: string
@@ -300,7 +303,7 @@ export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBa
   readonly binding: CloudflareQueueBinding
   createBatchHandler: <TMessage = unknown>(options: CloudflareQueueBatchHandlerOptions<TMessage>) => (batch: CloudflareQueueMessageBatch<TMessage>) => Promise<void>
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, CloudflareQueueErrorCode>>
-  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: Omit<QueueEnqueueOptions, "id">) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
+  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
 }
 
 /**

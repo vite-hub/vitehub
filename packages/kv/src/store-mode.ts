@@ -11,5 +11,5 @@ export function kvStoreWithMode(storage: KVStorage, options: KVStoreOptions | un
   if (mode !== "read" && mode !== "write") throw kvErrorDiagnostics.KV_INVALID_STORE_MODE({ mode: JSON.stringify(mode) })
   if (mode === "write") return storage
   // KV handle methods read only their store name, not `this`.
-  return { get: storage.get, has: storage.has, keys: storage.keys, list: storage.list }
+  return { get: storage.get, getMany: storage.getMany, has: storage.has, keys: storage.keys, list: storage.list }
 }

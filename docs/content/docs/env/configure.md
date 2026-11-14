@@ -407,9 +407,7 @@ Every field is required and sensitive unless an annotation changes that. `@optio
 | `@type=object(enabled=boolean, retries=number)` | Exact JSON object shape with required properties. |
 | `@type=url` | Absolute URL checked with the platform `URL` constructor. The output is a string. |
 
-- A required empty input fails, even with a default.
-- An optional empty string stays a string and obeys length limits.
-- An optional empty input of another type is missing, so the default applies.
+- An empty input, such as `VITEHUB_LABEL=` on the host, is missing. The default applies. Without a default, a required field fails and an optional field is `undefined`.
 - An invalid value fails. It does not fall back to the default.
 - Defaults get the same checks.
 
@@ -525,8 +523,7 @@ On Cloudflare, the Wrangler config lists a required secret only when it has one 
 | Source helper | Description |
 | --- | --- |
 | `env.source('NAME')` | One host variable. |
-| `env.source(['PRIMARY', 'FALLBACK'])` | The first variable that exists. |
-| `env.source(['PRIMARY', 'FALLBACK'], { skipEmpty: true })` | The first variable that is not empty. |
+| `env.source(['PRIMARY', 'FALLBACK'])` | The first variable that is set and not empty. |
 | `env.custom(label, resolver)` | Your own callback. |
 | `env.gitBranch()` | Current branch. Reads `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. |
 | `env.gitCommit({ short })` | Current commit SHA. Reads `GIT_SHA`, then `GITHUB_SHA`, then local Git. `short` keeps 7 characters of a CI value. |
