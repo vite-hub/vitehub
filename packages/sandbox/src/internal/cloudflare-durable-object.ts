@@ -84,10 +84,32 @@ wait "$stdoutPid" "$stderrPid"
 exit "$status"
 `;
 
+// Run a spawned command in its own process group, so that kill() reaches its descendants too.
+// The group ID goes to a file, because the Container API does not report process IDs.
+// Once the command runs, this shell drops its stderr so that its job notices stay out of the output.
+const processGroupShell = `
+{ exec 5<&0; } 2>/dev/null || exec 5</dev/null
+setsid /bin/bash -c "$1" <&5 5<&- &
+printf '%s' "$!" > "$2"
+exec 2>/dev/null 5<&-
+wait "$!"
+status=$?
+rm -f -- "$2"
+exit "$status"
+`;
+
+// Signal a spawned command's process group. A command that just started may not have written its group yet.
+const killProcessGroupShell = `
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do test -s "$2" && break; sleep 0.1; done
+test -s "$2" || exit 0
+kill -"$1" -- "-$(cat -- "$2")" 2>/dev/null || true
+`;
+
 type OutputEvent = { data: string; type: "stderr" | "stdout" } | { exitCode: number; type: "exit" } | { data: string; type: "error" };
 
 class SandboxProcessRecord {
   readonly exited: Promise<number>;
+  finished = false;
   readonly #events: OutputEvent[] = [];
   readonly #listeners = new Set<(event: OutputEvent) => void>();
   readonly #output = { stderr: "", stdout: "" };
@@ -97,6 +119,7 @@ class SandboxProcessRecord {
   constructor(readonly process: CloudflareContainerExecProcess) {
     const pumps = (["stdout", "stderr"] as const).map(type => this.#pump(type, process[type]));
     this.exited = process.exitCode;
+    void this.exited.finally(() => { this.finished = true; }).catch(() => undefined);
     void Promise.allSettled(pumps)
       .then(async (results) => {
         for (const result of results) {
@@ -332,18 +355,25 @@ export function createCloudflareSandboxDurableObject(
 
     async startProcess(command: string, options: { cwd?: string; env?: Record<string, string>; stdin?: boolean } = {}) {
       const container = await this.#running();
-      const process = await container.exec(["/bin/bash", "-c", command], {
+      const id = crypto.randomUUID();
+      const groupFile = `/tmp/vitehub-process-${id}.pgid`;
+      const process = await container.exec(["/bin/bash", "-c", processGroupShell, "--", command, groupFile], {
         ...execOptions(options),
         ...(options.stdin ? { stdin: "pipe" as const } : {}),
       });
-      const id = crypto.randomUUID();
       const record = new SandboxProcessRecord(process);
       this.#processes.set(id, record);
+      const kill = async (signal?: string) => {
+        const number = signalNumber(signal);
+        if (record.finished) return;
+        const killer = await container.exec(["/bin/bash", "-c", killProcessGroupShell, "--", String(number), groupFile], { stderr: "ignore", stdout: "ignore" });
+        await killer.exitCode;
+      };
       // Workers RPC turns these functions into stubs, so the caller keeps talking to this process.
       return {
         id,
         getLogs: async () => record.logs(),
-        kill: async (signal?: string) => record.process.kill(signalNumber(signal)),
+        kill,
         ...(options.stdin && process.stdin ? { stdin: process.stdin } : {}),
         waitForExit: async () => ({ exitCode: await record.exited }),
       };

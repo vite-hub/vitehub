@@ -21,7 +21,7 @@ export const defaultCloudflareSandboxMigrationTag = 'v1'
 const defaultCloudflareSandboxMaxInstances = 12
 const cloudflareSandboxNodeImage = '24-bookworm-slim'
 // The command-line tools the 0.x cloudflare/sandbox image installed.
-const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps unzip wget zip'
+const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps tini unzip wget zip'
 const durableObjectModule = '@vite-hub/sandbox/_internal/cloudflare'
 
 // @cloudflare/sandbox 1.0 exports only the `import` condition, so `require.resolve` cannot find it.
@@ -205,6 +205,8 @@ export async function writeCloudflareSandboxDockerfile(serverDir: string) {
       'COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim',
       'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn && mkdir -p /workspace',
       'WORKDIR /workspace',
+      // Commands run through `exec`, so their orphans move to PID 1. tini reaps them.
+      'ENTRYPOINT ["/usr/bin/tini", "--"]',
       'CMD ["sleep", "infinity"]',
       '',
     ].join('\n'),
