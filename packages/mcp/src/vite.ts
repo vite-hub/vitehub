@@ -91,6 +91,7 @@ interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> 
   authMcp: string
   name: string
   only?: "public"
+  publicRoute: string | undefined
   route: string
   runtime: string
 }
@@ -112,6 +113,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     "export default createMcpHandler({",
     `  name: ${JSON.stringify(options.name)},`,
     `  route: ${JSON.stringify(options.route)},`,
+    ...options.publicRoute ? [`  publicRoute: ${JSON.stringify(options.publicRoute)},`] : [],
     ...options.instructions === undefined ? [] : [`  instructions: ${JSON.stringify(options.instructions)},`],
     ...options.serverInfo === undefined ? [] : [`  serverInfo: ${JSON.stringify(options.serverInfo)},`],
     field("tools", "tool"),
@@ -141,9 +143,9 @@ function isDefinitionFile(file: string, serverDirs: readonly string[]): boolean 
 
 /**
  * The app MCP server: each file in `server/mcp/tools/` is one tool, each file in `server/mcp/prompts/` one prompt, and
- * each file in `server/mcp/resources/` one resource. The server answers at `route` (`/mcp`). With
- * `auth`, every request needs an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`, and the server answers
- * the OAuth discovery documents at the origin root. `publicRoute` serves the tools with `public: true` to anyone.
+ * each file in `server/mcp/resources/` one resource. The server answers at `route` (`/mcp`). By default,
+ * every request needs an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`, and the server answers
+ * the OAuth discovery documents at the origin root. `auth: false` makes every definition public. `publicRoute` serves the tools with `public: true` to anyone.
  */
 export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   const route = normalizeRoute(options.route ?? "/mcp", "route")
@@ -151,7 +153,10 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   if (publicRoute === route) {
     throw mcpErrorDiagnostics.MCP_B0001({ message: `[vitehub] mcp.publicRoute must differ from mcp.route. Both are ${JSON.stringify(route)}.` })
   }
-  const auth = options.auth === true
+  const auth = options.auth !== false
+  if (publicRoute && !auth) {
+    throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] mcp.publicRoute needs auth. With mcp: { auth: false }, every tool on ${JSON.stringify(route)} is public already.` })
+  }
   const imports = { authMcp: options.imports?.authMcp ?? "@vite-hub/auth/mcp", runtime: options.imports?.runtime ?? "@vite-hub/mcp/runtime" }
   let projectRoot = process.cwd()
   let serverDirs: string[] = []
@@ -163,8 +168,9 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   const server = { instructions: options.instructions, serverInfo: options.serverInfo }
   const write = (writer: (file: string, contents: string) => unknown) => {
     const files = discoverAll({ rootDir: projectRoot, serverDirs })
-    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, name: name(), route: `${base}${route}` }))]
-    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, name: name(), only: "public", route: `${base}${publicRoute}` })))
+    const publicPath = publicRoute ? `${base}${publicRoute}` : undefined
+    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
+    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
     return written
   }
   const fields = (kind: "prompts" | "resources" | "tools") => [

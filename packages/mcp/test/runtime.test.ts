@@ -125,6 +125,15 @@ describe("app MCP server", () => {
     expect(rejected.response.headers.get("www-authenticate")).toBe("Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"The access token is not valid: 'exp' claim failed\"")
   })
 
+  it("rejects a tool that sets public when the server has no publicRoute", () => {
+    for (const visibility of [true, false]) {
+      const tools = { add, secret: defineMcpTool({ description: "Secret.", public: visibility, handler: () => "secret" }) }
+      expect(() => createMcpHandler({ name: "fixture", route: "/mcp", tools })).toThrow(expect.objectContaining({ name: "MCP_R0001" }))
+    }
+    const tools = { search: defineMcpTool({ description: "Search.", public: true, handler: () => "results" }) }
+    expect(() => createMcpHandler({ name: "fixture", publicRoute: "/mcp", route: "/mcp/account", tools })).not.toThrow()
+  })
+
   it("passes the signed-in caller to the tools", async () => {
     const caller = { clientId: "client", clientName: "Claude Code", scopes: ["openid"], user: { id: "u1", name: "Ada" } }
     const { body } = await rpc({ verify: async () => [undefined, caller] }, "tools/call", { name: "whoami" })

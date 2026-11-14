@@ -111,7 +111,7 @@ describe("Agent Invocation list", () => {
     it("shows active and failed statuses while visually hiding completed status", () => {
       const wrapper = mount(AgentInvocationList, { props: { items: [item("done", "completed"), item("queued", "pending"), item("failed", "failed")] } });
       expect(state(wrapper, "done").text()).toBe("Done");
-      expect(state(wrapper, "done").get(".vh-visually-hidden").text()).toBe("Done");
+      expect(state(wrapper, "done").get('[data-slot="visually-hidden"]').text()).toBe("Done");
       expect(state(wrapper, "done").find(".vh-invocation-list__state-icon").exists()).toBe(false);
       expect(state(wrapper, "queued").text()).toBe("Queued");
       expect(state(wrapper, "failed").text()).toBe("Failed");

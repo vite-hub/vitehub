@@ -40,6 +40,7 @@ function store(options: { token?: string } = {}) {
 
 it("reads the repository as the GitHub App installation when VITEHUB_GITHUB_APP_ID is set", async () => {
   vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "176")
+  vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", "onmax")
   fake.commit("main", { "docs/a.md": "A\n" })
   const docs = store()
   expect(new TextDecoder().decode((await docs.readFile("docs/a.md"))!.content as Uint8Array)).toBe("A\n")

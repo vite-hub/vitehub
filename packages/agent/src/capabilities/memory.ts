@@ -132,10 +132,6 @@ export interface MemoryStoreOptions {
       search?: boolean
     }
   }
-  retention?: {
-    export?: boolean
-    hardDelete?: boolean
-  }
   scope: MemoryScope | ((context: AgentCapabilityContext) => MemoryScope)
   write?: {
     mode?: "off" | "tool"
@@ -296,8 +292,11 @@ async function readWorkspaceJsonl(path: string, context: AgentCapabilityContext)
   try {
     contents = await workspace.fs.readFile(path, { encoding: "utf8" })
   }
-  catch {
-    return []
+  catch (error) {
+    // A store that has no records yet has no file. Any other read error must not look like empty memory.
+    const code = Reflect.get(Object(error), "code")
+    if (code === "WORKSPACE_NOT_FOUND" || code === "ENOENT") return []
+    throw error
   }
   const events: MemoryEvent[] = []
   for (const line of contents.split(/\r?\n/)) {
@@ -468,6 +467,11 @@ function assertMemoryKind(options: MemoryStoreOptions, kind: MemoryKind) {
 }
 
 export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinition {
+  for (const [storeName, storeOptions] of Object.entries(options.stores)) {
+    if (Object.hasOwn(storeOptions, "retention")) {
+      throw agentDiagnostics.AGENT_R0120({ message: `[vitehub:agent] Memory store "${storeName}" sets retention, but memory() has no retention. memory_delete appends a tombstone and keeps the record. Remove retention, and delete records in the store yourself when you must erase them.` })
+    }
+  }
   return defineCapability({
     id: "memory",
     async resolve(context) {

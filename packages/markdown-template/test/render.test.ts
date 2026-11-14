@@ -390,6 +390,15 @@ recap))`,
     }
   })
 
+  it.each([
+    '::if{condition="data.trial"}\nTrial\n::',
+    '::if{value="data.plan" eq="pro"}\nPro\n::',
+    '::if{:condition="data.paid"}\nPaid\n::else-if{condition="data.trial"}\nTrial\n::\n::',
+  ])("rejects an unbound condition or value prop: %s", async (template) => {
+    await expect(renderMarkdownTemplate(template, { data: { trial: false, paid: false, plan: "free" } }))
+      .rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0024", message: expect.stringContaining('Write :') })
+  })
+
   it("renders nested branch chains and the content following them", async () => {
     const template = `::if{:condition="data.enabled"}
 Before
