@@ -22,7 +22,7 @@ function configOf(config: Record<string, unknown> = {}): unknown {
 
 describe("vitehub() in Vitest", () => {
   it("lets Vite transform the installed ViteHub packages, so their generated modules resolve", async () => {
-    expect((await flatten(vitehub({ host: "node" }))).map(plugin => plugin.name)).toContain("vite-hub:vitest-inline")
+    expect((await flatten(vitehub({ host: "node" }))).map(plugin => plugin.name)).toContain("vite-hub/vitest-inline")
     expect(configOf()).toEqual({ test: { server: { deps: { inline: [viteHubPackagePath] } } } })
   })
 

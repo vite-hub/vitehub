@@ -12,7 +12,7 @@ type VitestConfig = UserConfig & { test?: { server?: { deps?: { inline?: unknown
  */
 export function vitestInlinePlugin(): Plugin {
   return {
-    name: "vite-hub:vitest-inline",
+    name: "vite-hub/vitest-inline",
     config(config: VitestConfig) {
       // `inline: true` already transforms every package.
       if (!process.env.VITEST || config.test?.server?.deps?.inline === true) return
