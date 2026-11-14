@@ -54,6 +54,8 @@ describe("discoverScheduleDefinitions", () => {
     await writeFile(join(scanDir, "schedules", "emails", "digest.ts"), "export default null\n", "utf8")
     await writeFile(join(scanDir, "schedules", "billing", "index.ts"), "export default null\n", "utf8")
     await writeFile(join(scanDir, "schedules", "welcome.d.ts"), "export type Welcome = string\n", "utf8")
+    await writeFile(join(scanDir, "schedules", "emails", "digest.test.ts"), "import { it } from 'vitest'\n", "utf8")
+    await writeFile(join(scanDir, "schedules", "billing", "index.spec.mjs"), "export {}\n", "utf8")
 
     expect(discoverScheduleDefinitions({
       mode: "server-schedules",

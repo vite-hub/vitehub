@@ -57,7 +57,7 @@ describe("diagnostic catalogs", () => {
     for (const name of ["MCP_SERVER_FAILED", "MCP_TOOL_CALL_FAILED", "MCP_TOOL_CANCELLED", "MCP_TOOL_NOT_FOUND", "MCP_TOOL_TIMEOUT"]) {
       expect(code(name)).toMatchObject({ pkg: "agent", docsBase: "https://vitehub.dev/docs/agents/diagnostics" })
     }
-    for (const name of ["MCP_B0001", "MCP_B0002"]) {
+    for (const name of ["MCP_B0001", "MCP_B0002", "MCP_B0003"]) {
       expect(code(name)).toMatchObject({ pkg: "mcp", docsBase: "https://vitehub.dev/docs/mcp/diagnostics" })
     }
   })

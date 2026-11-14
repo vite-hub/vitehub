@@ -40,7 +40,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Realtime | memory | Durable Objects | — | — | — | Host authority | Postgres or Redis |
 | Sandbox | — | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
-| Workflow | Vercel Workflow | CF Workflows | Vercel Workflow | OpenWorkflow | Vercel Workflow | Host provider | Vercel Workflow |
+| Workflow | Inline | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
 <!-- support-matrix:server-primitives:end -->
 
@@ -49,7 +49,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 <!-- support-matrix:application-features:start -->
 | Feature | Local Vite | Cloudflare | Vercel | Netlify | Deno | Nitro and UnJS | Node and self-hosted |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Agent | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
+| Agent | Nitro | Nitro | Nitro | Nitro | Nitro + OpenWorkflow | Agent routes | Nitro + OpenWorkflow |
 | Auth | Better Auth | Better Auth | Better Auth | Better Auth | Better Auth | Auth route | Better Auth |
 | Channels | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
 | Comments | Database | Database | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Host database | Database |
@@ -86,7 +86,7 @@ Local Vite delivers Queue Jobs in the dev server through the local provider, whi
 
 Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. Workspace on Vercel also defaults to process-local memory; a non-empty `BLOB_READ_WRITE_TOKEN` selects Vercel Blob, or the app can select GitHub explicitly. Realtime on Node needs `realtime: { authority: "memory" }` for a build, and that authority is safe only for a single-process server.
 
-Workflow defaults to Vercel Workflow on Local Vite, Node, and Deno. Node hosting selects OpenWorkflow when `workflow.sqlite.path` or `workflow.postgres.url` is configured, unless `workflow.provider` is explicit. Netlify requires an explicit `workflow.provider`.
+Workflow selects Vercel Workflow only on Vercel. On Node and Deno, `workflow.sqlite.path` or `workflow.postgres.url` selects OpenWorkflow, and a build without a provider or storage fails with `WORKFLOW_C0020`. The Workflow that only `agent` turns on runs inline there. Local Vite runs each Workflow inline in the dev server. Netlify requires an explicit `workflow.provider`.
 
 ## Test status
 

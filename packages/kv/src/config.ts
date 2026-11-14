@@ -207,6 +207,25 @@ export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig
   if (store.driver === "fs-lite") return `[vitehub] KV store "${name}" uses fs-lite in ${store.base}, selected at build time. Other server processes cannot read its keys.`
 }
 
+/**
+ * The build warning for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
+ * another service, such as BullMQ or sessions. A NuxtHub app that kept its keys in Redis must select it.
+ */
+export function kvRedisEnvWarning(options: KVOptions | undefined, input: KVResolutionInput = {}): string | undefined {
+  if (options === false || input.dev || (options && ("stores" in options || options.driver))) return
+  const env = input.env || process.env
+  const name = readEnv(env, redisUrlEnvName) ? redisUrlEnvName : readEnv(env, "KV_URL")?.startsWith("rediss://") ? "KV_URL" : undefined
+  if (!name) return
+  const fix = `To keep KV in that Redis, set \`kv: { driver: "redis"${name === redisUrlEnvName ? "" : `, url: "env:${name}"`} }\`. To keep this store, set its \`driver\`.`
+  const store = normalizeKVOptions(options, input)?.store
+  if (store?.driver === "upstash" && !hasUpstashEnv(env)) {
+    return `[vitehub] KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own. ${fix}`
+  }
+  const selected = store?.driver === "database" ? `the table vitehub_kv of the Database "${store.database}"` : store?.driver === "fs-lite" ? `fs-lite in ${store.base}` : undefined
+  if (!selected) return
+  return `[vitehub] The build has \`${name}\`, but KV does not select Redis on its own. The KV store "default" uses ${selected}. ${fix}`
+}
+
 export function warnVercelKVFallback(
   target: { logger: { error: (message: string) => void } },
   config: ResolvedKVModuleOptions | undefined,

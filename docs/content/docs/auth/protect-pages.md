@@ -142,6 +142,7 @@ export default defineAuth({
 ```
 
 - A route that ends in `/**` matches its base path and every path below it.
+- All other routes are literal paths. `/api/users/:id` and `/api/admin/*` fail the build. Use `/api/users/**` and check the id in the handler.
 - An API request without a session gets `401` with `{"error":"Unauthorized."}`. Your handler does not run.
 - To check a role, use a route object with `authorize`. See [Authorize access routes](/docs/auth/server-api#authorize-access-routes).
 - To guard one handler, and to read the user in it, wrap the handler in [`withAuth()`](/docs/auth/server-api#use-it-at-runtime).

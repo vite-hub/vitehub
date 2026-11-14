@@ -598,7 +598,7 @@ Doctor runs each package's discovery. It skips a kind with no Definition files, 
 
 **Default-export each discovered Definition.** Rule `vitehub/definition-default-export`.
 
-ViteHub discovers every source file in a Definition folder, such as `server/queues/`, `server/workflows/`, `server/schedules/`, `server/agents/`, or `server/connections/`. A file without a default export still becomes a Definition, and fails when used. The rule also checks the numbered step files of a folder Workflow, which calls their default export.
+ViteHub discovers every source file in a Definition folder, such as `server/queues/`, `server/workflows/`, `server/schedules/`, `server/agents/`, or `server/connections/`, except test, spec, and declaration files. A file without a default export still becomes a Definition, and fails when used. The rule also checks the numbered step files of a folder Workflow, which calls their default export.
 
 ```ts [server/queues/utils.ts]
 // Invalid: ViteHub discovers this helper as the `utils` Queue.
@@ -1033,6 +1033,7 @@ An app that uses ViteHub still has NuxtHub parts:
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
 - `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
 - Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime. The rule does not report `hubKV()` or `hubDatabase()` that you import from a ViteHub package.
+- A dependency in `package.json` whose installed `package.json` lists `@nuxthub/core` in `peerDependencies` or `dependencies`, such as `@evlog/nuxthub`. The package manager then installs NuxtHub, and the module can start it next to ViteHub. ViteHub does not emulate NuxtHub's module APIs. The rule reports it on the `modules` entry of `nuxt.config.ts`. See [Modules that expect NuxtHub](/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub).
 
 ```ts [nuxt.config.ts] fails=TS2353
 // Invalid

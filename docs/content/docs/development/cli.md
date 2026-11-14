@@ -54,6 +54,7 @@ Available namespaces:
   cms         Inspect the CMS roles and their permissions.
   database    Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
+  cache       List, read, and invalidate the entries of Nitro's cache, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
   rate-limit  Read and reset Rate Limit counters of the app, on the dev server or on a deployed app.
   env         Server Env inspection workflows.
@@ -144,6 +145,9 @@ Available namespaces:
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv delete` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub cache list` | Available | ViteHub Framework | List the entries of Nitro's cache with group, name, size, and expiry. |
+| `vitehub cache get` | Available | ViteHub Framework | Print one cache entry and its value. |
+| `vitehub cache delete` | Available | ViteHub Framework | Invalidate one cache entry, or the entries under a prefix. |
 | `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
 | `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
@@ -272,7 +276,7 @@ The command sets `<feature>: true`, or the object from `--option`. A feature tha
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
-Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workflow on Node and Deno runs inline in the request process until you select OpenWorkflow, and Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `workflow.provider=openworkflow` or `blob.driver=s3`, adds them to the install.
+Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `workflow.provider=openworkflow` or `blob.driver=s3`, adds them to the install.
 
 `vitehub add console` sets `console: true`, so the app takes only [signed calls](/docs/development/console#sign-console-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section. `--option console.auth=false` takes calls without a signature, for development only.
 
@@ -875,6 +879,25 @@ pnpm vitehub database rows users --database analytics --offset 20 --url https://
 
 `database rows` reads at most 100 rows at a time and cuts cells at 32 KiB. `--offset` pages, `--sort <column>` and `--direction asc|desc` sort, and `--search <text>` matches any column. Without a table, it reads the tables only. A table that does not exist fails with `CONSOLE_NOT_FOUND`. `--database` picks a named database. Access needs the `databases` section, and `databases:read` is enough.
 
+## Read and invalidate the cache
+
+With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/development/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
+
+```bash [Terminal]
+pnpm vitehub cache list
+pnpm vitehub cache list --prefix nitrofunctions --limit 20
+pnpm vitehub cache get 'nitrofunctions.Cm3ZWo:getStars:a1b2.json'
+pnpm vitehub cache delete 'nitrofunctions.Cm3ZWo:getStars:a1b2.json'
+pnpm vitehub cache delete --prefix 'nitrofunctions.Cm3ZWo:getStars'
+```
+
+- Keys show as Nitro stores them: `<group>:<name>:<hash>.json`. Nitro adds a hash to a group or name that has other characters than letters, digits, and `_`, so `nitro/functions` is `nitrofunctions.<hash>`. Copy keys and prefixes from `cache list`.
+- `cache list` reads at most 100 entries per page. Pass the printed `--cursor` for the next page. The group is `functions` or `handlers`, and the name is the `name` option, or `_` without one.
+- `cache get` cuts the value at 256 KiB.
+- `cache delete` removes one key, or at most 1,000 entries under `--prefix` per call. There is no command that clears the whole cache. Nitro computes a removed value again on the next call.
+- The driver must list keys. Vercel Runtime Cache cannot, so `cache list` fails there.
+- Access needs the `cache` section. `cache:read` allows `list` and `get` only.
+
 ## Read and write KV keys
 
 Start the dev server, then run `vitehub kv` in another terminal. Each command runs a `kv.*` [operation](/docs/development/operations) of the app, so it uses the app's keys. With `--url`, it runs on a deployed app with the Console on, using the credentials in [Run any operation](#run-any-operation).
@@ -903,7 +926,7 @@ Every command takes `--store <name>`, `--json`, `--url <url>` when Vite does not
 - `get` writes a string value unchanged, with no added newline, and other JSON values as formatted JSON. Binary values go to stdout as bytes, or as base64 with `"encoding": "base64"` in `--json` output. A missing key exits with status 1.
 - `has` exits with status 0 when the key exists and 1 when it does not.
 - `set` writes a string. `--json-value` parses the value as JSON. JSON input rejects values that underflow to zero or whose decimal size changes when parsed, so use strings for those and for integers outside JavaScript's safe range. A value that starts with `@` reads a UTF-8 file relative to the current directory. The output says if the key was created or updated.
-- `--ttl <seconds>` on `set` sets an expiry, and takes positive fractional seconds. The `fs-lite` driver ignores TTL. Cloudflare KV rounds up to whole seconds, at least 60. Upstash needs at least one second and rounds up to whole seconds. The output shows the real TTL and a notice when the driver ignores or changes it.
+- `--ttl <seconds>` on `set` sets an expiry, and takes positive fractional seconds. Cloudflare KV rounds up to whole seconds, at least 60. Upstash needs at least one second and rounds up to whole seconds. The output shows the real TTL and a notice when the driver changes it.
 - `delete` says if the key was found. Deleting a missing key changes nothing and exits with status 0.
 
 KV storage parses stored strings that look like JSON, so `"2026"` can read back as the number `2026`. There is no `clear` command, so each delete is explicit.

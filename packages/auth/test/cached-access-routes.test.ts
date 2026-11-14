@@ -147,7 +147,20 @@ describe("Auth access routes with cache route rules", () => {
       "GET /admin/**": { swr: 60 },
       "HEAD /admin/**": { cache: false },
     })).resolves.toBeUndefined()
-    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
+  it("checks HEAD overrides after inherited GET cache rules", async () => {
+    const rules: RouteRules = {
+      "/api/billing": { swr: 60 },
+      "GET /api/billing": { cache: false },
+    }
+    // H3 also applies the GET override to HEAD, unless HEAD explicitly re-enables caching.
+    await expect(buildViteApp(["{ route: '/api/billing', method: 'GET' }"], rules)).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/api/billing', method: 'GET' }"], {
+      ...rules,
+      "HEAD /api/billing": { cache: true },
+    })).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
   it("reads the route rules that a later build hook adds", async () => {
@@ -166,14 +179,16 @@ describe("Auth access routes with cache route rules", () => {
     await expect(runBuildHooks(nitro)).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
-  it("reads guard paths literally, as the access middleware matches them", async () => {
-    // The access middleware matches `(`, `)`, `:`, and `*` in a guard path as literal characters.
-    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/\\(drafts\\)/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/reports/(drafts)'"], { "/reports/\\(drafts\\)": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/files/:name'"], { "/files/:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
-    await expect(buildViteApp(["'/reports/(drafts)/**'"], { "/reports/drafts/**": { swr: 60 } })).resolves.toBeUndefined()
-    await expect(buildViteApp(["'/files/:name'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
-    await expect(buildViteApp(["'/files/*'"], { "/files/report": { swr: 60 } })).resolves.toBeUndefined()
+  it("stops the build for a guard path with route pattern syntax", async () => {
+    for (const route of ["'/reports/(drafts)/**'", "'/files/:name'", "'/files/*'"]) {
+      await expect(buildViteApp([route], { "/files/report": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_C0068" })
+    }
+  })
+
+  it("reads guard paths as the access middleware matches them", async () => {
+    await expect(buildViteApp(["'/reports/'"], { "/reports": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/a+b'"], { "/files/a+b": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/files/a+b'"], { "/files/ab": { swr: 60 } })).resolves.toBeUndefined()
   })
 
   it("logs a warning and keeps the route rules when a development update caches a guarded route", async () => {

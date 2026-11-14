@@ -22,5 +22,7 @@ export const mcpErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `mcp: { route: \"/mcp/account\", publicRoute: \"/mcp\" }` in `vitehub()` to serve the tool without sign-in, or remove `public` from the tool.",
     },
+    // More than one server directory has an `mcp.ts` hooks module.
+    MCP_B0004: { ...dynamicError, fix: "Keep one `mcp.ts` with the `defineMcpHooks()` default export, in one server directory." },
   },
 })
