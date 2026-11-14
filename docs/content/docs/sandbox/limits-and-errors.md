@@ -24,6 +24,12 @@ The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM`
 
 If execution and cleanup both fail, the response keeps the first error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()`, the thrown error keeps both failures in an `AggregateError` in its cause chain, with provider details. JSON responses omit causes.
 
+## Error responses
+
+A failed `runSandboxTask()` returns a JSON body with `error.code`, `error.message`, and `error.details`. Your route can send this body to the client, so outside `vite dev` the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `cause`, `cwd`, or `args`. These fields can hold source paths, environment values, or user data from the Sandbox process. The body keeps facts such as `provider`, `exitCode`, and `timeout`. In `vite dev`, the body keeps all details.
+
+To read the full details on the server, call `resolveSandboxTaskRunner(name).run()`. It throws the error with every detail and its cause. Log it on the server. Do not send it to the client.
+
 ## Cloudflare retries
 
 The Cloudflare runtime retries only requests that are safe to repeat: session cleanup, file reads, full file writes, file deletes, file listing, and recursive directory creation. It retries when Cloudflare marks the error `retryable`. With no flag, it retries temporary failures, such as a Container that is still starting. It does not retry when the Durable Object is `overloaded` or the error has `retryable: false`, even during Container startup.

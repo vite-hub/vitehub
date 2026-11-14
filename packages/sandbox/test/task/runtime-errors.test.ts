@@ -21,7 +21,7 @@ vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
 
 import { resolveSandboxTaskRunner, runSandboxTaskRuntime } from "../../src/task/runtime/runtime.ts"
 import { toSandboxTaskError } from "../../src/task/runtime/error-normalization.ts"
-import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
+import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
 
 // Only the provider is fake. The runtime stages, reads, decodes, and removes
 // invocation files through this in-memory session. No remote command runs.
@@ -352,5 +352,55 @@ describe("Sandbox Task error preservation", () => {
     expect(session.exec.mock.calls.find(([command]) => command === "rm")?.[2]).toEqual({ timeout: 1000 })
     expect(session.close).toHaveBeenCalledOnce()
     expect(execute).toHaveBeenCalledOnce()
+  })
+})
+
+describe("Sandbox Task handler error Responses", () => {
+  const stack = "Error: boom\n    at handler (/app/server/sandbox-tasks/crash.ts:3:9)"
+  const stderr = "Error: boom\n    at handler (/app/server/sandbox-tasks/crash.ts:3:9)\nTOKEN=private-token"
+
+  function failingHandler() {
+    const { session, execute } = createSession()
+    execute.mockResolvedValue({ ok: false, error: { name: "Error", message: "boom", stack, cause: "private cause" } })
+    const exec = session.exec.getMockImplementation()!
+    session.exec.mockImplementation(async (command, args, options) => {
+      const result = await exec(command, args, options)
+      return command === "node" ? { ok: false, code: 1, stdout: "private stdout", stderr } : result
+    })
+  }
+
+  it("keeps the stack and process output out of a production Response", async () => {
+    failingHandler()
+
+    const response = await runSandboxTaskRuntime("example")
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body).toEqual({ error: {
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      message: "boom",
+      details: { provider: "cloudflare", name: "Error", exitCode: 1 },
+    } })
+    expect(JSON.stringify(body)).not.toMatch(/private|crash\.ts/)
+  })
+
+  it("keeps the full details on the runner error", async () => {
+    failingHandler()
+    const runner = await resolveSandboxTaskRunner("example")
+    const error = toSandboxTaskError(await runner.run().catch((error: unknown) => error))
+
+    expect(error.details).toMatchObject({ stack, stderr, stdout: "private stdout" })
+  })
+
+  it("keeps the stack and stderr in a vite dev Response", async () => {
+    setSandboxTaskRuntimeDevelopment(true)
+    failingHandler()
+
+    const response = await runSandboxTaskRuntime("example")
+
+    expect(await response.json()).toMatchObject({ error: {
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      details: { stack, stderr, exitCode: 1 },
+    } })
   })
 })

@@ -13,9 +13,19 @@ function statusFor(error: ViteHubError<`SANDBOX_TASK_${string}`>) {
   return 500
 }
 
-export function err(error: ViteHubError<`SANDBOX_TASK_${string}`>): Response {
+// These details can hold source paths, environment values, or user data from the Sandbox process.
+const developmentOnlyDetails = new Set(['args', 'cause', 'cwd', 'output', 'stack', 'stderr', 'stderrPreview', 'stdout', 'stdoutPreview'])
+
+function publicDetails(details: ViteHubError['details'], development: boolean) {
+  if (development || !details)
+    return details
+  return Object.fromEntries(Object.entries(details).filter(([key]) => !developmentOnlyDetails.has(key)))
+}
+
+/** Outside `vite dev`, the body keeps the code, message, and details without stack or process output. */
+export function err(error: ViteHubError<`SANDBOX_TASK_${string}`>, development = false): Response {
   const body = JSON.stringify({
-    error: { code: error.code, message: error.message, details: error.details },
+    error: { code: error.code, message: error.message, details: publicDetails(error.details, development) },
   })
   return new Response(body, {
     status: statusFor(error),
