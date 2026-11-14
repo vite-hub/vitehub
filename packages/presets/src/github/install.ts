@@ -151,12 +151,9 @@ export async function regenerateGitHubPnpmLockfile(target: string, signal?: Abor
     snapshot = await createGitHubInstallSnapshot(target);
     const source = snapshot.directory;
     await validateGitHubInstallInputs(source);
-    const lockfile = join(source, "pnpm-lock.yaml");
-    // The host never runs a pnpmfile, and its hooks can change resolutions.
-    if (parseAllDocuments(await readFile(lockfile, "utf8")).some(document => document.has("pnpmfileChecksum"))) throw new Error("The lockfile depends on a pnpmfile, which the host does not run.");
     const version = await packageManagerVersion(source);
     await exec("corepack", [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--lockfile-only", ...pnpmProtectedFlags], { cwd: source, env, signal, timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 });
-    return await readFile(lockfile, "utf8");
+    return await readFile(join(source, "pnpm-lock.yaml"), "utf8");
   } finally {
     try { await snapshot?.close(); }
     finally { release(); }
