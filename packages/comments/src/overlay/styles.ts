@@ -1,23 +1,24 @@
 /**
  * Styles of the overlay's own pieces. The comment parts bring theirs from `@vite-hub/ui/styles.css`. All of them live
  * in shadow roots, so the host page's CSS does not reach them: the overlay, its toolbar in the page tools pill, and
- * the list in the pill's window. The overlay uses the system sans-serif font, as Drop does, and follows the page's light or dark scheme. It sets the Nuxt UI
+ * the list in the pill's window. The overlay takes ViteHub's theme, as Drop does: Geist when the page has it (else the system
+ * sans-serif), the neutral primary, and the comment blue. It follows the page's light or dark scheme. It sets the Nuxt UI
  * tokens that the parts read, because their fallbacks follow `currentColor`, which is white inside a pin.
  */
 export const overlayStyles = `
 :host {
   all: initial;
   --ui-bg: #fff; --ui-bg-elevated: #f5f5f5; --ui-bg-accented: #e5e5e5; --ui-bg-muted: #fafafa; --ui-border: #e5e5e5;
-  --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #2563eb;
+  --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #171717;
   /* The comment blue of ViteHub's theme (--ring in @vite-hub/ui/theme.css), for the areas of comments here and in Drop. */
   --vh-ui-comment-mark: oklch(0.588 0.158 241.966);
 }
 :host(.dark) {
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #60a5fa;
+  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #fafafa;
   --vh-ui-comment-mark: oklch(0.746 0.16 232.661);
 }
-.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
 /* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
 .root > .cursors, .root > .outlines, .root > .areas, .root > [data-slot="comment-layer"] { pointer-events: none; }
@@ -28,10 +29,10 @@ export const overlayStyles = `
 .cursor svg { display: block; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .cursor span { display: inline-block; margin: 2px 0 0 12px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #18181b; white-space: nowrap; box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
 
-.outline { position: fixed; border: 2px solid var(--vh-primary); border-radius: 4px; }
+.outline { position: fixed; border: 2px solid var(--vh-ui-comment-mark); border-radius: 4px; }
 .outline[data-kind="draft"] { border-style: dashed; border-color: #f59e0b; }
 .tag { position: fixed; transform: translateY(-100%); padding: 2px 6px; border-radius: 4px 4px 0 0; background: #f59e0b; color: #18181b; font-size: 11px; font-weight: 600; }
-.outline[data-kind="hover"] + .tag { background: var(--vh-primary); color: #fff; }
+.outline[data-kind="hover"] + .tag { background: var(--vh-ui-comment-mark); color: #fff; }
 
 .card { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; width: min(320px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 12px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: calc(var(--vh-radius) * 1.5); box-shadow: 0 8px 24px rgb(0 0 0 / .16); font-size: 13px; }
 .card label { display: grid; gap: 4px; font-weight: 500; }
@@ -71,7 +72,7 @@ export const overlayStyles = `
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 28px; }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
-  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/28px ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
+  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/28px "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em;
 }
 /* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
 [data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
@@ -131,7 +132,7 @@ export const overlayStyles = `
   position: fixed; z-index: 2147483001; translate: -50% -100%; display: flex; gap: 4px; padding: 4px;
   border: 1px solid rgb(255 255 255 / 12%); border-radius: 12px; background: rgb(17 17 17 / 92%);
   box-shadow: 0 8px 24px rgb(0 0 0 / 25%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  font: 500 12px/1 "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased;
   --bar-text: #d4d4d4; --bar-strong: #fafafa; --bar-hover: rgb(255 255 255 / 8%);
   transform-origin: 50% 100%; animation: vitehub-comments-pop 140ms cubic-bezier(.23, 1, .32, 1);
 }
@@ -170,7 +171,7 @@ export const panelStyles = `
 :host {
   all: initial; display: block; height: 100%; color-scheme: dark;
   --ui-bg: #0a0a0a; --ui-bg-elevated: #171717; --ui-bg-accented: #262626; --ui-bg-muted: #171717; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #60a5fa;
+  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #fafafa;
 }
 .panel-root { height: 100%; }
 [data-slot="comment-panel"] { height: 100%; background: var(--vh-bg); }
