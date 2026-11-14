@@ -56,15 +56,15 @@ describe("vitehub/realtime-persistence", () => {
     expect(await codes(realtimePersistence, {
       "server/realtime/notes.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: 5000, maxWait: 1000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 5000, maxWait: 1000 } })",
       ),
       "server/realtime/slow.ts": lines(
         "import { defineRealtime } from \"@vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: 20000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 20000 } })",
       ),
       "server/realtime/text.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: \"2s\" } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: \"2s\" } })",
       ),
     })).toEqual(["VHUB0025", "VHUB0025", "VHUB0025"])
   })
@@ -73,16 +73,16 @@ describe("vitehub/realtime-persistence", () => {
     expect(await codes(realtimePersistence, {
       "server/realtime/notes.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: 500, maxWait: 5000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 500, maxWait: 5000 } })",
       ),
       "server/realtime/dynamic.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
         "const debounce = Number(\"9000\")",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce, maxWait: 1000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce, maxWait: 1000 } })",
       ),
       "server/realtime/off.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: false })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: false })",
       ),
     })).toEqual([])
   })
