@@ -38,7 +38,8 @@ export async function withCloudflareRequest<T>(operation: string, options: Cloud
       await waitForRetry(retryDelays[attempt], signal)
     }
   }
-  throw sandboxErrorDiagnostics.SANDBOX_R0089({ message: `[vitehub] Cloudflare Sandbox ${operation} retries exhausted.` })
+  // Internal invariant: the last attempt returns or throws SANDBOX_R0088, so the loop never ends here.
+  throw new Error(`[vitehub] Cloudflare Sandbox ${operation} retries exhausted.`)
 }
 
 function shouldRetry(idempotent: boolean, host: HostRetryFlags, message: string) {

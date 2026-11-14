@@ -262,7 +262,8 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
                 abortSignal: bootstrapSignal,
                 command: `${shellQuote(materialized.environmentFile)} git ${args.map(shellQuote).join(" ")}`,
               })
-              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0099({ message: "Git command failed." })
+              // Internal invariant: materializeGitCheckout() catches this error and throws SANDBOX_R0120 for the failed Git step.
+              if (result.exitCode !== 0) throw new Error("Git command failed.")
               return { stdout: result.stdout }
             },
           })
