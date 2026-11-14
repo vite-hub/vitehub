@@ -24,6 +24,9 @@ import type {
 } from "./types.ts"
 import type { BlobImagesOptions } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { DEFAULT_BLOB_SERVE_ROUTE } from "./served.ts"
+
+export { DEFAULT_BLOB_SERVE_ROUTE }
 
 export interface BlobResolutionInput {
   /** True for `vite dev`, where a store's `remote` switch applies. */
@@ -39,7 +42,6 @@ const DEFAULT_MINIO_BUCKET = "vitehub-blob"
 const DEFAULT_MINIO_ENDPOINT = "http://localhost:9000"
 const DEFAULT_MINIO_REGION = "us-east-1"
 const DEFAULT_NETLIFY_BLOBS_STORE = "vitehub-blob"
-export const DEFAULT_BLOB_SERVE_ROUTE = "/api/_vitehub/blob"
 const MINIO_ACCESS_KEY_ENV = ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"] as const
 const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"] as const
 
