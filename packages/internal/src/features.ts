@@ -454,8 +454,8 @@ export default defineRealtime({
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
       dev: unsupported("The default Node host has no Sandbox Provider. Development with the Cloudflare or Vercel host uses that host's Sandbox."),
-      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
-      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      netlify: explicit("sandboxTask.provider", "Vercel Sandbox", "The Netlify host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { provider: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
+      node: explicit("sandboxTask.provider", "Vercel Sandbox", "The Node host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { provider: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
@@ -567,8 +567,9 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   // Node and Deno select OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
-  // A Sandbox Task host loads its provider SDK at build time (Cloudflare) or at run time (Vercel).
-  if (id === "sandboxTask" && (host === "vercel" || host === "cloudflare")) selected.push(sandboxProviderPackages[host])
+  // A Sandbox Task loads its provider SDK at build time (Cloudflare) or at run time (Vercel). An explicit `provider` wins over the host's.
+  const sandboxProvider = typeof options?.provider === "string" ? options.provider : host
+  if (id === "sandboxTask" && (sandboxProvider === "vercel" || sandboxProvider === "cloudflare")) selected.push(sandboxProviderPackages[sandboxProvider])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
