@@ -14,11 +14,20 @@ const webhookInboxOwnerTtlMs = 30_000
  * every hour bounds the index to the retention window plus one hour of webhooks.
  */
 const webhookInboxIndexBucketMs = 3_600_000
+/** Rows of the legacy replay list read at once. Each row carries a whole request. */
+const webhookInboxLegacyPageSize = 100
+/** How long a duplicate delivery waits for the first one to store its request. */
+const webhookInboxDuplicateWaitMs = 2_000
 
 /** Admissions that got a 202 answer and still run. `drainDeferredWebhookAdmissions()` waits for them. */
 const deferredWebhookAdmissions = new Set<Promise<void>>()
 // Locks held by this process must never be taken over by startup replay.
 const activeWebhookInboxLocks = new Set<string>()
+
+/** State that can read a list a page at a time. `cursor` of the last value continues the next page. */
+interface PagedListStateAdapter {
+  getListPage(key: string, after: number, limit: number): Promise<Array<{ cursor: number, value: unknown }>>
+}
 
 export interface WebhookInboxState {
   keyPrefix: string
@@ -56,6 +65,11 @@ export interface WebhookInbox {
   id: string
   /** Another request currently owns admission for this delivery. */
   duplicate?: boolean
+  /**
+   * For a duplicate, whether the first request's copy is stored, so a restart can replay it.
+   * Only then may the route answer the duplicate with a 2xx.
+   */
+  stored?: boolean
   /** Removes the stored request. Admission has settled, so a restart must not replay it. */
   settle(): Promise<void>
   /** Releases admission ownership while retaining the row for replay. */
@@ -153,16 +167,33 @@ function isStoredWebhookInboxEntry(value: unknown): value is StoredWebhookInboxE
     && isRecord(value.request.headers)
 }
 
+/** Whether the request at `key` is stored or was settled, polling until `deadline`. */
+async function waitForStoredWebhookInbox(state: StateAdapter, key: string, deadline: number): Promise<boolean> {
+  for (;;) {
+    if (isStoredWebhookInboxEntry(await state.get(key))) return true
+    const owner = await state.get(`${key}:owner`)
+    if (isRecord(owner) && owner.settled === true) return true
+    if (Date.now() >= deadline) return false
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+}
+
 /**
  * Stores a verified request before the route resolves its trigger. Once this write lands, the route
  * can answer the provider. The row stays until admission settles, so the next process can replay it.
  */
-export async function openWebhookInbox(webhookState: WebhookInboxState, entry: WebhookInboxEntry): Promise<WebhookInbox> {
+export async function openWebhookInbox(
+  webhookState: WebhookInboxState,
+  entry: WebhookInboxEntry,
+  /** Until when a duplicate waits for the first request to be stored. Defaults to 2 seconds from now. */
+  duplicateDeadline: number = Date.now() + webhookInboxDuplicateWaitMs,
+): Promise<WebhookInbox> {
   const { keyPrefix, state } = webhookState
   const key = webhookInboxKey(keyPrefix, entry.id)
   const lock = await state.acquireLock(`${key}:admission`, webhookInboxRetentionMs)
   if (!lock) {
-    return { attempts: 0, duplicate: true, id: entry.id, settle: async () => {}, release: async () => {} }
+    const stored = await waitForStoredWebhookInbox(state, key, duplicateDeadline)
+    return { attempts: 0, duplicate: true, id: entry.id, stored, settle: async () => {}, release: async () => {} }
   }
   activeWebhookInboxLocks.add(key)
   const ownerKey = `${key}:owner`
@@ -322,36 +353,22 @@ export async function replayWebhookInbox(
   const states = new Map<string, StateAdapter>()
   for (const { keyPrefix, state } of scopes) states.set(keyPrefix, state)
   for (const [keyPrefix, state] of states) {
-    const indexedEntries = new Map<string, { entry?: StoredWebhookInboxEntry, attempts: number }>()
-    const legacyIndexKey = legacyWebhookInboxIndexKey(keyPrefix)
-    // An index list can hold entries until a day after its last append.
-    const lastBucket = webhookInboxIndexBucket(Date.now())
-    const indexKeys = [legacyIndexKey]
+    const indexedAttempts = new Map<string, number>()
+    // An index list can hold entries until a day after its last append. A process whose clock
+    // runs ahead of this one can have indexed into the next hour.
+    const lastBucket = webhookInboxIndexBucket(Date.now()) + 1
     for (let bucket = webhookInboxIndexBucket(Date.now() - webhookInboxRetentionMs) - 1; bucket <= lastBucket; bucket++) {
-      indexKeys.push(webhookInboxIndexKey(keyPrefix, bucket))
-    }
-    for (const indexKey of indexKeys) {
-      for (const indexed of await state.getList(indexKey)) {
+      for (const indexed of await state.getList(webhookInboxIndexKey(keyPrefix, bucket))) {
         if (!isRecord(indexed) || typeof indexed.id !== "string") continue
-        // Entries of the legacy list carry the whole request.
-        const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
-        const previous = indexedEntries.get(indexed.id)
-        indexedEntries.set(indexed.id, {
-          entry: previous?.entry || indexedEntry,
-          attempts: Math.max(previous?.attempts || 0, typeof indexed.attempts === "number" ? indexed.attempts : 0),
-        })
+        indexedAttempts.set(indexed.id, Math.max(indexedAttempts.get(indexed.id) ?? 0, typeof indexed.attempts === "number" ? indexed.attempts : 0))
       }
     }
-    for (const [id, indexed] of indexedEntries) {
+    await migrateLegacyWebhookInbox(keyPrefix, state, indexedAttempts)
+    for (const [id, indexed] of indexedAttempts) {
       const key = webhookInboxKey(keyPrefix, id)
-      const row = await state.get(key)
-      const storedRow = isStoredWebhookInboxEntry(row) ? row : undefined
-      // A legacy copy without a row is replayable for as long as its row would have been kept.
-      // An older one belongs to an admission whose settled marker has expired.
-      const stored = storedRow
-        || (indexed.entry && Date.now() - Date.parse(indexed.entry.receivedAt) < webhookInboxRetentionMs ? indexed.entry : undefined)
+      const stored = await state.get(key)
       if (!isStoredWebhookInboxEntry(stored)) continue
-      const attempts = Math.max(stored.attempts, indexed.attempts)
+      const attempts = Math.max(stored.attempts, indexed)
       const fields = { attempts, deliveryScope: keyPrefix, inboxId: stored.id }
       const owner = await state.get(`${key}:owner`)
       if (isRecord(owner) && owner.settled === true) continue
@@ -359,16 +376,6 @@ export async function replayWebhookInbox(
         logWebhookInbox("inbox.dropped", fields)
         await state.delete(key)
         continue
-      }
-      if (indexed.entry) {
-        // Move a request from the legacy list to the hourly index, with its row, so it stays
-        // replayable whatever the route does with it once the legacy list is gone.
-        await state.appendToList(
-          webhookInboxIndexKey(keyPrefix, webhookInboxIndexBucket(Date.now())),
-          { attempts, id } satisfies WebhookInboxIndexEntry,
-          { ttlMs: webhookInboxRetentionMs },
-        )
-        if (!storedRow) await state.set(key, { ...stored, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
       }
       // A request newer than this process's recovery boundary still has an index entry for the next restart.
       if (!(Date.parse(stored.receivedAt) < before)) continue
@@ -408,7 +415,57 @@ export async function replayWebhookInbox(
         logWebhookInbox("inbox.replay.failed", { ...fields, error: errorMessage(error) })
       }
     }
-    // The legacy list is not deleted: a process of the previous version may still append to it during a
-    // rolling deploy. Nothing of this version appends to it, so it expires a day after its last append.
+  }
+}
+
+/**
+ * Moves each request that the legacy list still needs replayed into the hourly index, writing its
+ * row from the list's copy when the row is missing. The list is not deleted: a process of the
+ * previous version may still append to it during a rolling deploy. It expires a day after its last
+ * append. With `getListPage`, the list is read a page at a time from where the last migration
+ * stopped, so its request bodies are never all in memory.
+ */
+async function migrateLegacyWebhookInbox(keyPrefix: string, state: StateAdapter, indexedAttempts: Map<string, number>): Promise<void> {
+  const legacyKey = legacyWebhookInboxIndexKey(keyPrefix)
+  const moved = new Set<string>()
+  const migrate = async (legacy: unknown) => {
+    if (!isRecord(legacy) || typeof legacy.id !== "string" || indexedAttempts.has(legacy.id) || moved.has(legacy.id)) return
+    const key = webhookInboxKey(keyPrefix, legacy.id)
+    const row = await state.get(key)
+    const storedRow = isStoredWebhookInboxEntry(row) ? row : undefined
+    // A copy without a row is replayable for as long as its row would have been kept.
+    // An older one belongs to an admission whose settled marker has expired.
+    const copy = !storedRow && isStoredWebhookInboxEntry(legacy) && Date.now() - Date.parse(legacy.receivedAt) < webhookInboxRetentionMs
+      ? legacy
+      : undefined
+    if (!storedRow && !copy) return
+    moved.add(legacy.id)
+    const owner = await state.get(`${key}:owner`)
+    if (isRecord(owner) && owner.settled === true) return
+    const attempts = Math.max(storedRow?.attempts ?? 0, typeof legacy.attempts === "number" ? legacy.attempts : 0)
+    await state.appendToList(
+      webhookInboxIndexKey(keyPrefix, webhookInboxIndexBucket(Date.now())),
+      { attempts, id: legacy.id } satisfies WebhookInboxIndexEntry,
+      { ttlMs: webhookInboxRetentionMs },
+    )
+    if (copy) await state.set(key, { ...copy, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
+    indexedAttempts.set(legacy.id, attempts)
+  }
+  const pages = state as StateAdapter & Partial<Pick<PagedListStateAdapter, "getListPage">>
+  if (!pages.getListPage) {
+    for (const legacy of await state.getList(legacyKey)) await migrate(legacy)
+    return
+  }
+  const cursorKey = `${keyPrefix}inbox-index:legacy-cursor`
+  const saved = await state.get(cursorKey)
+  let after = isRecord(saved) && typeof saved.after === "number" ? saved.after : 0
+  for (;;) {
+    const page = await pages.getListPage(legacyKey, after, webhookInboxLegacyPageSize)
+    if (!page.length) return
+    for (const { cursor, value } of page) {
+      await migrate(value)
+      after = cursor
+    }
+    await state.set(cursorKey, { after }, webhookInboxRetentionMs)
   }
 }

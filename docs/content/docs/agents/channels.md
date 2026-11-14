@@ -447,6 +447,7 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 - The stored request is removed when admission ends. If the process stops first, or admission ends in a 5xx, the next process replays it through the route at startup.
 - Replays check the signature again. A timestamped signature such as `stripe-sha256` is checked against the first arrival, so late replays still pass.
 - A request gets at most 3 admissions.
+- A second delivery of a request that is still being admitted gets `202` once the first delivery's copy is stored. If that copy is not stored within `ackTimeoutMs` of arrival, it gets a `503` with `retry-after`.
 
 The request is stored at `<scope>inbox:<id>` for one day, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. Replay finds it through an hourly index list at `<scope>inbox-index:<hour>`, which holds only IDs and expires a day after its last entry. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
