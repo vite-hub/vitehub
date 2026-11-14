@@ -1033,6 +1033,7 @@ An app that uses ViteHub still has NuxtHub parts:
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
 - `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
 - Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime. The rule does not report `hubKV()` or `hubDatabase()` that you import from a ViteHub package.
+- A dependency in `package.json` whose installed `package.json` lists `@nuxthub/core` in `peerDependencies` or `dependencies`, such as `@evlog/nuxthub`. The package manager then installs NuxtHub, and the module can start it next to ViteHub. ViteHub does not emulate NuxtHub's module APIs. The rule reports it on the `modules` entry of `nuxt.config.ts`. See [Modules that expect NuxtHub](/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub).
 
 ```ts [nuxt.config.ts] fails=TS2353
 // Invalid

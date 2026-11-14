@@ -96,7 +96,7 @@ export interface ContentPreviewCookie {
 export interface ContentPreview {
   /**
    * Sign a preview token and set it as an `HttpOnly`, `SameSite=Strict` cookie on the event response. This is trusted
-   * server API: check `content.can({ user, collection, action: "read" })` before calling it. The token previews every
+   * server API: check `content.can({ user, collection, action: "read-draft" })` before calling it. The token previews every
    * collection of this runtime until it expires. A preview frame token from `sign()` never sets or acts as this cookie.
    */
   enable(event: ContentPreviewEvent, options?: ContentPreviewOptions): Promise<ContentPreviewCookie>
@@ -113,7 +113,7 @@ export interface ContentPreview {
   run<TResult>(event: ContentPreviewEvent, callback: () => TResult | Promise<TResult>): Promise<TResult>
   /**
    * Sign a preview frame token for one document, without a cookie. This is trusted server API: check
-   * `content.can({ user, collection, id, action: "read" })` before calling it. In a frame request with this token,
+   * `content.can({ user, collection, id, action: "read-draft" })` before calling it. In a frame request with this token,
    * collection `get()` and `list()` without `ref` or `revision` read the draft of that document only, or the version
    * the frame posted for it. Every other read is published. See {@link defineContentPreviewPlugin}.
    */

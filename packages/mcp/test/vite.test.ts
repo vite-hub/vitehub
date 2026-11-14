@@ -133,6 +133,30 @@ describe("hubMcp", () => {
     expect((await inspect().definitions?.[0]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/portal/mcp (tools with public: true)" })
   })
 
+  it("serves prompts and resources, the configured server info, and lists them for `vitehub inspect`", async () => {
+    const root = app({
+      "server/mcp/prompts/review.ts": tool,
+      "server/mcp/resources/changelog.ts": tool,
+      "server/mcp/tools/add.ts": tool,
+    })
+    const serverInfo = { icons: [{ src: "/favicon.svg" }], title: "Drop" }
+    const { plugin } = configure(root, { instructions: "Read the skill first.", publicRoute: "/mcp/public", serverInfo })
+    const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    expect(entry).toContain(`import prompt0 from ${JSON.stringify(join(root, "server/mcp/prompts/review.ts"))}`)
+    expect(entry).toContain(`import resource0 from ${JSON.stringify(join(root, "server/mcp/resources/changelog.ts"))}`)
+    expect(entry).toContain("  prompts: { \"review\": prompt0 },")
+    expect(entry).toContain("  resources: { \"changelog\": resource0 },")
+    expect(entry).toContain("  instructions: \"Read the skill first.\",")
+    expect(entry).toContain(`  serverInfo: ${JSON.stringify(serverInfo)},`)
+    expect(readFileSync(join(root, ".vitehub/nitro/mcp/public.ts"), "utf8")).toContain("filter(([, prompt]) => prompt.public === true)")
+
+    const inspect = plugin.vitehub.inspect as () => ViteHubInspectionContributor
+    const inspectors = inspect().definitions ?? []
+    expect(inspectors.map(inspector => inspector.kind)).toEqual(["mcp-tool", "mcp-prompt", "mcp-resource"])
+    expect((await inspectors[1]?.list())?.map(entry => [entry.name, entry.file, entry.source])).toEqual([["review", "server/mcp/prompts/review.ts", "server/mcp/prompts"]])
+    expect((await inspectors[2]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/mcp/public (resources with public: true)" })
+  })
+
   it("rejects publicRoute without auth, because every tool on route is public then", () => {
     expect(() => hubMcp({ auth: false, publicRoute: "/mcp", route: "/mcp/account" })).toThrow(expect.objectContaining({ name: "MCP_B0003" }))
   })

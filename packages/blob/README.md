@@ -81,7 +81,7 @@ On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_I
 
 ## Remote stores in development
 
-`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as Vercel Blob, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
 
 ```ts
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -167,6 +167,8 @@ The mode limits this API, not the host. The R2 binding or provider token keeps f
 
 `blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. `event` is a Nitro, H3, or `nuxt/server` event, or a web `Request`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does. With `multiple: false` and `ensure.maxSize`, a `Content-Length` above `maxSize` plus 64 KB of form framing gets an H3 413 error before the body is read.
 
+`onBeforeUpload({ pathname, contentType, size, request })` runs for each file before anything is stored: throw to reject it, or return `{ pathname }` to change it. `onCompleted(object, request)` runs after each file is stored. With `direct: true`, the route also answers direct uploads: the client sends JSON `{ action: "sign", name, contentType, size }`, gets a signed `PUT` and a `ticket`, sends the file straight to storage, and then sends `{ action: "complete", ticket }`. `complete` reads the object with `head()`, deletes it and throws 400 when its size or type fails `ensure`, and runs `onCompleted`. The client reports the completion, so a closed tab skips `onCompleted`. The ticket is signed with `VITEHUB_SECRET` and binds the pathname and the route path. A store that cannot sign a `PUT`, such as Netlify Blobs, answers `{ action: "form" }`, and the client sends a form. R2, S3, GCS, and Azure buckets need a CORS rule that allows `PUT` from the app origin. `useUpload(url, { direct: true })` and `uploadFiles(url, files, { direct: true })` run the three steps.
+
 `blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`. Pass `ensure` (`types`, `maxSize`) to limit an upload: `create` checks the content type and the size the client declares, `upload` rejects a larger part, and `complete` deletes an object whose size or stored content type fails the policy.
 
 Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, `%` followed by two hex digits, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). So each pathname that `put()` or `list()` returns targets the same object when you pass it back. `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names without URL-decoding, and replaces the `%` of each `%XX` sequence with `_`, adding a UUID suffix before the extension to avoid overwriting a different file.
@@ -219,6 +221,8 @@ The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Size
 
 `responsiveImage()` uses the same default size list for its `srcset` widths. If you set `blob.images.sizes`, pass that list as `responsiveImage(record, { imageSizes })` so the width descriptors match the served variants.
 
+`@vite-hub/blob/nuxt-image` is a `@nuxt/image` provider for the serve route. It maps `width`, `height`, `fit`, `format`, `quality`, and a `crop` modifier to the variant parameters, and snaps sizes like the server. `vite-hub/nuxt` registers it as `vitehub` when the app uses `@nuxt/image` and sets `blob.serve`.
+
 ## Signed requests
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
@@ -254,9 +258,9 @@ Blob operations return a `Result` from `@vite-hub/runtime`: `[error, undefined]`
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
-`maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` driver binds it.
+`maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` and `vercel-blob` drivers bind it.
 
-The `fs` driver, the `cloudflare-r2` driver, and the files-sdk drivers sign requests. An `fs` store signs a link to the `/_vitehub/blob/signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+The `fs` driver, the `cloudflare-r2` driver, the files-sdk drivers, and the `vercel-blob` driver sign requests. The `vercel-blob` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob/signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
 
 ## S3-compatible storage
 
@@ -288,7 +292,9 @@ export default defineConfig({
 })
 ```
 
-Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK.
+Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Keys go in `credentials`; a top-level `accessKeyId` or `secretAccessKey`, as in NuxtHub, fails with `BLOB_C0023`.
+
+Without a `driver`, a build with `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET` (NuxtHub's names) uses this store before any host default. `S3_REGION` and `S3_ENDPOINT` apply when they are set. The server reads the keys from the same variables. `vite dev` keeps the local `fs` store unless the store sets `remote: true`.
 
 Blob never writes a credential into the server bundle. Leave `credentials` out so the SDK reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at runtime, or set each credential option from `process.env`. ViteHub then writes only the name of the env variable that holds the value at build time, and reads that variable when the store starts. This applies to the credential options of every driver, such as `secretAccessKey`, `token`, `accountKey`, and `credentials.private_key`. A URL option with a user name, password, or query, and an option that the driver does not know, are also credentials. A literal credential fails `vite dev` and the build with `BLOB_C0019`. A value that more than one env variable holds fails with `BLOB_C0020`. A variable that the server does not have fails with `BLOB_R0044` when the store starts.
 
