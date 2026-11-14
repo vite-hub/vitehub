@@ -212,7 +212,10 @@ disables it) counts review-driven pushes on a PR: pushes from a pass without a
 merge conflict and without a failing check outside `reviewChecks`. After that
 many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
 person's feedback, another failing check, a conflict or a head that someone else
-pushed still do. The PR then merges on its required checks or parks with the
+pushed still do, and so does a bot finding that its reviewer labeled P0 or P1,
+until the PR made twice that many review-driven pushes. A worker never declines
+a P0 or P1, and when it declines a finding its reviewer labeled P0 or P1, the
+thread stays open and the PR waits for a person. The PR then merges on its required checks or parks with the
 reason, which health lists under `queue.parked`. `minorReviewRounds` (default
 `false`) spends that budget once that many heads in a row had no automated
 finding above P2; each pass reports the class in `automatedReview`.

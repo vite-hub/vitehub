@@ -35,6 +35,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ outcome }: { outcome: string }) => `A ${outcome} review thread needs a one-sentence reason.`,
       fix: "Pass a non-empty reason that explains the outcome. Only fixed may omit the reason.",
     },
+    PRESETS_REVIEW_SEVERE_DECLINED: {
+      why: "A valid P0 or P1 finding cannot be declined, whatever the review push budget.",
+      fix: "Fix the finding in this pull request, or answer it as disproved, pre-existing or duplicate with the evidence. When the finding is valid but lower than P1, start the reason with that class, such as \"P2: ...\".",
+    },
     PRESETS_REVIEW_MENTION_FORBIDDEN: {
       why: "Comments cannot contain GitHub mentions; use the guarded mention capability.",
       fix: "Remove rendered GitHub mentions from the reason. Use mentionOnPullRequest for an allowed notification.",

@@ -816,6 +816,8 @@ A webhook gets an answer within `ackTimeoutMs` of its arrival, 5000 ms by defaul
 
 Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an object with its own `resolve` method. Resolver objects must define `resolve` directly, for example `{ resolve: () => "secret" }`. A class can use a `resolve` field. Inherited methods, including class prototype methods, are rejected. Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`. ViteHub unseals a sealed secret when it verifies the request. Other resolved values fail webhook verification. A `"bearer"` webhook whose `secretToken` resolves to no secret answers HTTP 500 with an error that names the Channel.
 
+A webhook registration that sets no `secretToken`, `secretHeader`, or `signature` does not run its trigger: `channelAdapter()` throws `AGENT_R1044`, and the route answers 401. Set `secretToken: false` to accept unsigned requests on purpose. Chat message webhooks are verified by their Chat SDK adapter.
+
 For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
 
 ```ts
