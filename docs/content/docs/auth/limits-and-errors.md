@@ -51,11 +51,13 @@ console.log(error.toJSON())
 | `AUTH_C0064` | `access.public` is not an inline array of route strings that start with `/`. |
 | `AUTH_C0065` | `access.policy` has no `allow` function, or `recheck` is not a number of milliseconds, 0 or more. |
 | `AUTH_C0066` | `access.policy` is set, but Better Auth has no `database` or `secondaryStorage` adapter, so it cannot end a session. |
+| `AUTH_C0067` | `forwardAuth()` has no `header` or no `verify` function. |
 | [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
 | `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
 | `AUTH_R0022` | `vitehub({ publicUrl })` gives several origins and the request host is none of them. Auth does not take its base URL from the request Host. |
+| `AUTH_R0023` | The `verify` function of `forwardAuth()` returned a value that is neither `null` nor an identity with `providerId`, `accountId`, `email`, `name`, and `emailVerified`. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, and invalid Auth Definitions, `authenticated()` config, or custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.

@@ -504,6 +504,25 @@ const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 3
 
 ## MCP OAuth
 
+`@vite-hub/auth/forward` signs people in through a trusted reverse proxy, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. `forwardAuth({ header, verify })` is a Better Auth plugin. On each Better Auth request with the header, which includes every `getSession()` call and guard, it calls `verify({ value, headers, request })`. Auth never trusts the header by itself: `verify` must prove it, for example by calling the provider with the token, checking a JWT signature, or comparing a secret that only the proxy sends, and return `{ providerId, accountId, email, name, emailVerified, image?, accessToken? }` or `null`. An identity signs in as the Better Auth account `providerId:accountId`, with Better Auth's account linking rules, and the request sees the session at once. The session of the cookie, or a session that the process made for the same identity, is reused. `null` ignores the header. `forwardAuth()` without `header` or `verify` fails with `AUTH_C0067`, and a `verify` result that is not an identity fails the request with `AUTH_R0022`.
+
+```ts
+import { defineAuth } from "@vite-hub/auth";
+import { forwardAuth } from "@vite-hub/auth/forward";
+
+export default defineAuth({
+  plugins: [
+    forwardAuth({
+      header: "x-forwarded-user",
+      verify: ({ value, headers }) =>
+        headers.get("x-proxy-secret") === process.env.PROXY_SECRET
+          ? { providerId: "proxy", accountId: value, email: value, name: value, emailVerified: true }
+          : null,
+    }),
+  ],
+});
+```
+
 `@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
 
 ```ts
