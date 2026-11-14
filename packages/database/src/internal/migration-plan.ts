@@ -147,7 +147,7 @@ async function readSqliteLedger(url: string, authToken?: string): Promise<Ledger
 }
 
 /** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
-function connectPostgres(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
+export function connectPostgres(target: { url?: string }, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
   let connect: typeof postgres
   try {
     // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.

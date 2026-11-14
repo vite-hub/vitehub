@@ -49,7 +49,7 @@ The action route takes only `POST`.
 
 ### Origin checks
 
-The `POST` route accepts only `application/json` from the app origin. It compares the browser `Origin` header with the `vitehub({ publicUrl })` origin and the request URL origin. Another origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request that is not JSON returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
+The `POST` route accepts only `application/json` from the app origin. It compares the browser `Origin` header with the `vitehub({ publicUrl })` origin and the request URL origin, when the request host is the public host. A request host that `publicUrl` does not configure cannot replace the configured origin. Another origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request that is not JSON returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
 
 Behind a proxy that ends TLS, the server can see `http://` while the browser sends `https://`. Set `vitehub({ publicUrl })` to the public origin. The connect route then builds the OAuth `redirectUri` from it and marks cookies `Secure` for `https://`. Without `publicUrl`, both routes use the request URL, so the server must trust `X-Forwarded-Proto` and `X-Forwarded-Host`.
 

@@ -367,7 +367,7 @@ Set these variables on the host, or declare them in `env.server.github`:
 | `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object that maps repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
 | `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. Production builds need it. |
 
-Declare the fixed ID as `env.server.github.installationId` with `appOwner`; without an owner, ViteHub ignores it. Other owners use GitHub App discovery, which needs access to the App API.
+Declare the fixed ID as `env.server.github.installationId` with `appOwner`; without an owner, startup fails with `FORGE_INVALID_ENV`. Other owners use GitHub App discovery, which needs access to the App API.
 
 The worker (the provider session of a pass) gets no GitHub tokens, only tools bound to its pull request:
 
@@ -494,11 +494,13 @@ While GitHub still computes mergeability, the host rereads the pull request for 
 A repair for one bot finding often gets new findings. `reviewPushBudget` (default `3`) ends that loop per pull request:
 
 - A push is review-driven when its pass had no merge conflict and no failing check outside `reviewChecks`, judged from the GitHub state the pass claimed, not the model's report. A pass that pushes counts once.
-- After the budget, bot comments, reviews, and review threads, and failures of `reviewChecks`, no longer wake the pull request.
+- After the budget, bot comments, reviews, and review threads, and failures of `reviewChecks`, no longer wake the pull request. A bot finding whose reviewer labeled it P0 or P1, such as a Codex `P1` badge or a `**P1 · ...**` prefix, still wakes it and needs an assessment before a merge, until the pull request made twice `reviewPushBudget` review-driven pushes.
 - A person's comment or review, a failing check outside `reviewChecks`, a merge conflict, and a head someone else pushed still start a pass.
 - With `merge: 'direct'`, the host merges when required checks pass, every review thread with a person's comment is resolved, and every comment from a person was assessed. Bot feedback and failed `reviewChecks` do not block it. GitHub branch rules still apply.
 - A running `reviewChecks` run no longer holds a pass or the merge.
 - Otherwise the pull request parks. Its result and GitHub status say why and what resumes it. Health lists it under `queue.parked` with `budget: "review-push-budget"`.
+
+The budget never excuses a valid P0 or P1. `resolveReviewThread` refuses a `declined` outcome whose reason starts with `P0` or `P1`, so the pass fixes the finding or answers it as disproved, pre-existing or duplicate. A pass may still class a reviewer's P0 or P1 lower. Then its declined answer is posted, the thread stays open, and the pull request does not merge until a person resolves the thread or replies in it, or a later pass fixes it. From 2026-11-07 to 11-13, workers declined 40 findings they classed P0 or P1 themselves, most because the budget was spent, and the pull requests merged with those bugs.
 
 The count lasts for the life of the pull request, in its `reviewPushBudget` inbox record `{ count, heads, minorHeads }`, which the inbox summary also returns. `heads` lists heads the worker pushed and heads that had a pass after the budget was spent.
 
