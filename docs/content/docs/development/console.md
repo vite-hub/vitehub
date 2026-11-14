@@ -270,6 +270,7 @@ The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your 
 
 - **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own.
 - **Link a phone** shows a QR code. The phone's camera opens the link, and the phone is signed in as you. The code works for 10 minutes.
+- **`/_vitehub`** on the app does the same from the site itself. Add `/_vitehub` to the app address, such as `https://app.example.com/_vitehub`. The browser goes to the Console, which asks you to sign in when needed, and comes back to the app signed in, with the pill. Add `?page=/guide/day-2` to come back to that page. On a development server, `/_vitehub` opens the page with `?vitehub`, because the pill needs no sign-in there.
 - **Invite someone** makes a link for a guest. You give them a name, which becomes the author of their comments, and pick what they can do, such as **Write comments**. The link works once, in one browser, for 1, 7, or 30 days. It signs the browser in as a new app user with that name. Guests never get the **Console** link, and the Console never lets them in.
 
 Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. The people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
@@ -283,7 +284,7 @@ A guest user has no password and a placeholder email, `guest-<id>@guests.invalid
 
 | Operation | Does |
 | --- | --- |
-| `site.link` | Returns a one-time link that signs the browser in as you, then opens `path`, or the app home. `qr: true` makes it last 10 minutes. |
+| `site.link` | Returns a one-time link that signs the browser in as you, then opens `path`, or the app home. `qr: true` makes it last 10 minutes. With the `state` of `/_vitehub`, the link works only in the browser that opened `/_vitehub`. |
 | `site.invite` | Returns a one-time link that signs a guest in with `name` and the roles in `grants`. `expiresInDays` is 1, 7 (the default), or 30. |
 | `site.invites` and `site.revoke-invite` | List the invites that nobody opened yet, and revoke one. |
 | `site.sessions` and `site.revoke-session` | List the browsers of members and guests, and sign one out. |

@@ -258,8 +258,9 @@ function problemPage(problem: { code: string, message: string, fix?: string, sta
   return new Response(page, { headers: { ...pageHeaders, "content-security-policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" }, status: problem.status })
 }
 
-export function ticketProblem(status: number, code: ConsoleDiagnosticCode, message?: string): Response {
-  return problemPage({ ...consoleDiagnosticBody(code, message), status })
+/** The page of a refused ticket. `fix` replaces the general fix of the code when the caller knows a better one. */
+export function ticketProblem(status: number, code: ConsoleDiagnosticCode, message?: string, fix?: string): Response {
+  return problemPage({ ...consoleDiagnosticBody(code, message), ...(fix ? { fix } : {}), status })
 }
 
 /** A failure after the ticket was taken, as a page. A failure without an HTTP status is a bug: it is logged. */

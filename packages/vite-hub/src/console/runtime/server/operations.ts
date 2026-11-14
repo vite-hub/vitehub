@@ -538,8 +538,8 @@ const siteAccess = () => import("./site-access.ts")
 /** Site access: the Console signs browsers in to the app for the page tools. See `site-access.ts`. */
 const siteOperations = [
   defineConsoleOperation({
-    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone.",
-    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()) }),
+    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone. With the state of GET /_vitehub, it works only in the browser that opened that route.",
+    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()), state: v.optional(v.pipe(text, v.regex(/^[\w-]{43}$/))) }),
     kind: "write",
     mcp: false,
     name: "site.link",
