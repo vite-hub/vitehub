@@ -168,6 +168,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Read the host output above, fix the cause, and run the command again.",
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
     },
+    SETUP_DEPLOY_PROVISION_UNCHECKED: {
+      fix: ({ fix }: { fix?: unknown, host?: unknown, warnings?: unknown }) => String(fix),
+      why: ({ host, warnings }: { fix?: unknown, host?: unknown, warnings?: unknown }) => `The deploy could not check the ${String(host)} resources of the app, so it created and deployed nothing: ${String(warnings)}`,
+    },
+    SETUP_DEPLOY_PROVISION_NEEDS_BUILD: {
+      fix: ({ host }: { count?: unknown, host?: unknown }) => `Run \`vitehub deploy --host ${String(host)}\` without --no-build, so the build gets the new ids.`,
+      why: ({ count }: { count?: unknown, host?: unknown }) => `The deploy must create or change ${String(count)} resources, but --no-build deploys an output that was built without their ids. Nothing was created or deployed.`,
+    },
     SETUP_DEPLOYMENTS_NOT_LINKED: {
       fix: ({ host }: { host?: unknown }) => host ? `Run \`vitehub link --host ${String(host)}\`, or deploy once with \`vitehub deploy --host ${String(host)}\`.` : "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",
       why: ({ host }: { host?: unknown }) => host ? `The project has no ${String(host)} target in .vitehub/link.json, so the host project to read is not known.` : "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
