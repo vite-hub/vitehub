@@ -1,7 +1,7 @@
 import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
-import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { version } from "../../../version.ts"
 
 import type { ConsoleAccess } from "./access.ts"
@@ -9,6 +9,21 @@ import type { ConsoleAccess } from "./access.ts"
 declare global {
   interface ImportMeta {
     viteHubConsoleOperationSections?: readonly string[]
+  }
+}
+
+/** What the production build of the app recorded about its source. A development server has none. */
+export interface ConsoleProjectBuild {
+  /** When the build ran, as an ISO time. */
+  time: string
+  /** The Git commit of the build, from CI variables or `git`. A build without Git has none. */
+  commit?: {
+    sha: string
+    /** The first line of the commit message. */
+    message?: string
+    /** The name of the commit author, without the email. */
+    author?: string
+    branch?: string
   }
 }
 
@@ -20,6 +35,8 @@ export interface ConsoleProject {
   name?: string
   /** The `vite-hub` version that the app runs. */
   vitehub: string
+  /** The production build that serves this answer. */
+  build?: ConsoleProjectBuild
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
@@ -39,5 +56,6 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
     .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
     .map(operation => operation.name)
   const name = getConsoleProjectName()
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations }
+  const build = getConsoleBuild()
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), sections, operations }
 }
