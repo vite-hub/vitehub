@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { posix } from "node:path";
+import { join, posix } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { createCloudflareRuntime } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
@@ -22,6 +23,16 @@ function gnuTimeout() {
     } catch {}
   }
   throw new Error("Install GNU coreutils to test the Debian Sandbox image's process-group timeout.");
+}
+
+const signals = { SIGINT: 2, SIGKILL: 9, SIGTERM: 15 } as const;
+
+/** A PATH with the tools the process-group shells use, except the named one. Custom images can lack it. */
+function imageWithout(tool: string) {
+  const bin = mkdtempSync(join(tmpdir(), "vitehub-image-"));
+  for (const name of ["bash", "cat", "rm", "sleep"].filter(name => name !== tool))
+    symlinkSync(execFileSync("bash", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim(), join(bin, name));
+  return bin;
 }
 
 /** Running `sleep <mark>` processes. Zombies do not count. */
@@ -407,19 +418,23 @@ describe("Cloudflare Sandbox Durable Object", () => {
   });
 
   it.skipIf(process.platform !== "linux").each([
-    ["SIGTERM", "sleep $MARK & wait"],
-    ["SIGKILL", "sleep $MARK & wait"],
-    ["SIGKILL", "bash -c 'trap \"\" TERM; sleep $MARK' & sleep $MARK"],
-  ])("sends %s to every process of a spawned command: %s", async (signal, template) => {
+    ["SIGTERM", "sleep $MARK & wait", "full image"],
+    ["SIGKILL", "sleep $MARK & wait", "full image"],
+    ["SIGKILL", "bash -c 'trap \"\" TERM; sleep $MARK' & sleep $MARK", "full image"],
+    ["SIGINT", "sleep $MARK", "full image"],
+    ["SIGTERM", "sleep $MARK & wait", "image without setsid"],
+  ] as const)("sends %s to every process of a spawned command: %s (%s)", async (signal, template, image) => {
     const mark = `6${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`;
     const { container, objects, runtime } = setup();
     const session = await (await resolveSandbox({ runtime }, {})).open();
     const children: ReturnType<typeof spawn>[] = [];
+    const bin = image === "full image" ? undefined : imageWithout("setsid");
+    const env = bin ? { PATH: bin } : process.env;
     container.exec = async (command, options) => {
-      const child = spawn(command[0]!, command.slice(1), { cwd: "/", stdio: ["pipe", "pipe", "pipe"] });
+      const child = spawn(command[0]!, command.slice(1), { cwd: "/", env, stdio: ["pipe", "pipe", "pipe"] });
       children.push(child);
       const exitCode = new Promise<number>((resolve, reject) => {
-        child.on("exit", (code, signal) => resolve(code ?? (signal === "SIGKILL" ? 137 : 143)));
+        child.on("exit", (code, signal) => resolve(code ?? 128 + signals[signal as keyof typeof signals]));
         child.on("error", reject);
       });
       const stream = (readable: NodeJS.ReadableStream) => new ReadableStream<Uint8Array>({
@@ -443,7 +458,7 @@ describe("Cloudflare Sandbox Durable Object", () => {
 
       await child.kill(signal);
 
-      await expect(child.waitForExit()).resolves.toEqual({ exitCode: signal === "SIGKILL" ? 137 : 143 });
+      await expect(child.waitForExit()).resolves.toEqual({ exitCode: 128 + signals[signal] });
       await vi.waitFor(() => expect(markedProcesses(mark)).toEqual([]));
       // The wrapper's job notice ("Killed ...") stays out of the command output.
       await expect(child.getLogs()).resolves.toEqual({ stderr: "", stdout: "started\n" });
@@ -454,6 +469,7 @@ describe("Cloudflare Sandbox Durable Object", () => {
       for (const [pid] of markedProcesses(mark)) {
         try { process.kill(Number(pid), "SIGKILL"); } catch {}
       }
+      if (bin) rmSync(bin, { force: true, recursive: true });
       await session.close();
     }
   });

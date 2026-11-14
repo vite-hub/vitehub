@@ -85,11 +85,14 @@ exit "$status"
 `;
 
 // Run a spawned command in its own process group, so that kill() reaches its descendants too.
+// Job control (`set -m`) makes the group with bash alone, so a custom image needs no `setsid`. Without job control,
+// bash would also start the command with SIGINT and SIGQUIT ignored.
 // The group ID goes to a file, because the Container API does not report process IDs.
 // Once the command runs, this shell drops its stderr so that its job notices stay out of the output.
 const processGroupShell = `
 { exec 5<&0; } 2>/dev/null || exec 5</dev/null
-setsid /bin/bash -c "$1" <&5 5<&- &
+set -m
+/bin/bash -c "$1" <&5 5<&- &
 printf '%s' "$!" > "$2"
 exec 2>/dev/null 5<&-
 wait "$!"
