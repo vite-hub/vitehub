@@ -3652,7 +3652,7 @@ export async function contributeAgentPageRealtime(context: { directory: string }
   await mkdir(context.directory, { recursive: true })
   await writeFileIfChanged(handler, [
     "// A room for each page that `connectPage()` joins. The Agent's `page()` Capability asks the one browser in it.",
-    "export default { document: false, requests: true }",
+    "export default { access: \"public\", document: false, requests: true }",
     "",
   ].join("\n"))
   return { definitions: [{ handler, name: pageRealtimeDefinition }] }

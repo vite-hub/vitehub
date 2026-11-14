@@ -52,7 +52,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     REALTIME_ROOM_REQUESTS_OFF: {
       why: ({ definition }: { definition: string }) => `The Realtime Definition "${definition}" does not take requests.`,
-      fix: "Define it with `defineRealtime({ document: false, requests: true })`.",
+      fix: "Define it with `defineRealtime({ access: \"public\", document: false, requests: true })`.",
     },
     REALTIME_ROOM_TIMEOUT: {
       why: ({ timeout }: { timeout: number }) => `The browser did not answer in ${timeout / 1000} seconds.`,
@@ -93,6 +93,20 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? "Realtime `persistence.maxWait` must be at least `persistence.debounce`."
         : `Realtime \`persistence.${name}\` must be a non-negative number of milliseconds.`,
       fix: "Set `persistence: { debounce: 2_000, maxWait: 10_000 }`, or remove the option to use these defaults.",
+    },
+    REALTIME_MISSING_ACCESS: {
+      why: "The Realtime definition sets no access rule, so it does not say who can read and write its rooms.",
+      fix: "Set `auth: true` to require a signed-in user, add `authorize()` to decide each request, or set `access: \"public\"` to let anyone read and write.",
+    },
+    REALTIME_INVALID_ACCESS: {
+      why: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "public-with-rule"
+        ? "The Realtime definition sets `access: \"public\"` together with `auth` or `authorize()`, so its access rule is not clear."
+        : reason === "not-public"
+          ? "The Realtime definition sets `access` to a value other than \"public\"."
+          : "The Realtime definition sets `origins()` with `auth: true` and no `identify()`. The ViteHub Auth session is a cookie, so ViteHub accepts it only from the app's own origin.",
+      fix: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "origins-without-identify"
+        ? "Remove `origins()`, or add `identify()` that reads a credential the page sends on purpose, such as a ticket in `params`."
+        : "Use `access: \"public\"` alone for open rooms. To limit access, remove `access` and set `auth: true` or `authorize()`.",
     },
     REALTIME_CHECKPOINT_UNSUPPORTED: {
       why: "The Realtime definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method, so `history.checkpoint()` could never run.",

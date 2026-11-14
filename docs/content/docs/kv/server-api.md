@@ -57,9 +57,35 @@ export async function savePreferences(tenantId: string, value: unknown) {
 }
 ```
 
+### Read and write many keys
+
+`kv.getMany(keys)` reads many keys in one call. Its value has one item per key, in the order of `keys`, with `null` for a missing key. `kv.setMany(entries)` writes an array of `{ key, value }` entries:
+
+```ts [server/api/profiles.get.ts] fragment
+const [writeError] = await kv.setMany([
+  { key: 'profile:ada', value: { name: 'Ada' } },
+  { key: 'profile:linus', value: { name: 'Linus' } },
+], { ttl: 3600 })
+if (writeError) throw writeError
+
+const [readError, profiles] = await kv.getMany<{ name: string }>(['profile:ada', 'profile:grace', 'profile:linus'])
+if (readError) throw readError
+// [{ name: 'Ada' }, null, { name: 'Linus' }]
+```
+
+The options work as in `get()` and `set()` and apply to every key. In `setMany()`, the last entry of a key wins, and a `value` of `undefined` deletes the key, as `set()` does. `setMany()` is not atomic: when it fails, some entries can be written. Use `setIfAbsent()` or a Database transaction when all writes must succeed together.
+
+| Driver | `getMany()` | `setMany()` |
+| --- | --- | --- |
+| `redis` | `MGET`, 1000 keys per command. | One pipeline. |
+| `database` | One `SELECT` per 200 keys. | One `INSERT ... ON CONFLICT` per 200 entries. |
+| `upstash` | One `MGET`. | One request per entry, 16 at a time. |
+| `cloudflare-kv-binding` | One bulk `get()` per 100 keys. | One `put()` per entry, 16 at a time. It checks every entry against the [Workers KV limits](/docs/kv/limits-and-errors#limits) before it writes any. |
+| `deno-kv`, `fs-lite` | One read per key, 16 at a time. | One write per key, 16 at a time. |
+
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `getMany()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setMany()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -134,8 +160,10 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 | Method | Description |
 | --- | --- |
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
+| `kv.getMany<T>(keys, { type? })` | Reads many keys in one call. Returns one value or `null` per key, in the order of `keys`. See [Read and write many keys](#read-and-write-many-keys). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
 | `kv.set<T>(key, value, { ttl? })` | Writes a value. The driver applies `ttl` in seconds. `fs-lite`, the local store of `vite dev`, ignores it, so the key stays until you delete it. |
+| `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries. Not atomic. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |

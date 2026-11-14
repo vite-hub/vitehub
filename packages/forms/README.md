@@ -69,7 +69,7 @@ const [error, sent] = await submitForm("contact", { email, message })
 if (error) showFieldErrors(error.issues)
 ```
 
-`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence.
+`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
 
 ## Vue
 
@@ -88,7 +88,33 @@ import { ContactSchema } from "#shared/schemas"
 
 A string becomes a text, email, or url input, or a textarea when it is long or named like `message`. A number becomes a number input, a boolean a checkbox, and a picklist a select. `v.title()` sets the label.
 
-For your own markup, use Formisch and `useFormSubmit()`. It sends the values and puts each server issue under its field:
+For your own markup, use a native `<form>` and `useFormAction()`. It sends the controls by their `name`, keeps the server error of each field in `errors`, moves focus to the first field with an error, and resets the form after a success. With ui-sdk, a `Field` shows the error of its control:
+
+```vue fragment
+<script setup lang="ts">
+import { Field, FieldError, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
+import { formRoute, useFormAction } from "@vite-hub/forms/vue"
+
+const { submit, errors, sent, clear } = useFormAction("contact")
+</script>
+
+<template>
+  <form method="post" :action="formRoute('contact')" @submit="submit">
+    <Field name="email" :invalid="errors.email ? true : undefined">
+      <FieldLabel>Email</FieldLabel>
+      <Input type="email" required @value-change="clear('email')" />
+      <FieldError v-if="errors.email" match>{{ errors.email }}</FieldError>
+    </Field>
+    <button>Send</button>
+    <p role="status">{{ sent ? "Thanks." : "" }}</p>
+  </form>
+</template>
+```
+
+`@vite-hub/forms/vue` still loads `@formisch/vue` for `AutoForm`, so install it too.
+
+With Formisch, use `useFormSubmit()`. It sends the values and puts each server issue under its field:
 
 ```vue fragment
 <script setup lang="ts">

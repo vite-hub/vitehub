@@ -56,6 +56,7 @@ export default defineWorkspace({
 import { defineRealtime } from "@vite-hub/realtime"
 
 export default defineRealtime({
+  auth: true,
   document: { workspace: "docs" },
   history: { checkpoint: true },
 })
@@ -143,7 +144,7 @@ A presence Definition with `requests: true` lets server code ask the one browser
 // server/realtime/tabs.ts
 import { defineRealtime } from "@vite-hub/realtime"
 
-export default defineRealtime({ document: false, requests: true })
+export default defineRealtime({ access: "public", document: false, requests: true })
 ```
 
 ```ts fragment
@@ -166,7 +167,8 @@ One browser answers: a room with two browsers returns `REALTIME_ROOM_CROWDED`. A
 - `authority: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `authority: "auto"` selects it when a Cloudflare host or hosting environment can be resolved.
 - On a Node build, `authority: "auto"` picks when the server starts: `redis` with `REDIS_URL`, else `postgres` on the postgres.js client of the Default Database when it is on Postgres (`REALTIME_POSTGRES_URL` overrides it; `DATABASE_URL` is not read), else `memory`. A borrowed Database client is never closed. It prints the choice at boot. With `redis` or `postgres`, each instance holds its rooms in memory and shares Yjs updates and awareness with the other instances through Redis pub/sub or Postgres `LISTEN`/`NOTIFY`. The instances start each room from one shared record (`vitehub_realtime_rooms` on Postgres), and saves of one room run one at a time under a lock, so `ifDigest` stays correct across instances. `NOTIFY` payloads over 8,000 bytes go through the `vitehub_realtime_messages` table. Each app has its own namespace on the bus (`realtime.namespace`, else the app name; `REALTIME_NAMESPACE` replaces it at runtime), so two apps on one Redis or Postgres never share a room. Presence of a stopped instance leaves at once, and that of a crashed instance after the 30 second Yjs awareness timeout. Other production builds fail with `REALTIME_MISSING_AUTHORITY`.
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
-- Realtime Definitions are public by default. Set `auth: true` only after configuring ViteHub Auth; this verifies the session and replaces client-supplied presence identity. Presence in a public definition is untrusted and must not authorize application actions.
+- Each Realtime Definition must set `auth: true`, `authorize()`, or `access: "public"`. Otherwise the server rejects it with `REALTIME_MISSING_ACCESS`. `auth: true` needs ViteHub Auth or `identify()`; it verifies the user and replaces client-supplied presence identity. `access: "public"` lets each person read and write each room. Presence in a public definition is untrusted and must not authorize application actions.
+- Requests with an `Origin` other than the app's get 403 on each definition, unless `origins()` accepts the origin.
 - Other packages can contribute definitions through `hubRealtime({ contribute })`, such as Content live editing. Realtime adds them only when the build has a room authority and leaves them out without an error otherwise. A file in `server/realtime` with the same name wins.
 - Realtime routes follow the app base, including a Nuxt `app.baseURL`. With Vite `base: "/portal/"`, connections use `/portal/api/_vitehub/realtime/**`; Nitro's own `baseURL` is counted once.
 - `refreshRealtimeDocument(definition, id)` tells an open room that its stored copy changed outside it. Document adapters may implement `hold()` and `release()` to keep a lease while writers are in a room.
