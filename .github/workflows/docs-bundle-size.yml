@@ -1,0 +1,60 @@
+name: docs-bundle-size
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - docs/**
+      - packages/docs/**
+      - packages/ui/**
+      - packages/icons/**
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/docs-bundle-size.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-bundle-size-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NUXT_BUNDLE_ANALYZER_VERSION: 0.2.0
+  # The pages the analysis build renders and measures: the landing page, a guide, a primitive, and a diagnostics code.
+  NUXT_BUNDLE_ANALYZER_URLS: /,/docs/getting-started,/docs/kv,/docs/kv/diagnostics/kv_invalid_cursor
+
+jobs:
+  # Analyzes the base commit and the pull request side by side. docs-bundle-size-comment.yml compares them and comments.
+  analyze:
+    name: analyze (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        target: [base, pr]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The base commit for `base`, the pull request merged into it for `pr`.
+          ref: ${{ matrix.target == 'base' && github.event.pull_request.base.sha || '' }}
+      - uses: ./.github/actions/setup
+      # The docs read their content from the checkout, so unlike comark-docs they need no Git ref or token here.
+      - name: Analyze the docs
+        working-directory: docs
+        run: npx --yes "nuxt-bundle-analyzer@$NUXT_BUNDLE_ANALYZER_VERSION" . --urls "$NUXT_BUNDLE_ANALYZER_URLS" --name "$TARGET" --no-serve # zizmor: ignore[adhoc-packages]
+        env:
+          TARGET: ${{ matrix.target }}
+          # The analysis build needs more than Node's default heap, like `docs build`.
+          NODE_OPTIONS: --max-old-space-size=8192
+          NUXT_TELEMETRY_DISABLED: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: docs/node_modules/.cache/nuxt-bundle-analyzer/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 7
