@@ -180,6 +180,8 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
               alias.specifier,
               alias.prefix,
               resolutionScope,
+              // An exports match depends on the path inside the package, so two files of one package need two entries.
+              normalizedSpecifier,
               args.importer,
               args.resolveDir,
               args.kind,

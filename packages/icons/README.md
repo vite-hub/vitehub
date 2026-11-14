@@ -20,6 +20,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `auth` | Auth |
 | `blob` | Blob |
 | `browser` | Browser |
+| `cache` | Cache |
 | `channels` | Channels |
 | `cms` | CMS |
 | `comments` | Comments |

@@ -509,7 +509,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
     id: "workflow",
     packages: ["@vite-hub/workflow"],
     providerPackages: { provider: { openworkflow: ["openworkflow"] } },
-    summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
+    summary: "Durable Workflows in `server/workflows/` with steps and provider retries.",
     title: "Workflow",
   }),
   workspace: feature({
