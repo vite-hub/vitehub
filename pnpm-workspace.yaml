@@ -159,7 +159,7 @@ catalogs:
     zod: ^4.6.7
   sandbox:
     "@cloudflare/sandbox": ^1.0.3
-    "@vercel/sandbox": ^3.9.1
+    "@vercel/sandbox": ^3.9.1 || ^4.0.0
   shell:
     just-bash: ^3.6.0
     sh-syntax: 0.8.3
