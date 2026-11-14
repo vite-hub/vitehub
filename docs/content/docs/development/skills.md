@@ -155,7 +155,7 @@ Your app's own pages use the same object:
 | `key` | `vitehub:skills:disabled` | The key of the list of names that are off. The KV section of the Console does not edit `vitehub:` keys. |
 | `ttlMs` | `60000` | How long a server instance reuses what it read. A change applies at once on the instance that made it. Other instances see it within `ttlMs`, plus the delay of the store, such as up to a minute for Cloudflare KV. |
 
-`settings.set()` reads the store again before it writes, so it keeps changes from other instances. Two changes at the same moment on different instances can still overwrite each other: the last write wins.
+`settings.set()` serializes updates on the same settings instance and reads the store again before it writes, so it keeps changes from other instances. Two changes at the same moment on different instances can still overwrite each other: the last write wins.
 
 ## Serve skills over MCP
 

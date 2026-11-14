@@ -333,6 +333,29 @@ describe("skillSettings", () => {
     expect((await settings.enabled()).map(skill => skill.name)).toEqual(["release", "handoff"])
   })
 
+  it("preserves concurrent changes on the same instance", async () => {
+    const { store, values } = memoryStore()
+    const settings = skillSettings([release, handoff], { store })
+    expect(await Promise.all([settings.set("release", false), settings.set("handoff", false)])).toEqual([
+      [undefined, { enabled: false, skill: release }],
+      [undefined, { enabled: false, skill: handoff }],
+    ])
+    expect(values.get("vitehub:skills:disabled")).toEqual(["handoff", "release"])
+    expect(await settings.enabled()).toEqual([])
+  })
+
+  it("continues queued updates after a store write rejects", async () => {
+    const { store, values } = memoryStore()
+    const write = vi.spyOn(store, "set").mockRejectedValueOnce(new Error("store unavailable"))
+    const settings = skillSettings([release, handoff], { store })
+    const results = await Promise.allSettled([settings.set("release", false), settings.set("handoff", false)])
+    expect(results[0]).toMatchObject({ status: "rejected", reason: new Error("store unavailable") })
+    expect(results[1]).toEqual({ status: "fulfilled", value: [undefined, { enabled: false, skill: handoff }] })
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(values.get("vitehub:skills:disabled")).toEqual(["handoff"])
+    expect(await settings.enabled()).toEqual([release])
+  })
+
   it("refuses a name that is not in the list", async () => {
     const { store, values } = memoryStore()
     const [error] = await skillSettings([release], { store }).set("missing", false)

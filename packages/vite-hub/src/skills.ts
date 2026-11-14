@@ -534,6 +534,7 @@ export function skillSettings<TSkill extends Skill>(skills: SkillList<TSkill>, o
   const { store } = options
   const key = options.key ?? "vitehub:skills:disabled"
   const ttlMs = options.ttlMs ?? 60_000
+  let updates: Promise<void> = Promise.resolve()
   let cached: { at: number, disabled: Promise<Result<Set<string>, "SKILL_SETTINGS_UNAVAILABLE">> } | undefined
 
   async function read(): Promise<Result<Set<string>, "SKILL_SETTINGS_UNAVAILABLE">> {
@@ -567,18 +568,23 @@ export function skillSettings<TSkill extends Skill>(skills: SkillList<TSkill>, o
       return states.filter(state => state.enabled).map(state => state.skill)
     },
     list,
-    async set(name, enabled) {
-      const skill = (await resolveSkills(skills)).find(entry => entry.name === name)
-      if (!skill) return [skillErrors.SKILL_NOT_FOUND({ uri: `skill://${name}` }), undefined]
-      // Read the store, not the cache, so a change from another instance in the last `ttlMs` stays.
-      const [readError, off] = await read()
-      if (readError) return [readError, undefined]
-      if (enabled) off.delete(name)
-      else off.add(name)
-      const [writeError] = await store.set(key, [...off].sort())
-      if (writeError) return [skillErrors.SKILL_SETTINGS_UNAVAILABLE({ action: "write", cause: writeError }), undefined]
-      cached = { at: Date.now(), disabled: Promise.resolve([undefined, off]) }
-      return [undefined, { enabled, skill }]
+    set(name, enabled) {
+      const update = updates.then(async (): ReturnType<SkillSettings<TSkill>["set"]> => {
+        const skill = (await resolveSkills(skills)).find(entry => entry.name === name)
+        if (!skill) return [skillErrors.SKILL_NOT_FOUND({ uri: `skill://${name}` }), undefined]
+        // Read the store, not the cache, so a change from another instance in the last `ttlMs` stays.
+        const [readError, off] = await read()
+        if (readError) return [readError, undefined]
+        if (enabled) off.delete(name)
+        else off.add(name)
+        const [writeError] = await store.set(key, [...off].sort())
+        if (writeError) return [skillErrors.SKILL_SETTINGS_UNAVAILABLE({ action: "write", cause: writeError }), undefined]
+        cached = { at: Date.now(), disabled: Promise.resolve([undefined, off]) }
+        return [undefined, { enabled, skill }]
+      })
+      // A rejected update must not prevent the next queued update from running.
+      updates = update.then(() => {}, () => {})
+      return update
     },
     skills,
   }
