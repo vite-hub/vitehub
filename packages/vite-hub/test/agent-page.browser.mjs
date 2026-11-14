@@ -137,6 +137,8 @@ const authFile = `import { defineAuth } from "vite-hub/auth"
 
 export default defineAuth({
   appName: "Acme",
+  // One server process for the whole check.
+  database: "memory",
   emailAndPassword: { enabled: true },
 })
 `
