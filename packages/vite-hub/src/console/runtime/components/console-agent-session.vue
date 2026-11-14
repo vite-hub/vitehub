@@ -7,6 +7,7 @@ import {
 } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
 import { AgentInvocation, invocationActivities, type AgentInvocationView } from "./invocation";
+import ConsolePageChanges from "./console-page-changes.vue";
 import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
@@ -31,8 +32,12 @@ const tab = defineModel<SurfaceId>("tab", { default: "details" });
 const details = defineModel<"closed" | "open" | "max">("details", { default: "closed" });
 // The launcher has no surface ID. Keep the last URL tab for reopening the panel.
 const launcherOpen = ref(false);
-const surface = computed(() => launcherOpen.value ? null : tab.value);
+// The Page surface is this view's own: the URL tab and the session inspector do not know it, so it stays local.
+const pageOpen = ref(false);
+const surface = computed(() => launcherOpen.value ? null : pageOpen.value ? "page" : tab.value);
 watch([tab, details], () => { launcherOpen.value = false; });
+watch(tab, () => { pageOpen.value = false; });
+watch(() => props.invocation?.id, () => { pageOpen.value = false; });
 const panelOpen = computed({
   get: () => details.value !== "closed",
   set: (open: boolean) => { details.value = open ? details.value === "max" ? "max" : "open" : "closed"; },
@@ -43,8 +48,13 @@ const maximized = computed({
 });
 function selectSurface(id: string | null) {
   if (id === null) launcherOpen.value = true;
+  else if (id === "page" && surfaces.value.some(surface => surface.id === "page")) {
+    launcherOpen.value = false;
+    pageOpen.value = true;
+  }
   else if (surfaces.value.some(surface => surface.id === id)) {
     launcherOpen.value = false;
+    pageOpen.value = false;
     tab.value = id as SurfaceId;
   }
 }
@@ -57,6 +67,9 @@ const surfaces = computed<AgentSessionSurface[]>(() => {
   if (props.workspaceBase) items.push({ id: "workspace", label: "Workspace", icon: "i-lucide-folder-tree", shortcut: "w" });
   if (invocation && invocationActivities(invocation).some(activity => activity.patches.length))
     items.push({ id: "diff", label: "Changes", icon: "i-lucide-git-compare-arrows", shortcut: "c" });
+  // What the Agent changed on a person's page through the `page()` Capability.
+  if (invocation?.observations.some(observation => observation.name === "agent.page.change"))
+    items.push({ id: "page", label: "Page", icon: "i-lucide-mouse-pointer-click", shortcut: "p" });
   items.push({ id: "trace", label: "Trace", icon: "i-lucide-list-tree", shortcut: "t" });
   if (invocation?.configuration?.capabilities?.length)
     items.push({ id: "capabilities", label: "Capabilities", icon: "i-lucide-blocks", shortcut: "a" });
@@ -122,6 +135,7 @@ const harnessMark = () => invocationBrandMark(harness.value, "vh-agent-session__
 const makerMark = () => invocationBrandMark(maker.value, "vh-agent-session__row-icon");
 const skills = computed(() => configuration.value?.skills ?? []);
 const mcpServers = computed(() => configuration.value?.mcpServers ?? []);
+const pageChanges = computed(() => props.invocation?.observations.filter(observation => observation.name === "agent.page.change").length ?? 0);
 const changedFiles = computed(() => {
   const invocation = props.invocation;
   if (!invocation) return 0;
@@ -191,6 +205,13 @@ const changedFiles = computed(() => {
           :value="changedFiles"
           @click="session?.openSurface('diff')"
         />
+        <AgentSessionDetailsRow
+          v-if="pageChanges"
+          icon="i-lucide-mouse-pointer-click"
+          label="Page changes"
+          :value="pageChanges"
+          @click="session?.openSurface('page')"
+        />
       </AgentSessionDetailsSection>
       <AgentSessionDetailsSection v-if="model || harness || skills.length || mcpServers.length" title="Agent">
         <AgentSessionDetailsRow v-if="model" :icon="maker ? undefined : 'i-lucide-cpu'" :label="invocationModelName(model)" :title="model">
@@ -233,8 +254,15 @@ const changedFiles = computed(() => {
     </template>
 
     <template #surface="{ surface }">
+      <ConsolePageChanges
+        v-if="invocation && surface.id === 'page'"
+        :key="`${invocation.id}:page`"
+        class="console-agent-session__surface"
+        :invocation="invocation"
+        @refresh="emit('refresh')"
+      />
       <ConsoleSessionInspector
-        v-if="invocation"
+        v-else-if="invocation"
         :key="`${invocation.id}:${surface.id}`"
         v-bind="surface.id === 'workspace' ? workspaceModel : {}"
         class="console-agent-session__surface"

@@ -28,7 +28,7 @@ describe("Comments in a built Nitro 3 app", () => {
         "",
       ].join("\n"),
       // The overlay API reads the app Auth session. The Console calls are signed instead.
-      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ database: 'memory', emailAndPassword: { enabled: true } })\n",
       "server/console-authorize.ts": "export default () => true\n",
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",

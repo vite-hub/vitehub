@@ -24,6 +24,8 @@ export const defaultAgentInvocationsMetadataContent: readonly string[] = [
   "input.messages",
   "input.prompt",
   "message.content",
+  // The values before and after a change the `page()` Capability made, for the Console and `vitehub agent invocations show`.
+  "page.change.content",
   "result.output",
   "result.text",
   "tool.input",

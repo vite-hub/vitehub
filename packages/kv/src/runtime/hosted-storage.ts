@@ -16,11 +16,14 @@ export interface RuntimeStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
   getAndDeleteItem?<T = unknown>(key: string, options?: { type?: "text" }): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
+  getMany<T = unknown>(keys: readonly string[], options?: unknown): Promise<(T | null)[]>
   incrementItem?(key: string, ttl: number): Promise<number>
   listKeys(options: KVListOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
+  setMany(entries: readonly { key: string, value: unknown }[], options?: unknown): Promise<void>
   setIfAbsentItem?<T = unknown>(key: string, value: T, ttl?: number): Promise<boolean>
 }
 
