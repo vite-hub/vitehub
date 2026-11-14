@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
@@ -145,7 +145,7 @@ describe("triggers and migrations", () => {
     const app = await setup()
     await app.start(alice)
     const installed = await triggers(app)
-    expect(installed.map(trigger => trigger.name)).toEqual(["vitehub_sync_issues_delete", "vitehub_sync_issues_insert", "vitehub_sync_issues_update"])
+    expect(installed.map(trigger => trigger.name)).toEqual(["vitehub_sync_issues_delete", "vitehub_sync_issues_insert", "vitehub_sync_issues_replace_insert", "vitehub_sync_issues_replace_update", "vitehub_sync_issues_update"])
     expect(installed.find(trigger => trigger.name.endsWith("_delete"))?.sql).toContain("'team_id'")
     expect(installed.some(trigger => trigger.sql.includes("title"))).toBe(false)
     await app.client.execute("ALTER TABLE `issues` DROP COLUMN `title`")
@@ -172,7 +172,7 @@ describe("triggers and migrations", () => {
     const server = processOf(app, { issues: defineSync({ table: labeled, where: ({ user }) => user ? { teamId: teamsOf(user) } : false, subsets: ["label"] }) })
     const bugs = await server.pull("issues", alice, { where: { label: "bug" } })
     expect(bugs.rows.map(row => row.id)).toEqual(["i1"])
-    expect((await triggers(app)).find(trigger => trigger.name.endsWith("_update"))?.sql).toContain("OLD.\"label\" IS NOT NEW.\"label\"")
+    expect((await triggers(app)).find(trigger => trigger.name === "vitehub_sync_issues_update")?.sql).toContain("OLD.\"label\" IS NOT NEW.\"label\"")
 
     await app.client.execute("UPDATE `issues` SET `label` = 'feature' WHERE `id` = 'i1'")
     expect(await server.pull("issues", alice, { cursor: bugs.cursor, scope: bugs.scope.id, version: bugs.version, where: { label: "bug" } })).toMatchObject({ reset: false, rows: [], deleted: ["i1"] })
@@ -186,6 +186,8 @@ describe("triggers and migrations", () => {
       "DROP TRIGGER IF EXISTS vitehub_sync_issues_insert",
       "DROP TRIGGER IF EXISTS vitehub_sync_issues_update",
       "DROP TRIGGER IF EXISTS vitehub_sync_issues_delete",
+      "DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_insert",
+      "DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_update",
       "DELETE FROM vitehub_sync_columns WHERE table_name = 'issues' AND \"column\" = 'owner_id'",
       "ALTER TABLE `issues` DROP COLUMN `owner_id`",
     ].join(";\n"))
@@ -194,7 +196,7 @@ describe("triggers and migrations", () => {
     const teams = sqliteTable("issues", { id: text("id").primaryKey(), teamId: text("team_id").notNull(), title: text("title").notNull(), done: integer("done", { mode: "boolean" }).notNull().default(false) })
     const server = processOf(app, { issues: defineSync({ table: teams, where: ({ user }) => user ? { teamId: teamsOf(user) } : false }) })
     expect(await server.pull("issues", alice, { cursor: a.cursor, scope: a.scope, version: a.version })).toMatchObject({ reset: true })
-    expect((await triggers(app)).map(trigger => trigger.name)).toHaveLength(3)
+    expect((await triggers(app)).map(trigger => trigger.name)).toHaveLength(5)
     expect((await app.client.execute("SELECT \"column\" FROM vitehub_sync_columns")).rows).toEqual([{ column: "team_id" }])
   })
 
@@ -220,8 +222,76 @@ describe("triggers and migrations", () => {
     const server = processOf(app, { issues: byTeam })
     const after = await server.pull("issues", alice, { cursor: before.cursor, scope: before.scope.id, version: before.version })
     expect(after).toMatchObject({ reset: true, rows: [] })
-    expect(await triggers(app)).toHaveLength(3)
+    expect(await triggers(app)).toHaveLength(5)
     await app.db.insert(issues).values({ id: "i2", teamId: "a", title: "After" })
     expect(await server.pull("issues", alice, { cursor: after.cursor, scope: after.scope.id, version: after.version })).toMatchObject({ reset: false, rows: [{ id: "i2" }] })
+  })
+
+  it("resets clients that held a cursor when a new scope column joins the triggers, since older exits lack it", async () => {
+    const app = await setup()
+    const a = await app.start(alice)
+    await app.db.insert(issues).values({ id: "i1", teamId: "b", ownerId: "bob", title: "Team b" })
+    await app.db.delete(issues).where(eq(issues.id, "i1"))
+    const held = (await app.pull(alice, as(a))).body
+    // A definition that scopes by owner registers `owner_id`. The exit of `i1` has no `owner_id`.
+    const byOwner = defineSync({ table: issues, where: ({ user }) => user ? { ownerId: user.id } : false })
+    await processOf(app, { mine: byOwner }).pull("mine", alice)
+    expect((await app.pull(alice, { ...as(a), cursor: held.cursor })).body).toMatchObject({ reset: true })
+  })
+
+  it("resets clients of a table that had no change log when its triggers went missing", async () => {
+    const app = await setup()
+    await app.client.execute("INSERT INTO `issues` (`id`, `team_id`, `title`) VALUES ('i1', 'a', 'Before Sync')")
+    const a = await app.start(alice)
+    await app.client.executeMultiple([
+      "CREATE TABLE `__new_issues` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `owner_id` text, `title` text NOT NULL, `done` integer DEFAULT 1 NOT NULL)",
+      "INSERT INTO `__new_issues` SELECT `id`, `team_id`, `owner_id`, `title`, `done` FROM `issues`",
+      "DROP TABLE `issues`",
+      "ALTER TABLE `__new_issues` RENAME TO `issues`",
+      "DELETE FROM `issues` WHERE `id` = 'i1'",
+    ].join(";\n"))
+    const after = await processOf(app, { issues: byTeam }).pull("issues", alice, { cursor: a.cursor, scope: a.scope, version: a.version })
+    expect(after).toMatchObject({ reset: true, rows: [] })
+  })
+})
+
+describe("replaced rows", () => {
+  it("sends a row that INSERT OR REPLACE moved to another team to the old team as deleted", async () => {
+    const app = await setup()
+    const a = await app.start(alice)
+    const b = await app.start(bob)
+    await app.db.insert(issues).values({ id: "i1", teamId: "a", title: "Mine" })
+    const held = (await app.pull(alice, as(a))).body
+    await app.client.execute("INSERT OR REPLACE INTO `issues` (`id`, `team_id`, `title`) VALUES ('i1', 'b', 'Moved')")
+    expect((await app.pull(alice, { ...as(a), cursor: held.cursor })).body).toMatchObject({ reset: false, rows: [], deleted: ["i1"] })
+    expect((await app.pull(bob, as(b))).body).toMatchObject({ reset: false, rows: [{ id: "i1", teamId: "b" }], deleted: [] })
+  })
+
+  it("sends nothing to the team of a row that an upsert or INSERT OR IGNORE kept", async () => {
+    const app = await setup()
+    const a = await app.start(alice)
+    await app.db.insert(issues).values({ id: "i1", teamId: "a", title: "Mine" })
+    const held = (await app.pull(alice, as(a))).body
+    await app.client.execute("INSERT OR IGNORE INTO `issues` (`id`, `team_id`, `title`) VALUES ('i1', 'b', 'Ignored')")
+    await app.db.insert(issues).values({ id: "i1", teamId: "a", title: "Upserted" }).onConflictDoUpdate({ target: issues.id, set: { title: "Upserted" } })
+    expect((await app.pull(alice, { ...as(a), cursor: held.cursor })).body).toMatchObject({ reset: false, rows: [{ id: "i1", title: "Upserted" }], deleted: [] })
+  })
+})
+
+describe("generated columns", () => {
+  it("records a move of a generated scope column when its source column changes", async () => {
+    const tasks = sqliteTable("tasks", {
+      id: text("id").primaryKey(),
+      base: text("base").notNull(),
+      teamId: text("team_id").generatedAlwaysAs(sql`base`),
+    })
+    const definition = defineSync({ table: tasks, where: ({ user }) => user ? { teamId: teamsOf(user) } : false, write: false })
+    const app = await createHarness({ name: "tasks", definition, ddl: ["CREATE TABLE `tasks` (`id` text PRIMARY KEY NOT NULL, `base` text NOT NULL, `team_id` text GENERATED ALWAYS AS (base) VIRTUAL)"] })
+    const a = await app.start(alice)
+    await app.client.execute("INSERT INTO `tasks` (`id`, `base`) VALUES ('t1', 'a')")
+    const held = (await app.pull(alice, as(a))).body
+    expect(held.rows).toMatchObject([{ id: "t1" }])
+    await app.client.execute("UPDATE `tasks` SET `base` = 'b' WHERE `id` = 't1'")
+    expect((await app.pull(alice, { ...as(a), cursor: held.cursor })).body).toMatchObject({ reset: false, rows: [], deleted: ["t1"] })
   })
 })

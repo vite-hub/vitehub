@@ -33,9 +33,11 @@ icon: i-lucide-circle-alert
   DROP TRIGGER IF EXISTS vitehub_sync_issues_insert;
   DROP TRIGGER IF EXISTS vitehub_sync_issues_update;
   DROP TRIGGER IF EXISTS vitehub_sync_issues_delete;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_insert;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_update;
   DELETE FROM vitehub_sync_columns WHERE table_name = 'issues' AND "column" = 'team_id';
   ```
-- **`INSERT OR REPLACE`.** SQLite removes the old row without its delete trigger, so a replace that changes a scope column does not leave the old scope. Use an upsert, such as Drizzle's `onConflictDoUpdate()`.
+- **Unique indexes on expressions.** `INSERT OR REPLACE` removes a row that has the same value in a unique column, and the triggers send that to the old scope. A unique index on an expression, such as `lower(email)`, has no column name, so a row that it replaces stays in the old scope. Use an upsert, such as Drizzle's `onConflictDoUpdate()`.
 - **Queries.** The browser gets every row of its scope or subset. There is no paging or filter beyond `where` and subsets.
 - **Offline files.** Sync keeps rows, not files. Use [Blob](/docs/blob) for files.
 - **An app shell offline.** Sync keeps data. Loading the page itself offline needs a service worker, which Sync does not add.

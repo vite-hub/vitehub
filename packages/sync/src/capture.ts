@@ -12,14 +12,18 @@ import type { SyncDatabase } from "./database.ts"
  * - After a delete, an exit `delete` keeps the key and the scope columns of the old row.
  * - After an update that changes a scope column, an exit `move` keeps the old values. A new key is a delete of the old
  *   key.
+ * - Before an insert or an update, an exit `move` keeps each other row with the same value in a unique column, such as
+ *   the same key. `INSERT OR REPLACE` deletes such a row without its delete trigger, unless `recursive_triggers` is on.
+ *   When the write keeps the row instead, such as an upsert or `OR IGNORE`, the row is still in its scope, and a pull
+ *   does not send the exit.
  *
  * The scope columns are the rows of `vitehub_sync_columns`. The triggers name only them and the key, so a migration
  * can drop any other column.
  */
 
-/** The names of the triggers of a table: insert, update, and delete. */
-export function syncTriggerNames(table: string): readonly [string, string, string] {
-  return [`vitehub_sync_${table}_insert`, `vitehub_sync_${table}_update`, `vitehub_sync_${table}_delete`]
+/** The names of the triggers of a table: insert, update, delete, and the replaced rows of an insert and an update. */
+export function syncTriggerNames(table: string): readonly [string, string, string, string, string] {
+  return [`vitehub_sync_${table}_insert`, `vitehub_sync_${table}_update`, `vitehub_sync_${table}_delete`, `vitehub_sync_${table}_replace_insert`, `vitehub_sync_${table}_replace_update`]
 }
 
 function quote(name: string): string {
@@ -44,8 +48,8 @@ interface Column {
  * of the handler writes it. Before version 3.48, SQLite allows at most 127 arguments to a function, so a long list is
  * built in parts. `json_patch()` drops the `null` values of a later part, and a missing column reads as `null`.
  */
-function oldRowSql(columns: readonly Column[]): string {
-  const pairs = columns.map(({ name, type }) => `${literal(name)}, ${/^(?:blob|numeric)/i.test(type) ? `CAST(OLD.${quote(name)} AS text)` : `OLD.${quote(name)}`}`)
+function oldRowSql(columns: readonly Column[], row = "OLD"): string {
+  const pairs = columns.map(({ name, type }) => `${literal(name)}, ${/^(?:blob|numeric)/i.test(type) ? `CAST(${row}.${quote(name)} AS text)` : `${row}.${quote(name)}`}`)
   let object = ""
   for (let start = 0; start < pairs.length; start += 60) {
     const part = `json_object(${pairs.slice(start, start + 60).join(", ")})`
@@ -54,9 +58,9 @@ function oldRowSql(columns: readonly Column[]): string {
   return object
 }
 
-/** The `CREATE TRIGGER` statements of a table, in the order of `syncTriggerNames()`. */
-function syncTriggerStatements(table: string, key: Column, scope: readonly Column[]): [string, string, string] {
-  const [onInsert, onUpdate, onDelete] = syncTriggerNames(table)
+/** The `CREATE TRIGGER` statements of a table, in the order of `syncTriggerNames()`. `unique` has the columns of each unique index. */
+function syncTriggerStatements(table: string, key: Column, scope: readonly Column[], unique: readonly (readonly string[])[]): string[] {
+  const [onInsert, onUpdate, onDelete, onReplaceInsert, onReplaceUpdate] = syncTriggerNames(table)
   const target = quote(table)
   const name = literal(table)
   const k = quote(key.name)
@@ -67,6 +71,9 @@ function syncTriggerStatements(table: string, key: Column, scope: readonly Colum
   const exit = (op: "delete" | "move", condition: string) => `${changes} SELECT ${name}, OLD.${k}, '${op}', ${old}, ${nowSql} WHERE ${condition};`
   const moved = scope.map(column => `OLD.${quote(column.name)} IS NOT NEW.${quote(column.name)}`).join(" OR ")
   const newKey = `OLD.${k} IS NOT NEW.${k}`
+  // `=`, not `IS`: a unique column takes many `NULL`s.
+  const conflict = unique.map(columns => `(${columns.map(column => `"t".${quote(column)} = NEW.${quote(column)}`).join(" AND ")})`).join(" OR ")
+  const replaced = (other: string) => `${changes} SELECT ${name}, "t".${k}, 'move', ${oldRowSql([key, ...scope], `"t"`)}, ${nowSql} FROM ${target} AS "t" WHERE ${other} AND (${conflict || "0"});`
   return [
     `CREATE TRIGGER ${quote(onInsert)} AFTER INSERT ON ${target} BEGIN ${put} END`,
     [
@@ -79,6 +86,8 @@ function syncTriggerStatements(table: string, key: Column, scope: readonly Colum
       "END",
     ].join(" "),
     `CREATE TRIGGER ${quote(onDelete)} AFTER DELETE ON ${target} BEGIN ${dropPut("OLD")}; ${exit("delete", "1")} END`,
+    `CREATE TRIGGER ${quote(onReplaceInsert)} BEFORE INSERT ON ${target} BEGIN ${replaced("1")} END`,
+    `CREATE TRIGGER ${quote(onReplaceUpdate)} BEFORE UPDATE ON ${target} BEGIN ${replaced(`"t".${k} IS NOT OLD.${k}`)} END`,
   ]
 }
 
@@ -94,8 +103,8 @@ const maxAttempts = 3
  * scope columns are in the triggers. Each process checks once for each table and new column: `owner` is the `db` of
  * the `SyncServices`, which stays the same for every request.
  *
- * Triggers that were missing on a table with a change log, such as after a migration rebuilt the table, missed writes:
- * the install raises the floor, so every client with a cursor gets a full snapshot.
+ * Each install raises the floor, so every client with a cursor gets a full snapshot: triggers that were missing, such as
+ * after a migration rebuilt the table, missed writes, and older exits lack a new scope column.
  */
 export async function captureChanges(owner: object, db: SyncDatabase, table: string, key: string, columns: readonly string[]): Promise<void> {
   let tables = installed.get(owner)
@@ -104,24 +113,28 @@ export async function captureChanges(owner: object, db: SyncDatabase, table: str
   if (done && columns.every(column => column === key || done.has(column))) return
   const names = syncTriggerNames(table)
   for (let attempt = 1; ; attempt++) {
-    const [, registered, shape, existing, history] = await db.batch([
+    const [, registered, shape, existing, indexes] = await db.batch([
       db.run(sql`INSERT OR IGNORE INTO ${syncColumns} (${sql.identifier("table_name")}, ${sql.identifier("column")}) SELECT ${table}, value FROM json_each(${JSON.stringify(columns)})`),
       db.select({ column: syncColumns.column }).from(syncColumns).where(eq(syncColumns.tableName, table)),
-      db.all<Column>(sql`SELECT name, type FROM pragma_table_info(${table})`),
+      // `xinfo`, not `info`: it has the generated columns too. `hidden` 1 is a column of a virtual table.
+      db.all<Column>(sql`SELECT name, type FROM pragma_table_xinfo(${table}) WHERE hidden <> 1`),
       // Every trigger of Sync on the table, also one of an older name, such as before the table was renamed.
       db.all<{ name: string, sql: string }>(sql`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ${table} AND name LIKE 'vitehub\\_sync\\_%' ESCAPE '\\'`),
-      db.all<{ seen: number }>(sql`SELECT EXISTS (SELECT 1 FROM ${syncChanges} WHERE ${syncChanges.tableName} = ${table}) OR EXISTS (SELECT 1 FROM ${syncState} WHERE ${syncState.tableName} = ${table}) AS seen`),
+      db.all<{ index: string, column: string | null }>(sql`SELECT il.name AS "index", ii.name AS "column" FROM pragma_index_list(${table}) AS il JOIN pragma_index_info(il.name) AS ii WHERE il."unique" = 1 ORDER BY il.name, ii.seqno`),
     ])
     const types = new Map(shape.map(column => [column.name, column.type]))
     // A registered column that the table does not have yet, such as before its migration, stays out of the triggers.
     const scope = registered.map(row => row.column).filter(column => column !== key && types.has(column)).sort()
-    const wanted = syncTriggerStatements(table, { name: key, type: types.get(key) ?? "text" }, scope.map(column => ({ name: column, type: types.get(column) ?? "" })))
+    const unique = new Map<string, (string | null)[]>()
+    for (const { index, column } of indexes) unique.set(index, [...unique.get(index) ?? [], column])
+    // An index on an expression has no column name. Its conflicts stay without an exit.
+    const uniqueColumns = [...unique.values()].filter((columns): columns is string[] => columns.every(column => column !== null))
+    const wanted = syncTriggerStatements(table, { name: key, type: types.get(key) ?? "text" }, scope.map(column => ({ name: column, type: types.get(column) ?? "" })), uniqueColumns)
     const current = new Map(existing.map(trigger => [trigger.name, trigger.sql]))
     if (existing.length === names.length && names.every((name, index) => current.get(name) === wanted[index])) {
       tables.set(table, new Set(scope))
       return
     }
-    const missed = names.some(name => !current.has(name)) && history[0]?.seen === 1
     try {
       await db.batch([
         // Fails the batch when another process registered a column after the read above, so its column stays in the
@@ -129,7 +142,9 @@ export async function captureChanges(owner: object, db: SyncDatabase, table: str
         db.run(sql`INSERT INTO ${syncColumns} (${sql.identifier("table_name")}, ${sql.identifier("column")}) SELECT ${table}, NULL WHERE (SELECT count(*) FROM ${syncColumns} WHERE ${syncColumns.tableName} = ${table}) <> ${registered.length}`),
         ...existing.map(trigger => db.run(sql.raw(`DROP TRIGGER IF EXISTS ${quote(trigger.name)}`))),
         ...wanted.map(statement => db.run(sql.raw(statement))),
-        ...missed ? raiseFloor(db, table) : [],
+        // New triggers mean writes that no trigger saw, such as before a migration rebuilt the table, or exits without a
+        // new scope column. A client with a cursor gets a full snapshot.
+        ...raiseFloor(db, table),
       ])
       tables.set(table, new Set(scope))
       return

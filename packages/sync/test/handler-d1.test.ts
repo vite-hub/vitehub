@@ -104,5 +104,5 @@ it("captures every write on a local D1 with triggers, also after a migration add
   await d1.prepare("ALTER TABLE `issues` DROP COLUMN `done`").run()
   await d1.prepare("DELETE FROM `issues` WHERE `id` = 'i2'").run()
   const { results } = await d1.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name").all()
-  expect(results).toEqual([{ name: "vitehub_sync_issues_delete" }, { name: "vitehub_sync_issues_insert" }, { name: "vitehub_sync_issues_update" }])
+  expect(results).toEqual([{ name: "vitehub_sync_issues_delete" }, { name: "vitehub_sync_issues_insert" }, { name: "vitehub_sync_issues_replace_insert" }, { name: "vitehub_sync_issues_replace_update" }, { name: "vitehub_sync_issues_update" }])
 })

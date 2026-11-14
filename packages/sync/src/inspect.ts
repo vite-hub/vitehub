@@ -73,7 +73,7 @@ export async function summarizeSync(installed: InstalledSync): Promise<SyncSumma
       exits: exits[0]?.count ?? 0,
       floor: state[0]?.floor ?? 0,
       lastSeq: changes[0]?.last ?? 0,
-      triggers: triggers[0]?.count === 3,
+      triggers: triggers[0]?.count === syncTriggerNames(table.name).length,
       scopeColumns: columns.map(row => row.column),
     }
   }))
