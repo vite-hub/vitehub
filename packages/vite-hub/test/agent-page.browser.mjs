@@ -548,7 +548,7 @@ for (const item of cases) {
   test(`${item.name}: an Agent works the page under the server's rules, and every change is listed and undone`, { timeout: 900_000 }, async (t) => {
     const root = await writeFixture(item)
     await build(item, root)
-    const app = { root, ...await start(item, root, { BETTER_AUTH_SECRET: secret, VITEHUB_SECRET: secret, VITEHUB_CONSOLE_KEY_CI: consoleKey.publicKey }) }
+    const app = { root, ...await start(item, root, { BETTER_AUTH_SECRET: secret, BETTER_AUTH_URL: `http://127.0.0.1:${item.port}`, VITEHUB_SECRET: secret, VITEHUB_CONSOLE_KEY_CI: consoleKey.publicKey }) }
     t.after(() => app.stop())
     const ada = { app, ...await signIn(app, "Ada Lovelace", "ada@acme.dev") }
     const grace = { app, ...await signIn(app, "Grace Hopper", "grace@acme.dev") }
