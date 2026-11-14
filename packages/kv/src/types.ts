@@ -209,7 +209,7 @@ export type KVGetOptions<K extends KVGetType | undefined = KVGetType | undefined
 type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
 export interface KVSetIfAbsentOptions {
-  /** Seconds until the key expires. `fs-lite` never expires keys, so its key stays until you delete it. */
+  /** Seconds until the key expires. Without it, the key stays until you delete it. */
   ttl?: number
 }
 

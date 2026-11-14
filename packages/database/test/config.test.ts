@@ -542,6 +542,21 @@ describe("resolveDBViteConfig", () => {
     expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
   })
 
+  it("reads a Postgres URL from a chain of environment variables", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/default/index.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.POSTGRES_URL || process.env.POSTGRESQL_URL || process.env.DATABASE_URL }, schema: {} })",
+      "",
+    ].join("\n"))
+
+    const url = resolveDBViteConfig(undefined, rootDir)!.databases.default!.connection?.url
+    expect(resolveConfigValue(url, { DATABASE_URL: "postgres://third" })).toBe("postgres://third")
+    expect(resolveConfigValue(url, { POSTGRESQL_URL: "postgres://second", DATABASE_URL: "postgres://third" })).toBe("postgres://second")
+  })
+
   it.each(["reference", "spread"] as const)("does not check opaque %s resources as native D1 bindings", async (form) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {

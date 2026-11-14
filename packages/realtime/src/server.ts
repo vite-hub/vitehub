@@ -8,6 +8,7 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { RealtimeRequestFrame } from "./protocol.ts"
 import type { RealtimeBus, RealtimeBusMessage, RealtimeBusMessageType, RealtimeRoomRecord } from "./bus-protocol.ts"
 // Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
 import type {} from "@vite-hub/runtime/internal/h3"
@@ -52,11 +53,14 @@ import {
 import { assertRealtimeAccess, assertRealtimeCheckpoint } from "./definition.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
 import {
+  decodeRealtimeRequestFramePayload,
   decodeWorkspaceChangePayload,
   encodeRealtimeControl,
+  encodeRealtimeRequestFrame,
   encodeWorkspaceChange,
   messageAwareness,
   messageQueryAwareness,
+  messageRealtimeRequest,
   messageWorkspaceChange,
   realtimeForbiddenWriteCloseCode,
   realtimeInvalidDocumentCode,
@@ -70,8 +74,21 @@ import {
 import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import {
+  defaultRequestTimeout,
+  defaultRequestWait,
+  durableRoomsInstance,
+  internalRequestHeader,
+  isDurableSockets,
+  isRealtimeDurableObjectNamespace,
+  localRequesters,
+  roomRequestError,
+  routePrefix,
+  toDurableRequestReply,
+  workerDurableObjects,
+} from "./request.ts"
+import type { DurableSockets, LocalRequestOptions, RealtimeDurableObjectNamespace, RealtimeRoomRequestResult } from "./request.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
-import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
@@ -86,6 +103,8 @@ export { isRealtimeWorkspaceDocument, readRealtimeWorkspaceDocument, workspaceDo
 export type { RealtimeWorkspaceDocumentAdapter } from "./workspace-document.ts"
 
 export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
+export { requestRealtimeRoom } from "./request.ts"
+export type { RealtimeDurableObjectNamespace, RealtimeRoomRequestOptions, RealtimeRoomRequestResult } from "./request.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
@@ -101,7 +120,6 @@ export interface RealtimeHandlerOptions {
   bus?: () => Promise<RealtimeBus | undefined> | RealtimeBus | undefined
 }
 
-const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
 const maxRoomStateBytes = 8 * 1024 * 1024
 const maxMemoryRooms = 128
@@ -123,12 +141,6 @@ const messageSync = 0
 const keepalivePing = new TextEncoder().encode(realtimeKeepalivePing)
 /** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
 const internalRefreshHeader = "x-vitehub-realtime-refresh"
-/**
- * The one Durable Object instance that holds every room. Nitro's Cloudflare entry hands each WebSocket upgrade
- * to this instance before the application runs, so saves, checkpoints, and refreshes must reach it too: a Durable
- * Object per room would have no peers and never match a room's state.
- */
-const durableRoomsInstance = "server"
 
 export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxWait: 10_000 })
 
@@ -262,8 +274,15 @@ export function assertRealtimeRoomStateQuota(document: Y.Doc, maxStateBytes = ma
   }
 }
 
-export function realtimeRoomKey(definitionName: string, documentId: string): string {
-  return JSON.stringify([definitionName, documentId])
+export function realtimeRoomKey(definitionName: string, documentId: string, scope?: string): string {
+  // The scope is its own element, so no room id can name another person's room.
+  return JSON.stringify(scope === undefined ? [definitionName, documentId] : [definitionName, documentId, scope])
+}
+
+/** The scope of a person's rooms in a Definition with `scope: "user"`, or `undefined` for shared rooms. */
+function roomScope(definition: RealtimeDefinition, user: string | null): string | undefined {
+  if (definition.document !== false || definition.scope !== "user") return undefined
+  return user === null ? "anonymous" : `user:${user}`
 }
 
 export async function restoreRealtimeDocument(
@@ -623,10 +642,28 @@ async function identify(request: Request, event: H3Event, definitionName: string
   if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
     throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
   }
-  if (!definition.identify) return null
-  const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
-  if (definition.auth && !user) throw new HTTPError({ status: 401 })
-  return user
+  if (definition.identify) {
+    const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
+    if (definition.auth && !user) throw new HTTPError({ status: 401 })
+    return user
+  }
+  // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
+  if (definition.document !== false || definition.scope !== "user") return null
+  let auth
+  try {
+    auth = await assertAuthOrigin(request, event)
+  }
+  catch (error) {
+    if (isMissingAuth(error)) return null
+    throw new HTTPError({ status: 403 })
+  }
+  const session = await auth.api.getSession({ headers: request.headers })
+  return toRealtimeUser(session?.user)
+}
+
+/** The app has no Auth Definition (`AUTH_R0005`), so nobody is signed in. */
+function isMissingAuth(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "AUTH_R0005"
 }
 
 async function allows(
@@ -657,52 +694,12 @@ function localRefreshers(): Set<LocalRefreshRef> {
   return refreshScope[localRefreshKey]
 }
 
-/** The `$DurableObject` namespace binding that holds Realtime rooms on Cloudflare. */
-export interface RealtimeDurableObjectNamespace {
-  get(id: unknown): { fetch(request: Request): Promise<Response> }
-  idFromName(name: string): unknown
-}
-
-/**
- * Accepts the namespace that holds Realtime rooms, and nothing that only inherits `get` and `idFromName` from an
- * arbitrary prototype. Workerd's binding owns no methods: they belong to its `DurableObjectNamespace` class prototype,
- * and Workers have no global `DurableObjectNamespace` to compare with. Any other namespace, such as a test double,
- * must own both methods.
- */
-function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
-  const methods = (target: object) => ["get", "idFromName"].map(name => Object.getOwnPropertyDescriptor(target, name))
-  const callable = (method: PropertyDescriptor | undefined) => !!method && !method.get && typeof method.value === "function"
-    && Function.prototype.toString.call(method.value) !== "function () { [native code] }"
-  try {
-    const own = methods(value)
-    if (own.every(callable)) return true
-    const prototype: unknown = Object.getPrototypeOf(value)
-    if (own.some(Boolean) || prototype === null || typeof prototype !== "object" || Object.getPrototypeOf(prototype) !== Object.prototype) return false
-    return Object.prototype.toString.call(value) === "[object DurableObjectNamespace]" && methods(prototype).every(callable)
-  }
-  catch { return false }
-}
-
 export interface RealtimeRefreshOptions {
   /**
    * On Cloudflare, the `$DurableObject` binding that holds the rooms. Defaults to the binding of the running Worker.
    * Without one, the rooms of this process refresh.
    */
   durableObjects?: RealtimeDurableObjectNamespace
-}
-
-/** The `$DurableObject` binding of the running Worker. Nitro's Cloudflare entry stores each request's bindings in `globalThis.__env__`. */
-function workerDurableObjects(): RealtimeDurableObjectNamespace | undefined {
-  try {
-    // The internal runtime resolves the active request's AsyncLocalStorage scope before
-    // falling back to Nitro's ambient __env__ binding.
-    const binding = getActiveCloudflareBinding<unknown>("$DurableObject")
-    return isRealtimeDurableObjectNamespace(binding) ? binding : undefined
-  }
-  catch {
-    return undefined
-  }
 }
 
 /**
@@ -764,6 +761,11 @@ function refuseUpgrade(request: Request, status: number): Response {
 }
 
 const webSocketHooksKey = Symbol.for("crossws.hooks")
+
+/** A request with no headers at all, like the stub that crossws restores a hibernated socket's peer with. Browsers always send some. */
+function isBareRequest(request: Request): boolean {
+  return request.headers.keys().next().done === true
+}
 
 export function createRealtimeHandler(registry: RealtimeRegistry, options: RealtimeHandlerOptions = {}): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
@@ -990,10 +992,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     } | undefined
     if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
     let request = event.req
-    if (request.headers.has(internalRefreshHeader)) {
-      // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
+    if (request.headers.has(internalRefreshHeader) || request.headers.has(internalRequestHeader)) {
+      // Only refreshRealtimeDocument() and requestRealtimeRoom() may send them, straight to the Durable Object.
       const headers = new Headers(request.headers)
       headers.delete(internalRefreshHeader)
+      headers.delete(internalRequestHeader)
       request = new Request(request, { headers })
     }
     return await binding.get(binding.idFromName(durableRoomsInstance)).fetch(request)
@@ -1894,6 +1897,106 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   }
   localRefreshers().add(new WeakRef(refreshOpenRoom))
 
+  /** Requests that wait for a browser's answer, by request id, with the id of the peer that must answer. */
+  const pendingRequests = new Map<string, { peer: string, settle: (result: RealtimeRoomRequestResult) => void }>()
+
+  /**
+   * The browsers in a room. Inside a Durable Object they come from its sockets and their crossws attachment (`i` is the
+   * peer id, `t` the subscribed channels), which outlive hibernation; elsewhere from the open room.
+   */
+  function requestTargets(key: string, durable: DurableSockets | undefined): Array<{ id: string, send: (frame: Uint8Array) => void }> {
+    const channel = `vitehub:realtime:${key}`
+    if (durable) {
+      return durable.getWebSockets().flatMap((socket) => {
+        const state = socket.deserializeAttachment()
+        if (!state || typeof state !== "object" || !("i" in state) || typeof state.i !== "string" || !("t" in state)) return []
+        const topics = state.t
+        return topics instanceof Set && topics.has(channel) ? [{ id: state.i, send: (frame: Uint8Array) => socket.send(frame) }] : []
+      })
+    }
+    const room = openRooms.get(key)
+    return room ? [...room.peers].map(peer => ({ id: peer.id, send: (frame: Uint8Array) => peer.send(frame) })) : []
+  }
+
+  /** Asks the one browser in a room of this process or Durable Object. `requestRealtimeRoom()` calls it. */
+  async function requestRoom(definitionName: string, documentId: string, body: unknown, ask: LocalRequestOptions, durable?: DurableSockets): Promise<RealtimeRoomRequestResult> {
+    let definition: RealtimeDefinition
+    try {
+      definition = await getDefinition(definitionName)
+    }
+    catch {
+      return roomRequestError("REALTIME_ROOM_REQUESTS_OFF", { definition: definitionName })
+    }
+    if (definition.document !== false || definition.requests !== true) return roomRequestError("REALTIME_ROOM_REQUESTS_OFF", { definition: definitionName })
+    if (definition.scope === "user" && ask.user === undefined) {
+      return roomRequestError("REALTIME_ROOM_REFUSED", { reason: `the Definition "${definitionName}" keeps a room per person, so the request must name one with { user }.` })
+    }
+    const key = realtimeRoomKey(definitionName, documentId, roomScope(definition, ask.user ?? null))
+    const deadline = Date.now() + ask.wait
+    let targets = requestTargets(key, durable)
+    // A tab that reloads or reconnects leaves the room for a moment, and its old socket can close after the new one joins.
+    while (targets.length !== 1 && Date.now() < deadline && !ask.signal?.aborted) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      targets = requestTargets(key, durable)
+    }
+    if (ask.signal?.aborted) return roomRequestError("REALTIME_ROOM_ABORTED")
+    if (targets.length > 1) return roomRequestError("REALTIME_ROOM_CROWDED", { count: targets.length })
+    const target = targets[0]
+    if (!target) return roomRequestError(options.bus ? "REALTIME_ROOM_ELSEWHERE" : "REALTIME_ROOM_EMPTY")
+    const id = crypto.randomUUID()
+    return await new Promise<RealtimeRoomRequestResult>((resolve) => {
+      const finish = (result: RealtimeRoomRequestResult) => {
+        clearTimeout(timer)
+        ask.signal?.removeEventListener("abort", abort)
+        pendingRequests.delete(id)
+        resolve(result)
+      }
+      const abort = () => finish(roomRequestError("REALTIME_ROOM_ABORTED"))
+      const timer = setTimeout(() => finish(roomRequestError("REALTIME_ROOM_TIMEOUT", { timeout: ask.timeout })), ask.timeout)
+      ask.signal?.addEventListener("abort", abort, { once: true })
+      pendingRequests.set(id, { peer: target.id, settle: finish })
+      try {
+        target.send(encodeRealtimeRequestFrame({ kind: "request", id, body }))
+      }
+      catch {
+        finish(roomRequestError("REALTIME_ROOM_EMPTY"))
+      }
+    })
+  }
+  // The handler below calls `requestRoom` for the Durable Object path, which keeps it alive as long as this handler.
+  localRequesters().add(new WeakRef(requestRoom))
+
+  /** Settles the request that a browser's answer frame names, when that browser is the one asked. */
+  function settleRequest(peer: WebSocketPeer, data: Uint8Array): void {
+    const decoder = decoding.createDecoder(data)
+    let frame: RealtimeRequestFrame | undefined
+    try {
+      decoding.readVarUint(decoder)
+      frame = decodeRealtimeRequestFramePayload(decoder)
+    }
+    catch {
+      return
+    }
+    if (frame?.kind !== "answer") return
+    const pending = pendingRequests.get(frame.id)
+    if (!pending || pending.peer !== peer.id) return
+    pending.settle(frame.ok ? [undefined, frame.body] : roomRequestError("REALTIME_ROOM_REFUSED", { reason: frame.why }))
+  }
+
+  const restoredPeerHandler = defineWebSocketHandler({
+    message(peer, message: WebSocketMessage) {
+      const data = message.uint8Array()
+      if (data[0] === messageRealtimeRequest && data.byteLength <= maxMessageBytes) settleRequest(peer, data)
+    },
+  })
+
+  /** The browser asked has left: its requests fail now instead of at their timeout. */
+  function settleRequestsOf(peer: WebSocketPeer): void {
+    for (const pending of pendingRequests.values()) {
+      if (pending.peer === peer.id) pending.settle(roomRequestError("REALTIME_ROOM_EMPTY"))
+    }
+  }
+
   async function checkpointRoom(room: DocumentRoom, user: RealtimeUser | null): Promise<RealtimeCheckpoint> {
     const { adapter, definition } = room.resolved
     const configured = definition.history?.checkpoint
@@ -1926,7 +2029,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const user = await identify(event.req, event, definitionName, definition)
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
-    return { access, definitionName, documentId, resolved, searchParams, user, workspaceEvents }
+    const scope = roomScope(definition, user?.id ?? null)
+    return { access, definitionName, documentId, resolved, scope, searchParams, user, workspaceEvents }
   }
 
   const httpHandler = defineEventHandler(async (event) => {
@@ -1975,7 +2079,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       ? await getEventsRoom(JSON.stringify([request.definitionName, { workspaceEvents: true }]), true, undefined)
       : request.resolved
         ? await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
-        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId), false, resolveRealtimeRoomSql(event))
+        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId, request.scope), false, resolveRealtimeRoomSql(event))
     const clientEpoch = request.searchParams.get("epoch")
     // A browser on another editor version reads the room with another schema. TipTap deletes the nodes that schema does
     // not know from the shared document as soon as it renders, so the connection may read but never write.
@@ -1984,6 +2088,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const awarenessClient = clientId !== null && /^\d+$/.test(clientId) && Number.isSafeInteger(Number(clientId)) ? Number(clientId) : undefined
 
     function leave(peer: WebSocketPeer) {
+      settleRequestsOf(peer)
       if (terminalPeers.has(peer)) clearHeldUpdates(peer)
       else applyHeldUpdates(peer)
       if (!room.peers.delete(peer)) return
@@ -2126,8 +2231,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
       },
       message(peer, message: WebSocketMessage) {
-        if (!room.peers.has(peer)) return
         const data = message.uint8Array()
+        // An answer to `requestRealtimeRoom()`. It is matched by the peer id, so it still settles after a Durable Object
+        // woke from hibernation and its rooms in memory are new.
+        if (data[0] === messageRealtimeRequest) {
+          if (data.byteLength <= maxMessageBytes) settleRequest(peer, data)
+          return
+        }
+        if (!room.peers.has(peer)) return
         // On Cloudflare the Durable Object answers the keepalive itself, so it reaches this hook only on other hosts.
         if (data.byteLength === keepalivePing.byteLength && data.every((byte, index) => byte === keepalivePing[index])) {
           peer.send(realtimeKeepalivePong)
@@ -2266,6 +2377,25 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       return { reseeded: await refreshOpenRoom(definitionName, documentId) }
     }
+    // Inside the Durable Object, a request from requestRealtimeRoom(). The Worker strips the header from client requests.
+    if (event.req.headers.has(internalRequestHeader) && resolveRealtimeRoomSql(event)) {
+      const { definitionName, documentId } = parseRoomPath(event.req.url)
+      const input: unknown = await event.req.json().catch(() => undefined)
+      const field = (name: string) => input && typeof input === "object" && name in input ? (input as Record<string, unknown>)[name] : undefined
+      const timeout = field("timeout")
+      const wait = field("wait")
+      const user = field("user")
+      const context = resolveCloudflare(event)?.context
+      return toDurableRequestReply(await requestRoom(definitionName, documentId, field("body"), {
+        timeout: typeof timeout === "number" && timeout > 0 ? timeout : defaultRequestTimeout,
+        wait: typeof wait === "number" && wait >= 0 ? wait : defaultRequestWait,
+        ...(typeof user === "string" || user === null ? { user } : {}),
+      }, isDurableSockets(context) ? context : undefined))
+    }
+    // After a Durable Object hibernates, crossws restores each socket's peer with a bare GET of its first URL, with no
+    // headers, and resolves its hooks again. Those hooks take the answers to `requestRealtimeRoom()`, which match by
+    // peer id. The rest of the room protocol still needs the original upgrade.
+    if (event.req.method === "GET" && isBareRequest(event.req)) return restoredPeerHandler(event)
     if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") return httpHandler(event)
     try {
       return await websocketHandler(event)

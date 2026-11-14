@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CheckIcon } from "../icons"
-import { Checkbox, CheckboxIndicator } from "@vite-hub/kit/checkbox"
+import { Checkbox, CheckboxIndicator } from "@ui-sdk/vue/checkbox"
 </script>
 
 <template>

@@ -56,6 +56,22 @@ export function discoverMcpTools(options: { rootDir: string, serverDirs?: readon
   return tools
 }
 
+/** Lists the prompt files in `mcp/prompts/` or the resource files in `mcp/resources/` of each server directory. */
+function discoverMcpFiles(kind: "prompts" | "resources", options: { rootDir: string, serverDirs?: readonly string[] }): DiscoveredMcpTool[] {
+  const serverDirs = options.serverDirs ? [...options.serverDirs] : [resolve(options.rootDir, "server")]
+  return discoverDefinitions<DiscoveredMcpTool>(kind === "prompts" ? "MCP prompt" : "MCP resource", [createDirectoryDefinitionSource(`server-mcp-${kind}`, serverDirs, `mcp/${kind}`)])
+}
+
+interface McpDefinitionFiles {
+  tools: DiscoveredMcpTool[]
+  prompts: DiscoveredMcpTool[]
+  resources: DiscoveredMcpTool[]
+}
+
+function discoverAll(options: { rootDir: string, serverDirs: readonly string[] }): McpDefinitionFiles {
+  return { tools: discoverMcpTools(options), prompts: discoverMcpFiles("prompts", options), resources: discoverMcpFiles("resources", options) }
+}
+
 function normalizeRoute(value: string, option: "publicRoute" | "route"): string {
   if (!/^\/[\w.~/-]*$/.test(value) || value.includes("//")) {
     throw mcpErrorDiagnostics.MCP_B0001({ message: `[vitehub] mcp.${option} must be a path such as "/mcp", without a query or "//". Got ${JSON.stringify(value)}.` })
@@ -70,20 +86,39 @@ function packageName(projectRoot: string): string | undefined {
   return typeof name === "string" && name ? name : undefined
 }
 
-function renderHandler(tools: readonly DiscoveredMcpTool[], options: { auth: boolean, authMcp: string, name: string, only?: "public", publicRoute: string | undefined, route: string, runtime: string }): string {
-  const entries = `{ ${tools.map((tool, index) => `${JSON.stringify(tool.name)}: tool${index}`).join(", ")} }`
+interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> {
+  auth: boolean
+  authMcp: string
+  name: string
+  only?: "public"
+  publicRoute: string | undefined
+  route: string
+  runtime: string
+}
+
+function renderHandler(files: McpDefinitionFiles, options: RenderOptions): string {
+  const field = (key: keyof McpDefinitionFiles, prefix: string) => {
+    const entries = `{ ${files[key].map((file, index) => `${JSON.stringify(file.name)}: ${prefix}${index}`).join(", ")} }`
+    return options.only === "public"
+      ? `  ${key}: Object.fromEntries(Object.entries(${entries}).filter(([, ${prefix}]) => ${prefix}.public === true)),`
+      : `  ${key}: ${entries},`
+  }
   return [
     `import { createMcpHandler } from ${JSON.stringify(options.runtime)}`,
     ...options.auth ? [`import { verifyMcpRequest } from ${JSON.stringify(options.authMcp)}`] : [],
-    ...tools.map((tool, index) => `import tool${index} from ${JSON.stringify(tool.handler)}`),
+    ...files.tools.map((tool, index) => `import tool${index} from ${JSON.stringify(tool.handler)}`),
+    ...files.prompts.map((prompt, index) => `import prompt${index} from ${JSON.stringify(prompt.handler)}`),
+    ...files.resources.map((resource, index) => `import resource${index} from ${JSON.stringify(resource.handler)}`),
     "",
     "export default createMcpHandler({",
     `  name: ${JSON.stringify(options.name)},`,
     `  route: ${JSON.stringify(options.route)},`,
     ...options.publicRoute ? [`  publicRoute: ${JSON.stringify(options.publicRoute)},`] : [],
-    options.only === "public"
-      ? `  tools: Object.fromEntries(Object.entries(${entries}).filter(([, tool]) => tool.public === true)),`
-      : `  tools: ${entries},`,
+    ...options.instructions === undefined ? [] : [`  instructions: ${JSON.stringify(options.instructions)},`],
+    ...options.serverInfo === undefined ? [] : [`  serverInfo: ${JSON.stringify(options.serverInfo)},`],
+    field("tools", "tool"),
+    ...files.prompts.length ? [field("prompts", "prompt")] : [],
+    ...files.resources.length ? [field("resources", "resource")] : [],
     ...options.auth ? ["  verify: request => verifyMcpRequest(request),"] : [],
     "})",
     "",
@@ -100,16 +135,17 @@ function renderDiscovery(options: { authMcp: string, runtime: string }): string 
   ].join("\n")
 }
 
-function isToolFile(file: string, serverDirs: readonly string[]): boolean {
+function isDefinitionFile(file: string, serverDirs: readonly string[]): boolean {
   const normalized = file.replaceAll("\\", "/")
-  return serverDirs.some(directory => normalized.startsWith(`${resolve(directory, "mcp/tools")}/`)) && /\.(?:c|m)?[jt]sx?$/i.test(normalized)
+  return serverDirs.some(directory => ["tools", "prompts", "resources"].some(kind => normalized.startsWith(`${resolve(directory, "mcp", kind)}/`)))
+    && /\.(?:c|m)?[jt]sx?$/i.test(normalized)
 }
 
 /**
- * The app MCP server: each file in `server/mcp/tools/` is one tool, and the server answers at `route` (`/mcp`). Every
- * request needs an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`, and the server answers the OAuth
- * discovery documents at the origin root. `auth: false` makes every tool public. `publicRoute` serves the tools with
- * `public: true` to anyone.
+ * The app MCP server: each file in `server/mcp/tools/` is one tool, each file in `server/mcp/prompts/` one prompt, and
+ * each file in `server/mcp/resources/` one resource. The server answers at `route` (`/mcp`). By default,
+ * every request needs an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`, and the server answers
+ * the OAuth discovery documents at the origin root. `auth: false` makes every definition public. `publicRoute` serves the tools with `public: true` to anyone.
  */
 export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   const route = normalizeRoute(options.route ?? "/mcp", "route")
@@ -129,13 +165,29 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   const handlerFile = () => resolve(projectRoot, generatedDir, "handler.ts")
   const publicHandlerFile = () => resolve(projectRoot, generatedDir, "public.ts")
   const name = () => options.name ?? packageName(projectRoot) ?? "app"
+  const server = { instructions: options.instructions, serverInfo: options.serverInfo }
   const write = (writer: (file: string, contents: string) => unknown) => {
-    const tools = discoverMcpTools({ rootDir: projectRoot, serverDirs })
+    const files = discoverAll({ rootDir: projectRoot, serverDirs })
     const publicPath = publicRoute ? `${base}${publicRoute}` : undefined
-    const written = [writer(handlerFile(), renderHandler(tools, { auth, ...imports, name: name(), publicRoute: publicPath, route: `${base}${route}` }))]
-    if (publicPath) written.push(writer(publicHandlerFile(), renderHandler(tools, { auth: false, ...imports, name: name(), only: "public", publicRoute: publicPath, route: publicPath })))
+    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
+    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
     return written
   }
+  const fields = (kind: "prompts" | "resources" | "tools") => [
+    { label: "Route", value: `${base}${route}` },
+    { label: "Auth", value: auth ? "OAuth (mcpOAuth)" : "public" },
+    ...publicRoute ? [{ label: "Public route", value: `${base}${publicRoute} (${kind} with public: true)` }] : [],
+  ]
+  const inspector = (kind: "prompts" | "resources") => ({
+    kind: kind === "prompts" ? "mcp-prompt" : "mcp-resource",
+    label: kind === "prompts" ? "MCP prompts" : "MCP resources",
+    list: (): ViteHubDefinitionSummary[] => discoverMcpFiles(kind, { rootDir: projectRoot, serverDirs }).map(file => ({
+      fields: fields(kind),
+      file: relativeDefinitionFile(projectRoot, file.handler),
+      name: file.name,
+      source: `server/mcp/${kind}`,
+    })),
+  })
 
   return {
     name: MCP_VITE_PLUGIN_NAME,
@@ -146,16 +198,12 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
           kind: "mcp-tool",
           label: "MCP tools",
           list: (): ViteHubDefinitionSummary[] => discoverMcpTools({ rootDir: projectRoot, serverDirs }).map(tool => ({
-            fields: [
-              { label: "Route", value: `${base}${route}` },
-              { label: "Auth", value: auth ? "OAuth (mcpOAuth)" : "public" },
-              ...publicRoute ? [{ label: "Public route", value: `${base}${publicRoute} (tools with public: true)` }] : [],
-            ],
+            fields: fields("tools"),
             file: relativeDefinitionFile(projectRoot, tool.handler),
             name: tool.name,
             source: "server/mcp/tools",
           })),
-        }],
+        }, inspector("prompts"), inspector("resources")],
       }),
     },
     config(config) {
@@ -178,9 +226,9 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       ;(config as { nitro?: unknown }).nitro = kit.config
     },
     configureServer(server) {
-      // A new or removed tool file changes the imports of the server entry. Nitro reloads it from disk.
+      // A new or removed tool, prompt, or resource file changes the imports of the server entry. Nitro reloads it from disk.
       const refresh = (file: string) => {
-        if (!isToolFile(file, serverDirs)) return
+        if (!isDefinitionFile(file, serverDirs)) return
         Promise.all(write(writeFileIfChanged)).catch(error => server.config.logger.error(String(error)))
       }
       server.watcher.on("add", refresh)

@@ -52,6 +52,8 @@ const legacyConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const indexFilePattern = /^index\.(?:c|m)?[jt]s$/i
 const databaseSourcePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
+/** The seed file of `vitehub database seed`, in the folder of a Database. */
+const seedFilePattern = /^seed\.m?[jt]s$/i
 const indexFileNames = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
@@ -160,13 +162,23 @@ function readConfigExpression(expression: Expression | undefined): DatabaseConfi
   const envName = readProcessEnvName(expression)
   if (envName) return createRuntimeEnvConfigValue([envName])
   if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
-  const primary = readProcessEnvName(unwrapExpression(expression.left))
-  if (!primary) return
+  const names = readProcessEnvChain(unwrapExpression(expression.left))
+  if (!names) return
   const fallback = unwrapExpression(expression.right)
   const fallbackEnvName = readProcessEnvName(fallback)
-  if (fallbackEnvName) return createRuntimeEnvConfigValue([primary, fallbackEnvName])
+  if (fallbackEnvName) return createRuntimeEnvConfigValue([...names, fallbackEnvName])
   const staticFallback = readStaticStringLiteral(fallback)
-  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([primary], staticFallback)
+  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue(names, staticFallback)
+}
+
+/** The names in `process.env.A || process.env.B || ...`, in order. */
+function readProcessEnvChain(expression: Expression): string[] | undefined {
+  const name = readProcessEnvName(expression)
+  if (name) return [name]
+  if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
+  const left = readProcessEnvChain(unwrapExpression(expression.left))
+  const right = readProcessEnvName(unwrapExpression(expression.right))
+  return left && right ? [...left, right] : undefined
 }
 
 /** Reads `env({ source: env.source("NAME" | ["NAME", ...]), default: "value" })`. */
@@ -674,6 +686,7 @@ export function serverDatabaseName(directory: string, file: string): string | un
     return depth === parts.length - 1 && indexFilePattern.test(fileName) ? parts.slice(0, depth).join("/") : undefined
   }
   if (parts.includes("migrations")) return
+  if (parts.length > 1 && seedFilePattern.test(fileName)) return
   if (legacyConfigFilePattern.test(fileName)) {
     const folder = parts.slice(0, -1).join("/")
     throw databaseErrorDiagnostics.DATABASE_LEGACY_CONFIG_FILE({ file, name: folder || "default" })

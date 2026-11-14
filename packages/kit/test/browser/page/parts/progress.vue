@@ -5,7 +5,7 @@ import {
   ProgressLabel,
   ProgressTrack,
   ProgressValue,
-} from "@vite-hub/kit/progress"
+} from "@ui-sdk/vue/progress"
 </script>
 
 <template>

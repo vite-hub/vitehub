@@ -3,6 +3,7 @@ import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthAccessConfiguration,
+  AuthAccessPolicy,
   AuthBetterAuthOptions,
   AuthDefinition,
   AuthDefinitionResolver,
@@ -101,7 +102,27 @@ function validateAuthAccess(value: AuthAccessConfiguration | undefined): void {
     }
     access.routes.forEach((route, index) => validateAuthAccessRoute(route, `access.routes[${index}]`))
   }
+  validateAuthAccessPublic(access.public)
+  validateAuthAccessPolicy(access.policy)
   validateAuthSignIn(access.signIn)
+}
+
+function validateAuthAccessPublic(value: unknown): void {
+  if (typeof value === "undefined") return
+  // `Array.from` reads empty slots as `undefined`, which fails like any other value that is not a route.
+  if (!Array.isArray(value) || Array.from(value).some(route => typeof route !== "string" || !route.startsWith("/"))) {
+    throw authErrorDiagnostics.AUTH_C0064({ message: "`defineAuth()` access.public must be an array of routes that start with `/`." })
+  }
+}
+
+/** Also checked when a Definition callback returns the options. */
+export function validateAuthAccessPolicy(value: unknown): asserts value is AuthAccessPolicy | undefined {
+  if (typeof value === "undefined") return
+  const recheck = isPlainObject(value) ? value.recheck : undefined
+  if (!isPlainObject(value) || typeof value.allow !== "function"
+    || (typeof recheck !== "undefined" && (typeof recheck !== "number" || !Number.isFinite(recheck) || recheck < 0))) {
+    throw authErrorDiagnostics.AUTH_C0065({ message: "`defineAuth()` access.policy must be an object with an `allow` function and an optional `recheck` of 0 or more milliseconds." })
+  }
 }
 
 export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>(

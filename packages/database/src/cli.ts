@@ -11,6 +11,7 @@ import type { MigrationPlan } from "./internal/migration-plan.ts"
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -118,6 +119,28 @@ function writeUpUsage(context: ViteHubCliContext): void {
 
 const upUsage = "vitehub database up"
 
+const seedUsage = "vitehub database seed [--remote] [--stage <name>] [--database <name>]"
+
+function writeSeedUsage(context: ViteHubCliContext): void {
+  context.stdout.write([
+    `Usage: ${seedUsage}`,
+    "",
+    "Runs the seed file of each database, or of the one that `--database` names. The seed file is",
+    "`seed.ts` beside the migrations folder, such as `server/databases/<name>/seed.ts`. Its default",
+    "export gets `{ db, schema }`. Without `--remote`, it writes the local database that",
+    "`vitehub database migrate` uses. It refuses a database with pending migrations.",
+    "",
+    "Options:",
+    "  --remote           Write the remote database: Cloudflare D1 with CLOUDFLARE_ACCOUNT_ID",
+    "                     and CLOUDFLARE_API_TOKEN, D1 HTTP, remote libSQL, or Postgres.",
+    "  --stage <name>     Load Vite env files for this mode. Variables from the current",
+    "                     process take precedence.",
+    "  --database <name>  Seed only this database.",
+    "  -h, --help         Show this help.",
+    "",
+  ].join("\n"))
+}
+
 const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]]"
 
 const exportUsage = "vitehub database export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
@@ -129,7 +152,7 @@ interface ExportArgs {
   stage?: string
 }
 
-function parseExportArgs(args: string[]): ExportArgs | string {
+function parseExportArgs(args: string[], options: readonly ("--database" | "--output" | "--stage")[] = ["--database", "--output", "--stage"]): ExportArgs | string {
   const parsed: ExportArgs = { remote: false }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -137,7 +160,7 @@ function parseExportArgs(args: string[]): ExportArgs | string {
       parsed.remote = true
       continue
     }
-    const option = (["--database", "--output", "--stage"] as const).find(name => arg === name || arg.startsWith(`${name}=`))
+    const option = options.find(name => arg === name || arg.startsWith(`${name}=`))
     if (!option) return `Unknown option: ${arg}`
     const value = arg === option ? args[++index] : arg.slice(option.length + 1)
     if (!value || value.startsWith("-")) return `${option} requires a value.`
@@ -191,6 +214,54 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
     }
   }
   return 0
+}
+
+async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: ResolvedDBViteConfigProvider, getAlias?: () => Record<string, string> | undefined): Promise<number> {
+  const parsed = parseExportArgs(args, ["--database", "--stage"])
+  if (typeof parsed === "string") {
+    context.stderr.write(`[vitehub] ${parsed}\n`)
+    writeSeedUsage(context)
+    return 1
+  }
+  let env = { ...(context.env ?? process.env) }
+  return await withViteStageEnvironment(env, async () => {
+    if (parsed.stage) {
+      const { loadEnv } = await import("vite")
+      env = { ...loadEnv(parsed.stage, context.rootDir, ""), ...env }
+      Object.assign(process.env, env)
+    }
+    const config = await getConfig?.({ strict: false })
+    if (!config?.databaseNames.length) {
+      context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
+      return 1
+    }
+    if (parsed.database && !config.databases[parsed.database]) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: parsed.database }))}\n`)
+      return 1
+    }
+    const projectRoot = config.rootDir
+    const cwd = context.cwd ?? process.cwd()
+    const { findSeedFile, seedDatabase } = await import("./internal/seed.ts")
+    const seeds = (parsed.database ? [parsed.database] : config.databaseNames).map(name => ({ database: config.databases[name]!, ...findSeedFile(config.databases[name]!, projectRoot) }))
+    // Without `--database`, a database without a seed file has nothing to seed. Fail only when none has one.
+    const missing = parsed.database ? seeds.filter(seed => !seed.exists) : seeds.every(seed => !seed.exists) ? seeds : []
+    for (const seed of missing) {
+      const file = relative(cwd, seed.file) || seed.file
+      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_SEED_NOT_FOUND({ database: seed.database.name, file }))}\n`)
+    }
+    if (missing.length) return 1
+    for (const seed of seeds.filter(seed => seed.exists)) {
+      try {
+        const target = await seedDatabase(seed.database, seed.file, { alias: getAlias?.(), env, fetch: context.fetch, projectRoot, remote: parsed.remote })
+        context.stdout.write(`[vitehub] Database "${seed.database.name}" (${target}): ran ${relative(cwd, seed.file) || seed.file}.\n`)
+      }
+      catch (error) {
+        context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+        return 1
+      }
+    }
+    return 0
+  })
 }
 
 const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--schema-snapshot"])
@@ -626,6 +697,8 @@ async function runDrizzleKitWithConfig(
 export function createDbCliContributor(
   options?: false | Exclude<DatabaseOptions, false>["cli"],
   getConfig?: ResolvedDBViteConfigProvider,
+  /** Import aliases of the host, such as Vite `resolve.alias`, for the seed file. */
+  getAlias?: () => Record<string, string> | undefined,
 ): ViteHubCliContributor | undefined {
   if (options === false) return
 
@@ -686,6 +759,21 @@ export function createDbCliContributor(
         return await runExport(args, context, getConfig)
       },
       usage: exportUsage,
+    })
+  }
+
+  if (options?.seed !== false) {
+    features.push({
+      description: "Run the seed file of each database.",
+      name: "seed",
+      run: async (args, context) => {
+        if (args.includes("-h") || args.includes("--help")) {
+          writeSeedUsage(context)
+          return 0
+        }
+        return await runSeed(args, context, getConfig, getAlias)
+      },
+      usage: seedUsage,
     })
   }
 
