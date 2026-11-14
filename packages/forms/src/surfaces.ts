@@ -53,7 +53,7 @@ function elicitationProperty(field: FormField): ElicitationProperty {
 
 /**
  * The params of an MCP `elicitation/create` request that asks the person for the fields of a form. MCP takes a flat
- * object of primitive properties, so a nested object, a list, or a choice of numbers throws `FORMS_C0002`.
+ * object of primitive properties, so a nested object, a list, or a choice of numbers throws `FORMS_FIELD_NOT_DRAWABLE`.
  *
  * ```ts
  * const answer = await server.elicitInput(toElicitation(contact, { message: "How can we reach you?" }))
@@ -136,7 +136,7 @@ function chatInput(field: FormField): FormChatModalChild {
 /**
  * A Chat SDK modal with one input for each field of a form: a text, date, or number input, a select for a choice, and
  * Yes or No for true or false. The input id is the field name, so the Slack `block_id` is the field name too. Open it
- * with `event.openModal()` of the Chat SDK, which draws a Slack modal or a Teams dialog. Throws `FORMS_C0002` for a
+ * with `event.openModal()` of the Chat SDK, which draws a Slack modal or a Teams dialog. Throws `FORMS_FIELD_NOT_DRAWABLE` for a
  * field that a modal cannot draw.
  */
 export function toChatModal(source: FormSource, options: ChatModalOptions): FormChatModal {

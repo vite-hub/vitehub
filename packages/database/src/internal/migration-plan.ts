@@ -7,7 +7,7 @@ import { join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { migratePostgres } from "../runtime/migrate-on-start.ts"
+import { migratePostgres, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
@@ -19,6 +19,7 @@ import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1HttpTarget } from "./d1-migrations.ts"
+import type { PostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import type { LedgerRow } from "./migration-ledger.ts"
 import type { PendingMigration } from "./migration-journal.ts"
 
@@ -117,7 +118,7 @@ export function withoutCredentials(url: string): string {
 }
 
 /** Reads Drizzle's ledger. `SELECT *` reads a ledger of Drizzle Kit 0.x too, which has no `name` column. */
-async function readLedgerRows(target: Exclude<MigrationTarget, { kind: "d1-http" }>, options: MigrationPlanOptions): Promise<LedgerRow[]> {
+async function readLedgerRows(target: Exclude<MigrationTarget, { kind: "d1-http" }>, options: MigrationPlanOptions, driver?: string): Promise<LedgerRow[]> {
   switch (target.kind) {
     case "local": {
       // A missing file has no applied migrations. Do not let libSQL create it.
@@ -129,7 +130,7 @@ async function readLedgerRows(target: Exclude<MigrationTarget, { kind: "d1-http"
     case "pglite":
       return await readPgliteLedger(target.path, options.projectRoot)
     case "postgres":
-      return await readPostgresLedger(target, options.projectRoot, options.env)
+      return await readPostgresLedger(target, options, driver)
   }
 }
 
@@ -146,39 +147,62 @@ async function readSqliteLedger(url: string, authToken?: string): Promise<Ledger
   }
 }
 
-/** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
-export function connectPostgres(target: { url?: string }, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
-  let connect: typeof postgres
+/** A Postgres client of the CLI: the part of postgres.js that migrations use, and `end()`. */
+interface CliPostgresClient extends PostgresMigrationClient {
+  end: () => Promise<unknown>
+}
+
+/** Loads a Postgres driver from the project. The app installs it, so load it from there, like Drizzle Kit does. */
+function requireProjectDriver(name: "pg" | "postgres", projectRoot: string): unknown {
   try {
-    // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.
-    connect = createRequire(join(projectRoot, "package.json"))("postgres")
+    return createRequire(join(projectRoot, "package.json"))(name)
   }
   catch (error) {
-    throw new Error("Cannot load the `postgres` package from the project. Install it, for example with `pnpm add postgres`.", { cause: error })
+    throw new Error(`Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`, { cause: error })
   }
-  const options = {
-    connect_timeout: 10,
+}
+
+/** The server options of the PG* variables. A URL takes precedence over them. */
+function readPostgresServerOptions(env: NodeJS.ProcessEnv) {
+  return {
     database: env.PGDATABASE,
     host: env.PGHOST,
-    max: 1,
-    onnotice: () => {},
     password: env.PGPASSWORD,
     port: env.PGPORT ? Number(env.PGPORT) : undefined,
     user: env.PGUSERNAME ?? env.PGUSER,
   }
+}
+
+/** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
+export function connectPostgres(target: { url?: string }, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
+  const connect = requireProjectDriver("postgres", projectRoot) as typeof postgres
+  const options = { ...readPostgresServerOptions(env), connect_timeout: 10, max: 1, onnotice: () => {} }
   return target.url ? connect(target.url, options) : connect(options)
 }
 
-async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<LedgerRow[]> {
+/**
+ * Opens a Postgres client for migrations with `connection.url` or the PG* variables, like the generated Kit config. It
+ * uses node-postgres for `driver: "node-postgres"`, else postgres.js, and loads it from the project.
+ */
+function connectMigrationPostgres(target: { url?: string }, projectRoot: string, env: NodeJS.ProcessEnv, driver?: string): CliPostgresClient {
+  if (driver === "node-postgres") {
+    const { Pool } = requireProjectDriver("pg", projectRoot) as typeof import("pg")
+    const pool = new Pool({ ...readPostgresServerOptions(env), ...target.url ? { connectionString: target.url } : {}, connectionTimeoutMillis: 10_000, max: 1 })
+    return { ...toPostgresMigrationClient(pool), end: () => pool.end() }
+  }
   const sql = connectPostgres(target, projectRoot, env)
+  return { begin: run => sql.begin(run), end: () => sql.end({ timeout: 5 }), unsafe: (query, parameters) => sql.unsafe(query, parameters) }
+}
+
+async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, options: MigrationPlanOptions, driver?: string): Promise<LedgerRow[]> {
+  const sql = connectMigrationPostgres(target, options.projectRoot, options.env, driver)
   try {
-    const [table] = await sql<Array<{ name: string | null }>>`select to_regclass('drizzle.__drizzle_migrations')::text as name`
+    const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
     if (!table?.name) return []
-    const rows = await sql.unsafe<Array<Record<string, unknown>>>(`select * from ${postgresMigrationsTable}`)
-    return rows.map(row => toLedgerRow(row))
+    return Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row))
   }
   finally {
-    await sql.end({ timeout: 5 })
+    await sql.end()
   }
 }
 
@@ -232,7 +256,7 @@ export async function readMigrationPlan(
       return [undefined, { applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
-    const match = matchLedger(entries.length ? await readLedgerRows(target, options) : [], entries)
+    const match = matchLedger(entries.length ? await readLedgerRows(target, options, database.driver) : [], entries)
     const problem = ledgerUpgradeProblem(match)
     if (problem) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
     const { applied, unmatched } = match
@@ -284,13 +308,13 @@ export async function migratePostgresDatabases(
   options: MigrationPlanOptions & { allowDataLoss: boolean },
   log: (message: string) => void,
 ): Promise<unknown> {
-  const clients: postgres.Sql[] = []
+  const clients: CliPostgresClient[] = []
   try {
     const targets = databases.map((database) => {
       const target = resolveTarget(database, options)
       // Internal invariant: the CLI passes only Definitions filtered by their Postgres dialect.
       if (target?.kind !== "postgres") throw new Error(`The database "${database.name}" is not a Postgres database.`)
-      const client = connectPostgres(target, options.projectRoot, options.env)
+      const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
       clients.push(client)
       return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
     })
@@ -300,6 +324,6 @@ export async function migratePostgresDatabases(
     return error
   }
   finally {
-    await Promise.all(clients.map(client => client.end({ timeout: 5 })))
+    await Promise.all(clients.map(client => client.end()))
   }
 }

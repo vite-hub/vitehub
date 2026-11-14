@@ -32,6 +32,7 @@ export type BabysitterMergeReady = (input: BabysitterMergeReadinessInput) => tru
  *   is not an owner, member or collaborator of the repository merges only after a reviewer with write
  *   access approves its current head, and while no such reviewer's latest review requests changes.
  *   A push after the approval needs a new one. `ready: () => true` merges every ready PR.
+ *   `trustedAuthors` lets more authors through the default gate, such as dependency bots.
  */
 export type BabysitterMerge =
   | false
@@ -41,6 +42,12 @@ export type BabysitterMerge =
     strategy: "direct";
     method?: BabysitterMergeMethod;
     ready?: BabysitterMergeReady | "approved-if-outside";
+    /**
+     * Logins whose PRs the `"approved-if-outside"` gate merges without an approval, like an author with
+     * write access, such as `renovate[bot]`. Write a bot with its `[bot]` suffix: an entry with it matches
+     * only a bot account, and one without it matches only a user. Not allowed with a `ready` callback.
+     */
+    trustedAuthors?: readonly string[];
     /**
      * Required checks, by repository (`owner/name`), that the host may merge past when they fail only
      * because the same check fails the same way on the base branch tip. The merge bypasses branch
@@ -211,9 +218,22 @@ const hasWriteAccess = (association: unknown) => writeAccess.has(String(associat
  * The `"approved-if-outside"` merge gate. Each write-access reviewer's latest APPROVED or
  * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing.
  */
-export function approvedIfOutside({ head, snapshot }: BabysitterMergeReadinessInput): true | string {
+export function approvedIfOutside(input: BabysitterMergeReadinessInput): true | string {
+  return approvedIfOutsideGate(input, new Set());
+}
+
+/** A login with `[bot]` for a bot account, so a user cannot pass as a trusted bot of the same name. */
+function accountLogin(user: GitHubEvidence["user"]): string {
+  const login = String(user?.login ?? "").trim().toLowerCase();
+  if (!login) return "";
+  const bot = login.endsWith("[bot]") || String(user?.type ?? user?.__typename ?? "").toLowerCase() === "bot";
+  return bot && !login.endsWith("[bot]") ? `${login}[bot]` : login;
+}
+
+function approvedIfOutsideGate({ head, snapshot }: BabysitterMergeReadinessInput, trustedAuthors: ReadonlySet<string>): true | string {
   const pr = snapshot.pr;
   if (hasWriteAccess(pr?.author_association ?? pr?.authorAssociation)) return true;
+  if (trustedAuthors.has(accountLogin(pr?.user ?? pr?.author))) return true;
   const latest = new Map<string, GitHubEvidence>();
   const decisive = Object.values(snapshot.reviews)
     .filter(review => !review.deleted && hasWriteAccess(review.author_association ?? review.authorAssociation)
@@ -246,8 +266,18 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     if (drafts !== undefined && (!Array.isArray(drafts) || !drafts.every(login => hasRuntimeType(login, "string") && login.trim()))) {
       throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
     }
+    const trusted = merge.trustedAuthors;
+    if (trusted !== undefined && (!Array.isArray(trusted) || !trusted.every(login => hasRuntimeType(login, "string") && login.trim()))) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.trustedAuthors", expected: 'a list of GitHub logins, such as ["renovate[bot]"]' });
+    }
+    const builtIn = merge.ready === undefined || merge.ready === "approved-if-outside";
+    if (trusted?.length && !builtIn) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.trustedAuthors", expected: 'left out with a ready callback, which decides every author itself' });
+    }
+    const trustedAuthors = new Set(trusted?.map((login: string) => login.trim().toLowerCase()));
+    const gate = trustedAuthors.size ? (input: BabysitterMergeReadinessInput) => approvedIfOutsideGate(input, trustedAuthors) : approvedIfOutside;
     // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
-    const ready = merge.ready === undefined || merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
+    const ready = builtIn ? gate : merge.ready as BabysitterMergeReady | undefined;
     const bypassInheritedChecks = new Map<string, ReadonlySet<string>>();
     if (merge.bypassInheritedChecks !== undefined) {
       if (!isRuntimeRecord(merge.bypassInheritedChecks)) throw presetsErrorDiagnostics.PRESETS_MERGE_BYPASS_CHECKS_INVALID();

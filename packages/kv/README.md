@@ -110,6 +110,20 @@ KV operations return `[error, value]`. `error.code` is one of the codes of the m
 
 `redis`, `database`, and Upstash also support `kv.getAndDelete(key)`, `kv.increment(key, ttl)`, and `kv.deleteIfEquals(key, expected)`. These operations are atomic in the provider. `deleteIfEquals()` deletes the key only when its stored text equals `expected` serialized as `set()` stores it, and returns `true` when this call deleted it. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` because they cannot provide the same contract without extra storage or non-atomic calls. The type `KVDriverAtomicOperations` lists the atomic operations of each driver, and `KVDriversWith<"deleteIfEquals">` the drivers of one operation.
 
+## Locks
+
+`kv.lock(key, { ttl, wait })` gives a lock that one runner holds at a time across the processes that share a store. `run(fn)` takes the lock, calls `fn`, and releases the lock, also when `fn` throws:
+
+```ts fragment
+const [error, result] = await kv.lock("cron:daily", { ttl: 60 }).run(() => sendDailyReport())
+if (error) throw error
+if (!result.acquired) return // Another runner holds the lock.
+```
+
+`ttl` (seconds) is required, so a crashed runner never keeps the lock. `wait` (seconds) polls with backoff until the lock is free. Each lock writes a random owner token with `setIfAbsent()` and frees it with `deleteIfEquals()`, so a runner whose lock expired cannot delete the next runner's lock. `acquire()` returns a `release()` function for code that does not fit in one callback. KV does not renew a lock: when the work runs longer than `ttl`, another runner can take it.
+
+Only the drivers in `KVDriversWith<"deleteIfEquals">` (`redis`, `database`, `upstash`) support locks. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` without calling `fn`. App tests use `fs-lite`, so they return this code too.
+
 ## Read-only handles
 
 `kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.

@@ -19,7 +19,7 @@ import {
 import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
-import type { CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
+import { cloudflareSignalNumber, type CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
 
 export interface CloudflareSandboxOptions {
   cloudflare?: {
@@ -106,6 +106,12 @@ const cloudflareExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority;
 
+// The built-in Durable Object starts every Container with `enableInternet: true`.
+const builtInCloudflareExecutionAuthority = {
+  ...cloudflareExecutionAuthority,
+  network: "unrestricted",
+} as const satisfies ExecutionAuthority;
+
 export function createCloudflareRuntime(options: CloudflareSandboxOptions): SandboxRuntime {
   if (!options?.namespace)
     throw sandboxErrorDiagnostics.SANDBOX_R0020({ message: "[vitehub] The cloudflare Sandbox runtime requires a Durable Objects namespace." });
@@ -113,7 +119,8 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
     name: "cloudflare",
     async prepare(input) {
       return remoteSandboxPlan(input, {
-        executionAuthority: cloudflareExecutionAuthority,
+        // A custom `getSandbox` decides the Container network itself.
+        executionAuthority: options.getSandbox ? cloudflareExecutionAuthority : builtInCloudflareExecutionAuthority,
         runtime: "cloudflare",
       });
     },
@@ -122,7 +129,7 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
       const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
       const getSandbox = options.getSandbox ?? getCloudflareSandbox;
       const stub = getSandbox(options.namespace, id, options.cloudflare);
-      const runtimeSession = createCloudflareSession(id, stub, env, options.hostname);
+      const runtimeSession = createCloudflareSession(id, stub, env, options.hostname, !options.getSandbox);
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
@@ -175,6 +182,7 @@ function createCloudflareSession(
   stub: CloudflareSandboxStub,
   baseEnv: Record<string, string>,
   hostname: string | undefined,
+  builtIn: boolean,
 ): RuntimeSession {
   let destroyPromise: Promise<void> | undefined;
   const destroy = async () => {
@@ -323,7 +331,7 @@ function createCloudflareSession(
             const logs = stub.streamProcessLogs
               ? request("streamProcessLogs", { idempotent: true }, async () => await stub.streamProcessLogs!(process.id))
               : undefined;
-            return killOnAbort(cloudflareProcess(process, logs), commandOptions.abortSignal);
+            return killOnAbort(cloudflareProcess(process, logs, builtIn), commandOptions.abortSignal);
           },
         }
       : {}),
@@ -354,6 +362,7 @@ function encodeBase64(value: Uint8Array) {
 function cloudflareProcess(
   process: Awaited<ReturnType<NonNullable<CloudflareSandboxStub["startProcess"]>>>,
   logs: Promise<ReadableStream<Uint8Array>> | undefined,
+  builtIn: boolean,
 ): RuntimeProcess {
   const wait = process.waitForExit();
   const output = logs
@@ -363,6 +372,9 @@ function cloudflareProcess(
     ...output,
     ...(process.stdin ? { stdin: process.stdin } : {}),
     async kill(signal?: string) {
+      // Workers RPC drops error codes, so check the signal before the request. A custom stub decides itself.
+      if (builtIn && cloudflareSignalNumber(signal) === undefined)
+        throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Cloudflare", signal: String(signal) });
       await process.kill(signal);
     },
     async wait() {

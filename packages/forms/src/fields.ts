@@ -186,15 +186,15 @@ export function collectFields(source: FormSource): { fields: FormField[], proble
   return { fields: [], problems: [{ field: "", found: `a ${standard.vendor} schema with no JSON Schema` }] }
 }
 
-/** Throws `FORMS_C0002` for a field that `surface` cannot draw. */
+/** Throws `FORMS_FIELD_NOT_DRAWABLE` for a field that `surface` cannot draw. */
 export function unsupportedField(problem: FieldProblem, surface: string, takes: string): Error {
-  return formsDiagnostics.FORMS_C0002({ field: problem.field, found: problem.found, surface, takes })
+  return formsDiagnostics.FORMS_FIELD_NOT_DRAWABLE({ field: problem.field, found: problem.found, surface, takes })
 }
 
 /**
  * The fields of a flat form, in order, from a Valibot object schema, or from any Standard Schema with a Standard JSON
  * Schema, such as a Zod object. Each field is text, a number, a whole number, true or false, or a choice. Every
- * surface draws the same fields: a web form, an MCP elicitation, and a chat modal. Throws `FORMS_C0002` for a nested
+ * surface draws the same fields: a web form, an MCP elicitation, and a chat modal. Throws `FORMS_FIELD_NOT_DRAWABLE` for a nested
  * object, a list, a union, or a root that is not an object.
  */
 export function formFields(source: FormSource): FormField[] {
