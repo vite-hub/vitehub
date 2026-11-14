@@ -62,11 +62,6 @@ export function closeConsoleSidebarDrawer(): void {
   drawer.value = false
 }
 
-/**
- * The "Add a primitive" item of the sidebar sets it. The dialog that lists the primitives to add binds to it.
- */
-export const consoleAddPrimitiveOpen = ref(false)
-
 /** The Docs row of the user menu. It opens the Console docs in a new tab. */
 export const consoleDocsItem: DropdownMenuItem = {
   icon: "i-lucide-book-open",

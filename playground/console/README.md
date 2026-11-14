@@ -51,6 +51,13 @@ document.cookie = "playground-fail=invocation-capabilities=500" // The session f
 document.cookie = "playground-fail=; max-age=0"                 // Back to the fixtures
 ```
 
+To see the Console of a smaller app, set the `playground-sections` cookie to the section ids to keep. The other sections show up in "Add a primitive":
+
+```js
+document.cookie = "playground-sections=comments,databases,env"
+document.cookie = "playground-sections=; max-age=0"             // Every section again
+```
+
 To share the running playground temporarily, expose the same local server:
 
 ```bash

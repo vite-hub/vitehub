@@ -1,3 +1,5 @@
+import type { FeatureId } from "@vite-hub/internal/features"
+
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
 export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "site", "setup"] as const
 
@@ -153,18 +155,24 @@ export interface ConsolePrimitive {
   readonly icon: string
   readonly id: ConsoleSectionId
   readonly label: string
+  /**
+   * The feature that `vitehub add` turns on to give the app this section. Absent when the command cannot do it, such as
+   * for Content, or when the feature alone does not turn the section on, such as Observability for Logs.
+   */
+  readonly feature?: FeatureId
   /** What the primitive does, from the first line of its documentation. */
   readonly pitch: string
   readonly setup: string
 }
 
-const primitive = (id: ConsoleSectionId, label: string, icon: string, slug: string, pitch: string, setup = `${slug}/get-started`): ConsolePrimitive => ({
+const primitive = (id: ConsoleSectionId, label: string, icon: string, slug: string, pitch: string, options: { feature?: FeatureId, setup?: string } = {}): ConsolePrimitive => ({
   docs: `${consoleDocsBase}/${slug}`,
+  ...(options.feature ? { feature: options.feature } : {}),
   icon,
   id,
   label,
   pitch,
-  setup: `${consoleDocsBase}/${setup}`,
+  setup: `${consoleDocsBase}/${options.setup ?? `${slug}/get-started`}`,
 })
 
 /**
@@ -172,26 +180,26 @@ const primitive = (id: ConsoleSectionId, label: string, icon: string, slug: stri
  * of their owner descriptor because the Console only receives descriptors for enabled sections.
  */
 export const consolePrimitives: readonly ConsolePrimitive[] = [
-  primitive("auth", "Auth", "i-vitehub-auth", "auth", "Manage users, sessions, organizations, and approved OAuth clients."),
-  primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
-  primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
-  primitive("skills", "Skills", consoleSectionDetails.skills.icon, "agents/capabilities/skills", "Inspect the bundled Skill files that each Agent receives.", "agents/capabilities/skills"),
+  primitive("auth", "Auth", "i-vitehub-auth", "auth", "Manage users, sessions, organizations, and approved OAuth clients.", { feature: "auth" }),
+  primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors.", { feature: "env" }),
+  primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", { feature: "agent", setup: "getting-started/first-agent" }),
+  primitive("skills", "Skills", consoleSectionDetails.skills.icon, "agents/capabilities/skills", "Inspect the bundled Skill files that each Agent receives.", { setup: "agents/capabilities/skills" }),
   primitive("logs", "Logs", consoleSectionDetails.logs.icon, "logs", "Read structured logs and diagnostic guidance from your existing pipeline."),
-  primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
-  primitive("channels", "Channels", consoleSectionDetails.channels.icon, "agents/channels", "Read and export the conversations that Agents have in Telegram, Slack, and other Channels.", "agents/channels"),
-  primitive("mcp-client", "MCP client", consoleSectionDetails["mcp-client"].icon, "development/console", "Connect to MCP servers as one or more accounts, and call their tools, resources, and prompts.", "development/console"),
+  primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", { setup: "agents" }),
+  primitive("channels", "Channels", consoleSectionDetails.channels.icon, "agents/channels", "Read and export the conversations that Agents have in Telegram, Slack, and other Channels.", { setup: "agents/channels" }),
+  primitive("mcp-client", "MCP client", consoleSectionDetails["mcp-client"].icon, "development/console", "Connect to MCP servers as one or more accounts, and call their tools, resources, and prompts.", { setup: "development/console" }),
   primitive("content", "Content", "i-vitehub-content", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
-  primitive("comments", "Comments", "i-vitehub-comments", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place."),
-  primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
-  primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
-  primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
-  primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API."),
-  primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
-  primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox."),
-  primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
-  primitive("workflows", "Workflows", "i-vitehub-workflow", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
-  primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts."),
+  primitive("comments", "Comments", "i-vitehub-comments", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place.", { feature: "comments" }),
+  primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API.", { feature: "blob" }),
+  primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports.", { feature: "database" }),
+  primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture.", { feature: "email" }),
+  primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API.", { feature: "kv" }),
+  primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers.", { feature: "rateLimit" }),
+  primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox.", { feature: "sandboxTask" }),
+  primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs.", { feature: "workspace" }),
+  primitive("workflows", "Workflows", "i-vitehub-workflow", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps.", { feature: "workflow" }),
+  primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider.", { feature: "queue" }),
+  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts.", { feature: "schedule" }),
 ]
 
 /**

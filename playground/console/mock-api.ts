@@ -417,6 +417,17 @@ function playgroundFailure(request: IncomingMessage, path: string): number | und
   return undefined
 }
 
+/**
+ * Keeps only some sections, so a contributor can see the Console of a smaller app, such as the "Add a primitive" list.
+ * Set the `playground-sections` cookie to section ids, such as `comments,databases`.
+ */
+function playgroundSections(request: IncomingMessage): readonly string[] {
+  const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-sections="))
+  if (!cookie) return sections
+  const kept = new Set(decodeURIComponent(cookie.slice("playground-sections=".length)).split(","))
+  return sections.filter(section => kept.has(section))
+}
+
 const playgroundFailureMessages: Record<number, string> = {
   401: "The app does not accept the signature of this Console.",
   403: "This account cannot read this Console section.",
@@ -478,7 +489,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
   if (path === "/_vitehub/api/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
-    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, servedSkillsConsoleSection], projectName: manifest.name, sections })
+    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, servedSkillsConsoleSection], projectName: manifest.name, sections: playgroundSections(request) })
     return true
   }
 
