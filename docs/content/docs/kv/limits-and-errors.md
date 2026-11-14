@@ -42,11 +42,12 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
-| `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
+| `KV_INVALID_TTL` | `increment()`, `lock()`, `setIfAbsent()` | |
+| `KV_INVALID_WAIT` | `lock()` | |
 | `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
 | `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
-| `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `setIfAbsent()` | |
+| `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `lock()`, `setIfAbsent()` | |
 | `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
 | `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
 
@@ -78,7 +79,11 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 ### KV_INVALID_TTL
 
-`kv.increment(key, ttl)` and `kv.setIfAbsent()`'s `ttl` need positive seconds. Upstash rounds up to whole seconds.
+`kv.increment(key, ttl)`, `kv.setIfAbsent()`'s `ttl`, and `kv.lock()`'s `ttl` need positive seconds. Upstash rounds up to whole seconds.
+
+### KV_INVALID_WAIT
+
+`kv.lock()`'s `wait` needs zero or positive seconds. Omit it to return `{ acquired: false }` at once when another runner holds the lock.
 
 ### KV_KEY_TOO_LONG
 
@@ -100,7 +105,7 @@ An invalid key also returns this code, before any provider call: an empty key su
 
 ### KV_UNSUPPORTED_OPERATION
 
-`deleteIfEquals()`, `getAndDelete()`, and `increment()` need atomic operations. The `redis`, `database`, and `upstash` drivers support them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
+`deleteIfEquals()`, `getAndDelete()`, `increment()`, and `lock()` need atomic operations. The `redis`, `database`, and `upstash` drivers support them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
 
 `setIfAbsent()` works on `redis`, `database`, `upstash`, `deno-kv`, and `fs-lite`. Cloudflare KV returns this code, because Workers KV is eventually consistent and cannot write a key only when it is missing. On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
 
