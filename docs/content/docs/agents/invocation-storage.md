@@ -622,6 +622,8 @@ It opens the file read-only with `node:sqlite` and never migrates or writes it, 
 
 A Workflow is a durable runner that can retry steps after a crash. Journals also keep failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct Invocation IDs. Durable Channel deliveries keep their run ID across preparation attempts.
 
+An Agent turn is one Workflow run without steps. When the process stops while the Driver runs, the provider retries the run, but ViteHub does not start the Driver a second time. The journal claim of the stopped attempt stays, and an expired claim does not prove that the Driver stopped, so a second Driver could repeat its work. The retry fails with `Could not persist the Invocation running state.`, and the Workflow run and the journal record show `failed`. To try again, start a new turn.
+
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
 
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.

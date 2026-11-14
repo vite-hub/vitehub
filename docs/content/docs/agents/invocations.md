@@ -27,7 +27,7 @@ A Capability is an ability attached to an Agent, such as chat or a tool; only th
 | Term | Describes |
 | --- | --- |
 | Channel | Message origin and delivery facts around an Invocation. |
-| Workflow Run | Durable work that can continue across waits or server restarts. |
+| Workflow Run | Durable work that a provider stores and retries. An Agent turn that stops during its Driver fails and does not run again. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
 A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
