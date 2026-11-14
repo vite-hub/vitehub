@@ -695,14 +695,14 @@ async function checkAuthRequest(
 
 async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   input: TInput,
-  authorize: AccessAuthorizeOption<TInput>,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { request, session } = await readRequestSession(input, definition)
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
-  const rejection = await runAccessAuthorize(authorize, { ...authorization, event: input })
+  const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) })
   return rejection.response ? reject(rejection.response) : { authorization }
 }
 
@@ -712,7 +712,7 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
  * `false` returns `401` for a signed-out caller and `403` for a signed-in one. It never redirects to sign-in.
  */
 export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AuthAnonymousAuthorize<TInput>,
+  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
   handler: AuthAnonymousGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
@@ -729,7 +729,7 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
-    const rejection = await runAccessAuthorize(authorize, { ...authorization, event: input }, deny)
+    const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) }, deny)
     if (rejection.response) return rejection.response
     return handler(input, authorization)
   }
@@ -759,7 +759,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
  * It never redirects to sign-in, so image and fetch requests receive a status code.
  */
 export function withAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AccessAuthorizeOption<TInput>,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
@@ -839,7 +839,7 @@ export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition
  */
 export function requireAuthorization<TInput extends AuthRequestInput>(
   event: TInput,
-  authorize: AccessAuthorizeOption<TInput>,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   definition?: AuthDefinition,
 ): Promise<AuthAuthorization> {
   if (authorize !== true && typeof authorize !== "function") {

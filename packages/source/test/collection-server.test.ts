@@ -48,7 +48,7 @@ describe("defineCollectionHandler", () => {
     const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (request) => {
       const user = request.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
       if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })
-      const result = authorize === true || await authorize({ event: { "~standard": getStandardContext(request) }, request, session: {}, user })
+      const result = authorize === true || await authorize({ event: Object.assign(request, { "~standard": getStandardContext(new Request(request)) }), request, session: {}, user })
       if (result instanceof Response) return result
       if (result !== true) return Response.json({ error: "Forbidden." }, { status: 403 })
       return handler(request)
