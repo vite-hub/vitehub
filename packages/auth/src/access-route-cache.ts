@@ -67,7 +67,8 @@ export async function assertNoCachedAccessRoutes(routes: readonly ResolvedAuthAc
 
   for (const guard of guards) {
     const guarded = accessRoutePattern(guard.route, baseURL)
-    const methods = guard.method ? [guard.method.toUpperCase()] : cachedMethods
+    const method = guard.method?.toUpperCase()
+    const methods = !method || method === "GET" ? cachedMethods : [method]
     for (const method of methods) {
       const applied = entries.filter(entry => appliesTo(entry, method))
       for (const name of cachingRuleNames) {
