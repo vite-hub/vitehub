@@ -29,7 +29,8 @@ export function useDocsSeo(input: DocsSeoInput): void {
 
   if (input.image === false) {
     // Null overrides inherited head tags before Unhead removes them from the rendered page.
-    useSeoMeta({ ogImage: null, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: null, twitterImageAlt: null })
+    // A `summary` card tells share previews and the search check that the page has no image on purpose.
+    useSeoMeta({ twitterCard: "summary", ogImage: null, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: null, twitterImageAlt: null })
   }
   else if (input.image) {
     const imagePath = input.image.startsWith("/") ? input.image : `/${input.image}`
@@ -47,6 +48,9 @@ export function useDocsSeo(input: DocsSeoInput): void {
       logo: site.logo ? site.logo.src : "",
       host: site.url.replace(/^https?:\/\//, ""),
     })
+  }
+  else {
+    useSeoMeta({ twitterCard: "summary" })
   }
 
   useSchemaOrg([

@@ -755,7 +755,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           else if (route.fileName?.endsWith(".html") && route.contentType?.includes("text/html")) pages.push(readDocsSeoPage(route.route, route.contents, origin))
         })
         nitro.hooks?.hook("prerender:done", () => {
-          const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [] })
+          const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
           if (!problems.length) return
           const error = new DocsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
