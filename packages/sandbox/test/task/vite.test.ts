@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
+import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -151,6 +151,29 @@ describe("hubSandboxTask", () => {
 
     const inspectors = await collectViteHubDefinitionInspectors([plugin])
     expect(inspectors).toEqual([])
+  })
+
+  it("lists the Cloudflare Durable Object and Container as host resources", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "cloudflare", name: "image-optimizer" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }, { command: "build", mode: "production" })
+
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toEqual([
+      expect.objectContaining({ binding: "SANDBOX", host: "cloudflare", kind: "cloudflare-durable-object", name: "Sandbox", owner: "sandbox" }),
+      expect.objectContaining({ host: "cloudflare", kind: "cloudflare-container", name: "image-optimizer", owner: "sandbox" }),
+    ])
+  })
+
+  it("lists no host resources for the Vercel provider", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toEqual([])
   })
 
   it("exposes Vite Sandbox state", async () => {
