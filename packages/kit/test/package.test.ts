@@ -19,8 +19,8 @@ describe("@vite-hub/kit package contract", () => {
     expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@nuxt/kit", "@nuxt/schema", "nuxt", "vue"]);
   });
 
-  it("has 6 entries or fewer", () => {
-    expect(Object.keys(manifest.exports).length).toBeLessThanOrEqual(6);
+  it("has 5 entries or fewer", () => {
+    expect(Object.keys(manifest.exports).length).toBeLessThanOrEqual(5);
   });
 
   it("has one entry for each part it adds, and none that ui-sdk has", () => {

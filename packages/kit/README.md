@@ -87,7 +87,7 @@ What to use in ViteHub UI for each Reka UI 2.11 component.
 | DropdownMenu | `@ui-sdk/vue/menu` |
 | Editable | An `<input>` styled as text. Save on `@change`, and put the saved value back on Escape. For names in a list or a grid, `createInlineEdit` from `@ui-sdk/core`. |
 | Field | `@ui-sdk/vue/field` |
-| Form | A native `<form>` with `useFormAction()` from `@vite-hub/forms/vue` |
+| Form | A native `<form>` with a `Field` for each control. To send it to `server/forms/<name>.ts` and show the server's errors by `name`, use `useFormAction()` from `@vite-hub/forms/vue`. |
 | HoverCard | `@ui-sdk/vue/hover-card` |
 | Label | `@ui-sdk/vue/label` |
 | Listbox | `@ui-sdk/vue/listbox` |
