@@ -739,7 +739,16 @@ describe("base CI evidence on a moving base", () => {
     const f = await fixture({ expectedBaseOid: assigned })
     Object.assign(f.pullRequest, { baseRefOid: moved })
     expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
-    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...${moved}`)).toBe(true)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...main`)).toBe(true)
+  })
+
+  it("reads the assigned base when the PR's recorded base is older than it", async () => {
+    // A conflicted PR keeps an old baseRefOid, while a conflict repair is assigned the live branch tip.
+    const f = await fixture({ expectedBaseOid: moved })
+    Object.assign(f.pullRequest, { baseRefOid: assigned })
+    f.state.compare = { status: "identical", behind_by: 0 }
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(moved)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${moved}...main`)).toBe(true)
   })
 
   it("refuses when the base no longer contains the assigned commit", async () => {

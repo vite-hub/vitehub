@@ -12,6 +12,7 @@ import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvStoreWithMode } from "../store-mode.ts"
+import { createKVLock } from "./lock.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -164,6 +165,7 @@ function createKVStorage(name = "default"): KVStorage {
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
+    lock(key, options) { return createKVLock(name, () => resolveStorage(name), key, options) },
     async list(options) {
       if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])

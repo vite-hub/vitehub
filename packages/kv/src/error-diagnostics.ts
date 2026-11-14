@@ -32,6 +32,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`ttl` must be a positive number of seconds within the safe integer range.",
       fix: "Pass the TTL in seconds, for example `kv.set('session', value, { ttl: 60 })`.",
     },
+    KV_INVALID_WAIT: {
+      why: "`wait` must be zero or a positive number of seconds.",
+      fix: "Pass the wait in seconds, for example `kv.lock('jobs:report', { ttl: 60, wait: 5 })`, or omit `wait` to return at once.",
+    },
     KV_KEY_TOO_LONG: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `The key is ${bytes} bytes in UTF-8. Cloudflare KV accepts keys of at most ${limit} bytes.`,
       fix: "Use a shorter key. To keep a long identifier, store a hash of it as the key.",
@@ -47,10 +51,14 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_UNSUPPORTED_OPERATION: {
       why: ({ operation, store }: { operation: KVOperation, store: string }) => operation === "setIfAbsent"
         ? `kv.setIfAbsent() needs an atomic write, and the "${store}" store cannot give one. Cloudflare KV is eventually consistent, so two requests can both see a missing key.`
-        : `kv.${operation}() needs atomic operations, and the "${store}" store does not support them.`,
+        : operation === "lock"
+          ? `kv.lock() needs \`setIfAbsent()\` with a TTL and \`deleteIfEquals()\`, and the "${store}" store does not support both.`
+          : `kv.${operation}() needs atomic operations, and the "${store}" store does not support them.`,
       fix: ({ operation }: { operation: KVOperation, store: string }) => operation === "setIfAbsent"
         ? "On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object. Otherwise use the `redis`, `database`, `upstash`, `deno-kv`, or `fs-lite` driver for this store."
-        : "Use the `redis`, `database`, or `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
+        : operation === "lock"
+          ? "Use the `redis`, `database`, or `upstash` driver for this store. On Cloudflare, use a Durable Object or a D1 row as the lock."
+          : "Use the `redis`, `database`, or `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
     },
 
     // Config errors. KV throws them because the code or the deployment must change.
