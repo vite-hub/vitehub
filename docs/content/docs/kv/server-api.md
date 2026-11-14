@@ -200,7 +200,7 @@ The return type follows `type`: `kv.get(key, { type: 'text' })` is `string | nul
 
 ## Use KV from useStorage and Nuxt modules
 
-ViteHub mounts each KV store in Nitro storage. The default store is the mount `kv`, and a named store is `kv-<name>`, for example `kv-sessions`. The mount and `kv` read and write the same keys, and `ttl` works as in `kv.set()`.
+ViteHub mounts each KV store in Nitro storage. The default store is the mount `kv`, and a named store is `kv-<name>`, for example `kv-sessions`. Store names escape `%`, `:`, `/`, `\\`, and `?` as percent-encoded characters; an empty name uses `%` (for example, `a/b` mounts at `kv-a%2Fb`). The mount and `kv` read and write the same keys, and `ttl` works as in `kv.set()`.
 
 ```ts [server/api/visits.get.ts] fragment
 import { useStorage } from 'nitro/storage'

@@ -160,7 +160,8 @@ function configureNitroPlugin(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeC
 
 /** The Nitro storage mount of a store: `kv` for the default store, `kv-<name>` for a named store. */
 function kvStorageMountName(store: string): string {
-  return store === "default" ? "kv" : `kv-${store}`
+  const segment = store.replace(/[%:/\\?]/g, character => encodeURIComponent(character)) || "%"
+  return store === "default" ? "kv" : `kv-${segment}`
 }
 
 /**

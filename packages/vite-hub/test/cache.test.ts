@@ -93,7 +93,7 @@ describe("KV cache storage", () => {
     expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", kvCacheDriver).storage).toEqual({ base: "pages", driver: kvCacheDriver })
   })
 
-  it.each(["", ":", "/", ":://"])("keeps the default prefix for a base %j without a key segment", (base) => {
+  it.each(["", ":", "/", ":://", "?", "/?cache", "\\?cache"])("keeps the default prefix for a base %j without a key segment", (base) => {
     expect(resolveCacheStorage({ base, driver: "kv" }, "node", kvCacheDriver).storage).toEqual({ base: "nitro-cache", driver: kvCacheDriver })
   })
 

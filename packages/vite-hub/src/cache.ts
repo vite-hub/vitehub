@@ -74,9 +74,9 @@ export function resolveCacheStorage(cache: true | CacheOptions, host: ViteHubHos
   // KV runs on every host, so this driver needs `kv` instead of a host.
   if (isPlainObject(cache) && cache.driver === "kv") {
     if (!kvCacheDriver) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
-    // A base of only separators would leave the cache keys unprefixed, so clearing the cache would clear the whole store.
+    // A base that normalizes to empty would leave the cache keys unprefixed, so clearing the cache would clear the whole store.
     const base = trimmed(cache.base)
-    const mount: KVCacheMount = { base: base && /[^:/\\]/.test(base) ? base : "nitro-cache", driver: kvCacheDriver }
+    const mount: KVCacheMount = { base: base && /[^:/\\]/.test(base.split("?")[0]!) ? base : "nitro-cache", driver: kvCacheDriver }
     return { devStorage: mount, storage: mount }
   }
   const driver = readCacheDriver(cache, host)
