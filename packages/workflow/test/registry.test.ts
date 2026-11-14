@@ -45,6 +45,26 @@ describe("Workflow registry", () => {
     expect(Object.hasOwn(generated.default, "__proto__")).toBe(true)
   }, 15_000)
 
+  // A Workflow-only app does not install `@vite-hub/workspace`, so an import with no loaders breaks its build.
+  it("imports the Workspace runtime only when a Workspace dependency loader exists", () => {
+    const definitions = [{ handler: "/app/server/workflows/hello.ts", name: "hello", source: "server-workflows" as const }]
+    const workspaceRuntime = "vite-hub/workspace/runtime"
+
+    const withoutLoaders = createWorkflowRegistryContents("/app/.vitehub/workflow/registry.mjs", definitions, {
+      workspaceDependencies: {},
+      workspaceRuntime,
+    })
+    const withShell = createWorkflowRegistryContents("/app/.vitehub/workflow/registry.mjs", definitions, {
+      workspaceDependencies: { shellWorkspace: "vite-hub/shell/workspace" },
+      workspaceRuntime,
+    })
+
+    expect(withoutLoaders).not.toContain(workspaceRuntime)
+    expect(withoutLoaders).not.toContain("setWorkspaceDependencyRuntimeLoaders")
+    expect(withShell).toContain(`import { setWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(workspaceRuntime)}`)
+    expect(withShell).toContain("  shellWorkspace: () => import(\"vite-hub/shell/workspace\"),")
+  })
+
   it("renders, caches, and executes step-aware definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-"))
     directories.push(root)
