@@ -374,7 +374,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(browser.headers.get("content-type")).not.toContain("markdown")
   })
 
-  it("loads Content only for requests that ask for Markdown and for HTML pages", async () => {
+  it("loads Content to check copies for downstream responses", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
     let loads = 0
     const lazy = app(() => {
@@ -383,15 +383,15 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     }, () => new Response("body {}", { headers: { "content-type": "text/css" } }))
     expect(await (await lazy.request("https://example.com/style.css")).text()).toBe("body {}")
     expect(await (await lazy.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })).text()).toBe("body {}")
-    expect(loads).toBe(0)
+    expect(loads).toBe(2)
     expect(await (await lazy.request("https://example.com/blog/hello.md")).text()).toMatch(/^# Hello\n/)
-    expect(loads).toBe(1)
-    // An HTML page loads Content to find its copy.
+    expect(loads).toBe(3)
+    // An HTML page also loads Content to find its copy.
     expect((await app(() => {
       loads++
       return content
     }).request("https://example.com/blog/hello")).headers.get("link")).toContain("</blog/hello.md>")
-    expect(loads).toBe(2)
+    expect(loads).toBe(4)
   })
 
   it("links the copy from an HTML page that has one", async () => {
@@ -414,13 +414,30 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(linked.headers.get("link")).toBe("</style.css>; rel=preload; as=style, </blog/hello.md>; rel=\"alternate\"; type=\"text/markdown\"")
   })
 
-  it("adds no Vary or Link to responses that Accept: text/markdown does not change", async () => {
+  it("varies every representation at copy-backed URLs, but leaves unrelated responses alone", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
-    // JSON, assets, and redirects do not change with Accept: text/markdown, so they get neither header.
     for (const response of [Response.json({ ok: true }), new Response("body {}", { headers: { "content-type": "text/css" } }), new Response(null, { status: 302, headers: { location: "/blog/hello" } })]) {
-      const result = await app(content, () => response.clone()).request("https://example.com/blog/hello", { headers: { accept: "application/json" } })
-      expect(result.headers.get("vary")).toBeNull()
-      expect(result.headers.get("link")).toBeNull()
+      for (const path of ["/blog/hello", "/unrelated"]) {
+        const handler = app(content, () => response.clone())
+        const result = await handler.request(`https://example.com${path}`, { headers: { accept: "application/json" } })
+        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(result.headers.get("link")).toBeNull()
+        const markdown = await handler.request(`https://example.com${path}`, { headers: { accept: "text/markdown" } })
+        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        if (path === "/blog/hello") expect(await markdown.text()).toMatch(/^# Hello\n/)
+        else expect(await markdown.text()).toBe(await response.clone().text())
+      }
+    }
+  })
+
+  it("varies unmatched browser and Markdown 404s", async () => {
+    const content = await site({ markdown: true })
+    const handler = new H3().use(defineContentMarkdownHandler(content))
+    for (const accept of ["text/html", "text/markdown"]) {
+      const result = await handler.request("https://example.com/missing", { headers: { accept } })
+      expect(result.status).toBe(404)
+      expect(result.headers.get("vary")).toBe("Accept")
+      expect(result.headers.get("content-type")?.includes("text/markdown")).toBe(accept === "text/markdown")
     }
   })
 

@@ -188,12 +188,12 @@ function etagMatches(header: string | null, etag: string): boolean {
  * - `<url>.md` returns the copy from `content.markdown()`.
  * - A page URL with `Accept: text/markdown` before `text/html` returns the same copy.
  * - A Markdown request that no handler answers gets a Markdown 404 body.
- * - An HTML page that has a copy gets `Vary: Accept` and a `Link` header that names the copy. A page 404 gets
- *   `Vary: Accept` too, because a Markdown request gets the Markdown 404. Other responses do not change.
+ * - Every response at a page URL with a copy gets `Vary: Accept`; a successful HTML page also gets a
+ *   `Link` header naming the copy. Page 404s vary too, because Markdown requests get the Markdown 404.
  *
  * A copy has `Content-Location` and an `ETag`, so `If-None-Match` gets a 304. Every other request passes through. Pass
- * the Content runtime, or a function that loads it: the middleware then loads Content only for requests that ask for
- * Markdown and for HTML pages. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
+ * the Content runtime, or a function that loads it: the middleware loads Content for Markdown requests and to check
+ * whether downstream responses have copies. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
  */
 export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>)): ContentMiddleware {
   return async (event, next) => {
@@ -213,21 +213,21 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     }
     // H3 overwrites returned Response headers with prepared headers. Merge after downstream handlers finish.
     const vary = (result: unknown) => setHeader("vary", mergeVary(event.res?.headers.get("vary"), event.res?.errHeaders?.get("vary"), resultHeaders(result)?.get("vary")))
-    /** Mark an HTML page that has a copy, and a page 404, which a Markdown request gets as the Markdown 404. */
+    /** Vary copy-backed responses and page 404s; advertise copies only from successful HTML pages. */
     const alternate = async (result: unknown) => {
-      if (!page || !event.res || result === notFound) return result
+      if (!page || !event.res) return result
       const status = responseStatus(result) ?? event.res.status ?? 200
-      if (status === 404) {
+      if (result === notFound || status === 404) {
         vary(result)
         return result
       }
       const type = resultHeaders(result)?.get("content-type") ?? event.res.headers.get("content-type") ?? ""
-      if (status !== 200 || !/^\s*(?:text\/html|application\/xhtml\+xml)\b/i.test(type)) return result
       const runtime = await load()
       if (!runtime.seo?.markdown) return result
       const exists = runtime.hasMarkdown ? await runtime.hasMarkdown(twin) : await runtime.markdown(twin) !== null
       if (!exists) return result
       vary(result)
+      if (status !== 200 || !/^\s*(?:text\/html|application\/xhtml\+xml)\b/i.test(type)) return result
       const links = [event.res.headers.get("link"), resultHeaders(result)?.get("link"), markdownAlternateLink(twin)].filter(Boolean)
       event.res.headers.set("link", [...new Set(links)].join(", "))
       return result
