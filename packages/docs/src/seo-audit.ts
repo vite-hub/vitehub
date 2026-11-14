@@ -52,6 +52,12 @@ export function readDocsSeoPage(path: string, html: string, origin: string): Doc
   const body = (html.match(/<body\b[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html).replace(hiddenElements, " ")
   const meta = (name: string) => attribute(head.match(new RegExp(`<meta\\b[^>]*\\b(?:name|http-equiv)=["']${name}["'][^>]*>`, "i"))?.[0], "content")
   const canonical = attribute(head.match(/<link\b[^>]*\brel=["']canonical["'][^>]*>/i)?.[0], "href")
+  // Open Graph tags with a value, in any attribute order.
+  const openGraph = new Set<string>()
+  for (const [tag] of head.matchAll(/<meta\b[^>]*>/gi)) {
+    const property = attribute(tag, "property")
+    if (property && attribute(tag, "content")?.trim()) openGraph.add(property.toLowerCase())
+  }
   const levels: number[] = []
   walkSync(parse(body), (node, parent) => {
     if (node.type !== ELEMENT_NODE || !/^h[1-6]$/i.test(node.name)) return
@@ -76,7 +82,7 @@ export function readDocsSeoPage(path: string, html: string, origin: string): Doc
     noindex: /\bnoindex\b/i.test(meta("robots") ?? ""),
     redirect: meta("refresh") !== undefined,
     bytes: new TextEncoder().encode(html).byteLength,
-    openGraphMissing: docsOpenGraphTags.filter(tag => !new RegExp(`<meta\\b[^>]*\\bproperty=["']${tag}["'][^>]*\\bcontent=["'][^"']`, "i").test(head)),
+    openGraphMissing: docsOpenGraphTags.filter(tag => !openGraph.has(tag)),
     h1: levels.filter(level => level === 1).length,
     headingSkip: skip > 0 ? `h${levels[skip - 1]} → h${levels[skip]}` : null,
     words: text.split(/\s+/).filter(Boolean).length,

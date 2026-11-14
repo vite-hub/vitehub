@@ -114,6 +114,9 @@ describe("docsSeoProblems", () => {
     const links = page("/docs/links", { body: `<h1>Links</h1><p>${words(200)}</p><a href="/guides">Guides</a><a href="/mcp">MCP</a><a href="/">Home</a>` })
     const bare = page("/docs/bare", { og: false })
     expect(bare.openGraphMissing).toEqual(["og:title", "og:type", "og:image", "og:url"])
+    // Attribute order and empty values: `content` first counts, an empty `content` does not.
+    const reordered = readDocsSeoPage("/docs/reordered", html({ og: false }).replace("</head>", '<meta content="KV" property="og:title"><meta content="article" property="og:type"><meta content="https://acme.dev/og.png" property="og:image"><meta property="og:url" content=""></head>'), origin)
+    expect(reordered.openGraphMissing).toEqual(["og:url"])
     const problems = docsSeoProblems([home, big, guides, links, bare], [], { endpoints: ["/mcp"] })
     expect(problems).toContain("/docs/codes has 2.6 MiB of HTML, and crawlers read only the first 2.0 MiB. Split the page, or show long lists with a component that renders less markup than a Markdown table.")
     expect(problems).toContain("/docs/links links to /guides, which redirects. Link to the page that it redirects to.")
