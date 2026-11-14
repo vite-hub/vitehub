@@ -390,6 +390,8 @@ async function writeFixture(item) {
   }
   if (item.framework === "vite") {
     Object.assign(files, {
+      // The build passes the same plugins itself. The CLI reads this file to find the app's operations, like `invocations undo`.
+      "vite.config.ts": `import vue from "@vitejs/plugin-vue"\nimport { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vue(), vitehub(${JSON.stringify(hubOptions(item))})] })\n`,
       "index.html": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Acme Console</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.ts\"></script></body></html>\n",
       "src/main.ts": "import \"@ui-sdk/core/web.css\"\nimport { createApp } from \"vue\"\nimport App from \"./App.vue\"\n\ncreateApp(App).mount(\"#app\")\n",
       "src/App.vue": appComponent,
