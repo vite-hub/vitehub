@@ -47,6 +47,19 @@ describe("normalizeKVOptions", () => {
     expect(normalizeKVOptions({ driver: "redis", base: "app/kv" }, { env: {} })?.store).toMatchObject({ base: "app:kv" })
   })
 
+  it("gives every Upstash store its own prefix, and never an empty one", () => {
+    expect(normalizeKVOptions({ stores: {
+      default: { driver: "upstash" },
+      cache: { driver: "upstash", base: " " },
+      sessions: { driver: "upstash", base: "app/sessions" },
+    } }, { env: {} })?.stores).toMatchObject({
+      cache: { base: "vitehub:kv:cache" },
+      default: { base: "vitehub:kv:default" },
+      sessions: { base: "app:sessions" },
+    })
+    expect(normalizeKVOptions(undefined, { env: {}, hosting: "vercel" })?.store).toMatchObject({ base: "vitehub:kv:default" })
+  })
+
   it("resolves explicit redis and database stores, with a runtime URL and a namespace per store", () => {
     expect(normalizeKVOptions({ stores: {
       default: { driver: "redis" },
@@ -207,6 +220,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",
@@ -223,6 +237,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "node-server",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",
@@ -236,6 +251,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",
@@ -256,6 +272,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "explicit-token",
         url: "https://explicit-upstash.example.com",
@@ -274,6 +291,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",

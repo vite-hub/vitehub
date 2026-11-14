@@ -133,5 +133,10 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_R0162: dynamicError,
     SANDBOX_R0163: dynamicError,
     SANDBOX_R0164: dynamicError,
+    // process signals
+    SANDBOX_R0165: {
+      why: ({ runtime, signal }: { runtime: string; signal: string }) => `${runtime} Sandbox cannot send the signal ${signal}.`,
+      fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number.",
+    },
   },
 })

@@ -368,15 +368,15 @@ describe("schema migration safety", () => {
     expect(edited.code).not.toContain("runtimeConfig")
   })
 
-  it.each(["string", "number", "boolean"])("migrates || fallbacks for %s to an Env source that skips empty values", async (type) => {
+  it.each(["string", "number", "boolean"])("migrates || fallbacks for %s to an Env source that treats empty values as unset", async (type) => {
     const fallback = type === "string" ? "'fallback'" : type === "number" ? "7" : "true"
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { value: process.env.SOURCE || ${fallback} } })` })
     const config = await readNuxtConfig(cwd)
     const plan = planFromJsonSchema({ jsonSchema: { type: "object", required: ["value"], properties: { value: { type } } }, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
     expect(plan.unmigrated).toEqual([])
-    expect(plan.fields[0]).toMatchObject({ skipEmpty: true, extraVariables: ["SOURCE"] })
+    expect(plan.fields[0]).toMatchObject({ extraVariables: ["SOURCE"] })
     const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set(["value"]) })
-    expect(edited.code).toContain("source: env.source(['NUXT_VALUE', 'SOURCE'], { skipEmpty: true })")
+    expect(edited.code).toContain("source: env.source(['NUXT_VALUE', 'SOURCE'])")
     const exported = parseProgram(edited.code).program.body.find(node => node.type === "ExportDefaultDeclaration")
     if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
     const migrated: { vitehub: { env: { server: EnvRuntimeConfigOptions } } } = runInNewContext(edited.code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })

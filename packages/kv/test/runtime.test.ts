@@ -229,28 +229,28 @@ describe("kv runtime", () => {
 
   it("reads Upstash runtime credentials under either env name", async () => {
     const { resolveRuntimeKVOptions } = await import("../src/runtime/upstash.ts")
-    const masked = { store: { driver: "upstash" as const, token: "********", url: "********" } }
+    const masked = { store: { base: "app", driver: "upstash" as const, token: "********", url: "********" } }
 
     expect(resolveRuntimeKVOptions(masked, {
       UPSTASH_REDIS_REST_TOKEN: "upstash-token",
       UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
-    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
+    })).toEqual({ store: { base: "app", driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
     expect(resolveRuntimeKVOptions(masked, {
       KV_REST_API_TOKEN: "vercel-token",
       KV_REST_API_URL: "https://vercel.example.com",
       UPSTASH_REDIS_REST_TOKEN: "upstash-token",
       UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
-    })).toEqual({ store: { driver: "upstash", token: "vercel-token", url: "https://vercel.example.com" } })
+    })).toEqual({ store: { base: "app", driver: "upstash", token: "vercel-token", url: "https://vercel.example.com" } })
     expect(resolveRuntimeKVOptions(masked, {
       KV_REST_API_URL: "https://stale.example.com",
       UPSTASH_REDIS_REST_TOKEN: "upstash-token",
       UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
-    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
-    expect(resolveRuntimeKVOptions({ store: { driver: "upstash", token: "********", url: "https://configured.example.com" } }, {
+    })).toEqual({ store: { base: "app", driver: "upstash", token: "upstash-token", url: "https://upstash.example.com" } })
+    expect(resolveRuntimeKVOptions({ store: { base: "app", driver: "upstash", token: "********", url: "https://configured.example.com" } }, {
       KV_REST_API_TOKEN: "stale-token",
       UPSTASH_REDIS_REST_TOKEN: "upstash-token",
       UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
-    })).toEqual({ store: { driver: "upstash", token: "upstash-token", url: "https://configured.example.com" } })
+    })).toEqual({ store: { base: "app", driver: "upstash", token: "upstash-token", url: "https://configured.example.com" } })
     expect(() => resolveRuntimeKVOptions(masked, {
       KV_REST_API_URL: "https://vercel.example.com",
       UPSTASH_REDIS_REST_TOKEN: "upstash-token",
@@ -340,12 +340,12 @@ describe("kv runtime", () => {
     upstashGetdel = vi.fn(async () => '"single-use"')
     upstashEval = vi.fn(async () => 1)
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+    const driver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://upstash.example.com" })
 
     await expect(driver.getAndDeleteItem?.("verification")).resolves.toBe('"single-use"')
     await expect(driver.incrementItem?.("attempts", 60)).resolves.toBe(1)
-    expect(upstashGetdel).toHaveBeenCalledWith("verification")
-    expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["attempts"], ["60"])
+    expect(upstashGetdel).toHaveBeenCalledWith("app:verification")
+    expect(upstashEval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["app:attempts"], ["60"])
     const script = String(upstashEval?.mock.calls[0]?.[0])
     expect(script).toContain("redis.call('EXISTS'")
     expect(script).toContain("negative and '9007199254740992' or '9007199254740991'")
@@ -358,7 +358,7 @@ describe("kv runtime", () => {
     expect(upstashEval).toHaveBeenCalledOnce()
 
     upstashEval = vi.fn(async () => Number.MAX_SAFE_INTEGER + 1)
-    const unsafeDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://upstash.example.com" })
+    const unsafeDriver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://upstash.example.com" })
     await expect(unsafeDriver.incrementItem?.("attempts", 60)).rejects.toThrow("safe integer range")
   })
 
@@ -425,14 +425,14 @@ describe("kv runtime", () => {
     expect(mountedDrivers.cloudflare).toBeUndefined()
   })
 
-  it("falls back through unstorage when the resolved driver lacks getItems", async () => {
-    cloudflareDriver = createDriverWithoutOptionalMethods()
+  it("reads one key at a time when the resolved driver lacks getItems", async () => {
+    fsLiteDriver = createDriverWithoutOptionalMethods()
 
     const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
     const lazyDriver = createLazyKVRuntimeDriver({
       store: {
-        binding: "KV",
-        driver: "cloudflare-kv-binding",
+        base: ".vitehub/data/kv",
+        driver: "fs-lite",
       },
     })
     const lazyStorage = createStorage({ driver: lazyDriver })
@@ -461,11 +461,12 @@ describe("kv runtime", () => {
     await driver.getItem("missing")
 
     expect(driver.getItemRaw).toBeUndefined()
-    expect(driver.getItems).toBeUndefined()
     expect(driver.getMeta).toBeUndefined()
     expect(driver.setItemRaw).toBeUndefined()
-    expect(driver.setItems).toBeUndefined()
     expect(driver.removeItems).toBeUndefined()
+    // Every driver gets the batch methods, which call the single-key methods when the driver has no batch command.
+    expect(driver.getItems).toEqual(expect.any(Function))
+    expect(driver.setItems).toEqual(expect.any(Function))
     expect(driver.watch).toBeUndefined()
   })
 
@@ -494,7 +495,7 @@ describe("kv runtime", () => {
     expect(driver.getItemRaw).toEqual(expect.any(Function))
     expect(driver.getMeta).toEqual(expect.any(Function))
     expect(driver.setItemRaw).toEqual(expect.any(Function))
-    expect(driver.getItems).toBeUndefined()
+    expect(driver.getItems).toEqual(expect.any(Function))
     expect(driver.watch).toBeUndefined()
 
     await expect(driver.getItemRaw?.("greeting", {})).resolves.toEqual(Buffer.from("hello"))
@@ -760,52 +761,51 @@ describe("kv runtime", () => {
   })
 
   it("uses one bounded Upstash scan with a literal prefix", async () => {
-    upstashScan = vi.fn(async () => ["7", ["user:*literal"]])
+    upstashScan = vi.fn(async () => ["7", ["app:user:*literal"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const driver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
 
     await expect(driver.listKeys({ limit: 2, prefix: "user:*?[\\" })).resolves.toMatchObject({
       keys: ["user:*literal"],
       cursor: expect.any(String),
     })
     expect(upstashScan).toHaveBeenCalledOnce()
-    expect(upstashScan).toHaveBeenCalledWith("0", { count: 2, match: "user:\\*\\?\\[\\\\*" })
+    expect(upstashScan).toHaveBeenCalledWith("0", { count: 2, match: "app:user:\\*\\?\\[\\\\*" })
   })
 
-  it("caps oversized Upstash scan replies without dropping overflow", async () => {
-    upstashScan = vi.fn(async () => ["0", ["one", "two", "three"]])
+  it("carries oversized Upstash scan replies in the cursor", async () => {
+    upstashScan = vi.fn(async () => ["0", ["app:c", "app:a", "app:b"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const driver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
 
     const first = await driver.listKeys({ limit: 2 })
     const second = await driver.listKeys({ cursor: first.cursor, limit: 2 })
 
-    expect(first).toMatchObject({ keys: ["one", "two"], cursor: expect.any(String) })
-    expect(second).toEqual({ keys: ["three"] })
-    expect(first.cursor).not.toContain("three")
+    expect(first).toMatchObject({ keys: ["a", "b"], cursor: expect.any(String) })
+    expect(second).toEqual({ keys: ["c"] })
     expect(upstashScan).toHaveBeenCalledOnce()
   })
 
   it("keeps ordinary Upstash scan cursors portable across driver instances", async () => {
     upstashScan = vi.fn()
-      .mockResolvedValueOnce([7, ["one", "one"]])
-      .mockResolvedValueOnce([0, ["one", "two"]])
+      .mockResolvedValueOnce([7, ["app:one", "app:one"]])
+      .mockResolvedValueOnce([0, ["app:one", "app:two"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const firstDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const firstDriver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
 
     const first = await firstDriver.listKeys({ limit: 2 })
-    const secondDriver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const secondDriver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
     const second = await secondDriver.listKeys({ cursor: first.cursor, limit: 2 })
 
     expect(first).toMatchObject({ keys: ["one"], cursor: expect.any(String) })
     expect(second).toEqual({ keys: ["one", "two"] })
-    expect(upstashScan).toHaveBeenNthCalledWith(2, "7", { count: 2, match: "*" })
+    expect(upstashScan).toHaveBeenNthCalledWith(2, "7", { count: 2, match: "app:*" })
   })
 
   it("rejects an Upstash scan cursor that does not advance", async () => {
     upstashScan = vi.fn(async () => ["7", ["one"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const driver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
 
     const first = await driver.listKeys({ limit: 1 })
     await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
@@ -814,38 +814,22 @@ describe("kv runtime", () => {
 
   it("does not replay an oversized Upstash scan to resume overflow", async () => {
     upstashScan = vi.fn()
-      .mockResolvedValueOnce(["7", ["one", "two", "three"]])
-      .mockResolvedValueOnce(["0", ["changed"]])
+      .mockResolvedValueOnce(["7", ["app:a", "app:b", "app:c"]])
+      .mockResolvedValueOnce(["0", ["app:changed"]])
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
+    const driver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
 
     const first = await driver.listKeys({ limit: 2 })
     await expect(driver.listKeys({ cursor: first.cursor, limit: 2 })).resolves.toEqual({
-      keys: ["three"],
+      keys: ["c"],
       cursor: expect.any(String),
     })
     expect(upstashScan).toHaveBeenCalledOnce()
   })
 
-  it("rejects Upstash overflow that exceeds the retained byte budget", async () => {
-    upstashScan = vi.fn(async () => ["0", ["page", "x".repeat(1024 * 1024 + 1)]])
+  it("rejects a malformed Upstash cursor", async () => {
     const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
-
-    await expect(driver.listKeys({ limit: 1 })).rejects.toThrow("continuation size limit")
-  })
-
-  it("marks expired Upstash continuations separately from malformed cursors", async () => {
-    upstashScan = vi.fn(async () => ["0", ["one", "two"]])
-    const { default: createUpstashKVDriver } = await import("../src/runtime/upstash-driver.ts")
-    const driver = createUpstashKVDriver({ driver: "upstash", token: "token", url: "https://example.com" })
-    const first = await driver.listKeys({ limit: 1 })
-    await driver.listKeys({ cursor: first.cursor, limit: 1 })
-
-    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({
-      code: "KV_INVALID_CURSOR",
-      why: "The list cursor has expired.",
-    })
+    const driver = createUpstashKVDriver({ base: "app", driver: "upstash", token: "token", url: "https://example.com" })
     await expect(driver.listKeys({ cursor: "malformed", limit: 1 })).rejects.toMatchObject({
       code: "KV_INVALID_CURSOR",
       why: "The list cursor is invalid or exceeds the maximum size.",
