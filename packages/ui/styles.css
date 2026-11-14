@@ -6,6 +6,8 @@
 @import "@xterm/xterm/css/xterm.css" layer(components);
 /* Share the theme's wrapper focus ring without requiring its palette or fonts. */
 @import "./theme-focus-ring.css";
+/* Comment pins, areas, and highlights. The ViteHub pill and Drop's page frame load the same file without a framework. */
+@import "./comment-marks.css" layer(components);
 
 /*
  * Theme tokens. Set `--vh-ui-*` on any element to change the parts inside it; the package sets none of them. The parts
@@ -33,8 +35,6 @@
   --vh-info: var(--vh-ui-info, var(--ui-info, var(--vh-highlighted)));
   --vh-success: var(--vh-ui-success, var(--ui-success, var(--vh-highlighted)));
   --vh-warning: var(--vh-ui-warning, var(--ui-warning, var(--vh-highlighted)));
-  /* A drawn comment area: the focus blue, else Nuxt UI's info color. The text color would vanish on a white image. */
-  --vh-comment-mark: var(--vh-ui-comment-mark, var(--vh-focus, var(--ui-info, var(--vh-highlighted))));
 }
 
 /*
@@ -1977,31 +1977,7 @@
     position: absolute;
   }
 
-  /* The area that a drag in comment mode draws, in one blue that shows on light and dark pages and on images. */
-  [data-slot="comment-layer-area"] {
-    background: color-mix(in oklab, var(--vh-comment-mark) 16%, transparent);
-    border: 2px solid var(--vh-comment-mark);
-    border-radius: 3px;
-    box-sizing: border-box;
-    pointer-events: none;
-    position: absolute;
-  }
-
-  [data-slot="comment-layer-area-handle"] {
-    background: var(--vh-on-media, white);
-    border: 1.5px solid var(--vh-comment-mark);
-    border-radius: 9999px;
-    box-sizing: border-box;
-    height: 0.5rem;
-    position: absolute;
-    width: 0.5rem;
-  }
-
-  [data-slot="comment-layer-area-handle"][data-corner^="top"] { top: -0.3125rem; }
-  [data-slot="comment-layer-area-handle"][data-corner^="bottom"] { bottom: -0.3125rem; }
-  [data-slot="comment-layer-area-handle"][data-corner$="left"] { left: -0.3125rem; }
-  [data-slot="comment-layer-area-handle"][data-corner$="right"] { right: -0.3125rem; }
-
+  /* The look of the area that a drag in comment mode draws, and of its corners, is in comment-marks.css. */
   [data-slot="comment-layer-area-size"] {
     background: color-mix(in oklab, var(--vh-comment-mark), black 10%);
     border-radius: 0.25rem;
@@ -2105,34 +2081,13 @@
     pointer-events: auto;
   }
 
-  /* Drop's pin: the face fills the pin, and a ring of the page color keeps it apart from what is under it. */
+  /* The pin's look is Drop's, in comment-marks.css. Here its bottom-left corner sits on the spot. */
   [data-slot="comment-pin"] {
-    align-items: center;
-    background: var(--vh-primary);
-    border: 0;
-    border-radius: 9999px 9999px 9999px 0.1875rem;
-    box-shadow: 0 1px 4px color-mix(in oklab, var(--vh-highlighted) 30%, transparent), 0 0 0 2px var(--vh-bg);
-    color: var(--vh-inverted);
-    cursor: pointer;
-    display: grid;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    height: 1.75rem;
-    padding: 0;
-    place-items: center;
-    position: absolute;
     transform: translateY(-100%);
-    transform-origin: bottom left;
-    transition: scale 120ms ease;
-    width: 1.75rem;
-  }
-
-  [data-slot="comment-pin"]:is(:hover, [data-active="true"]) {
-    scale: 1.1;
   }
 
   [data-slot="comment-pin"] [data-slot="avatar-stack"] {
-    --vh-avatar-size: 1.75rem;
+    --vh-avatar-size: var(--vh-comment-pin-size);
     border-radius: inherit;
   }
 
@@ -2159,11 +2114,6 @@
     right: -0.4rem;
     text-align: center;
     top: -0.4rem;
-  }
-
-  [data-slot="comment-pin"][data-status="resolved"] {
-    filter: grayscale(1);
-    opacity: 0.6;
   }
 
   /* Floating surfaces take the layered shadow of the theme, which draws their hairline too. Without the theme, the hairline stays. */
@@ -2308,10 +2258,6 @@
   @media (prefers-reduced-motion: reduce) {
     [data-slot="comment-composer"][data-shake="shake"] {
       animation: none;
-    }
-
-    [data-slot="comment-pin"] {
-      transition: none;
     }
   }
 
