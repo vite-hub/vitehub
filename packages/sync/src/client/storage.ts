@@ -78,6 +78,8 @@ interface SyncStorageChange {
   sent?: number[]
   /** Removes writes by `seq`. */
   remove?: number[]
+  /** Results of actions that the server applied, by mutation id, for the tab that made the call. */
+  results?: [string, unknown][]
 }
 
 /** What a change did. */
@@ -98,8 +100,13 @@ interface SyncStorage {
   readQueue: (id: string) => Promise<Omit<SyncStored, "rows">>
   /** Applies `change` at once. */
   write: (id: string, change: SyncStorageChange) => Promise<SyncWriteResult>
+  /** Reads and deletes the stored results of these actions. An action without a result is not in the map. */
+  takeResults: (ids: readonly string[]) => Promise<Map<string, unknown>>
   clear: () => Promise<void>
 }
+
+/** How long the storage keeps the result of an action that no tab read, in milliseconds. */
+const resultLifetime = 10 * 60_000
 
 /** `true` when a new update may merge into `write`: it is a queued update that nobody sent or refused. */
 function isMergeable(write: SyncQueuedWrite | undefined): boolean {
@@ -143,6 +150,7 @@ function applyQueueChange(writes: readonly SyncQueuedWrite[], change: SyncStorag
 /** A storage in memory. Values are copied in and out, as IndexedDB does. */
 function createMemoryStorage(): SyncStorage {
   const names = new Map<string, { meta: SyncMeta | undefined, rows: Map<SyncKey, SyncRow>, writes: SyncQueuedWrite[] }>()
+  const results = new Map<string, { result: unknown, at: number }>()
   let seq = 0
   const entry = (id: string) => names.get(id) ?? { meta: undefined, rows: new Map<SyncKey, SyncRow>(), writes: [] }
   return {
@@ -169,13 +177,29 @@ function createMemoryStorage(): SyncStorage {
         rows: applyRowChange(current.rows, copy),
         writes: applyQueueChange(current.writes, copy, result),
       })
+      const now = Date.now()
+      for (const [mutationId, stored] of results) {
+        if (stored.at < now - resultLifetime) results.delete(mutationId)
+      }
+      for (const [mutationId, value] of copy.results ?? []) results.set(mutationId, { result: value, at: now })
       return result
+    },
+    async takeResults(ids) {
+      const found = new Map<string, unknown>()
+      for (const mutationId of ids) {
+        const stored = results.get(mutationId)
+        if (!stored) continue
+        found.set(mutationId, structuredClone(stored.result))
+        results.delete(mutationId)
+      }
+      return found
     },
     async clear() {
       names.clear()
+      results.clear()
     },
   }
 }
 
-export { addedWrites, applyQueueChange, applyRowChange, createMemoryStorage, isMergeable }
+export { addedWrites, applyQueueChange, applyRowChange, createMemoryStorage, isMergeable, resultLifetime }
 export type { SyncMerge, SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange, SyncStored, SyncWriteResult }

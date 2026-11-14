@@ -1,7 +1,8 @@
 // A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
-// [store, key], `meta` by store, and `outbox` in insertion order, with the store in `store`. Each change is one
-// transaction. A store is a route plus a subset, such as `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
-import { isMergeable } from "./storage.ts"
+// [store, key], `meta` by store, `outbox` in insertion order, with the store in `store`, and `results` of actions by
+// mutation id. Each change is one transaction. A store is a route plus a subset, such as
+// `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
+import { isMergeable, resultLifetime } from "./storage.ts"
 
 import type { SyncKey, SyncRow } from "../protocol.ts"
 import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResult } from "./storage.ts"
@@ -9,8 +10,8 @@ import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResul
 const databaseName = "vitehub-sync"
 // Format 2 (Sync v2) adds the account, the table version and the defaults to the meta, and tags each write with its
 // account instead of its scope. Format 3 keeps the store of a write in `store`, since `name` is the name of an action.
-// Format 4 marks sent writes and keeps the v1 scope of a write in `legacyScope`. An upgrade drops the stored rows and
-// keeps the outbox.
+// Format 4 marks sent writes, keeps the v1 scope of a write in `legacyScope`, and adds `results`. An upgrade drops the
+// stored rows and keeps the outbox.
 const format = 4
 
 interface MetaRecord extends SyncMeta {
@@ -28,6 +29,13 @@ interface RowRecord {
 }
 
 type OutboxRecord = SyncQueuedWrite & { store: string }
+
+interface ResultRecord {
+  id: string
+  result: unknown
+  /** When the result was stored, in milliseconds since the epoch. */
+  at: number
+}
 
 function rowsOf(name: string): IDBKeyRange {
   // An array key sorts after every string, so this range holds every key of `name`.
@@ -79,12 +87,14 @@ function openDatabase(): Promise<IDBDatabase> {
         database.createObjectStore("rows", { keyPath: ["name", "key"] })
         database.createObjectStore("meta", { keyPath: "name" })
         database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("store", "store")
+        database.createObjectStore("results", { keyPath: "id" }).createIndex("at", "at")
         return
       }
       const transaction = request.transaction!
       transaction.objectStore("rows").clear()
       transaction.objectStore("meta").clear()
       upgradeOutbox(transaction.objectStore("outbox"), event.oldVersion)
+      if (!database.objectStoreNames.contains("results")) database.createObjectStore("results", { keyPath: "id" }).createIndex("at", "at")
     }
     request.onsuccess = () => {
       const database = request.result
@@ -151,7 +161,7 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
     async write(id, change) {
       const database = await open()
       if (!(database instanceof IDBDatabase)) return database.write(id, change)
-      const transaction = database.transaction(["rows", "meta", "outbox"], "readwrite")
+      const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
       const rows = transaction.objectStore("rows")
       const metaStore = transaction.objectStore("meta")
       const outbox = transaction.objectStore("outbox")
@@ -217,14 +227,41 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
       }
       if (targets.length) targets.at(-1)!.onsuccess = add
       else add()
+      if (change.results?.length) {
+        const results = transaction.objectStore("results")
+        const now = Date.now()
+        const expired = results.index("at").getAllKeys(IDBKeyRange.upperBound(now - resultLifetime))
+        expired.onsuccess = () => {
+          for (const key of expired.result) results.delete(key)
+        }
+        for (const [mutationId, value] of change.results) results.put({ id: mutationId, result: value, at: now } satisfies ResultRecord)
+      }
       await done(transaction)
       return result
+    },
+    async takeResults(ids) {
+      const database = await open()
+      if (!(database instanceof IDBDatabase)) return database.takeResults(ids)
+      const transaction = database.transaction("results", "readwrite")
+      const results = transaction.objectStore("results")
+      const found = new Map<string, unknown>()
+      for (const mutationId of ids) {
+        const existing = results.get(mutationId)
+        existing.onsuccess = () => {
+          const record = existing.result as ResultRecord | undefined
+          if (!record) return
+          found.set(mutationId, record.result)
+          results.delete(mutationId)
+        }
+      }
+      await done(transaction)
+      return found
     },
     async clear() {
       const database = await open()
       if (!(database instanceof IDBDatabase)) return database.clear()
-      const transaction = database.transaction(["rows", "meta", "outbox"], "readwrite")
-      for (const store of ["rows", "meta", "outbox"]) transaction.objectStore(store).clear()
+      const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
+      for (const store of ["rows", "meta", "outbox", "results"]) transaction.objectStore(store).clear()
       await done(transaction)
     },
   }

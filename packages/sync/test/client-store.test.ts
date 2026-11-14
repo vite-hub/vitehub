@@ -580,6 +580,31 @@ describe("actions", () => {
     expect(store.getState().failures).toEqual([])
   })
 
+  it("resolves an action with its result when another tab sends it", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    h.server.actions.complete = ({ update }, args) => {
+      update((args as { id: string }).id, { done: true })
+      return { answer: 42 }
+    }
+    let down = false
+    const one = h.open({ fetch: async (input, init) => {
+      if (down) throw new TypeError("Failed to fetch")
+      return h.server.fetch(input, init)
+    } })
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    // The first tab loses the network, so the other tab sends its action.
+    down = true
+    const call = one.store.actions.complete({ id: "a" })
+    await until(() => two.store.getState().queued === 1)
+    await two.store.refresh()
+    expect(await call).toEqual({ answer: 42 })
+    expect(call.state).toBe("applied")
+    // The tab that made the call read the result, so the storage does not keep it.
+    expect(await h.storage.takeResults([call.key])).toEqual(new Map())
+  })
+
   it("refuses an action that the server does not have", async () => {
     const h = setup()
     const { store } = h.open()

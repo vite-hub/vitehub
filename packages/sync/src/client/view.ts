@@ -210,7 +210,10 @@ function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: 
   }
 }
 
-/** The outbox change for the results of a push. A write without a result stays queued. */
+/**
+ * The outbox change for the results of a push. A write without a result stays queued. `results` has each action that
+ * the server applied, with its result, or `undefined` when it returned nothing or was a duplicate.
+ */
 function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMutationResult[]): Required<Pick<SyncStorageChange, "remove" | "update">> & { results: Map<string, unknown> } {
   const byId = new Map(results.map(result => [result.id, result]))
   const remove: number[] = []
@@ -220,7 +223,7 @@ function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMuta
     const result = byId.get(write.id)
     if (result?.status === "applied" || result?.status === "duplicate") {
       remove.push(write.seq)
-      if (result.status === "applied" && result.result !== undefined) values.set(write.id, result.result)
+      if (write.op === "action") values.set(write.id, result.status === "applied" ? result.result : undefined)
     }
     else if (result?.status === "rejected") update.push({ ...write, error: result.error })
   }

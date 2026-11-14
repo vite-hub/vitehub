@@ -253,6 +253,43 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       server.offline = false
     })
 
+    await t.test("an action that another tab sends resolves with its result in the tab that called it", async () => {
+      server.actions.complete = () => ({ answer: 42 })
+      const one = await open()
+      const two = await open()
+      await one.evaluate(() => {
+        window.down = false
+        window.calls = window.sync.createSync("todos", { where: { listId: "calls" }, interval: false, fetch: (input, init) => window.down ? Promise.reject(new TypeError("Failed to fetch")) : fetch(input, init) })
+        return window.calls.refresh()
+      })
+      await two.evaluate(() => {
+        window.calls = window.sync.createSync("todos", { where: { listId: "calls" }, interval: false })
+        return window.calls.refresh()
+      })
+      // The first tab loses the network, so the second tab sends its action.
+      await one.evaluate(() => {
+        window.down = true
+        window.call = window.calls.actions.complete({ id: "x" })
+        window.call.then((value) => {
+          window.answer = value
+        })
+      })
+      await two.waitForFunction(() => window.calls.getState().queued === 1)
+      await two.evaluate(() => window.calls.refresh())
+      await one.waitForFunction(() => window.answer !== undefined)
+      assert.deepEqual(await one.evaluate(() => window.answer), { answer: 42 })
+      // The calling tab read the result, so IndexedDB does not keep it.
+      const left = await one.evaluate(async () => {
+        const db = window.storage.createIndexedDBStorage(() => { throw new Error("no fallback") })
+        return [...await db.takeResults([window.call.key])]
+      })
+      assert.deepEqual(left, [])
+      await one.evaluate(() => window.calls.destroy())
+      await two.evaluate(() => window.calls.destroy())
+      await one.close()
+      await two.close()
+    })
+
     await t.test("a queued write of Sync v1 goes out with the account of its user after the upgrade", async () => {
       const page = await open()
       const scope = scopeIdOf({ name: "todos", ownerId: "ada" })

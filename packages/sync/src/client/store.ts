@@ -109,7 +109,7 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
     && meta!.version === change.meta!.version
     && !change.reset
     && !change.put?.length && !change.delete?.length && !change.add?.length && !change.update?.length && !change.remove?.length
-    && !change.sent?.length && !change.merge?.length
+    && !change.sent?.length && !change.merge?.length && !change.results?.length
 }
 
 /** Thrown inside a round that `forget()` ended, so it writes nothing more. */
@@ -186,7 +186,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   const failureCache = new WeakMap<SyncQueuedWrite, SyncFailure>()
   const optimistic = new Map<string, SyncOptimisticAction>()
   const reported = new Set<string>()
-  // Results of actions that the server applied, until their write settles.
+  // Results of the actions of this tab that this tab sent, until their write settles. The storage keeps the results of
+  // actions that another tab made.
   const results = new Map<string, unknown>()
   // Ids of writes in a push of this tab, or on their way to storage. A new update does not merge into them.
   const busy = new Set<string>()
@@ -298,6 +299,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     if (!pending.size) return
     const stored = new Map(writes.map(write => [write.id, write]))
     const waiting = new Set(local.map(write => write.id))
+    // Actions that another tab sent. Their results wait in storage.
+    const sentElsewhere: [string, PendingWrite[]][] = []
     for (const [mutationId, handles] of pending) {
       if (waiting.has(mutationId)) continue
       const queued = stored.get(mutationId)
@@ -307,11 +310,26 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       }
       else if (!queued) {
         pending.delete(mutationId)
+        const actions = handles.filter(handle => handle.op === "action")
+        for (const handle of handles) {
+          if (handle.op !== "action") handle.settle("applied", confirmed.get(handle.key))
+        }
+        if (!actions.length) continue
+        if (!results.has(mutationId)) {
+          sentElsewhere.push([mutationId, actions])
+          continue
+        }
         const result = results.get(mutationId)
         results.delete(mutationId)
-        for (const handle of handles) handle.settle("applied", handle.op === "action" ? result : confirmed.get(handle.key))
+        for (const handle of actions) handle.settle("applied", result)
       }
     }
+    if (!sentElsewhere.length) return
+    void storage.takeResults(sentElsewhere.map(([mutationId]) => mutationId)).catch(() => new Map<string, unknown>()).then((found) => {
+      for (const [mutationId, handles] of sentElsewhere) {
+        for (const handle of handles) handle.settle("applied", found.get(mutationId))
+      }
+    })
   }
 
   function rejectPending(reason: SyncError): void {
@@ -610,10 +628,16 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const settled = pushChange(sent, answer.body.results)
     if (!settled.remove.length && !settled.update.length) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a result for the writes." })))
     recover()
-    for (const [mutationId, result] of settled.results) results.set(mutationId, result)
+    // The tab that made an action reads its result. When it is another tab, the result goes to storage with the
+    // removal of the write.
+    const stored: [string, unknown][] = []
+    for (const [mutationId, result] of settled.results) {
+      if (pending.has(mutationId)) results.set(mutationId, result)
+      else if (result !== undefined) stored.push([mutationId, result])
+    }
     const sentIds = new Set(sent.map(write => write.id))
     const pulled = pullChange(meta, answer.body.pull, writes.filter(write => !sentIds.has(write.id)))
-    await commit({ ...pulled, remove: settled.remove, update: [...settled.update, ...pulled.update ?? []] })
+    await commit({ ...pulled, remove: settled.remove, update: [...settled.update, ...pulled.update ?? []], ...(stored.length ? { results: stored } : {}) })
     if (answer.body.pull.more) wantPull = true
     return true
   }
