@@ -509,7 +509,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
     id: "workflow",
     packages: ["@vite-hub/workflow"],
     providerPackages: { provider: { openworkflow: ["openworkflow"] } },
-    summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
+    summary: "Durable Workflows in `server/workflows/` with steps and provider retries.",
     title: "Workflow",
   }),
   workspace: feature({
@@ -567,9 +567,13 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   // Node and Deno select OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  // A Sandbox Task host loads its provider SDK at build time (Cloudflare) or at run time (Vercel).
+  if (id === "sandboxTask" && (host === "vercel" || host === "cloudflare")) selected.push(sandboxProviderPackages[host])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
+
+const sandboxProviderPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {

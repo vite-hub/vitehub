@@ -247,8 +247,11 @@ async function resolveImageModule(config: ResolvedConfig, root: string, blob: Bl
   if (!blob || blob.images === false) return undefined
   const transformer = blob.images?.transformer ?? "auto"
   if (transformer === "photon") {
-    // Use the project's resolver, including Plug'n'Play, from the generated import's location.
-    const entry = await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
+    // Use the project's resolver, including Plug'n'Play, from the generated import's location. The Nitro build of
+    // `vite-hub/nuxt` replays this hook with a config that has no resolver, so it looks in node_modules, like sharp.
+    const entry = typeof config.createResolver === "function"
+      ? await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
+      : isPackageInstalled(root, "@cf-wasm/photon") ? "@cf-wasm/photon" : undefined
     // Vite's missing optional-peer placeholder is a resolved ID, but cannot load Photon.
     if (entry && !entry.startsWith("__vite-optional-peer-dep:")) return "photon"
     throw blobErrorDiagnostics.BLOB_B0007({ message: "[vitehub] `blob.images.transformer` is \"photon\", but the project cannot resolve @cf-wasm/photon. Install it with: pnpm add @cf-wasm/photon" })
