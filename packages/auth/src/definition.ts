@@ -3,63 +3,37 @@ import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthAccessConfiguration,
-  AuthAppDatabase,
   AuthBetterAuthOptions,
-  AuthDatabaseConfiguration,
   AuthDefinition,
   AuthDefinitionResolver,
   AuthDefinitionOptions,
   AuthResolvedDefinitionOptions,
-  AuthSecondaryStorageConfiguration,
   AuthSignInConfiguration,
   AuthViteHubOptions,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { applyAuthPreset } from "./preset-options.ts"
+import { authDatabaseName } from "./database-options.ts"
 import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
 const accessRouteKeys = new Set(["authorize", "method", "route"])
-const databaseReferenceKeys = new Set(["dedicated", "name"])
-const secondaryStorageReferenceKeys = new Set(["store"])
 
-function validateNamedString(value: unknown, label: string): void {
-  if (typeof value !== "string" || value.trim().length === 0 || value !== value.trim()) {
-    throw authErrorDiagnostics.AUTH_C0020({ message: `\`defineAuth()\` ${label} must be a non-empty trimmed string.` })
-  }
-}
-
-function validateAuthDatabase(value: AuthDatabaseConfiguration | AuthAppDatabase | undefined): void {
+function validateAuthDatabase(value: unknown): void {
   // `authDatabase()` resolves the Database of each request, so a static Definition can hold it.
-  if (typeof value === "undefined" || value === true || (typeof value === "function" && typeof value.vitehubDatabase === "string")) return
-  if (!isPlainObject(value)) {
-    throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()`, `true`, or an inline object with `name`. Return another Better Auth adapter from the Definition callback." })
-  }
-
-  const unknownKey = Object.keys(value).find(key => !databaseReferenceKeys.has(key))
-  if (unknownKey) {
-    throw authErrorDiagnostics.AUTH_C0022({ message: `\`defineAuth()\` database does not support the "${unknownKey}" option.` })
-  }
-
-  validateNamedString(Object.hasOwn(value, "name") ? value.name : undefined, "database.name")
-
-  if (Object.hasOwn(value, "dedicated") && typeof value.dedicated !== "undefined" && typeof value.dedicated !== "boolean") {
-    throw authErrorDiagnostics.AUTH_C0023({ message: "`defineAuth()` database.dedicated must be a boolean." })
-  }
+  if (typeof value === "undefined" || value === "memory" || authDatabaseName(value) !== undefined) return
+  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
 }
 
-function validateAuthSecondaryStorage(value: AuthSecondaryStorageConfiguration | undefined): void {
-  if (typeof value === "undefined" || value === true) return
-  if (!isPlainObject(value)) {
-    throw authErrorDiagnostics.AUTH_C0024({ message: "`defineAuth()` secondaryStorage must be `true` or an inline object with `store`." })
-  }
+/** `runtime` was a second way to resolve options. Its shallow merge replaced whole objects such as `advanced`. */
+export function assertNoRuntimeOption(options: object): void {
+  if (!Object.hasOwn(options, "runtime")) return
+  throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
+}
 
-  const unknownKey = Object.keys(value).find(key => !secondaryStorageReferenceKeys.has(key))
-  if (unknownKey) {
-    throw authErrorDiagnostics.AUTH_C0025({ message: `\`defineAuth()\` secondaryStorage does not support the "${unknownKey}" option.` })
-  }
-
-  validateNamedString(Object.hasOwn(value, "store") ? value.store : undefined, "secondaryStorage.store")
+function validateAuthSecondaryStorage(value: unknown): void {
+  if (typeof value === "undefined") return
+  throw authErrorDiagnostics.AUTH_C0024({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback. `true` and `{ store }` do not create storage." })
 }
 
 function validateStringValue(value: unknown, label: string): void {
@@ -134,9 +108,9 @@ export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>
   options: AuthDefinitionResolver<TOptions>,
 ): AuthDefinition<AuthDefinitionResolver<TOptions>>
 
-// `runtime` in the constraint makes a wrong runtime object report its own error. Without it, TypeScript reports that
-// the object is not a resolver function.
-export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "runtime">>(
+// `runtime` in the constraint makes a Definition that still sets it report `runtime` itself. Without it, TypeScript
+// reports that the object is not a resolver function.
+export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "database" | "runtime">>(
   options: AuthDefinitionOptions<TOptions>,
 ): AuthDefinition<AuthDefinitionOptions<TOptions>>
 
@@ -162,7 +136,6 @@ function defineAuthOptions(
     basePath?: unknown
     database?: unknown
     route?: unknown
-    runtime?: unknown
     secondaryStorage?: unknown
   }
   const runtimeOption = Object.keys(options).find(key => authRuntimeOptionNames.has(key))
@@ -174,13 +147,7 @@ function defineAuthOptions(
     throw authErrorDiagnostics.AUTH_C0038({ message: "`defineAuth()` route can only be `false` when provided." })
   }
 
-  if (
-    typeof viteHubOptions.runtime !== "undefined"
-    && typeof viteHubOptions.runtime !== "function"
-    && !isPlainObject(viteHubOptions.runtime)
-  ) {
-    throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` runtime must be an object or a function." })
-  }
+  assertNoRuntimeOption(options)
 
   if (typeof viteHubOptions.basePath !== "undefined") {
     if (typeof viteHubOptions.basePath !== "string") {
@@ -195,10 +162,10 @@ function defineAuthOptions(
   }
 
   validateAuthEvents(options.events)
-  validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | AuthAppDatabase | undefined)
-  validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
+  validateAuthDatabase(viteHubOptions.database)
+  validateAuthSecondaryStorage(viteHubOptions.secondaryStorage)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
-  // A callback or `runtime` can add options later, so ViteHub checks the preset again for each resolution.
+  // A callback resolves its options later, so ViteHub checks the preset again for each resolution.
   applyAuthPreset(options)
 
   return { options }

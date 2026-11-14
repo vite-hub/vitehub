@@ -58,7 +58,6 @@ export interface QueueSendOperationResult {
 
 export interface QueueSendOperationInput {
   delaySeconds?: number
-  id?: string
   idempotencyKey?: string
   payload: unknown
   queue: string
@@ -114,7 +113,6 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   if (!queue) throw new QueueOperationError("The queue name is not a valid Queue Definition name.", 400, "QUEUE_INVALID_NAME", "Pass the name of a Queue Definition. `vitehub queue list` shows them.")
   const options: QueueEnqueueOptions = {
     ...(input.delaySeconds === undefined ? {} : { delaySeconds: input.delaySeconds }),
-    ...(input.id === undefined ? {} : { id: input.id }),
     ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
   }
   let result

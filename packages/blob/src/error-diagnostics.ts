@@ -16,7 +16,7 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
   codes: {
     BLOB_CONFLICT: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
-      fix: "Use a free pathname or an empty folder. `media.move()` replaces an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
+      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
     },
     BLOB_NOT_FOUND: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation found no object in the "${store}" store.`,
@@ -104,7 +104,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0031: withFix("Pass a `partNumber` from 1 to 10000 to `uploadPart()`. Number the parts from 1 in upload order."),
     BLOB_R0032: withFix("Pass the `pathname` and `uploadId` that `blob.createMultipartUpload()` returned to `blob.resumeMultipartUpload()`, and pass the parts that `uploadPart()` returned to `complete()`. A completed or aborted upload does not exist anymore. Start a new one."),
     BLOB_R0033: withFix("Use a pathname or folder outside `_vitehub/derived` and `_vitehub/media`, where ViteHub keeps image variants and media records. If the message is about an R2 list page, retry, and report it at https://github.com/vite-hub/vitehub/issues if it fails again."),
-    BLOB_R0034: withFix("For a pathname, pass a non-empty pathname that names an object. For a pathname or prefix, remove control characters, broken Unicode, and `.` or `..` segments. For an image transformer, install the package that the message names, for example `pnpm add sharp` or `pnpm add @cf-wasm/photon`, or add the Cloudflare Images binding to the Worker. Its name is `IMAGES`, or the value of `blob.images.binding`."),
+    BLOB_R0034: withFix("For a pathname, pass a non-empty pathname that names an object. For a pathname or prefix, remove control characters, broken Unicode, `%` followed by two hex digits after decoding, and `.` or `..` segments. For an image transformer, install the package that the message names, for example `pnpm add sharp` or `pnpm add @cf-wasm/photon`, or add the Cloudflare Images binding to the Worker. Its name is `IMAGES`, or the value of `blob.images.binding`."),
     BLOB_R0035: withFix("Change the argument of the `media` call as the message says. For example, a crop name has letters, digits, `_`, or `-`, and a crop aspect looks like `\"16:9\"`."),
     BLOB_R0036: withFix("Use a JPEG, PNG, WebP, or GIF image within the limits that the message names, and request `webp`, `jpeg`, or `png`, not AVIF. For larger images, set `blob.images.transformer` to `\"sharp\"` or `\"cloudflare-images\"`."),
     BLOB_R0037: withFix("Call `sign()` with `method: \"PUT\"` on a writable handle from `blob.store(name)`. A handle from `blob.store(name, { mode: \"read\" })` signs `GET` requests only."),

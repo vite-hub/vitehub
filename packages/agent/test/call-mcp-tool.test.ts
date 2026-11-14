@@ -269,7 +269,7 @@ describe("callMcpTool", () => {
     const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] })
     const definition = defineConnection({ access: { server: { read: true, write: ["fetch"] } }, provider: apiKey({ id: "crm", mcp: url, origins: ["https://api.example.com"] }) })
     const runtime = createConnectionsRuntime({ definitions: { crm: definition }, store: createStore() })
-    await runtime.setKey({ key: "crm-key", name: "crm" })
+    await runtime.setKey({ actor: "user:owner", key: "crm-key", name: "crm" })
     connectionsServer.runtime = runtime
 
     await expect(callMcpTool({ connection: "crm" }, "threads_get", { id: "thread-1" })).resolves.toEqual([undefined, "ok"])

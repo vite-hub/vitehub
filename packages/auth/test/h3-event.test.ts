@@ -3,11 +3,11 @@ import { memoryAdapter } from "better-auth/adapters/memory"
 import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler, handleAuthRequest, resetAuth, toAuthRequest, withAuth } from "../src/internal/server.ts"
 
 import type { H3Event } from "h3"
 import type { ViteHubContext } from "@vite-hub/runtime"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 type EventHandler = (event: H3Event & ViteHubContext) => Promise<Response | unknown>
 
@@ -27,11 +27,11 @@ function serve(handler: EventHandler) {
 
 function createDefinition() {
   const db: Record<string, unknown[]> = { account: [], session: [], user: [], verification: [] }
-  return defineAuth({
+  return defineFixedAuth({
     access: { routes: ["/private/**"] },
     appName: "ViteHub",
     emailAndPassword: { enabled: true },
-    runtime: { database: memoryAdapter(db), secret: "abcdefghijklmnopqrstuvwxyz0123456789" },
+    database: memoryAdapter(db), secret: "abcdefghijklmnopqrstuvwxyz0123456789",
   })
 }
 

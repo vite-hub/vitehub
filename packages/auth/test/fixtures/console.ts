@@ -2,9 +2,9 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { admin, organization, jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { expect, vi } from "vitest";
-import { defineAuth } from "../../src/index.ts";
 import { getAuthForDefinition } from "../../src/internal/server.ts";
 import { createAuthConsole } from "../../src/console-runtime.ts";
+import { defineFixedAuth } from "../fixed-auth.ts"
 
 const origin = "http://localhost:3000";
 export async function fixture(options: { admin?: boolean } = {}) {
@@ -23,7 +23,7 @@ export async function fixture(options: { admin?: boolean } = {}) {
     oauthRefreshToken: [],
   };
   const updated = vi.fn();
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     user: {
       additionalFields: {
@@ -42,11 +42,9 @@ export async function fixture(options: { admin?: boolean } = {}) {
       jwt(),
       oauthProvider({ loginPage: "/login", consentPage: "/consent" }),
     ],
-    runtime: {
-      database: memoryAdapter(db),
-      secret: "vitehub-auth-console-test-secret-abcdefghijklmnopqrstuvwxyz",
-      baseURL: origin,
-    },
+    database: memoryAdapter(db),
+    secret: "vitehub-auth-console-test-secret-abcdefghijklmnopqrstuvwxyz",
+    baseURL: origin,
   });
   const auth = getAuthForDefinition(definition);
   const signup = async (name: string, email: string) => {

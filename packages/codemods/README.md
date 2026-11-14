@@ -18,7 +18,7 @@ The command finds every module in the app that a codemod supports and runs those
 
 The report lists, for each codemod, why it ran and what it did, then the files it changed, a numbered list of manual follow-ups with `file:line`, notes, and the commands to run next. A codemod that cannot migrate the app changes nothing and says why; the others still run. The report also warns when `package.json` requires a Nuxt version before 5, because ViteHub supports Nuxt 5 and Nitro 3 only. The codemods do not upgrade Nuxt or install packages. Nuxt 5 also stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
 
-The migration uses a unique scratch directory and preserves existing `.vitehub-migrate` directories. If a codemod would edit a symbolic link or a file inside a linked directory, it stops without applying that codemod's edits. Replace the link with a local file or directory before retrying.
+The migration uses a unique scratch directory and preserves existing `.vitehub-migrate` directories. If a codemod would edit a symbolic link or a file inside a linked directory, it stops without applying that codemod's edits. `vitehub migrate <codemod>` does the same. Replace the link with a local file or directory before retrying.
 
 The command exits with `0` when every codemod completes, also when they report follow-ups. It exits with `1` when a codemod could not migrate, or when the app has no `nuxt.config`.
 
