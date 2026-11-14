@@ -25,6 +25,7 @@ import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
+import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
@@ -506,6 +507,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
+    nuxt.options.alias["#docs/blocks"] = addTemplate({ filename: "docs/blocks.mjs", write: true, getContents: () => comarkBlocksSource() }).dst
+    addTemplate({ filename: "docs/blocks.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const blocks: Record<string, Component>\nexport default blocks\n` })
     // An app page in the docs layout picks its sidebar in `definePageMeta`, like the `sidebar` frontmatter of a docs page.
     addTypeTemplate({
       filename: "types/docs-page-meta.d.ts",
