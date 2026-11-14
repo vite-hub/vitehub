@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { addRoute, createRouter, findAllRoutes } from "rou3"
+import { compileRouter } from "rou3/compiler"
 import { describe, expect, it, vi } from "vitest"
 
 import { hubEnv } from "@vite-hub/env/vite"
@@ -103,6 +105,84 @@ describe("Auth Nuxt integration", () => {
     hubAuthNuxt({ env: false, auth }, nuxt)
 
     expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: auth === false ? false : { basePath: "/api/auth", redirects: auth.redirects } } })
+  })
+
+  it("attaches the page guard to the pages of auth.routes through appMiddleware route rules", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", routeRules: { "/dashboard/**": { appMiddleware: "track" }, "/docs/**": { prerender: true } } as Record<string, Record<string, unknown>> } }
+
+    hubAuthNuxt({ env: false, auth: { routes: { "/dashboard/**": "user", "/dashboard/public": false, "/dashboard/welcome": "guest", "/login": "guest" } } }, nuxt)
+
+    expect(nuxt.options.routeRules).toEqual({
+      "/dashboard/**": { appMiddleware: { "track": true, "vitehub-auth-user": true, "vitehub-auth-guest": false } },
+      "/dashboard/public": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": false } },
+      "/dashboard/welcome": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": true } },
+      "/docs/**": { prerender: true },
+      "/login": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": true } },
+    })
+  })
+
+  it.each([
+    [{ "dashboard/**": "user" }, '"dashboard/**": "user"'],
+    [{ "/admin/**": "admin" }, '"/admin/**": "admin"'],
+    [{ "/account": "user", "/account/:id?": false }, '"/account/:id?": false'],
+    [{ "/account/:id": "user", "/account/:id/:tab?": false }, '"/account/:id/:tab?": false'],
+    [{ "/p/:path+": "user" }, '"/p/:path+": "user"'],
+    [{ "/p/:path*": "user" }, '"/p/:path*": "user"'],
+    [{ "/account{/:id}?": "user" }, '"/account{/:id}?": "user"'],
+    [{ "/files/:id(\\d+)": "user" }, '"/files/:id(\\\\d+)": "user"'],
+    [{ "/files/:id.json": "user" }, '"/files/:id.json": "user"'],
+    [{ "/docs/**:rest": false }, '"/docs/**:rest": false'],
+    [{ "/a/**/b": "user" }, '"/a/**/b": "user"'],
+    [{ "/a/": "user" }, '"/a/": "user"'],
+    [{ "/team/:id": "user", "/team/:slug": false }, '"/team/:slug": false'],
+    [{ "/team/*": false }, '"/team/*": false'],
+    [{ "/a/*/c": "user" }, '"/a/*/c": "user"'],
+  ] as const)("stops the build on an invalid auth.routes entry %j", (routes, entry) => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt" } }
+
+    expect(() => hubAuthNuxt({ env: false, auth: { routes: routes as never } }, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_B0003", message: expect.stringContaining(entry) }))
+  })
+
+  /** Resolves the Auth mode of a page like Nuxt 5: all matching route rules, less specific first, with later rules winning. */
+  function resolveAuthMode(routes: Record<`/${string}`, "user" | "guest" | false>, existing: Record<string, Record<string, unknown>> = {}) {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", routeRules: structuredClone(existing) } }
+    hubAuthNuxt({ env: false, auth: { routes } }, nuxt)
+    const router = createRouter<Record<string, unknown>>()
+    for (const [pattern, rule] of Object.entries(nuxt.options.routeRules)) addRoute(router, "", pattern, rule)
+    const compiled = compileRouter(router, { matchAll: true })
+    const mode = (matches: Array<{ data: Record<string, unknown> }>) => {
+      const flags: Record<string, boolean> = Object.assign({}, ...matches.map(match => match.data.appMiddleware))
+      return flags["vitehub-auth-user"] ? "user" : flags["vitehub-auth-guest"] ? "guest" : "public"
+    }
+    return (path: string) => {
+      const interpreted = mode(findAllRoutes(router, "", path))
+      expect(mode(compiled("", path))).toBe(interpreted)
+      return interpreted
+    }
+  }
+
+  it.each([
+    [{ "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" }, { "/dashboard": "user", "/dashboard/x/y": "user", "/dashboard/pricing": "public", "/login": "guest", "/": "public" }],
+    [{ "/**": "user", "/docs/**": false, "/login": "guest" }, { "/docs": "public", "/docs/a/b": "public", "/login": "guest", "/x": "user" }],
+    [{ "/account": "user", "/account/:id": false }, { "/account": "user", "/account/1": "public" }],
+    [{ "/account/:id": "user", "/account/:id/:tab": false }, { "/account/1": "user", "/account/1/x": "public" }],
+    [{ "/:org/settings": "user", "/acme/:page": false }, { "/acme/settings": "public", "/other/settings": "user" }],
+    [{ "/a/**": false, "/a/:b/**": "user", "/a/:b/c": "guest" }, { "/a": "public", "/a/b": "user", "/a/b/c": "guest", "/a/b/c/d": "user" }],
+    [{ "/team/**": false, "/team/:id": "user" }, { "/team": "public", "/team/a": "user", "/team/a/b": "public" }],
+    [{ "/**": "guest", "/:id": "user", "/x": false }, { "/x": "public", "/y": "user", "/y/z": "guest" }],
+  ] as const)("keeps the most specific pattern of %j in any key order through the Nuxt 5 matcher", (routes, expected) => {
+    const entries = Object.entries(routes)
+    for (const order of [entries, [...entries].reverse()]) {
+      const resolve = resolveAuthMode(Object.fromEntries(order))
+      expect(Object.fromEntries(Object.keys(expected).map(path => [path, resolve(path)]))).toEqual(expected)
+    }
+  })
+
+  it("keeps the most specific pattern when the app has route rules on the same patterns", () => {
+    const existing = { "/account/public": { appMiddleware: "track" }, "/account/**": { appMiddleware: ["audit"] } }
+    const resolve = resolveAuthMode({ "/account/public": false, "/account/**": "user" }, existing)
+
+    expect([resolve("/account/public"), resolve("/account/x")]).toEqual(["public", "user"])
   })
 
   it("disables the session bridge and guard through module Auth options", () => {

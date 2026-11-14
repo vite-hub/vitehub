@@ -10,7 +10,7 @@ import hubAuthNuxt from "../src/nuxt.ts"
 
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
 
-type Route = { fullPath: string, meta: { auth?: AuthPageMeta } }
+type Route = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
 type Middleware = (route: Route) => unknown
 type App = { runWithContext: <T>(run: () => T) => T, payload: { prerenderedAt?: number }, $vitehubAuthClient?: unknown }
 type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { login: string, guest: string } } }
@@ -29,14 +29,18 @@ const mocks = vi.hoisted(() => ({
   sessionPaths: [] as unknown[],
   navigateTo: vi.fn((target: unknown) => target),
   signOut: vi.fn(),
-  currentRoute: { value: { fullPath: "/", meta: {} } as Route },
+  currentRoute: { value: { path: "/", fullPath: "/", meta: {} } as Route },
   middleware: undefined as Middleware | undefined,
+  named: {} as Record<string, Middleware>,
 }))
 
 vi.mock("#app", () => ({
   createError: mocks.createError,
   defineNuxtPlugin: (plugin: unknown) => plugin,
-  addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = middleware },
+  addRouteMiddleware: (name: string, middleware: Middleware, options?: { global?: boolean }) => {
+    if (options?.global) mocks.middleware = middleware
+    else mocks.named[name] = middleware
+  },
   navigateTo: mocks.navigateTo,
   tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
@@ -97,9 +101,10 @@ beforeEach(async () => {
   mocks.payload = {}
   mocks.app = { runWithContext: run => run(), payload: mocks.payload }
   mocks.middleware = undefined
+  mocks.named = {}
   mocks.getSession.mockResolvedValue({ data: session })
   mocks.signOut.mockResolvedValue({ data: { success: true }, error: null })
-  mocks.currentRoute.value = { fullPath: "/", meta: {} }
+  mocks.currentRoute.value = { path: "/", fullPath: "/", meta: {} }
 })
 
 afterEach(async () => {
@@ -119,7 +124,7 @@ async function configure(basePath?: string, appBaseURL = "/") {
   vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", appBaseURL)
 }
 
-const userPage: Route = { fullPath: "/private", meta: { auth: "user" } }
+const userPage: Route = { path: "/private", fullPath: "/private", meta: { auth: "user" } }
 
 /** Renders a page on the server with `count` components that call `useUserSession()`. */
 function renderPage(count: number): Promise<string> {
@@ -138,6 +143,7 @@ describe("Nuxt session and page guard", () => {
     await plugin.setup({ payload: mocks.payload })
 
     expect(mocks.middleware).toBeUndefined()
+    expect(mocks.named).toEqual({})
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
     expect(mocks.state.value).toBeUndefined()
@@ -164,7 +170,7 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
-    expect(mocks.middleware?.({ fullPath: "/login", meta: { auth: "guest" } })).toBe("/")
+    expect(mocks.middleware?.({ path: "/login", fullPath: "/login", meta: { auth: "guest" } })).toBe("/")
   })
 
   it("makes a refusal of authorize() Nuxt's fatal error, with the status and data of the server", async () => {
@@ -206,7 +212,7 @@ describe("Nuxt session and page guard", () => {
   it("does not read the session for an SSR page without a page guard or a session composable", async () => {
     await plugin.setup(mocks.app)
 
-    expect(await mocks.middleware?.({ fullPath: "/", meta: {} })).toBeUndefined()
+    expect(await mocks.middleware?.({ path: "/", fullPath: "/", meta: {} })).toBeUndefined()
     expect(await renderPage(0)).toBe("<main></main>")
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.state.value).toBeUndefined()
@@ -316,6 +322,52 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.createAuthClient).toHaveBeenCalledWith(expect.objectContaining({ basePath: "/app/auth" }))
   })
 
+  it("guards the pages of auth.routes with the named middleware that their route rules attach", async () => {
+    mocks.event.req.headers.delete("cookie")
+    await plugin.setup({ payload: mocks.payload })
+    const page = (fullPath: string, auth?: AuthPageMeta): Route => ({ path: fullPath.split("?")[0]!, fullPath, meta: auth === undefined ? {} : { auth } })
+
+    expect(Object.keys(mocks.named)).toEqual(["vitehub-auth-user", "vitehub-auth-guest"])
+    // The global guard reads only page meta, so a page of the route map does not run the guard twice.
+    expect(mocks.middleware?.(page("/dashboard"))).toBeUndefined()
+    expect(mocks.named["vitehub-auth-user"]?.(page("/dashboard?tab=1"))).toEqual({ path: "/login", query: { redirect: "/dashboard?tab=1" } })
+    expect(mocks.named["vitehub-auth-guest"]?.(page("/login"))).toBeUndefined()
+    // definePageMeta({ auth }) wins over the route map.
+    expect(mocks.named["vitehub-auth-user"]?.(page("/dashboard/public", false))).toBeUndefined()
+    expect(mocks.named["vitehub-auth-user"]?.(page("/dashboard/guest", "guest"))).toBeUndefined()
+    expect(mocks.middleware?.(page("/dashboard/guest", "guest"))).toBeUndefined()
+  })
+
+  it("does not redirect a page of a wide auth.routes pattern to itself", async () => {
+    mocks.event.req.headers.delete("cookie")
+    await plugin.setup({ payload: mocks.payload })
+
+    // `'/**': 'user'` also covers the login page. A redirect to it would run the guard again on each request.
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/login", fullPath: "/login?redirect=/settings", meta: {} })).toBeUndefined()
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/settings", fullPath: "/settings", meta: {} })).toEqual({ path: "/login", query: { redirect: "/settings" } })
+  })
+
+  it("does not redirect a signed-in user from the guest redirect page to itself", async () => {
+    await plugin.setup({ payload: mocks.payload })
+    mocks.state.value = session
+
+    expect(mocks.named["vitehub-auth-guest"]?.({ path: "/", fullPath: "/", meta: {} })).toBeUndefined()
+  })
+
+  it("sends a signed-in user away from a guest page of auth.routes in the browser", async () => {
+    vi.stubGlobal("window", {})
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(await mocks.named["vitehub-auth-guest"]?.({ path: "/login", fullPath: "/login", meta: {} })).toBe("/")
+    expect(await mocks.named["vitehub-auth-user"]?.({ path: "/dashboard", fullPath: "/dashboard", meta: {} })).toBeUndefined()
+    const { loggedIn, user } = useUserSession()
+    expect(loggedIn.value).toBe(true)
+    mocks.getSession.mockResolvedValue({ data: null })
+    expect(await mocks.named["vitehub-auth-user"]?.({ path: "/dashboard", fullPath: "/dashboard", meta: {} })).toEqual({ path: "/login", query: { redirect: "/dashboard" } })
+    expect(loggedIn.value).toBe(false)
+    expect(user.value).toBeNull()
+  })
+
   it("uses the client of the composables, with the plugins of auth.client.ts, in the page guard", async () => {
     // A new page load: no Better Auth client exists yet.
     vi.resetModules()
@@ -383,8 +435,8 @@ describe("signOut() in Nuxt", () => {
   })
 
   it.each([
-    ["a page without a guard", { fullPath: "/blog", meta: {} }],
-    ["a page for guests", { fullPath: "/login", meta: { auth: "guest" as const } }],
+    ["a page without a guard", { path: "/blog", fullPath: "/blog", meta: {} }],
+    ["a page for guests", { path: "/login", fullPath: "/login", meta: { auth: "guest" as const } }],
   ])("keeps the visitor on %s", async (_name, route: Route) => {
     await openInBrowser(route)
 
@@ -397,8 +449,8 @@ describe("signOut() in Nuxt", () => {
   it("follows the page on screen when another middleware stopped a navigation", async () => {
     await openInBrowser(userPage)
     // The page guard allowed `/admin`, then another middleware stopped the navigation.
-    await mocks.middleware?.({ fullPath: "/admin", meta: { auth: "user" } })
-    await mocks.middleware?.({ fullPath: "/blog", meta: {} })
+    await mocks.middleware?.({ path: "/admin", fullPath: "/admin", meta: { auth: "user" } })
+    await mocks.middleware?.({ path: "/blog", fullPath: "/blog", meta: {} })
     mocks.navigateTo.mockClear()
 
     await useUserSession(createAuthClient()).signOut()
@@ -415,7 +467,7 @@ describe("signOut() in Nuxt", () => {
   })
 
   it("follows the page's own redirectTo", async () => {
-    await openInBrowser({ fullPath: "/team", meta: { auth: { only: "user", redirectTo: "/join" } } })
+    await openInBrowser({ path: "/team", fullPath: "/team", meta: { auth: { only: "user", redirectTo: "/join" } } })
 
     await useUserSession(createAuthClient()).signOut()
 

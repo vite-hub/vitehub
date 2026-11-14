@@ -486,6 +486,16 @@ export default defineNuxtConfig({
 })
 ```
 
+To guard pages from the Nuxt config, map route patterns to `'user'`, `'guest'`, or `false` in `vitehub.auth.routes`. ViteHub adds the guard to the `appMiddleware` route rule of each pattern, so the server render and navigation in the browser send the visitor to the same page. The most specific pattern wins, `false` removes the guard of a wider pattern, and `definePageMeta({ auth })` of a page wins over all patterns. A key has static segments, `:name`, and a last `/**`. Optional, repeated, and regex params stop the build with `AUTH_B0003`, because Nuxt then orders patterns by position and not by how specific they are.
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { auth: { routes: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } } },
+})
+```
+
 On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
 
 The guard runs when the route changes. A sign-out does not change the route, so `signOut()` of `useUserSession()` does the guard's work: on a `'user'` page, it sends the visitor to the login page of that page, with `?redirect=<the page>`. `redirectTo` takes priority. Other pages stay open.

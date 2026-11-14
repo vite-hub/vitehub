@@ -548,6 +548,10 @@ export default defineAuth({
 
 `true`, `{ name }`, and `{ store }` do not create storage. Auth rejects them at build time (`AUTH_C0014`, `AUTH_C0017`), when the Definition loads (`AUTH_C0021`, `AUTH_C0024`), and when a callback returns them (`AUTH_C0061`, `AUTH_C0062`).
 
+## Protect Nuxt pages
+
+Use [`vitehub.auth.routes` or page meta](/docs/auth/protect-pages) to guard Nuxt pages. Protect the data that they call with `access.routes` in the Auth Definition.
+
 ## Vite Integration options
 
 `hubAuth(false)` turns the Auth integration off. Vite does not read a top-level `auth` key.

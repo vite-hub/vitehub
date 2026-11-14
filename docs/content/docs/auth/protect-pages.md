@@ -6,7 +6,7 @@ navigation.order: 10
 icon: i-lucide-file-lock
 ---
 
-In a Nuxt app, you protect a page with `definePageMeta({ auth })`. This is the page guard. It runs when the server renders the page and on each navigation in the browser. It decides where the browser goes. It does not protect your data, so you also [protect the API routes](#protect-the-apis-that-the-pages-call) that the page calls.
+In a Nuxt app, you protect pages with `vitehub.auth.routes` in the config or `definePageMeta({ auth })` in a page. This is the page guard. It runs when the server renders the page and on each navigation in the browser. It decides where the browser goes. It does not protect your data, so you also [protect the API routes](#protect-the-apis-that-the-pages-call) that the page calls.
 
 > [!NOTE] Before you start
 > Add Auth to your Nuxt app with [Get started](/docs/auth/get-started). Your app must have an `app/pages/` folder, because the guard reads the meta of Nuxt pages.
@@ -88,6 +88,56 @@ async function submit() {
 - `signIn.email()` needs `emailAndPassword: { enabled: true }` in `server/auth.ts`. Social sign-in uses `signIn.social({ provider })`.
 - `signIn.email()` returns `{ data, error }`. It does not throw when the email or the password is wrong.
 
+## Guard pages from one route map
+
+In a Nuxt app, the page guard sends each visitor to a page that they may open. It runs when the server renders a page and on each navigation in the browser. List the pages that it guards in `vitehub.auth.routes`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: {
+      routes: {
+        '/dashboard/**': 'user',
+        '/dashboard/pricing': false,
+        '/login': 'guest',
+      },
+    },
+  },
+})
+```
+
+- `'user'` sends a visitor without a session to `/login?redirect=<the page>`. A direct load and a navigation in the browser go to the same page.
+- `'guest'` sends a signed-in user to `/`. Use it for the login and sign-up pages.
+- `false` removes the guard of a wider pattern. Here, `/dashboard/pricing` is public.
+- A key is a Nuxt route rule pattern with static segments, `:name` for one segment, and a last `/**` for the path and every path below it. When patterns overlap, the most specific pattern wins: Nuxt compares the segments from the left, and a static segment wins over `:name`, which wins over `**`.
+- Optional, repeated, and regex params, such as `/account/:id?`, stop the build with `AUTH_B0003`, because Nuxt then orders the patterns by their position and not by how specific they are. For an optional segment, add one key with the segment and one key without it. A `*` also stops the build, because Nuxt reads a last `*` as `**`: use `:name` for one segment and `/**` for every depth. Two keys that differ only in param names, such as `/team/:id` and `/team/:slug`, also stop the build.
+
+ViteHub adds the guard to the `appMiddleware` route rule of each pattern and keeps the other rules of the pattern. A wrong key or value stops the build with `AUTH_B0003`.
+
+To guard a page from its own file, use `definePageMeta({ auth })`. It takes `'user'`, `'guest'`, `false`, or `{ only, redirectTo }`. Page meta wins over `routes`, so `definePageMeta({ auth: false })` makes one page public inside a `'user'` pattern.
+
+`redirects.login` (default `/login`) and `redirects.guest` (default `/`) set where the guard sends visitors:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: {
+      redirects: { login: '/sign-in', guest: '/dashboard' },
+      routes: { '/dashboard/**': 'user', '/sign-in': 'guest' },
+    },
+  },
+})
+```
+
+> [!NOTE]
+> A wide pattern such as `'/**': 'user'` also covers the login page. The guard never sends a visitor to the page they are on, so a signed-out visitor can still open the login page. Set the login page to `'guest'` so that a signed-in user leaves it.
+
+The page guard decides which page the browser shows. It does not protect data, because a request straight to an API route skips it. Guard API routes with `access.routes` in `server/auth.ts`, for example `'/api/dashboard/**'`. Do not put page paths in `access.routes`. A direct load of the page then gets `401`, or starts the `access.signIn` provider sign-in, while a navigation in the browser goes to the login page.
+
+Do not cache a guarded page with a route rule such as `swr`, `isr`, or `prerender`. The cached page is rendered for one visitor and served to all visitors.
+
 ## Choose where visitors go
 
 Set the default pages under `vitehub.auth.redirects`:
@@ -119,7 +169,8 @@ definePageMeta({ auth: { only: 'user', redirectTo: '/pricing' } })
 | `'user'` or `true` | Visitors with a session | `redirects.login`, with `?redirect=<the page>` |
 | `'guest'` | Visitors without a session | `redirects.guest` |
 | `{ only, redirectTo }` | `only` is `'user'` (default) or `'guest'` | `redirectTo`. A `'user'` page also adds `?redirect=<the page>`. |
-| `false` or not set | Everyone | |
+| `false` | Everyone | |
+| Not set | The policy of `vitehub.auth.routes`, or everyone if no pattern matches | |
 
 The guard and `redirects` are for Nuxt only. A Vite app without Nuxt ignores them.
 

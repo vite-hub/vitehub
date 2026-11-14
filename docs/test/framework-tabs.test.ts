@@ -35,6 +35,7 @@ const singleFramework: Record<string, string> = {
   "agents/process-hosts.md vite.config.ts": "processAgentHost() and agentHostRoutes() set Nitro up from a Vite plugin, which Nuxt does not read.",
   "agents/sandbox-tutorial.md vite.config.ts": "The tutorial runs @vite-hub/sandbox alone with plain Nitro.",
   "auth/configure.md vite.config.ts": "hubAuth(false) and the top-level auth key belong to the package plugin and have no vitehub() form.",
+  "auth/configure.md nuxt.config.ts": "auth.routes and auth.redirects set the Nuxt page guard. Nitro and Vite apps have no Nuxt pages.",
   "comments/configure.md vite.config.ts": "These Database strings belong to comments() used alone.",
   "comments/get-started.md vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
   "comments/get-started.md node/vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
