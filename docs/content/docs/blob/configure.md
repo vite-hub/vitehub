@@ -638,7 +638,7 @@ The `s3` and `minio` drivers share options. Their required fields differ.
 
 MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. The `s3` driver also reads the SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
 
-The `s3` driver takes its keys in `credentials`. A top-level `accessKeyId`, `secretAccessKey`, or `sessionToken`, as NuxtHub's `s3` driver used, fails with `BLOB_C0021`.
+The `s3` driver takes its keys in `credentials`. A top-level `accessKeyId`, `secretAccessKey`, or `sessionToken`, as NuxtHub's `s3` driver used, fails with `BLOB_C0023`.
 
 A store without a `driver` uses `s3` when the build has NuxtHub's variables: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`, with `S3_REGION` and `S3_ENDPOINT` when they are set. These variables come before the host, as in NuxtHub. The build output has only the variable names, and the server reads the keys when the store starts. An `S3_ENDPOINT` without `S3_BUCKET` does not select `s3`: set `bucket`.
 

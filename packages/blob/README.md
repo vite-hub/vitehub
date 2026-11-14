@@ -292,7 +292,7 @@ export default defineConfig({
 })
 ```
 
-Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Keys go in `credentials`; a top-level `accessKeyId` or `secretAccessKey`, as in NuxtHub, fails with `BLOB_C0021`.
+Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Keys go in `credentials`; a top-level `accessKeyId` or `secretAccessKey`, as in NuxtHub, fails with `BLOB_C0023`.
 
 Without a `driver`, a build with `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET` (NuxtHub's names) uses this store before any host default. `S3_REGION` and `S3_ENDPOINT` apply when they are set. The server reads the keys from the same variables. `vite dev` keeps the local `fs` store unless the store sets `remote: true`.
 

@@ -940,7 +940,7 @@ describe("NuxtHub S3 env", () => {
   it.each(["accessKeyId", "secretAccessKey", "sessionToken"])("names the credentials shape for a top-level s3 %s", (option) => {
     const store = { bucket: "assets", driver: "s3", [option]: "test-value" }
     expect(() => normalizeBlobOptions(store as never, { env: { S3_VALUE: "test-value" } })).toThrow(expect.objectContaining({
-      code: "BLOB_C0021",
+      code: "BLOB_C0023",
       message: expect.stringContaining(`\`blob.credentials.${option}\``),
     }))
     expect(() => normalizeBlobOptions({ stores: { default: store } } as never, { env: {} }))

@@ -325,7 +325,7 @@ export function hasS3BlobEnv(env: Record<string, string | undefined>): boolean {
 function assertS3CredentialsShape(store: S3BlobStoreConfig, path: string): void {
   for (const option of ["accessKeyId", "secretAccessKey", "sessionToken"]) {
     if (!Object.hasOwn(store, option)) continue
-    throw blobErrorDiagnostics.BLOB_C0021({ message: `\`${path}.${option}\` is not an option of the s3 driver. Set \`${path}.credentials.${option}\` instead.` })
+    throw blobErrorDiagnostics.BLOB_C0023({ message: `\`${path}.${option}\` is not an option of the s3 driver. Set \`${path}.credentials.${option}\` instead.` })
   }
 }
 
