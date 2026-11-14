@@ -1,14 +1,16 @@
 // A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
-// [store, key], `meta` by store, and `outbox` in insertion order, with the store in `store`. Each change is one transaction. A store is a route
-// plus a subset, such as `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
+// [store, key], `meta` by store, and `outbox` in insertion order, with the store in `store`. Each change is one
+// transaction. A store is a route plus a subset, such as `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
+import { isMergeable } from "./storage.ts"
+
 import type { SyncKey, SyncRow } from "../protocol.ts"
-import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored } from "./storage.ts"
+import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResult } from "./storage.ts"
 
 const databaseName = "vitehub-sync"
 // Format 2 (Sync v2) adds the account, the table version and the defaults to the meta, and tags each write with its
 // account instead of its scope. Format 3 keeps the store of a write in `store`, since `name` is the name of an action.
-// An upgrade drops the stored rows and keeps the outbox.
-const format = 3
+// Format 4 marks sent writes. An upgrade drops the stored rows and keeps the outbox.
+const format = 4
 
 interface MetaRecord extends SyncMeta {
   name: string
@@ -40,18 +42,28 @@ function done(transaction: IDBTransaction): Promise<void> {
 }
 
 /**
- * Moves an outbox of format 1 or 2 to format 3. Before, `name` held the store. A write of format 1 keeps the scope id
- * that it was made for as its account.
+ * Moves an outbox of an older format to the current one. Before format 3, `name` held the store. A write of format 1
+ * keeps the scope id that it was made for as its account. Any write may have been sent before the upgrade, so each
+ * one is marked as sent.
  */
-function upgradeOutbox(outbox: IDBObjectStore): void {
-  if (outbox.indexNames.contains("name")) outbox.deleteIndex("name")
-  outbox.createIndex("store", "store")
+function upgradeOutbox(outbox: IDBObjectStore, oldVersion: number): void {
+  if (oldVersion < 3) {
+    if (outbox.indexNames.contains("name")) outbox.deleteIndex("name")
+    outbox.createIndex("store", "store")
+  }
   const cursor = outbox.openCursor()
   cursor.onsuccess = () => {
     const current = cursor.result
     if (!current) return
-    const { name, scope, ...write } = current.value as SyncQueuedWrite & { name: string, scope?: string | null }
-    current.update({ ...write, store: name, account: write.account ?? scope ?? null })
+    // SAFETY: the outbox holds records of an older format, which `current.value` reads as plain fields.
+    const record = current.value as Record<string, unknown>
+    if (oldVersion >= 3) {
+      current.update({ ...record, sent: true })
+    }
+    else {
+      const { name, scope, ...write } = record
+      current.update({ ...write, account: write.account ?? scope ?? null, store: name, sent: true })
+    }
     current.continue()
   }
 }
@@ -70,7 +82,7 @@ function openDatabase(): Promise<IDBDatabase> {
       const transaction = request.transaction!
       transaction.objectStore("rows").clear()
       transaction.objectStore("meta").clear()
-      upgradeOutbox(transaction.objectStore("outbox"))
+      upgradeOutbox(transaction.objectStore("outbox"), event.oldVersion)
     }
     request.onsuccess = () => {
       const database = request.result
@@ -141,7 +153,7 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
       const rows = transaction.objectStore("rows")
       const metaStore = transaction.objectStore("meta")
       const outbox = transaction.objectStore("outbox")
-      const seqs: number[] = []
+      const result: SyncWriteResult = { seqs: [], unmerged: [], gone: [] }
       const current = metaStore.get(id)
       current.onsuccess = () => {
         const record = current.result as MetaRecord | undefined
@@ -171,12 +183,40 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
           if (existing.result) outbox.put({ ...write, store: id } satisfies OutboxRecord)
         }
       }
-      for (const write of change.add ?? []) {
-        const added = outbox.add({ ...write, store: id })
-        added.onsuccess = () => seqs.push(added.result as number)
+      for (const seq of change.sent ?? []) {
+        const existing = outbox.get(seq)
+        existing.onsuccess = () => {
+          const write = existing.result as OutboxRecord | undefined
+          if (!write) result.gone.push(seq)
+          else if (!write.sent) outbox.put({ ...write, sent: true } satisfies OutboxRecord)
+        }
       }
+      // A merge reads its target first, so a tab that marked the target as sent in an earlier transaction wins.
+      const merges = change.merge ?? []
+      const targets = merges.map(merge => outbox.get(merge.seq))
+      const add = () => {
+        const unmerged = new Map<number, SyncRow>()
+        merges.forEach((merge, index) => {
+          const target = targets[index]!.result as OutboxRecord | undefined
+          if (target?.store === id && isMergeable(target)) {
+            outbox.delete(merge.seq)
+            return
+          }
+          unmerged.set(merge.index, merge.patch)
+          result.unmerged.push(merge.index)
+        })
+        ;(change.add ?? []).forEach((write, index) => {
+          const patch = unmerged.get(index)
+          const added = outbox.add({ ...(patch && write.op === "update" ? { ...write, patch } : write), store: id })
+          added.onsuccess = () => {
+            result.seqs[index] = added.result as number
+          }
+        })
+      }
+      if (targets.length) targets.at(-1)!.onsuccess = add
+      else add()
       await done(transaction)
-      return seqs
+      return result
     },
     async clear() {
       const database = await open()

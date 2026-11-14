@@ -65,9 +65,9 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
         await db.write("/a", { meta: meta(1), reset: true, put: [["k2", { id: "k2" }], ["k1", { id: "k1" }]] })
         await db.write("/a", { meta: meta(2), put: [["k1", { id: "k1", title: "changed" }], ["k3", { id: "k3" }]], delete: ["k2"] })
         await db.write("/b", { meta: meta(9), reset: true, put: [["x", { id: "x" }]] })
-        const seqs = await db.write("/a", { add: [{ id: "m1", account: "acc", key: "k1", op: "delete" }, { id: "m2", account: "acc", key: "k3", op: "delete" }] })
+        const { seqs } = await db.write("/a", { add: [{ id: "m1", account: "acc", key: "k1", op: "delete" }, { id: "m2", account: "acc", key: "k3", op: "delete" }] })
         // An action has a `name` of its own, which the storage keeps.
-        const [actionSeq] = await db.write("/b", { add: [{ id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }] })
+        const { seqs: [actionSeq] } = await db.write("/b", { add: [{ id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }] })
         const action = await db.readQueue("/b")
         await db.write("/a", { update: [{ seq: seqs[0], id: "m1", account: "acc", key: "k1", op: "delete", error: { code: "SYNC_NOT_FOUND", message: "No." } }], remove: [seqs[1]] })
         // An update of a write that is gone does not bring it back.
@@ -77,9 +77,16 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
         await db.write("/a", { meta: meta(3), reset: true, put: [["k9", { id: "k9" }]] })
         const reset = await db.read("/a")
         const b = await db.read("/b")
+        // A merge replaces an update that no tab sent. Once a tab marked an update as sent, a new update keeps its own
+        // patch, and the sent one stays.
+        const { seqs: [first] } = await db.write("/m", { add: [{ id: "u1", account: "acc", key: "k", op: "update", patch: { title: "1" } }] })
+        const merged = await db.write("/m", { add: [{ id: "u2", account: "acc", key: "k", op: "update", patch: { title: "2", done: true } }], merge: [{ index: 0, seq: first, patch: { done: true } }] })
+        const marked = await db.write("/m", { sent: [merged.seqs[0], 999_999] })
+        const late = await db.write("/m", { add: [{ id: "u3", account: "acc", key: "k", op: "update", patch: { title: "2", done: true, note: "x" } }], merge: [{ index: 0, seq: merged.seqs[0], patch: { note: "x" } }] })
+        const merges = { merged, marked, late, queue: await db.readQueue("/m") }
         await db.clear()
         const cleared = await db.read("/a")
-        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs, action: action.writes, actionSeq }
+        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs, action: action.writes, actionSeq, merges }
       })
       assert.equal(result.persisted, true)
       assert.deepEqual(result.a.meta, { scope: { id: "s", values: {} }, key: "id", cursor: 2, account: "acc", version: "v1", defaults: { done: false } })
@@ -91,10 +98,16 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       assert.deepEqual(result.b, [["x", { id: "x" }]])
       assert.deepEqual(result.action, [{ seq: result.actionSeq, id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }])
       assert.deepEqual(result.cleared, { meta: undefined, rows: [], writes: [] })
+      const { merged, marked, late, queue: merges } = result.merges
+      assert.deepEqual([merged.unmerged, marked.gone, late.unmerged], [[], [999_999], [0]])
+      assert.deepEqual(merges.writes, [
+        { seq: merged.seqs[0], id: "u2", account: "acc", key: "k", op: "update", patch: { title: "2", done: true }, sent: true },
+        { seq: late.seqs[0], id: "u3", account: "acc", key: "k", op: "update", patch: { note: "x" } },
+      ])
       await page.close()
     })
 
-    await t.test("the upgrade from format 1 drops the rows and keeps the outbox", async () => {
+    await t.test("the upgrade from format 1 drops the rows, keeps the outbox, and marks it as sent", async () => {
       const page = await open()
       const result = await page.evaluate(async () => {
         await new Promise((resolve, reject) => {
@@ -129,8 +142,44 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       assert.deepEqual(result.meta, undefined)
       assert.deepEqual(result.rows, [])
       assert.deepEqual(result.writes.map(({ seq: _seq, ...write }) => write), [
-        { id: "m1", account: "s", key: "k1", op: "delete" },
-        { id: "m2", account: null, key: "k2", op: "insert", value: { title: "Early" } },
+        { id: "m1", account: "s", key: "k1", op: "delete", sent: true },
+        { id: "m2", account: null, key: "k2", op: "insert", value: { title: "Early" }, sent: true },
+      ])
+      await page.close()
+    })
+
+    await t.test("the upgrade from format 3 keeps the outbox, with the name of an action, and marks it as sent", async () => {
+      const page = await open()
+      const result = await page.evaluate(async () => {
+        await new Promise((resolve, reject) => {
+          const request = indexedDB.deleteDatabase("vitehub-sync")
+          request.onsuccess = resolve
+          request.onerror = reject
+        })
+        const old = await new Promise((resolve, reject) => {
+          const request = indexedDB.open("vitehub-sync", 3)
+          request.onupgradeneeded = () => {
+            const database = request.result
+            database.createObjectStore("rows", { keyPath: ["name", "key"] })
+            database.createObjectStore("meta", { keyPath: "name" })
+            database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("store", "store")
+          }
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = reject
+        })
+        const transaction = old.transaction(["outbox"], "readwrite")
+        transaction.objectStore("outbox").add({ store: "/a", id: "m1", account: "acc", key: "m1", op: "action", name: "complete", args: { id: "x" } })
+        transaction.objectStore("outbox").add({ store: "/a", id: "m2", account: "acc", key: "k", op: "update", patch: { title: "T" } })
+        await new Promise(resolve => transaction.oncomplete = resolve)
+        old.close()
+        const db = window.storage.createIndexedDBStorage(() => { throw new Error("no fallback") })
+        const stored = await db.read("/a")
+        await db.clear()
+        return stored
+      })
+      assert.deepEqual(result.writes.map(({ seq: _seq, ...write }) => write), [
+        { id: "m1", account: "acc", key: "m1", op: "action", name: "complete", args: { id: "x" }, sent: true },
+        { id: "m2", account: "acc", key: "k", op: "update", patch: { title: "T" }, sent: true },
       ])
       await page.close()
     })

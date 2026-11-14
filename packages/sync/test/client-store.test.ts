@@ -614,6 +614,49 @@ describe("coalescing and pending", () => {
     expect(h.server.applied.map(mutation => mutation.op === "update" && mutation.patch.title)).toEqual(["Oat milk", "Soy milk"])
   })
 
+  it("never merges into an update that was sent and whose answer was lost", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    const { store } = h.open()
+    await store.refresh()
+    // The server applies the update, but the answer does not arrive.
+    h.server.loseNextResponse = true
+    const first = store.update("a", { title: "first" })
+    await until(() => store.getState().status === "offline")
+    expect(h.server.rows.get("a")?.title).toBe("first")
+    // Another device changes the title after it.
+    h.server.write({ id: "a", ownerId: "ada", title: "newer", done: false })
+    const second = store.update("a", { done: true })
+    await store.refresh()
+    await Promise.all([first, second])
+    expect(h.server.rows.get("a")).toMatchObject({ title: "newer", done: true })
+    expect(store.get("a")).toMatchObject({ title: "newer", done: true })
+    const stored = await h.storage.readQueue("/api/_vitehub/sync/todos")
+    expect(stored.writes).toEqual([])
+  })
+
+  it("never merges into an update that another tab sent", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    const one = h.open()
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    h.server.loseNextResponse = true
+    const first = one.store.update("a", { title: "first" })
+    first.then(undefined, () => undefined)
+    // The other tab reads the update before the first tab sends it.
+    await until(() => two.store.pending("a"))
+    await until(() => one.store.getState().status === "offline")
+    expect(h.server.rows.get("a")?.title).toBe("first")
+    h.server.write({ id: "a", ownerId: "ada", title: "newer", done: false })
+    const second = two.store.update("a", { done: true })
+    await second.then(undefined, () => undefined)
+    await Promise.all([two.store.refresh(), one.store.refresh()])
+    await until(() => one.store.getState().queued === 0 && two.store.getState().queued === 0)
+    expect(h.server.rows.get("a")).toMatchObject({ title: "newer", done: true })
+    expect(h.server.applied.filter(mutation => mutation.op === "update").map(mutation => mutation.op === "update" && mutation.patch)).toEqual([{ title: "first" }, { done: true }])
+  })
+
   it("tells which rows have queued writes", async () => {
     const h = setup()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }, { id: "b", ownerId: "ada", title: "Eggs" }])
