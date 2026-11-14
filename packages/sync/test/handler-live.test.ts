@@ -2,6 +2,7 @@ import { numeric, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { defineSync } from "../src/define.ts"
+import { liveResponse } from "../src/live.ts"
 import { createSyncHandler, recordSyncChanges } from "../src/runtime.ts"
 import { createHarness, readEvents, teamsOf } from "./handler-harness.ts"
 
@@ -149,4 +150,36 @@ it("wakes a stream of the installed handler at once after recordSyncChanges()", 
   expect(pullOf(event.data).rows).toEqual([{ id: "n1", teamId: "a", body: "From a job" }])
   controller.abort()
   expect(await events.next(1000)).toBe("end")
+})
+
+describe("live deadline", () => {
+  async function ends(check: () => Promise<{ again?: boolean }>) {
+    const controller = new AbortController()
+    const started = performance.now()
+    const response = liveResponse({ key: {}, name: "deadline", signal: controller.signal, interval: 50, seconds: 0.2, check })
+    const result = await readEvents(response).next(2000)
+    const elapsed = performance.now() - started
+    controller.abort()
+    return { result, elapsed }
+  }
+
+  it("ends after `seconds` while it drains a backlog of pages", async () => {
+    let checks = 0
+    const { result, elapsed } = await ends(async () => {
+      checks++
+      await new Promise(resolve => setTimeout(resolve, 20))
+      return { again: true }
+    })
+    expect(result).toBe("end")
+    expect(elapsed).toBeLessThan(600)
+    const after = checks
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(checks).toBe(after)
+  })
+
+  it("ends after `seconds` while a check hangs", async () => {
+    const { result, elapsed } = await ends(() => new Promise(() => {}))
+    expect(result).toBe("end")
+    expect(elapsed).toBeLessThan(600)
+  })
 })

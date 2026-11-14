@@ -52,8 +52,8 @@ function format(event: SyncLiveEvent): string {
 
 /**
  * A `text/event-stream` response that runs `check` when the stream opens, then every `interval`, and at once when a
- * write in this process wakes it. It sends `: ping` every 15 seconds, and ends after `seconds` or when the client
- * goes away.
+ * write in this process wakes it. It sends `: open` at once and `: ping` every 15 seconds, and ends after `seconds` or
+ * when the client goes away. It checks the time before each check, also between the pages of a backlog.
  */
 export function liveResponse(stream: LiveStream): Response {
   const encoder = new TextEncoder()
@@ -83,11 +83,14 @@ export function liveResponse(stream: LiveStream): Response {
       // nothing to send has no answer until the first ping, and the client waits 15 seconds to know that it is live.
       send(": open\n\n")
       const ping = setInterval(() => send(": ping\n\n"), pingInterval)
+      // A timer of its own ends the stream on time, also while a check is slow or a backlog has many pages.
+      const deadline = setTimeout(finish, stream.seconds * 1000)
       function finish() {
         if (closed) return
         closed = true
         unlisten()
         clearInterval(ping)
+        clearTimeout(deadline)
         stream.signal.removeEventListener("abort", finish)
         resume?.()
         try {
@@ -104,15 +107,14 @@ export function liveResponse(stream: LiveStream): Response {
       void (async () => {
         let first = true
         try {
-          while (!closed) {
+          while (!closed && Date.now() < end) {
             woken = false
             const { event, again } = await stream.check(first)
             first = false
             if (event) send(format(event))
             if (again) continue
             const left = end - Date.now()
-            if (left <= 0) break
-            if (!woken && !closed) {
+            if (!woken && !closed && left > 0) {
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(done, Math.min(stream.interval, left))
                 function done() {
@@ -123,7 +125,6 @@ export function liveResponse(stream: LiveStream): Response {
                 resume = done
               })
             }
-            if (Date.now() >= end) break
           }
         }
         catch (error) {
