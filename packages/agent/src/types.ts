@@ -1,4 +1,5 @@
 import type { ChannelDefinition } from "@vite-hub/channels"
+import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
@@ -2320,17 +2321,39 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export interface AgentStateProviderOptions {
-  authToken?: string
+/** Agent State in libSQL. `auto` also selects Cloudflare state on Cloudflare when no `url` is set. */
+export interface AgentSqlStateProviderOptions {
+  /**
+   * The libSQL auth token. Declare where it comes from, so the token stays out of the server bundle:
+   * `env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })`. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
+   */
+  authToken?: EnvVariableDeclaration
+  driver?: "auto" | "libsql" | "sqlite"
   /** Persistent file databases default to WAL. Select delete for network-backed volumes. */
   journalMode?: "wal" | "delete"
-  driver?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
   tablePrefix?: string
   url?: string
 }
 
+/** Agent State in a Cloudflare Durable Object. */
+export interface AgentCloudflareStateProviderOptions {
+  driver: "cloudflare"
+}
+
+/** Agent State in process memory. It does not survive a restart. */
+export interface AgentMemoryStateProviderOptions {
+  driver: "memory"
+}
+
+export type AgentStateProviderOptions =
+  | AgentSqlStateProviderOptions
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
+
 export type ResolvedAgentStateProviderOptions =
-  Omit<AgentStateProviderOptions, "driver"> & { driver: NonNullable<AgentStateProviderOptions["driver"]> }
+  | (Omit<AgentSqlStateProviderOptions, "driver"> & { driver: NonNullable<AgentSqlStateProviderOptions["driver"]> })
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
 
 export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions

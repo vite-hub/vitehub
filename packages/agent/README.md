@@ -447,6 +447,25 @@ export default defineConfig({
 
 `driver: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
 
+The drivers are `auto`, `sqlite`, `libsql`, `cloudflare`, and `memory`. Only `auto`, `sqlite`, and `libsql` read `url`, `authToken`, `journalMode`, and `tablePrefix`. Any other driver or key fails the build with `AGENT_B0005`.
+
+For hosted libSQL, declare the auth token with `env()`. ViteHub reads it at runtime and does not write it into the server bundle. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
+
+```ts
+import { hubAgent } from "@vite-hub/agent/vite"
+import { env } from "@vite-hub/env"
+
+hubAgent({
+  providers: {
+    state: {
+      driver: "libsql",
+      url: "libsql://agent-state.turso.io",
+      authToken: env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") }),
+    },
+  },
+})
+```
+
 Built-in persistent `file:` connections use SQLite WAL so queue commits can complete while another connection retains a read snapshot. WAL requires a local filesystem with shared-memory support. For NFS, EFS, or another network-backed volume, set `agent.providers.state.journalMode: "delete"` to use rollback journaling. The low-level `createLibsqlAgentState()` accepts the same `journalMode` option. Keep the database and its journal files on the same persistent volume. Supplied clients and remote connections keep their own connection policy. Agent State operations on the same local file share an in-process queue across adapters, including equivalent encoded or relative file URLs. Adapters with one supplied client share a queue by client identity. Owned in-memory clients serialize their own operations without blocking independent memory databases. Owned clients using `file::memory:?cache=shared` share one database queue, including equivalent encoded and mixed-case scheme URLs. This coordination does not replace SQLite locks across processes or coordinate SQL issued directly outside Agent State.
 
 Queued webhook deliveries in this state survive a restart. A persistent Nitro server resumes them when it starts, without an inbound request. Before the queue resumes, the server fails each Agent's pending or running invocations that started before this process. An invocation that a persisted queued delivery runs again under the same run ID stays active and continues with that delivery. Agents with a durable Workflow runtime are skipped. Vercel and Netlify output resumes the queue on the first webhook request and does not recover invocations.

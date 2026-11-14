@@ -11,6 +11,7 @@ import { promisify } from "node:util"
 
 import { Chat, Message, parseMarkdown } from "chat"
 import { transform } from "esbuild"
+import { env } from "@vite-hub/env"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
@@ -2938,7 +2939,6 @@ export default defineAgent({
   })
 
   it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
-    vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
     const { hubAgent } = await import("../src/vite.ts")
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2950,7 +2950,7 @@ export default defineAgent({
         const plugin = hubAgent({
           providers: {
             state: {
-              authToken: "build-token-with-hyphen-env",
+              authToken: env({ secret: true, source: env.source("TURSO-AUTH-TOKEN") }),
               driver: provider,
               tablePrefix: "agent_state_",
               url: "file:build-state.sqlite",
@@ -2968,7 +2968,6 @@ export default defineAgent({
         expect(webhookRoute).toContain(`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`)
         expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
         expect(webhookRoute).toContain('const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {"tablePrefix":"agent_state_","url":"file:build-state.sqlite"}')
-        expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
         expect(webhookRoute).toContain("let viteHubChatState")
         expect(webhookRoute).toContain("viteHubChatState = createLibsqlAgentState({")
         expect(webhookRoute).toContain("viteHubChatStateResolver.ownsScope = false")
