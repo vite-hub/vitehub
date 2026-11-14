@@ -235,9 +235,78 @@ function declaredNames(program: File): Set<string> {
   return names
 }
 
+/** Whether `child` is the part of `parent` that runs first, so the code can read it in a statement before. */
+function runsFirst(parent: Node, child: Node): boolean {
+  switch (parent.type) {
+    case "UnaryExpression":
+    case "TSAsExpression":
+    case "TSNonNullExpression":
+    case "TSSatisfiesExpression":
+      return true
+    case "MemberExpression":
+      return parent.object === child
+    case "BinaryExpression":
+    case "LogicalExpression":
+      return parent.left === child
+    case "ConditionalExpression":
+      return parent.test === child
+    case "CallExpression":
+      // `f(await checkRateLimit(...))` reads `f` first, which has no side effect when it is a name or a property path.
+      return parent.callee === child || (parent.arguments[0] === child && isNamePath(parent.callee))
+    default:
+      return false
+  }
+}
+
+function isNamePath(node: Node): boolean {
+  if (node.type === "Identifier") return true
+  return node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && isNamePath(node.object)
+}
+
+/** The statement that runs `node` before anything else, when it is in a statement list. */
+function leadingStatement(node: Node, ancestors: readonly Node[]): Node | undefined {
+  let child = node
+  for (let index = ancestors.length - 1; index >= 0; index--) {
+    const parent = ancestors[index]!
+    const owner = ancestors[index - 1]
+    const inList = owner && (owner.type === "BlockStatement" || owner.type === "Program") && (owner.body as readonly Node[]).includes(parent)
+    switch (parent.type) {
+      case "ExpressionStatement":
+        return inList && parent.expression === child ? parent : undefined
+      case "ReturnStatement":
+      case "ThrowStatement":
+        return inList && parent.argument === child ? parent : undefined
+      case "IfStatement":
+        return inList && parent.test === child ? parent : undefined
+      case "VariableDeclarator":
+        if (parent.init !== child || owner?.type !== "VariableDeclaration" || owner.declarations[0] !== parent) return undefined
+        child = parent
+        continue
+      case "VariableDeclaration":
+        return inList ? parent : undefined
+    }
+    if (!runsFirst(parent, child)) return undefined
+    child = parent
+  }
+  return undefined
+}
+
+/** The source range of `node`, with the parentheses around it. */
+function rangeWithParentheses(code: string, node: Node): [number, number] {
+  const extra = node.extra as { parenthesized?: boolean, parenStart?: number } | undefined
+  if (!extra?.parenthesized || extra.parenStart === undefined) return [start(node), end(node)]
+  const close = code.indexOf(")", end(node))
+  return [extra.parenStart, close + 1]
+}
+
 /**
- * `checkRateLimit()` returns `[error, decision]` now. It threw before, so `const decision = await checkRateLimit(...)`
- * becomes a Result read that throws the error, which keeps the behavior of the code.
+ * `checkRateLimit()` returns `[error, decision]` now. It threw before, so each call becomes a Result read that throws
+ * the error, which keeps the behavior of the code:
+ * - `const decision = await checkRateLimit(...)` becomes `const [error, decision] = await checkRateLimit(...)`.
+ * - A call that its statement runs first, such as `refuse(await checkRateLimit(...))` or
+ *   `if (!(await checkRateLimit(...)).allowed)`, moves to a `const` before the statement, and the statement reads the
+ *   decision.
+ * Other calls get a follow-up.
  */
 function rewriteCheckRateLimit(context: FileContext): number {
   const { block, output, program, style } = context
@@ -246,10 +315,10 @@ function rewriteCheckRateLimit(context: FileContext): number {
   const resolveBinding = bindingResolver(program)
   const taken = declaredNames(program)
   let rewritten = 0
-  const errorName = () => {
+  const freeName = (base: string) => {
     let index = 1
-    let name = "checkRateLimitError"
-    while (taken.has(name)) name = `checkRateLimitError${++index}`
+    let name = base
+    while (taken.has(name)) name = `${base}${++index}`
     taken.add(name)
     return name
   }
@@ -257,27 +326,34 @@ function rewriteCheckRateLimit(context: FileContext): number {
     if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
     const binding = resolveBinding(node.callee)
     if (!binding || !bindings.has(binding)) return
-    const [declaration, declarator, awaited] = ancestors.slice(-3)
-    const owner = ancestors.at(-4)
-    const statementList = owner && (owner.type === "BlockStatement" || owner.type === "Program") ? owner.body : undefined
-    if (
-      awaited?.type === "AwaitExpression"
-      && declarator?.type === "VariableDeclarator"
-      && declarator.init === awaited
-      && declarator.id.type === "Identifier"
-      && declaration?.type === "VariableDeclaration"
-      && declaration.declarations.length === 1
-      && (statementList as readonly Node[] | undefined)?.includes(declaration)
-    ) {
-      const error = errorName()
-      const semicolon = style.semicolons || block.code[end(declaration) - 1] === ";" ? ";" : ""
-      const id = declarator.id
-      output.overwrite(block.offset + start(id), block.offset + end(id), `[${error}, ${id.name}]`)
-      output.appendLeft(block.offset + end(declaration), `\n${indentAt(block.code, start(declaration))}if (${error}) throw ${error}${semicolon}`)
-      rewritten++
+    const awaited = ancestors.at(-1)
+    const statement = awaited?.type === "AwaitExpression" ? leadingStatement(awaited, ancestors.slice(0, -1)) : undefined
+    if (!awaited || !statement) {
+      followUp(context, node, "`checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.")
       return
     }
-    followUp(context, node, "`checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.")
+    const error = freeName("checkRateLimitError")
+    const semicolon = style.semicolons || block.code[end(statement) - 1] === ";" ? ";" : ""
+    const indent = indentAt(block.code, start(statement))
+    const check = `if (${error}) throw ${error}${semicolon}`
+    const declarator = statement.type === "VariableDeclaration" && statement.declarations.length === 1 ? statement.declarations[0] : undefined
+    const id = declarator?.init === awaited ? declarator.id : undefined
+    if (id && (id.type === "Identifier" || id.type === "ObjectPattern") && !id.typeAnnotation) {
+      // `const decision = await checkRateLimit(...)` keeps its statement.
+      output.overwrite(block.offset + start(id), block.offset + end(id), `[${error}, ${block.code.slice(start(id), end(id))}]`)
+      output.appendLeft(block.offset + end(statement), `\n${indent}${check}`)
+    }
+    else if (statement.type === "ExpressionStatement" && statement.expression === awaited) {
+      // A call whose decision nobody reads only throws its error.
+      output.overwrite(block.offset + start(statement), block.offset + end(statement), `const [${error}] = ${block.code.slice(start(awaited), end(awaited))}${semicolon}\n${indent}${check}`)
+    }
+    else {
+      const decision = freeName("decision")
+      const [from, to] = rangeWithParentheses(block.code, awaited)
+      output.appendLeft(block.offset + start(statement), `const [${error}, ${decision}] = ${block.code.slice(start(awaited), end(awaited))}${semicolon}\n${indent}${check}\n${indent}`)
+      output.overwrite(block.offset + from, block.offset + to, decision)
+    }
+    rewritten++
   })
   return rewritten
 }
