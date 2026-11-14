@@ -542,6 +542,9 @@ jobs:
               exit 1
             fi
           done
+          # Auth and Comments keep their tables in D1. The Worker secrets (VITEHUB_SECRET and the Console keys) stay on
+          # the Worker between deploys.
+          ./node_modules/.bin/wrangler d1 migrations apply vitehub-docs --remote --config docs/.output/server/wrangler.json
           ./node_modules/.bin/wrangler deploy --config docs/.output/server/wrangler.json
 
       - name: Check the live site
