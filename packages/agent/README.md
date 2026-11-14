@@ -426,7 +426,7 @@ On the server, put the prompt in the Agent's instructions, check each spec, and 
 
 ```ts
 import { defineForm } from "@vite-hub/forms"
-import { type CatalogSpec, catalogPrompt, checkSpecForm, defineCatalog, validateSpec, viteHubCatalogEntries } from "@vite-hub/agent/ui"
+import { type CatalogSpec, catalogPrompt, checkSpecForm, defineCatalog, specFromText, viteHubCatalogEntries } from "@vite-hub/agent/ui"
 import * as v from "valibot"
 
 const invite = defineForm({ schema: v.object({ email: v.pipe(v.string(), v.email()), role: v.picklist(["admin", "member"]) }) })
@@ -434,9 +434,10 @@ export const catalog = defineCatalog(viteHubCatalogEntries, { forms: { invite } 
 
 export const instructions = `You help the team.\n\n${catalogPrompt({ surface: "web", catalog })}`
 
-export function checkSpec(spec: unknown) {
+// `answer` is the text of the model's reply: JSON patch lines, with text and code fences around them in the inline mode.
+export function readSpec(answer: string) {
   // Each diagnostic has a stable code, such as AGENT_UI_COMPONENT_NOT_ON_SURFACE for a Form in a chat card. Send them back to the model.
-  const result = validateSpec(spec, { surface: "web", catalog })
+  const result = specFromText(answer, { surface: "web", catalog })
   return result.valid ? { spec: result.spec } : { error: result.diagnostics }
 }
 
@@ -444,7 +445,7 @@ export function checkSpec(spec: unknown) {
 export const readInvite = (spec: CatalogSpec, values: unknown) => checkSpecForm(spec, "invite", values, { catalog })
 ```
 
-`catalogPrompt()` is json-render's own prompt for the catalog, the prompt that the evals measured, with the fields of each form that the surface can draw. Buttons and Forms tell the Agent what the person did with one action, `event`, which sends a name and a context.
+`catalogPrompt()` is json-render's own prompt for the catalog, the prompt that the evals measured, with the fields of each form that the surface can draw. The model answers with JSON patches, one on each line. `specFromText()` builds the spec from these lines, skips the other lines, and checks the spec with `validateSpec()`. An answer without patches gives `AGENT_UI_SPEC_NOT_FOUND`, and a patch that cannot apply gives `AGENT_UI_PATCH_INVALID`. To check a spec that you already have as an object, call `validateSpec()`. Buttons and Forms tell the Agent what the person did with one action, `event`, which sends a name and a context.
 
 In a Vue page, render a spec with `@json-render/vue` and the default components of `@vite-hub/agent/ui/vue`. They use `@ui-sdk/vue` for Button and Tabs, and draw one native control for each field of a Form:
 

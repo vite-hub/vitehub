@@ -7,7 +7,7 @@ import { createSSRApp, h } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { z } from "zod"
 
-import { catalogPrompt, type CatalogSpec, type CatalogSurface, catalogSurfaces, checkSpecForm, defineCatalog, portableEntries, specFormFields, surfaceEntries, validateSpec, viteHubCatalog, viteHubCatalogEntries } from "@vite-hub/agent/ui"
+import { catalogPrompt, type CatalogSpec, type CatalogSurface, catalogSurfaces, checkSpecForm, defineCatalog, portableEntries, specFormFields, specFromText, surfaceEntries, validateSpec, viteHubCatalog, viteHubCatalogEntries } from "@vite-hub/agent/ui"
 import { catalogComponents, defineCatalogRegistry } from "@vite-hub/agent/ui/vue"
 
 const invite = z.object({
@@ -106,6 +106,71 @@ describe("validateSpec", () => {
     for (let level = 0; level < 23; level++) elements[level ? `s${level}` : "root"] = { type: "Stack", props: {}, children: [`s${level + 1}`] }
     elements.s23 = { type: "Text", props: { text: "deep" } }
     expect(codes(one(elements))).toEqual(["AGENT_UI_TOO_DEEP /elements/s20"])
+  })
+})
+
+describe("specFromText", () => {
+  // The model answers `catalogPrompt()` with one JSON patch on each line.
+  const patches = [
+    { op: "add", path: "/root", value: "card" },
+    { op: "add", path: "/elements/card", value: { type: "Card", props: { title: "Deploy acme/web" }, children: ["approve"] } },
+    { op: "add", path: "/elements/approve", value: { type: "Button", props: { label: "Approve" }, on: { press: event("deploy.approve") } } },
+    { op: "add", path: "/state/repo", value: "acme/web" },
+  ].map(patch => JSON.stringify(patch))
+  const card: CatalogSpec = {
+    root: "card",
+    elements: {
+      card: { type: "Card", props: { title: "Deploy acme/web" }, children: ["approve"] },
+      approve: { type: "Button", props: { label: "Approve" }, on: { press: event("deploy.approve") } },
+    },
+    state: { repo: "acme/web" },
+  }
+
+  it("builds and checks the spec of a standalone answer", () => {
+    expect(specFromText(patches.join("\n"), { surface: "web", catalog })).toEqual({ valid: true, spec: card, diagnostics: [] })
+  })
+
+  it("skips the text and the code fence of an inline answer", () => {
+    const answer = ["Here is the deploy to approve.", "", "```spec", ...patches, "```", "", "Press Approve when the checks pass."].join("\n")
+    expect(specFromText(answer, { surface: "web", catalog })).toEqual({ valid: true, spec: card, diagnostics: [] })
+  })
+
+  it("returns the diagnostics of validateSpec() for the built spec", () => {
+    const tabs = JSON.stringify({ op: "add", path: "/elements/card/children/1", value: "tabs" })
+    const element = JSON.stringify({ op: "add", path: "/elements/tabs", value: { type: "Tabs", props: { tabs: ["Logs"] } } })
+    expect(specFromText([...patches, tabs, element].join("\n"), { surface: "chatCard", catalog })).toEqual({
+      valid: false,
+      diagnostics: [expect.objectContaining({ code: "AGENT_UI_COMPONENT_NOT_ON_SURFACE", path: "/elements/tabs/type" })],
+    })
+  })
+
+  it.each([
+    ["only text", "I cannot show UI for this."],
+    ["one JSON spec in place of patches", ["```json", JSON.stringify(card, null, 2), "```"].join("\n")],
+    ["an empty answer", ""],
+  ])("reports AGENT_UI_SPEC_NOT_FOUND for %s", (_, text) => {
+    const result = specFromText(text, { surface: "web", catalog })
+    expect(result).toEqual({
+      valid: false,
+      diagnostics: [{
+        code: "AGENT_UI_SPEC_NOT_FOUND",
+        message: expect.stringContaining("no spec patches"),
+        fix: expect.stringContaining("\"op\":\"add\""),
+        docs: "https://vitehub.dev/docs/agents/diagnostics/agent_ui_spec_not_found",
+        path: "",
+      }],
+    })
+  })
+
+  it.each<[string, Record<string, unknown>[], number, string]>([
+    ["a __proto__ key", [{ op: "add", path: "/__proto__/polluted", value: true }], 5, "/__proto__/polluted"],
+    ["a constructor key in from", [{ op: "copy", from: "/constructor/prototype", path: "/state/copy" }], 5, "/state/copy"],
+    ["a failed test", [{ op: "test", path: "/root", value: "other" }], 5, "/root"],
+    ["a path through null", [{ op: "add", path: "/state/owner", value: null }, { op: "add", path: "/state/owner/name", value: "Dana" }], 6, "/state/owner/name"],
+  ])("reports AGENT_UI_PATCH_INVALID for %s, with its line", (_, extra, line, path) => {
+    const result = specFromText([...patches, ...extra.map(patch => JSON.stringify(patch))].join("\n"), { surface: "web", catalog })
+    expect(result).toEqual({ valid: false, diagnostics: [expect.objectContaining({ code: "AGENT_UI_PATCH_INVALID", message: expect.stringContaining(`line ${line}`), path })] })
+    expect(Object.prototype).not.toHaveProperty("polluted")
   })
 })
 
