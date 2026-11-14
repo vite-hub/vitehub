@@ -81,7 +81,7 @@ On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_I
 
 ## Remote stores in development
 
-`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as Vercel Blob, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
 
 ```ts
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -292,7 +292,9 @@ export default defineConfig({
 })
 ```
 
-Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK.
+Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Keys go in `credentials`; a top-level `accessKeyId` or `secretAccessKey`, as in NuxtHub, fails with `BLOB_C0023`.
+
+Without a `driver`, a build with `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET` (NuxtHub's names) uses this store before any host default. `S3_REGION` and `S3_ENDPOINT` apply when they are set. The server reads the keys from the same variables. `vite dev` keeps the local `fs` store unless the store sets `remote: true`.
 
 Blob never writes a credential into the server bundle. Leave `credentials` out so the SDK reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` at runtime, or set each credential option from `process.env`. ViteHub then writes only the name of the env variable that holds the value at build time, and reads that variable when the store starts. This applies to the credential options of every driver, such as `secretAccessKey`, `token`, `accountKey`, and `credentials.private_key`. A URL option with a user name, password, or query, and an option that the driver does not know, are also credentials. A literal credential fails `vite dev` and the build with `BLOB_C0019`. A value that more than one env variable holds fails with `BLOB_C0020`. A variable that the server does not have fails with `BLOB_R0044` when the store starts.
 

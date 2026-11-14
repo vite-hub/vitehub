@@ -102,7 +102,7 @@ Several Node processes share KV keys only through a shared store. Without a `dri
 1. `database` when the app has a Default Database on Postgres. The build reads the Database integration's resolved configuration, without running the Database.
 2. `fs-lite` in `.vitehub/data/kv`, which only one host can read.
 
-The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver.
+The driver is selected at build time. To use Redis, set `kv: { driver: 'redis' }` and supply the same `REDIS_URL` on every process. A missing URL fails instead of falling back to another store. Setting `REDIS_URL` for another service does not move KV keys or change its driver. When a Node or Vercel build without a `driver` has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, the build prints a warning with the fix: `kv: { driver: 'redis' }`, or `kv: { driver: 'redis', url: 'env:KV_URL' }` for `KV_URL`. Apps that move from NuxtHub need this line if they kept KV in Redis.
 
 `vitehub inspect definitions --kind kv` and `vitehub kv list` report the selected driver. `vitehub({ dataDir })` selects `fs-lite` in that directory. `vite dev` keeps the inferred store on `fs-lite`.
 
