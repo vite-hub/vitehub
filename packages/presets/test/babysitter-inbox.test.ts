@@ -52,6 +52,16 @@ test('status and check events match local head even without pull_requests', asyn
   assert.deepEqual((await post(inbox, 'check', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', conclusion: 'success' } })).queued, [7])
   assert.equal((await inbox.get(repository, 7))?.statuses.CI?.state, 'failure')
 })
+test('a status delivery with GitHub\'s REST commit object is stored and read back', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  // GitHub's status webhook carries the REST commit, which has `sha` and no GraphQL `oid`.
+  const commit = { sha: 'a', node_id: 'C_a', commit: { message: 'fix: repair', author: { name: 'onmax' } }, html_url: 'https://github.com/vite-hub/vitehub/commit/a' }
+  const result = await post(inbox, 'rest-status', 'status', { id: 42, sha: 'a', context: 'Cloudflare Pages', state: 'failure', commit, branches: [] })
+  assert.deepEqual(result.queued, [7])
+  assert.equal((await inbox.get(repository, 7))?.statuses['Cloudflare Pages']?.state, 'failure')
+  const [claim] = await inbox.claim(1)
+  assert.equal(claim?.snapshot.statuses['Cloudflare Pages']?.state, 'failure')
+})
 test('synchronize clears old-head checks and stale CI cannot dirty current head', async t => {
   const inbox = memory(t); await inbox.seed(repository, pr())
   await post(inbox, 'check', 'check_run', { check_run: { id: 1, head_sha: 'a', conclusion: 'failure' } })
