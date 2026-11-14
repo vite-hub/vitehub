@@ -83,7 +83,7 @@ import type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 import type { ContentPageMarkdown, ContentPageSummary, ContentPagesOptions } from "./mcp.ts"
-import type { ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+import type { ContentDocumentCopyRenderer, ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
@@ -169,6 +169,7 @@ export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNot
 export type { ContentMarkdownErrorLink, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
 export type {
   ContentCollectionDefinition,
+  ContentDocumentMarkdownPage,
   ContentDocumentUrl,
   ContentEditingOptions,
   ContentField,
@@ -178,6 +179,7 @@ export type {
   ContentFieldsOutput,
   ContentFormat,
   ContentLabel,
+  ContentMarkdownCopy,
   DocumentComponent,
   DocumentComponentMediaProp,
   DocumentComponentProp,
@@ -832,6 +834,18 @@ export function defineContent<
     return String(content) === content ? content : null
   }
   /**
+   * The Markdown copy of a collection page: from the `markdown` option of its definition, else the default copy.
+   * `footer` adds the end that only the `.md` copy has.
+   */
+  const documentCopy: ContentDocumentCopyRenderer = async (page, footer) => {
+    const render = collectionEntries.find(([name]) => name === page.collection)?.[1].markdown
+    if (!render) return await renderMarkdownCopy(page, page.site)
+    const { collection: _collection, ...input } = page
+    const copy = await render(input)
+    if (copy === null || typeof copy === "string") return copy
+    return footer && copy.footer ? `${copy.markdown}${copy.footer}` : copy.markdown
+  }
+  /**
    * The Markdown copy of a routed page, from its published collection document or its Source file. A Source with
    * `contentSource(input, { markdown })` renders its own copy. `footer` adds the end that only the `.md` copy has.
    */
@@ -852,7 +866,18 @@ export function defineContent<
     if (!documentsRuntime) return null
     const collection = documentsRuntime.collection(page.collection)
     const document = await collection.get(page.id, { ref: "published", ...(page.locale === undefined ? {} : { locale: page.locale }) })
-    return document ? await renderMarkdownCopy({ title: page.title, description: page.description, body: document.body }, site) : null
+    if (!document) return null
+    return await documentCopy({
+      collection: page.collection,
+      id: document.id,
+      path: contentPagePath(page.loc, site),
+      ...document.locale === undefined ? {} : { locale: document.locale },
+      data: document.data,
+      body: document.body,
+      ...page.title ? { title: page.title } : {},
+      ...page.description ? { description: page.description } : {},
+      ...site ? { site } : {},
+    }, footer)
   }
   /**
    * The routed Markdown pages that `content.pages()` lists. `all` adds the pages that indexes leave out, `noindex` ones
@@ -921,7 +946,7 @@ export function defineContent<
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) => {
       const site = siteFor(markdownOptions)
       const prefix = markdownPrefix(seo)
-      const copy = documentsRuntime ? await contentMarkdownCopy(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path, site) : null
+      const copy = documentsRuntime ? await contentMarkdownCopy(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path, site, documentCopy) : null
       if (copy !== null) return copy
       const page = await sourceCopyPage(path, site)
       return page ? await pageMarkdown(page, site, true) : null
