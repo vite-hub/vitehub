@@ -97,8 +97,9 @@ describe("KV Vite output", () => {
         assert.equal(command, "get")
         return Response.json({ result: Buffer.from(data.get(key)).toString("base64") })
       }
-      const driver = createDriver({ driver: "upstash", url: "https://example.com", token: "test", enableAutoPipelining: false })
+      const driver = createDriver({ driver: "upstash", base: "vitehub:kv:default", url: "https://example.com", token: "test", enableAutoPipelining: false })
       await driver.setItem("proof", "bundled")
+      assert.equal(data.get("vitehub:kv:default:proof"), "bundled")
       assert.equal(await driver.getItem("proof"), "bundled")
       await driver.dispose()
     `], { cwd: rootDir, env: { ...process.env, NODE_PATH: "" } })
@@ -444,7 +445,7 @@ describe("KV Vite output", () => {
       reader: object
       writer: object
     }
-    expect(Object.keys(worker.reader).sort()).toEqual(["get", "has", "keys", "list"])
+    expect(Object.keys(worker.reader).sort()).toEqual(["get", "getMany", "has", "keys", "list"])
     expect("set" in worker.writer).toBe(true)
     for (const mode of ["readonly", null]) {
       expect(() => worker.badMode(mode)).toThrow(expect.objectContaining({ code: "KV_INVALID_STORE_MODE" }))

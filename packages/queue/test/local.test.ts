@@ -75,7 +75,7 @@ describe("local queue provider config", () => {
     const client = await createQueueClient(options)
     const engine = useLocalQueueEngine({ base, provider: "local", rules: "vercel" })!
 
-    await client.send({}, { id: "job-1" })
+    await client.send({})
 
     await vi.waitFor(async () => expect((await engine.jobs())[0]?.error).toEqual({ message: "[vitehub] Queue Delivery failed.", name: "Error" }))
     await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.running).toBe(0))
@@ -99,13 +99,13 @@ describe("local queue delivery", () => {
     const handler = vi.fn(async (_job: QueueJob) => {})
     install({ welcome: { handler } })
 
-    const [error, result] = await dynamicQueue.send("welcome", { at: new Date(0), email: "ada@example.com" }, { id: "job-1" })
+    const [error, result] = await dynamicQueue.send("welcome", { at: new Date(0), email: "ada@example.com" })
 
     expect(error).toBeUndefined()
-    expect(result).toEqual({ messageId: "job-1", status: "queued" })
+    expect(result).toEqual({ messageId: expect.stringMatching(/^queue_/), status: "queued" })
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
     // The handler gets the stored JSON copy, as it does from a hosted provider.
-    expect(handler).toHaveBeenCalledWith({ attempts: 1, id: "job-1", payload: { at: "1970-01-01T00:00:00.000Z", email: "ada@example.com" } })
+    expect(handler).toHaveBeenCalledWith({ attempts: 1, id: result?.messageId, payload: { at: "1970-01-01T00:00:00.000Z", email: "ada@example.com" } })
     await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
   })
 
@@ -623,15 +623,16 @@ describe("local queue delivery with hosted provider rules", () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     try {
       const enqueuedAt = Date.now()
-      const [error] = await client.send({}, { id: "job-1", retentionSeconds: 60 })
+      const [error, sent] = await client.send({}, { retentionSeconds: 60 })
       expect(error).toBeUndefined()
+      const id = sent!.messageId!
       for (let cycle = 1; cycle <= 2; cycle++) {
         await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
         engine.close()
         vi.setSystemTime(enqueuedAt + cycle * 61_000)
         engine = rulesEngine("vercel", { welcome: { handler } })
 
-        expect(await engine.retry("job-1")).toMatchObject({
+        expect(await engine.retry(id)).toMatchObject({
           enqueuedAt: new Date(enqueuedAt).toISOString(),
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         })
@@ -723,17 +724,19 @@ describe("local queue delivery with hosted provider rules", () => {
     const client = createLocalQueueClient(engine, "welcome")
 
     await engine.start()
+    let late = ""
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     try {
       // The delay is longer than the retention, so Vercel never delivers the job.
-      const [error] = await client.send({}, { delaySeconds: 120, id: "late", retentionSeconds: 60 })
+      const [error, sent] = await client.send({}, { delaySeconds: 120, retentionSeconds: 60 })
       expect(error).toBeUndefined()
+      late = sent!.messageId!
       await vi.advanceTimersByTimeAsync(61_000)
     }
     finally {
       vi.useRealTimers()
     }
-    await vi.waitFor(async () => expect(await engine.job("late")).toMatchObject({ error: { message: "[vitehub] The job expired at the end of its retention period." }, state: "dead" }))
+    await vi.waitFor(async () => expect(await engine.job(late)).toMatchObject({ error: { message: "[vitehub] The job expired at the end of its retention period." }, state: "dead" }))
     expect(handler).not.toHaveBeenCalled()
 
     const [range] = await client.send({}, { retentionSeconds: 30 })

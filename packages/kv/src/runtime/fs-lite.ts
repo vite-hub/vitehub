@@ -162,14 +162,14 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
   driver.setItem = (key, value, operationOptions) => setItem?.(fileName(key), value, operationOptions)
   driver.setItemRaw = (key, value, operationOptions) => setItemRaw?.(fileName(key), value, operationOptions)
   driver.removeItem = (key, operationOptions) => removeItem?.(fileName(key), operationOptions)
-  driver.clear = async () => {
+  driver.clear = async (base = "") => {
     // Delete only encoded key files, keeping the layout record and its workspace for later initialization.
     const entries = await readdir(root).catch((error: unknown) => {
       if (hasCode(error, "ENOENT")) return []
       throw error
     })
     for (const entry of entries) {
-      if (keyOf(entry) !== undefined) await rm(join(root, entry), { force: true, recursive: true })
+      if (keyOf(entry)?.startsWith(base)) await rm(join(root, entry), { force: true, recursive: true })
     }
   }
   driver.hasItem = async (key, operationOptions) => {

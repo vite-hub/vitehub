@@ -76,7 +76,7 @@ describe("createMultipartUploader", () => {
       "PUT /api/files/multipart/upload/big%20file.bin?partNumber=3&uploadId=u1",
       "POST /api/files/multipart/complete/big%20file.bin?uploadId=u1",
     ])
-    expect(JSON.parse(String(requests[0]!.body))).toEqual({ contentType: "application/octet-stream" })
+    expect(JSON.parse(String(requests[0]!.body))).toEqual({ contentType: "application/octet-stream", size: 10 })
     expect(JSON.parse(String(requests.at(-1)!.body)).parts).toEqual([
       { etag: "\"p1\"", partNumber: 1 },
       { etag: "\"p2\"", partNumber: 2 },

@@ -1,9 +1,9 @@
-import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { createError } from "h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import { ensureBlob } from "./ensure.ts"
+import { ensureBlob, ensureBlobSize, ensureBlobType, ensureMaxBytes } from "./ensure.ts"
+import { eventRequest } from "./internal/event-request.ts"
 import { getBlobRequestBodyLimit } from "./internal/host-limits.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -21,7 +21,7 @@ import type {
 } from "./types.ts"
 
 type UploadStorage = Pick<BlobStorage, "put">
-type MultipartStorage = Pick<BlobStorage, "createMultipartUpload" | "resumeMultipartUpload">
+type MultipartStorage = Pick<BlobStorage, "createMultipartUpload" | "delete" | "head" | "resumeMultipartUpload">
 
 const multipartMethods = {
   abort: "DELETE",
@@ -57,6 +57,25 @@ function payloadTooLarge(bytes: number, limit: number): Error {
     statusCode: 413,
     statusMessage: "FUNCTION_PAYLOAD_TOO_LARGE",
     message: `The request body is ${bytes} bytes. A Vercel Function accepts at most ${limit} bytes, and Vercel answers 413 FUNCTION_PAYLOAD_TOO_LARGE. Keep each upload under the limit, for example with \`ensure.maxSize\`.`,
+  })
+}
+
+// Room for the boundaries and part headers of a one-file `multipart/form-data` body.
+const formFramingBytes = 64 * 1024
+
+function declaredLength(request: Request): number | undefined {
+  const value = request.headers.get("content-length")
+  if (value === null || !/^\d+$/.test(value.trim())) return undefined
+  return Number(value)
+}
+
+/** Rejects a request whose declared body is above `limit`, before anything reads it. */
+function rejectDeclaredLength(request: Request, limit: number | undefined): void {
+  const declared = declaredLength(request)
+  if (limit === undefined || declared === undefined || declared <= limit) return
+  throw createError({
+    statusCode: 413,
+    message: `The request body is ${declared} bytes, which is more than the ${limit} bytes that \`ensure.maxSize\` allows.`,
   })
 }
 
@@ -132,7 +151,13 @@ export async function handleBlobUpload(
   options: BlobUploadOptions = {},
 ): Promise<Result<BlobObject[], BlobErrorCode>> {
   const formKey = options.formKey ?? "files"
-  const form = await readForm(getStandardContext(event).req)
+  const request = eventRequest(event)
+  // With one file, the body is the file plus its framing. Without a file count, the total has no bound.
+  if (options.ensure && options.multiple === false) {
+    const maxBytes = ensureMaxBytes(options.ensure)
+    rejectDeclaredLength(request, maxBytes === undefined ? undefined : maxBytes + formFramingBytes)
+  }
+  const form = await readForm(request)
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
   if (!files.length) throw badRequest(`No files in form field "${formKey}".`)
   if (options.multiple === false && files.length > 1) throw badRequest(`Form field "${formKey}" accepts one file.`)
@@ -163,18 +188,22 @@ export async function handleBlobMultipartUpload(
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
   }
   if (!pathname) throw badRequest("Missing `pathname` route param.")
-  const request = getStandardContext(event).req
+  const request = eventRequest(event)
   if (request.method !== multipartMethods[action]) {
     throw createError({ statusCode: 405, message: `The ${action} action requires ${multipartMethods[action]}.` })
   }
+  const ensure = options.ensure
+  const maxBytes = ensure ? ensureMaxBytes(ensure) : undefined
 
   if (action === "create") {
     const body = await readJson(request)
-    const contentType = typeof body.contentType === "string" ? body.contentType : undefined
-    const [error, upload] = await storage.createMultipartUpload(pathname, {
-      ...options.create,
-      contentType: options.create?.contentType ?? contentType,
-    })
+    const contentType = options.create?.contentType ?? (typeof body.contentType === "string" ? body.contentType : undefined)
+    if (ensure) {
+      ensureBlobType(contentType ?? "", ensure)
+      // The client declares the size so a large file fails before its parts are sent. upload and complete enforce it.
+      if (typeof body.size === "number") ensureBlobSize(body.size, ensure)
+    }
+    const [error, upload] = await storage.createMultipartUpload(pathname, { ...options.create, contentType })
     if (error) return [error, undefined]
     return [undefined, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
   }
@@ -183,7 +212,9 @@ export async function handleBlobMultipartUpload(
   const uploadId = requireQuery(url, "uploadId")
   // Read the part into memory before the upload resumes: R2 rejects streams without a known length, and Vercel
   // rejects a large part before the Function runs.
+  if (action === "upload") rejectDeclaredLength(request, maxBytes)
   const partBody = action === "upload" ? await (await readBody(request)).arrayBuffer() : new ArrayBuffer(0)
+  if (ensure) ensureBlobSize(partBody.byteLength, ensure)
   let completionParts: BlobMultipartPart[] | undefined
   let completionBody: Record<string, unknown> | undefined
   if (action === "complete") {
@@ -201,7 +232,26 @@ export async function handleBlobMultipartUpload(
   }
   if (action === "complete") {
     const [error, object] = await upload.complete(completionParts ?? readParts(completionBody?.parts))
-    return error ? [error, undefined] : [undefined, { action, object }]
+    if (error) return [error, undefined]
+    // Validate provider metadata: serialized upload state can be edited by the client.
+    if (ensure) {
+      let stored = object
+      if ((maxBytes !== undefined && stored.size === undefined) || (ensure.types?.length && !stored.contentType)) {
+        const [headError, metadata] = await storage.head(object.pathname)
+        if (headError) return [headError, undefined]
+        if (metadata) stored = metadata
+      }
+      try {
+        ensureBlobType(stored.contentType ?? "", ensure)
+        if (stored.size !== undefined) ensureBlobSize(stored.size, ensure)
+      }
+      catch (error) {
+        const [deleteError] = await storage.delete(object.pathname)
+        if (deleteError) return [deleteError, undefined]
+        throw error
+      }
+    }
+    return [undefined, { action, object }]
   }
   const [error] = await upload.abort()
   return error ? [error, undefined] : [undefined, { action }]

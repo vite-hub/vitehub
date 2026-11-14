@@ -49,6 +49,7 @@ import {
   writeRealtimeFields,
   writeRealtimeStatus,
 } from "./document.ts"
+import { assertRealtimeAccess, assertRealtimeCheckpoint } from "./definition.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
 import {
   decodeWorkspaceChangePayload,
@@ -352,6 +353,7 @@ function duration(value: unknown, fallback: number, name: "debounce" | "maxWait"
 export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition): ResolvedRealtimeDefinition {
   const cached = resolvedDefinitions.get(definition)
   if (cached) return cached
+  assertRealtimeCheckpoint(definition)
   const document = definition.document
   const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
   const persistence = definition.persistence === false
@@ -599,30 +601,31 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
 }
 
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
-  if (definition.identify) {
-    const origin = request.headers.get("origin")
-    // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
-    // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
-    // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
-    // `origins` lets other origins in for definitions whose identify() reads a credential the page sends.
-    if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
-      throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+  if (definition.auth && !definition.identify) {
+    let auth
+    try {
+      auth = await assertAuthOrigin(request, event)
     }
-    const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
-    if (definition.auth && !user) throw new HTTPError({ status: 401 })
+    catch {
+      throw new HTTPError({ status: 403 })
+    }
+    const session = await auth.api.getSession({ headers: request.headers })
+    const user = toRealtimeUser(session?.user)
+    if (!user) throw new HTTPError({ status: 401 })
     return user
   }
-  if (!definition.auth) return null
-  let auth
-  try {
-    auth = await assertAuthOrigin(request, event)
+  const origin = request.headers.get("origin")
+  // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials, and keep
+  // public definitions on the origins the developer allowed.
+  // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
+  // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
+  // `origins` lets other origins in for definitions that read a credential the page sends.
+  if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
+    throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
   }
-  catch {
-    throw new HTTPError({ status: 403 })
-  }
-  const session = await auth.api.getSession({ headers: request.headers })
-  const user = toRealtimeUser(session?.user)
-  if (!user) throw new HTTPError({ status: 401 })
+  if (!definition.identify) return null
+  const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
+  if (definition.auth && !user) throw new HTTPError({ status: 401 })
   return user
 }
 
@@ -630,8 +633,10 @@ async function allows(
   definition: RealtimeDefinition,
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
-  if (!definition.authorize) return true
-  return (await definition.authorize(context)) !== false
+  if (definition.authorize) return (await definition.authorize(context)) !== false
+  // `assertRealtimeAccess()` let the definition load, so it is `auth: true` (identify() already required a user) or
+  // `access: "public"`.
+  return definition.auth === true || definition.access === "public"
 }
 
 function errorMessage(error: unknown): string {
@@ -1028,6 +1033,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const loader = Object.hasOwn(registry, definitionName) ? registry[definitionName] : undefined
     const module = await loader?.()
     if (!module) throw new HTTPError({ status: 404, message: `Unknown realtime definition ${JSON.stringify(definitionName)}.` })
+    assertRealtimeAccess(module.default)
     return module.default
   }
 
@@ -1935,7 +1941,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     if (request.workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events have no document to save." })
     const resolved = request.resolved
     if (!resolved) throw new HTTPError({ status: 404, message: "This Realtime Definition has no document." })
-    if (action === "checkpoint" && (!resolved.definition.history?.checkpoint || !resolved.adapter.checkpoint)) {
+    // `resolveRealtimeDefinition()` rejects `history.checkpoint` on an adapter without `checkpoint()`.
+    if (action === "checkpoint" && !resolved.definition.history?.checkpoint) {
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {

@@ -1664,7 +1664,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `import { useServerEnv } from "#vitehub/env/server"`,
-      `export default defineWorkspace({ rules: { "/**": { read: true, write: Boolean(useServerEnv) } } })`,
+      `export default defineWorkspace({ rules: { "/**": { write: Boolean(useServerEnv) } } })`,
       ``,
     ].join("\n"))
     const store = { binding: "WORKSPACE_ARTIFACTS", namespace: "quiver-airtable", provider: "cloudflare-artifacts" as const }
@@ -1692,7 +1692,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import "virtual:generated-workspace-metadata"`,
       `// Store is configured in the module as cloudflare-artifacts.`,
-      `export default { rules: { "/**": { read: true } } }`,
+      `export default { rules: { "/**": { write: false } } }`,
       ``,
     ].join("\n"))
     await writeFile(join(root, "src", "notes.workspace.ts"), [

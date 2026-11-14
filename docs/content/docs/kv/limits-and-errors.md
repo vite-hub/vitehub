@@ -134,6 +134,10 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 
 `remote` of a store is not `true` or `false`. Set `remote: true` to use the real store in `vite dev`, or remove it to keep the store local.
 
+### KV_INVALID_BATCH
+
+`kv.getMany()` got something other than an array of keys, or `kv.setMany()` something other than an array of `{ key, value }` entries. KV throws, because the code must change. Pass an array, for example `kv.getMany(['a', 'b'])`.
+
 ### KV_INVALID_STORE_MODE
 
 `kv.store(name, { mode })` got a mode other than `'read'` or `'write'`, so KV throws instead of returning a writable handle. Pass `{ mode: 'read' }` for a [read-only handle](/docs/kv/server-api#read-only-handles), or omit `mode`.
