@@ -517,7 +517,8 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
 
   const snapshot = await snapshotVercelNativeWorkflowOutput(rootDir)
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
-  const viteHubConfig = parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config")
+  // Nitro writes its Vercel config after the native Workflow functions, so a Nitro build has none yet.
+  const viteHubConfig = existsSync(outputConfigFile) ? parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config") : {}
   const workflowRoot = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const previousOwnership = previousState?.ownership
   const previousFiles = previousState?.files ?? {}

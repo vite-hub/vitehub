@@ -1420,10 +1420,10 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
-    // The `nitro:main` stub writes the Vercel config, as Nitro does before ViteHub adds the native Workflow functions.
+    // Nitro writes its Vercel config after ViteHub adds the native Workflow functions, so the `nitro:main` stub writes none.
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace(`      plugins: [${playgroundWorkflowPlugin()}],`, `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, ${playgroundWorkflowPlugin()}, { name: "nitro:main", config() {}, async closeBundle() { const { mkdir, writeFile } = await import("node:fs/promises"); await mkdir(resolve(import.meta.dirname, ".vercel/output"), { recursive: true }); await writeFile(resolve(import.meta.dirname, ".vercel/output/config.json"), JSON.stringify({ routes: [{ src: "/(.*)", dest: "/__server" }], version: 3 })) } }],`)
+      .replace(`      plugins: [${playgroundWorkflowPlugin()}],`, `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, ${playgroundWorkflowPlugin()}, { name: "nitro:main", config() {} }],`)
       .replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ provider: "vercel" }')))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })
