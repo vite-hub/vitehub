@@ -202,7 +202,7 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       }
       const result = await put(pathname, body as Parameters<typeof put>[1], {
         ...auth,
-        access: putOptions.access || options.access,
+        access: options.access,
         addRandomSuffix: false,
         allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType,

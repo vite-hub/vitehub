@@ -11,7 +11,7 @@ import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import type { OperationContributingPlugin } from "@vite-hub/internal/operations"
+import type { OperationContributingPlugin, OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Environment, Plugin, ViteDevServer } from "vite"
 import { insertConsoleSection, type ConsoleSectionId } from "./runtime/sections.ts"
 
@@ -490,26 +490,33 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       server.watcher.on("unlink", refresh)
     },
     vitehub: {
-      // The Console runtime already holds these operations. The CLI and `vitehub inspect` read them from here.
-      operations: [{
-        export: "consoleOperations",
-        // An app without a Database gets no `vitehub database` commands.
-        load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections.includes("databases") || !operation.name.startsWith("databases.")),
-        module: "vite-hub/console/server",
-        runtime: false,
-      },
-      // The generated Console plugin installs these at runtime. The CLI and `vitehub inspect` read them from here.
-      ...(sections.includes("mcp-client")
-        ? [{
-            export: "consoleMcpClientOperations",
-            load: async () => (await import("./runtime/server/mcp-client-operations.ts")).consoleMcpClientOperations,
-            module: "vite-hub/console/mcp-client",
-            runtime: false as const,
-          }]
-        : [])],
+      operations: consoleOperationContributions(() => sections),
     },
   }
   return plugin
+}
+
+/**
+ * The Console operations, for the CLI and `vitehub inspect`. The Console runtime already holds them, so they are not
+ * installed again. `sections` is read when the operations load, after the config hooks set it.
+ */
+export function consoleOperationContributions(sections: () => readonly string[]): OperationContributionEntry[] {
+  return [{
+    export: "consoleOperations",
+    // An app without a Database gets no `vitehub database` commands.
+    load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections().includes("databases") || !operation.name.startsWith("databases.")),
+    module: "vite-hub/console/server",
+    runtime: false,
+  },
+  // The generated Console plugin installs these at runtime.
+  ...(sections().includes("mcp-client")
+    ? [{
+        export: "consoleMcpClientOperations",
+        load: async () => (await import("./runtime/server/mcp-client-operations.ts")).consoleMcpClientOperations,
+        module: "vite-hub/console/mcp-client",
+        runtime: false as const,
+      }]
+    : [])]
 }
 
 /**

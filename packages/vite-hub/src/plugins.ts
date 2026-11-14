@@ -1072,7 +1072,7 @@ function deploymentPlugins(
             }
           }
           if (options.cache) {
-            const cacheStorage = resolveCacheStorage(options.cache, plan.host, options.kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvNitroCacheDriver : undefined)
+            const cacheStorage = resolveCacheStorage(options.cache, plan.host, options.kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvStorageDriver : undefined)
             nitro = applyCacheStorage(nitro, cacheStorage)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
@@ -1421,6 +1421,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
+    // The `page()` Capability reaches the page through Realtime.
+    realtime: options.realtime ? "vite-hub/realtime/agent" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1615,9 +1617,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/realtime",
       // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
-      // Other hosts keep one Content editor at a time and show comments without presence.
+      // Other hosts keep one Content editor at a time and show comments without presence. Agents get a room for each
+      // page, which the `page()` Capability asks.
       contribute: async (context) => {
-        const [content, comments] = await Promise.all([
+        const [content, comments, agentPages] = await Promise.all([
           ownerModules.contentVite?.contributeContentRealtime({
             ...context,
             contentImport: "vite-hub/content/realtime",
@@ -1625,9 +1628,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...(configuredConsole ? { console: { module: generatedModules.consoleSections, section: "content" } } : {}),
           }),
           commentsPlugin?.api.contributeRealtime(context),
+          options.agent ? ownerModules.agentVite?.contributeAgentPageRealtime(context) : undefined,
         ])
         return {
-          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? [], ...agentPages?.definitions ?? []],
           plugins: content?.plugins ?? [],
         }
       },

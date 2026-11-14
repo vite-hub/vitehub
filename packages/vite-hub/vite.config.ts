@@ -357,6 +357,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-page-changes.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-session-copy-link.vue",
           to: "dist/console/runtime/components",
         },

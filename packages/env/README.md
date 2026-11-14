@@ -183,7 +183,7 @@ Only `VITEHUB_PUBLIC_` names enter Public Env. Mark them `@public` or `@sensitiv
 
 `envSchema(file, { prefix: "APP_", paths: { APP_DATABASE_URL: "database.url" } })` changes the prefix and maps exact schema keys to explicit output paths. The default mapping strips `VITEHUB_` and uses camel case, without guessing groups. With an empty prefix, `PUBLIC_` marks public fields. Public output paths stay flat. Every declaration reads its original schema key exactly; canonical aliases do not override it.
 
-Supported types are string with `minLength`/`maxLength`, number with `min`/`max`/`isInt`, boolean, string enum, absolute URL, JSON arrays, and object shapes. URLs remain strings. Sensitive enums are rejected because their choices appear in metadata. Optional non-string empty inputs become missing before defaulting; optional strings preserve empty inputs and still obey length constraints. Required present empty or invalid inputs fail, even when a default exists. Generated declarations describe the validated accessors; raw `process.env` types stay unchanged.
+Supported types are string with `minLength`/`maxLength`, number with `min`/`max`/`isInt`, boolean, string enum, absolute URL, JSON arrays, and object shapes. URLs remain strings. Sensitive enums are rejected because their choices appear in metadata. Empty host inputs count as missing for every field type: they use the default when present, otherwise required fields fail and optional fields return `undefined`. Explicit empty schema defaults remain valid where the schema permits them. Invalid nonempty inputs fail, even when a default exists. Generated declarations describe the validated accessors; raw `process.env` types stay unchanged.
 
 The [runnable schema lab](./examples/schema-lab/README.md) builds a browser bundle and Node server from one contract. Its production test restarts the same artifact with different server values, checks startup failures and consumer types, and scans browser output for synthetic credentials. Public Env remains fixed at build time.
 
@@ -254,7 +254,7 @@ const githubToken = snapshot.githubToken.unseal()
 
 Each `loadServerEnv()` call batches requested keys once per provider and returns a fresh frozen snapshot. ViteHub does not cache across loads, so rotation appears on the next load. `useServerEnv()` stays synchronous for host-backed and literal values; provider-backed values require `loadServerEnv()` or `runWithServerEnv()`.
 
-`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true })` skips empty host values. Without `skipEmpty`, a defined empty string remains a value. Generated built-in Channel sources use `skipEmpty` to preserve their host fallback behavior.
+`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"])` reads the first variable that is set and not empty. An empty variable, such as `PRIMARY_TOKEN=`, counts as missing for every source. It does not shadow a later name, and it does not satisfy a required value or a secret.
 
 The Server Env helpers of `@vite-hub/env` are not blocked from client builds. Keep their imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 

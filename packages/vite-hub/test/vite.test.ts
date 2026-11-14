@@ -20,7 +20,7 @@ vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   }
 })
 
-const kvCacheDriver = "/kv/dist/runtime/nitro-cache.js"
+const kvCacheDriver = "/kv/dist/runtime/unstorage-driver.js"
 
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
@@ -123,7 +123,7 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKV: integrationMocks.hubKV,
   hubKVOptionalPeerResolver: integrationMocks.hubKVOptionalPeerResolver,
-  kvNitroCacheDriver: "/kv/dist/runtime/nitro-cache.js",
+  kvStorageDriver: "/kv/dist/runtime/unstorage-driver.js",
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
@@ -810,6 +810,7 @@ describe("vitehub", () => {
         email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
+        realtime: false,
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
       workspaceDependencyRuntimeImports: {
