@@ -65,6 +65,8 @@ export interface UseWebContainerOptions {
    * @default 3000
    */
   port?: number;
+  /** JavaScript that runs first in every HTML page of the preview. See `bootWebContainer({ previewScript })`. */
+  previewScript?: string;
   /** Environment variables for the install and start processes, such as `connectEnv(connect, credentials)`. Read again on each run. */
   env?: MaybeRefOrGetter<Record<string, string> | undefined>;
   /**
@@ -325,6 +327,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
           files: written,
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
+          previewScript: options.previewScript,
           onStatus(next) {
             if (disposed) return;
             if (next.stage === "error") {

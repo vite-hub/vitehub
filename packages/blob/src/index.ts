@@ -16,6 +16,7 @@ export type {
   BlobReferenceSchema,
 } from "./reference.ts"
 export type {
+  BlobCopyOptions,
   BlobDriver,
   BlobErrorCode,
   BlobEnsureOptions,

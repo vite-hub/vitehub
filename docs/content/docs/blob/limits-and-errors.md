@@ -43,7 +43,7 @@ On Vercel, a request body above 4.5 MB gets `413 FUNCTION_PAYLOAD_TOO_LARGE` bef
 
 ### BLOB_CONFLICT
 
-A media move found a file at the target pathname, or a folder removal found files in the folder.
+`blob.copy()` or a media move found a file at the target pathname, or a folder removal found files in the folder. Pass `{ overwrite: true }` to replace the file.
 
 ### BLOB_NOT_FOUND
 
