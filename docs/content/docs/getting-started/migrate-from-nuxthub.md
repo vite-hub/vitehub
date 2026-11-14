@@ -205,6 +205,9 @@ runtime, because an R2 binding alone cannot sign requests. To serve files
 without your own route, set `blob: { serve: { access: "public" } }` for public
 files, or `blob: { serve: { authorize: true } }` to require a session.
 
+NuxtHub has no image service. The served route of ViteHub resizes images, and
+`<NuxtImg provider="vitehub">` uses it. See [Nuxt Image](/docs/blob/media#nuxt-image).
+
 ## Move the database
 
 NuxtHub uses Drizzle 0.x. ViteHub uses Drizzle 1.0, so relations, `db.query`,

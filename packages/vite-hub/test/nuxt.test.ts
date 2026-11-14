@@ -34,6 +34,7 @@ import { hubKV, kvStorageDriver } from "@vite-hub/kv/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
+import type { BlobOptions } from "@vite-hub/blob"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
 
@@ -727,6 +728,23 @@ describe("ViteHub Nuxt integration", () => {
     const components: Array<{ pascalName: string, filePath: string }> = []
     for (const hook of componentsExtendHooks) await hook(components)
     expect(components).toEqual([])
+  })
+
+  it("registers the vitehub Nuxt Image provider for a served Blob Store", async () => {
+    const options = (blob: BlobOptions, modules: unknown[] = ["vite-hub/nuxt", ["@nuxt/image", {}]]) => ({ options: { modules, vitehub: { blob } } })
+    const served: BlobOptions = { driver: "fs", serve: { access: "public", publicBaseUrl: "https://cdn.example/", route: "/media/" }, images: { sizes: [320, 960] } }
+    expect(await viteHubNuxtModule.getModuleDependencies(options(served))).toMatchObject({
+      "@nuxt/image": {
+        optional: true,
+        defaults: { providers: { vitehub: { options: { baseURL: "https://cdn.example/media", imageSizes: [320, 960] }, provider: "vite-hub/blob/nuxt-image" } } },
+      },
+    })
+    expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs", serve: { access: "public" } }))).toMatchObject({
+      "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/api/_vitehub/blob" } } } } },
+    })
+    // No served store, or no Nuxt Image module: Nuxt must not try to resolve @nuxt/image.
+    expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs" }))).not.toHaveProperty("@nuxt/image")
+    expect(await viteHubNuxtModule.getModuleDependencies(options(served, ["vite-hub/nuxt"]))).not.toHaveProperty("@nuxt/image")
   })
 
   it("registers the ViteHub Iconify collection before Nuxt Icon setup", async () => {
