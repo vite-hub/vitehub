@@ -10,6 +10,7 @@ import * as v from "valibot";
 import { join, resolve } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "../github/index.ts";
+import type { GitHubConflictResolution } from "../github/index.ts";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
@@ -2112,6 +2113,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 return current;
               };
               let preparedMergeBase: string | undefined;
+              let preparedConflicts: GitHubConflictResolution | undefined;
               const readRepairBase = async () => {
                 // PR snapshots can retain an older base after its branch moves.
                 // Conflict preparation must merge the current target branch.
@@ -2159,8 +2161,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (directory !== checkout && !keptWorkspace(directory)) await prepared.prepareWorkspace(directory, { restoreInstructions: true });
                   if (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty") {
                     const base = await readRepairBase();
-                    await prepareGitHubRepairBase(directory, { expectedHead: pullRequest.headRefOid, base, signal: abortSignal, fetch: { url: `https://github.com/${repository}.git`, env: prepared.env } });
+                    preparedConflicts = await prepareGitHubRepairBase(directory, {
+                      expectedHead: pullRequest.headRefOid, base, signal: abortSignal, fetch: { url: `https://github.com/${repository}.git`, env: prepared.env },
+                      conflicts: hostInstall() ? { slots: installSlots } : { regenerateLockfile: false },
+                    });
                     preparedMergeBase = base;
+                    if (preparedConflicts) {
+                      const { conflicted, resolved, remaining, lockfile } = preparedConflicts;
+                      schedulerEvent("babysitter.conflict.prepared", {
+                        ...owner, head_sha: pullRequest.headRefOid, base_sha: base,
+                        conflicted: conflicted.length, resolved: resolved.length, remaining: remaining.length,
+                        conflicted_files: conflicted.slice(0, 20), resolved_files: resolved.slice(0, 20).map(({ path, rule }) => `${path} (${rule})`), remaining_files: remaining.slice(0, 20),
+                        ...(lockfile ? { lockfile: lockfile.slice(0, 200) } : {}),
+                      });
+                    }
                   }
                   // A kept tree whose install record matches its current inputs needs no install.
                   const installed = hostInstall() && keptWorkspace(directory) && workspaceRun.reason === "warm" && !preparedMergeBase
@@ -2178,7 +2192,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       if (error.kind === "capacity") throw error;
                       // An optional install, or a lockfile defect handed to this pass, continues without
                       // dependencies. The failure stays in .git/vitehub-install.json for the model.
-                      if (!conflict && installRequired && !(installDefect && isGitHubLockfileDefect(error))) throw error;
+                      // A lockfile the host regenerated for this merge goes to the model like the conflict it replaced.
+                      const regenerated = preparedConflicts?.resolved.some(({ rule }) => rule === "pnpm-lockfile") === true;
+                      if (!conflict && installRequired && !((installDefect || regenerated) && isGitHubLockfileDefect(error))) throw error;
                       if (!conflict) schedulerEvent("babysitter.install.continued", { ...owner, reason: installFailure(error).replace(/\n/g, " ").slice(0, 300) });
                     }
                   }
@@ -2539,7 +2555,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const reviewPushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
               const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
               const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
-              const userMessage = `${prompt}${mainRepairContext}${resumeContext}\n\n${snapshotContext}${installContext}${pushContext}${severityContext}${convergenceContext}`;
+              // Only Sandbox passes prepare the merge before the prompt; other passes read .git/vitehub-merge.json.
+              const conflictContext = preparedConflicts?.resolved.length ? `\n\n<host-resolved-conflicts>\nThe host resolved and staged these merge conflicts mechanically. Review them instead of redoing them:\n${preparedConflicts.resolved.slice(0, 50).map(({ path, rule }) => `- ${path} (${rule})`).join("\n")}\n${preparedConflicts.remaining.length ? `Still conflicted: ${preparedConflicts.remaining.slice(0, 50).join(", ")}.` : "No conflicted file remains; review the merge, validate it and pass these paths to commitRepair."}\n</host-resolved-conflicts>` : "";
+              const userMessage = `${prompt}${mainRepairContext}${resumeContext}\n\n${snapshotContext}${installContext}${conflictContext}${pushContext}${severityContext}${convergenceContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
