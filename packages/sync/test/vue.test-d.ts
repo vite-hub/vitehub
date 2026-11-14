@@ -13,6 +13,7 @@ declare global {
   interface ViteHubSyncMap {
     todos: SyncDefinition<unknown, Todo, { complete: { id: string }, add: { id?: string, title: string } }>
     meetings: SyncDefinition<unknown, { id: string, at: Date, count: bigint }>
+    comments: SyncDefinition<unknown, { id: string, ownerId: string, todoId: string, body: string }>
   }
 }
 
@@ -59,4 +60,24 @@ test("useSync() and createSync() type the subset, the actions and their optimist
   // @ts-expect-error A subset sets columns of the table.
   useSync("todos", { where: { nope: 1 } })
   expectTypeOf(createSync("todos", { where: { listId: "l1" } }).actions.add).parameter(0).toEqualTypeOf<{ id?: string, title: string }>()
+})
+
+test("an optimistic function changes the stores of another Sync name with the rows of that name", () => {
+  useSync("todos", {
+    actions: {
+      add: (local, { title }) => {
+        const id = local.insert({ title })
+        const comments = local.sync("comments")
+        comments.insert({ todoId: id, body: title })
+        expectTypeOf(comments.get("c1")).toEqualTypeOf<{ id: string, ownerId: string, todoId: string, body: string } | undefined>()
+        local.sync("meetings").update("m1", { at: "2026-11-14T10:00:00.000Z" })
+        // @ts-expect-error The rows of comments have no `title`.
+        comments.update("c1", { title: "x" })
+        // @ts-expect-error A store sends JSON, so a Date column takes text.
+        local.sync("meetings").insert({ at: new Date() })
+        // @ts-expect-error The app has no Sync definition with this name.
+        local.sync("notes")
+      },
+    },
+  })
 })

@@ -178,6 +178,7 @@ The context of an action:
 | `insert(value)` | Adds a row and returns its key. Without a key in `value`, it makes one with `crypto.randomUUID()`. Pass the key in `args` when the browser shows the row at once, so both use the same key. |
 | `update(key, patch)` | Changes a row. |
 | `delete(key)` | Deletes a row. |
+| `sync(name)` | The rows of another Sync definition, with the same `get`, `insert`, `update`, and `delete`. See [Write other definitions](#write-other-definitions). |
 | `refuse(message)` | Refuses the action. No write applies, and the browser gets `SYNC_ACTION_REFUSED` with `message`. |
 
 Rules:
@@ -192,6 +193,35 @@ Rules:
 - The return value goes to the browser as JSON. A value that has no JSON form, such as a function, is left out.
 - Reads and writes are not one transaction: D1 has no interactive transactions. The writes apply only when the rows that the action read did not change, else the action runs again.
 - Call `insert`, `update`, and `delete` before the action returns. A call after it returns throws.
+
+### Write other definitions
+
+An action can write the rows of another Sync definition with `sync(name)`. Use it when two tables must change together, such as an issue with its first comment, or a card that moves with a row in its activity log:
+
+```ts [server/sync/issues.ts] fragment
+import { defineSync } from 'vite-hub/sync'
+import { issues } from '../databases/default'
+import { teamIdsOf } from '../utils/teams'
+
+export default defineSync({
+  table: issues,
+  where: async ({ user }) => user ? { teamId: await teamIdsOf(user.id) } : false,
+  actions: {
+    create: ({ insert, sync }, { id, teamId, title, comment }: { id: string, teamId: string, title: string, comment: string }) => {
+      insert({ id, teamId, title })
+      // The rows of server/sync/comments.ts, with its checks
+      sync('comments').insert({ issueId: id, teamId, body: comment })
+    },
+  },
+})
+```
+
+- Every Sync definition uses the default Database, so all writes of the action apply in one atomic batch with its id: the issue and the comment, or neither.
+- Each write has the checks of its own definition for the same caller: `where` (without a subset), `write`, and `schema`. One refused write refuses the whole action.
+- `sync(name).get(key)` reads a row of that definition when the caller may see it. When another write changes that row before the batch applies, the action runs again, as for its own table.
+- The rows have the type of that definition. A name that is not a file of `server/sync/` is a type error, and throws `SYNC_UNKNOWN_NAME` at run time, which refuses the action.
+- The browsers of the other table get the change as for any write. A live stream in the same server process gets it at once.
+- With `handleSyncRequest()` in your own route, pass every definition in `definitions`, such as `{ db, definitions: { issues, comments } }`.
 
 ## Live pulls
 

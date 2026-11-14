@@ -46,6 +46,8 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
   ddl: readonly string[]
   definition: SyncDefinition<TTable, TRow, TArgs>
   live?: SyncServices["live"]
+  /** The other definitions of the app, for `sync(name)` in actions. */
+  definitions?: SyncServices["definitions"]
 }) {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${[...syncTables, ...options.ddl].join(";\n")};`)
@@ -84,6 +86,7 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
       return id ? { user: { id, ...(teams !== null ? { teams: teams ? teams.split(",") : [] } : {}) }, session: null } : null
     },
     ...(options.live ? { live: options.live } : {}),
+    ...(options.definitions ? { definitions: options.definitions } : {}),
   }
   const route = `/api/_vitehub/sync/${options.name}`
   const call = (request: Request, using: SyncServices = services) => handleSyncRequest(options.name, options.definition, request, using)

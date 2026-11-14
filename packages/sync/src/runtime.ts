@@ -62,7 +62,7 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
   const db = () => selectDatabase(options.db())
   // One services object for every definition: its `db` function is the key of the live streams of each table and of
   // the triggers that this process checked, also when two definitions sync one table.
-  const services: SyncServices = { db, ...(options.session ? { identify: options.session } : {}) }
+  const services: SyncServices = { db, definitions: Object.fromEntries(definitions), ...(options.session ? { identify: options.session } : {}) }
   Reflect.set(globalThis, installedKey, { names: [...definitions.keys()].sort(), definition: name => definitions.get(name), db } satisfies InstalledSync)
   return {
     async fetch(request) {

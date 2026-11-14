@@ -24,7 +24,7 @@ export default defineSync({
 | `write` | Without it, only a caller with a user writes (`SYNC_FORBIDDEN` for visitors). `true` lets visitors write too, `false` makes the table read-only in the browser, and a function of `{ request, user, session, op, row }` decides for each write. |
 | `identify` | `({ request }) => user \| null` for apps with their own sign-in. It replaces the ViteHub Auth user. The account of queued writes is `user.id`. |
 | `schema` | A Standard Schema that checks the whole row after each insert and update. |
-| `actions` | Named writes with server logic, such as `{ complete: async ({ get, update }, { id }: { id: string }) => update(id, { done: true }) }`. The browser calls them as `store.actions.complete({ id })`. |
+| `actions` | Named writes with server logic, such as `{ complete: async ({ get, update }, { id }: { id: string }) => update(id, { done: true }) }`. The browser calls them as `store.actions.complete({ id })`. `sync("comments")` in an action writes another definition, and `local.sync("comments")` in an optimistic function changes its open stores. |
 | `live` | `true` (default) lets browsers keep a live stream open. `false` leaves only pulls. |
 
 Sync uses the default Database, else the only one. `defineSync()` throws `SYNC_UNSUPPORTED_TABLE` for a Postgres table, an integer key, a composite key, or a `blob({ mode: "buffer" })` column, and `SYNC_INVALID_DEFINITION` for other wrong options.
@@ -51,12 +51,12 @@ What the server guarantees:
 - Each mutation applies in one atomic batch that starts with its id in the ledger. A retried mutation, such as after a lost answer, is a `duplicate` and writes nothing. A duplicate of an action has the `result` of its first run.
 - A push made for another account, such as before a sign-in as another user, gets 409 `SYNC_ACCOUNT_CHANGED` and writes nothing. The account is a fingerprint of the user id, so a push of the same user after a team change applies under the current `where`.
 - The change log keeps the key and the scope columns of each row that left a scope, because it was deleted or moved. A pull sends the key in `deleted` only to callers whose `where` matched that row and does not match the row now, so keys do not leak to other callers.
-- An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them.
+- An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them. This includes its writes to other definitions with `sync(name)`: each one has the `where`, `write`, and `schema` of its own definition for the same caller. Every definition uses the one default Database, so one batch holds them all.
 - Unknown columns and a changed primary key are refused with `SYNC_INVALID`.
 - A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams.
 - `POST` needs a JSON body of at most 1 MB from the app's own origin. Every answer has `Cache-Control: private, no-store`.
 
-Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify })` from your own route. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
+Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify, definitions })` from your own route. `definitions` has the other definitions by name, for `sync(name)` in actions. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
 
 ## Change capture
 

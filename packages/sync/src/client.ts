@@ -9,7 +9,7 @@ import { syncErrors } from "./errors.ts"
 
 import type { SyncRow, SyncValues } from "./protocol.ts"
 import type { SyncStorage } from "./client/storage.ts"
-import type { SyncOptimisticAction, SyncStoreWithReset } from "./client/store.ts"
+import type { SyncOptimisticAction, SyncPage, SyncStoreWithReset } from "./client/store.ts"
 import type { SyncOptions, SyncState, SyncStore } from "./client/types.ts"
 import type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
 
@@ -28,6 +28,8 @@ let memoryStorage: SyncStorage | undefined
 let indexedDBStorage: SyncStorage | undefined
 // The storages whose stored writes this page sends, with the fetch of the last `createSync()` that used each one.
 const senders = new Map<SyncStorage, typeof fetch>()
+// The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
+const page: SyncPage = { stores: new Set() }
 
 const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
@@ -146,6 +148,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
         storage,
         environment: createBrowserEnvironment(),
         interval: options.interval ?? 30_000,
+        page,
         onStop: () => {
           if (entry) draining.delete(entry.store)
         },

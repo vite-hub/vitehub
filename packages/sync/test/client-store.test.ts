@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { createMemoryStorage } from "../src/client/storage.ts"
 import { SyncError } from "../src/client/types.ts"
-import { accountOf, scopeIdOf } from "./client-fake-server.ts"
+import { accountOf, createFakeSyncServer, scopeIdOf } from "./client-fake-server.ts"
 import { createHarness, until } from "./client-harness.ts"
 
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { Harness, Todo } from "./client-harness.ts"
+import type { SyncPage } from "../src/client/store.ts"
+import type { SyncLocal } from "../src/client/types.ts"
+import type { Harness, Todo, TodoActions } from "./client-harness.ts"
 
 let harness: Harness
 
@@ -634,6 +636,112 @@ describe("actions", () => {
     expect(store.actions.archive).toBe(store.actions.archive)
     // `then` is no action, so the object is not awaitable by mistake.
     expect(Reflect.get(store.actions, "then")).toBeUndefined()
+  })
+})
+
+describe("actions across stores", () => {
+  /** A page with the todos store and the comments of two todos, each comments store a subset. */
+  async function crossSetup() {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    h.server.actions.add = ({ insert }, args) => {
+      const { id, title } = args as { id: string, title: string }
+      insert({ id, title })
+      // The server action writes the first comment in the same batch, as `sync("comments").insert()` does.
+      comments.write({ id: `${id}-c`, ownerId: "ada", todoId: id, body: "First" })
+    }
+    const todos = h.open({
+      actions: {
+        add: (local, { id, title }) => {
+          const key = local.insert({ ...(id ? { id } : {}), title })
+          local.sync("comments").insert({ id: `${key}-c`, todoId: key, body: "First" })
+        },
+      },
+    }).store
+    const first = h.open({ name: "comments", fetch: comments.fetch, where: { todoId: "t1" } }).store
+    const second = h.open({ name: "comments", fetch: comments.fetch, where: { todoId: "t2" } }).store
+    await Promise.all([todos.refresh(), first.refresh(), second.refresh()])
+    const shown: boolean[] = []
+    first.subscribe(() => shown.push(first.get("t1-c") !== undefined))
+    return { h, comments, todos, first, second, shown }
+  }
+
+  it("changes another open store at once, and keeps the change until that store pulled the row", async () => {
+    const { comments, todos, first, second, shown } = await crossSetup()
+    const call = todos.actions.add({ id: "t1", title: "Milk" })
+    expect(todos.get("t1")).toMatchObject({ title: "Milk" })
+    expect(first.get("t1-c")).toMatchObject({ id: "t1-c", todoId: "t1", body: "First", ownerId: "ada" })
+    expect(first.pending("t1-c")).toBe(true)
+    expect(shown.at(-1)).toBe(true)
+    // The store of another subset does not show a row of another todo.
+    expect(second.getState().rows).toEqual([])
+
+    const pullsOf = (todoId: string) => comments.requests.filter(request => request.method === "GET" && request.url.searchParams.get("where") === JSON.stringify({ todoId })).length
+    const [firstPulls, secondPulls] = [pullsOf("t1"), pullsOf("t2")]
+    await call
+    await until(() => pullsOf("t1") > firstPulls && first.getState().status === "ready" && !first.pending("t1-c"))
+    expect(first.get("t1-c")).toMatchObject({ id: "t1-c", body: "First" })
+    // From the first change on, the row never went away.
+    expect(shown.slice(shown.indexOf(true))).not.toContain(false)
+    // The store that did not show the row does not pull for it.
+    expect(pullsOf("t2")).toBe(secondPulls)
+
+    // The store shows the row of the server now, not the optimistic one.
+    comments.remove("t1-c")
+    await first.refresh()
+    expect(first.get("t1-c")).toBeUndefined()
+  })
+
+  it("rolls back the change in the other store when the server refuses the action", async () => {
+    const { h, todos, first, shown } = await crossSetup()
+    h.server.actions.add = () => {
+      throw new Error("The list is full.")
+    }
+    const call = todos.actions.add({ id: "t1", title: "Milk" })
+    expect(first.get("t1-c")).toBeDefined()
+    await expect(call).rejects.toMatchObject({ code: "SYNC_ACTION_REFUSED" })
+    expect(todos.get("t1")).toBeUndefined()
+    expect(first.get("t1-c")).toBeUndefined()
+    expect(shown.at(-1)).toBe(false)
+  })
+  it("keeps the change in the other store of a tab when another tab sent the action", async () => {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    h.server.actions.add = ({ insert }, args) => {
+      const { id, title } = args as { id: string, title: string }
+      insert({ id, title })
+      comments.write({ id: `${id}-c`, ownerId: "ada", todoId: id, body: "First" })
+    }
+    const add = (local: SyncLocal<Todo>, { id, title }: TodoActions["add"]) => {
+      const key = local.insert({ ...(id ? { id } : {}), title })
+      local.sync("comments").insert({ id: `${key}-c`, todoId: key, body: "First" })
+    }
+    // The first tab sends its push only when the test lets it.
+    let send!: () => void
+    const gate = new Promise<void>((resolve) => {
+      send = resolve
+    })
+    const one = h.open({ actions: { add }, fetch: async (input, init) => {
+      if (init?.method === "POST") await gate
+      return h.server.fetch(input, init)
+    } }).store
+    const page: SyncPage = { stores: new Set() }
+    const two = h.open({ page, actions: { add } }).store
+    const shownComments = h.open({ page, name: "comments", fetch: comments.fetch }).store
+    await Promise.all([one.refresh(), two.refresh(), shownComments.refresh()])
+    const shown: boolean[] = []
+    shownComments.subscribe(() => shown.push(shownComments.get("t1-c") !== undefined))
+
+    const call = one.actions.add({ id: "t1", title: "Milk" })
+    await until(() => shownComments.get("t1-c") !== undefined)
+    send()
+    await call
+    await until(() => two.getState().queued === 0 && !shownComments.pending("t1-c") && comments.requests.filter(request => request.method === "GET").length > 1)
+    await until(() => shownComments.getState().status === "ready")
+    expect(shownComments.get("t1-c")).toMatchObject({ body: "First" })
+    expect(shown.slice(shown.indexOf(true))).not.toContain(false)
   })
 })
 

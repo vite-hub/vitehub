@@ -159,12 +159,29 @@ const todos = useSync('todos', {
 })
 ```
 
-- `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait.
+- `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait, and `sync(name)` for the stores of another name (see below).
 - The function runs again each time the rows change, until the server answers. Keep it pure: no requests, no random values, no clock.
 - An `insert()` without a key gets a key from the id of the call, so it keeps that key each time the function runs. To make the server use the same key, make the id in the browser and pass it in `args`: `todos.actions.add({ id: crypto.randomUUID(), title })`.
 - When the server refuses the action, the optimistic change goes away, and the call throws a `SyncError` with the code `SYNC_ACTION_REFUSED`. Its message is the message of an error with a status below 500, such as the `createError()` above. Other errors give "The action failed." The action goes to `failures`, and `retry()` calls it again.
 - An error in the optimistic function shows in the console. The action still goes to the server.
 - The call resolves with the result also when another tab of the app sends the action. That tab keeps the result in IndexedDB until the calling tab reads it, or for 10 minutes.
+
+When the server action writes another definition with `sync(name)`, the optimistic function can change the open stores of that name with `local.sync(name)`:
+
+```ts [app/pages/issues/new.vue] fragment
+const issues = useSync('issues', {
+  actions: {
+    create: (local, { id, teamId, title, comment }) => {
+      local.insert({ id, teamId, title })
+      local.sync('comments').insert({ issueId: id, teamId, body: comment })
+    },
+  },
+})
+```
+
+- An insert shows in each open store of that name on the page whose subset the row matches, such as `useSync('comments', { where: { issueId } })`. A store that opens later gets the row from the server.
+- When the server refuses the action, the change goes away in every store.
+- When the server applies the action, the other stores pull at once, and keep the change until their pull brings the rows of the server. The row does not go away in between.
 
 ## Live changes
 

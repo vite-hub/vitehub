@@ -3,16 +3,36 @@ import { syncPushLimit } from "../protocol.ts"
 import { readEvents } from "./live.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
+import { backoffDelay, buildView, clientError, generationOf, inSubset, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
 import type { SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange } from "./storage.ts"
 import type { SyncActionCalls, SyncFailure, SyncLocal, SyncState, SyncStatus, SyncStore, SyncWrite } from "./types.ts"
-import type { SyncView } from "./view.ts"
+import type { SyncLinkedWrite, SyncView, SyncViewPage } from "./view.ts"
 
 /** An optimistic function of an action, with the arguments as JSON. */
 type SyncOptimisticAction = (local: SyncLocal<SyncRow>, args: unknown) => void
+
+/** The open stores of one page, so the optimistic function of an action can change a store of another Sync name. */
+interface SyncPage {
+  stores: Set<SyncPageStore>
+}
+
+/** What a store shows to the other stores of its page. */
+interface SyncPageStore {
+  name: string
+  /** The primary key column, once the store pulled. */
+  key: () => string | undefined
+  /** The row with this key in the view that the store built last. */
+  row: (key: SyncKey) => SyncRow | undefined
+  /** The writes that the optimistic functions of this store make in the stores of `name`. */
+  writes: (name: string) => readonly SyncLinkedWrite[]
+  /** Another store of the page changed its writes. */
+  changed: () => void
+  /** Keeps writes of actions that the server applied, until a pull brings the rows of the server. */
+  hold: (writes: readonly SyncLinkedWrite[]) => void
+}
 
 interface SyncStoreOptions {
   /** The Sync route, such as `/api/_vitehub/sync/todos`. */
@@ -27,6 +47,8 @@ interface SyncStoreOptions {
   interval: number | false
   /** Called once when a destroyed store stopped, after it sent its writes. */
   onStop?: () => void
+  /** The open stores of the page. `local.sync(name)` of an optimistic function changes the stores of `name` in it. */
+  page?: SyncPage
 }
 
 /** A store that `clearSync()` can empty. */
@@ -190,7 +212,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let flushQueued = false
   // The last write of a flush to storage. A pass waits for it, so it sends the writes made before it started.
   let flushed: Promise<void> = Promise.resolve()
-  let view: SyncView = { rows: confirmed, pending: new Set() }
+  let view: SyncView = { rows: confirmed, pending: new Set(), outgoing: new Map() }
   // `idle` until the stored copy is read, as on the server, so a server-rendered page hydrates without a mismatch.
   let status: SyncStatus = "idle"
   let loaded = false
@@ -223,6 +245,15 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let livePulls: LivePull[] = []
   // The generation of the open live stream. An object, so a stream that ended late does not clear the next one.
   let streamGeneration: { value: string } | undefined
+  // Writes of the actions of other stores of the page: what the optimistic functions of this store write in other
+  // stores, the writes of applied actions until the next pull, and whether another store changed its writes.
+  const { page } = options
+  let outgoing: SyncView["outgoing"] = new Map()
+  let held: { mark: number, write: SyncLinkedWrite }[] = []
+  let holdMark = 0
+  let linksChanged = false
+  let incomingText = "[]"
+  let building = false
 
   function addActions(actions: Record<string, SyncOptimisticAction | undefined> | undefined): void {
     for (const [action, run] of Object.entries(actions ?? {})) {
@@ -243,12 +274,44 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   // The view and the state are built when read, so many writes in one tick build them once.
   let dirty = true
 
-  /** Builds the view and the state after a change, once. */
+  /** The writes that the actions of the other stores of the page make in this store. */
+  function incoming(): SyncLinkedWrite[] {
+    const found: SyncLinkedWrite[] = []
+    for (const other of page?.stores ?? []) {
+      if (other !== link) found.push(...other.writes(name))
+    }
+    return found
+  }
+
+  /**
+   * Builds the view and the state after a change, once. A build reads the writes of the other stores of the page, and
+   * they build their own views for it. A read of this store during its own build gets the last state.
+   */
   function current(): SyncState<SyncRow> {
+    if (building) return state
+    building = true
+    try {
+      return build()
+    }
+    finally {
+      building = false
+    }
+  }
+
+  function build(): SyncState<SyncRow> {
+    let linked: SyncLinkedWrite[] | undefined
+    if (linksChanged) {
+      linksChanged = false
+      linked = incoming()
+      if (JSON.stringify(linked) !== incomingText) dirty = true
+    }
     if (!dirty) return state
     dirty = false
+    linked ??= incoming()
+    incomingText = JSON.stringify(linked)
     const previous = view
-    view = buildView(confirmed, [...writes, ...local], { meta, where, actions: optimistic, report })
+    view = buildView(confirmed, [...writes, ...local], { meta, where, actions: optimistic, report, name, page: pageReader, incoming: linked, held: held.map(item => item.write) })
+    outgoing = view.outgoing
     stabilize(view, previous, changedKeys)
     changedKeys = []
     const account = meta?.account
@@ -279,6 +342,55 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     dirty = true
     settlePending()
     for (const listener of listeners) listener()
+    // The optimistic functions of this store may write other stores of the page.
+    if (optimistic.size) {
+      for (const other of page?.stores ?? []) {
+        if (other !== link) other.changed()
+      }
+    }
+  }
+
+  /** The other stores of the page, as an optimistic function of this store reads them. */
+  const pageReader: SyncViewPage = {
+    get(target, key) {
+      for (const other of page?.stores ?? []) {
+        const row = other.name === target ? other.row(key) : undefined
+        if (row) return row
+      }
+      return undefined
+    },
+    key(target) {
+      for (const other of page?.stores ?? []) {
+        const column = other.name === target ? other.key() : undefined
+        if (column) return column
+      }
+      return "id"
+    },
+  }
+
+  /**
+   * Gives the writes that applied actions made in other stores to those stores. They keep them until they pull, so a
+   * row does not go away between the answer of this store and the pull of the other store.
+   */
+  function handOver(applied: ReadonlySet<string>): void {
+    if (!page || !applied.size) return
+    current()
+    for (const [target, list] of outgoing) {
+      const done = list.filter(write => applied.has(write.id))
+      if (!done.length) continue
+      for (const other of page.stores) {
+        if (other !== link && other.name === target) other.hold(done)
+      }
+    }
+  }
+
+  /** Drops the held writes up to `mark`, after a pull that started after them. Returns `true` when it dropped one. */
+  function release(mark: number | undefined): boolean {
+    if (mark === undefined) return false
+    const kept = held.filter(item => item.mark > mark)
+    if (kept.length === held.length) return false
+    held = kept
+    return true
   }
 
   function settlePending(): void {
@@ -434,11 +546,18 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     })
   }
 
-  /** Writes `change` to storage, then to memory, and tells the other tabs. A round that `forget()` ended stops here. */
-  async function commit(change: SyncStorageChange): Promise<void> {
+  /**
+   * Writes `change` to storage, then to memory, and tells the other tabs. A round that `forget()` ended stops here.
+   * `released` drops the held writes up to that mark, in the same state change.
+   */
+  async function commit(change: SyncStorageChange, released?: number): Promise<void> {
     if (passGeneration !== generation) throw cancelled
     // A pull that brought nothing keeps the same state object, so a view does not render again for it.
     if (isUnchanged(meta, change)) {
+      if (release(released)) {
+        publish()
+        return
+      }
       const shown = current()
       if (shown.status !== status || shown.error !== error) publish()
       return
@@ -447,6 +566,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     if (passGeneration !== generation) throw cancelled
     meta = change.meta ?? meta
     confirmed = applyRowChange(confirmed, change)
+    release(released)
     if (!change.reset) changedKeys.push(...change.put?.map(([key]) => key) ?? [])
     writes = applyQueueChange(writes, change, result)
     version++
@@ -461,6 +581,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const at = version
       const stored = await storage.read(id)
       if (at !== version) continue
+      // Another tab sent the actions that left the queue without an error: the server applied them.
+      const kept = new Set(stored.writes.map(write => write.id))
+      handOver(new Set(writes.filter(write => write.op === "action" && !write.error && !kept.has(write.id)).map(write => write.id)))
       meta = stored.meta
       confirmed = new Map(stored.rows)
       const removed = new Set(removals)
@@ -523,12 +646,14 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   async function pull(): Promise<boolean> {
+    // The writes held before the pull started are in its answer.
+    const mark = holdMark
     for (;;) {
       const answer = await request(`${url}${pullQuery()}`, { method: "GET", headers: { accept: "application/json" } })
       if (!answer.ok) return fail(answer.error)
       if (!isPull(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a pull." })))
       recover()
-      await commit(pullChange(meta, answer.body, writes))
+      await commit(pullChange(meta, answer.body, writes), answer.body.more ? undefined : mark)
       pulled = true
       if (!answer.body.more) return true
     }
@@ -561,6 +686,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const settled = pushChange(sent, answer.body.results)
     if (!settled.remove.length && !settled.update.length) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a result for the writes." })))
     recover()
+    handOver(new Set(settled.results.keys()))
     // The tab that made an action reads its result. When it is another tab, the result goes to storage with the
     // removal of the write.
     const stored: [string, unknown][] = []
@@ -657,6 +783,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
         if (destroyed && !cancelRetry && !stopped) {
           stopped = true
           stopMessages()
+          page?.stores.delete(link)
           options.onStop?.()
         }
       }
@@ -820,6 +947,32 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     setLive(false)
   }
 
+  // A destroyed store stays on the page until it stopped, so its queued actions still show in the other stores.
+  const link: SyncPageStore = {
+    name,
+    key: () => meta?.key,
+    row: key => view.rows.get(key),
+    writes(target) {
+      current()
+      return outgoing.get(target) ?? []
+    },
+    changed() {
+      linksChanged = true
+      for (const listener of listeners) listener()
+    },
+    hold(list) {
+      // Only writes that this store shows: an insert in its subset, or a change of a row that it has.
+      const shown = list.filter(write => write.op === "insert" ? inSubset(write.value, where) : view.rows.has(write.key))
+      if (!shown.length) return
+      const mark = ++holdMark
+      held = [...held, ...shown.map(write => ({ mark, write }))]
+      publish()
+      wantPull = true
+      void schedule(true)
+    },
+  }
+  page?.stores.add(link)
+
   publish()
   const loading = reload().catch(() => undefined).then(() => {
     started = true
@@ -857,6 +1010,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     local = []
     removals = []
     livePulls = []
+    held = []
     results.clear()
     status = "loading"
     error = null
@@ -947,4 +1101,4 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 }
 
 export { actionCalls, createSyncStore }
-export type { SyncOptimisticAction, SyncStoreOptions, SyncStoreWithReset }
+export type { SyncOptimisticAction, SyncPage, SyncStoreOptions, SyncStoreWithReset }

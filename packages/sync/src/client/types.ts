@@ -3,6 +3,7 @@ import { Diagnostic } from "nostics"
 import { syncDocsPage } from "../errors.ts"
 
 import type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncWireError } from "../protocol.ts"
+import type { SyncName, SyncRowOf } from "../types.ts"
 
 /**
  * Where the store is. `idle` on the server and until the stored rows are read, `loading` until the first pull, `ready`
@@ -103,6 +104,12 @@ interface SyncLocal<TRow> {
   insert: (value: Partial<TRow>) => SyncKey
   update: (key: SyncKey, patch: Partial<TRow>) => void
   delete: (key: SyncKey) => void
+  /**
+   * The open stores of another Sync name on the page, such as `local.sync("comments").insert({ issueId, body })` when
+   * the server action writes `sync("comments")`. An insert shows in each store whose subset the row matches. The
+   * changes go away when the server refuses the action, and stay until those stores pull the rows of the server.
+   */
+  sync: <TName extends SyncName>(name: TName) => SyncLocal<SyncRowOf<TName>>
 }
 
 /**
