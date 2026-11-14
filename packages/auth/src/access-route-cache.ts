@@ -30,7 +30,9 @@ export async function assertNoCachedAccessRoutes(routes: readonly ResolvedAuthAc
   const isPublic = (entry: RouteRuleEntry) => exceptions.some(pattern => ["equal", "superset"].includes(compareRoutes(pattern, entry.pattern)))
 
   for (const guard of guards) {
-    const cached = findCachingRule(accessRoutePattern(guard.route, baseURL), { exempt: isPublic, ...guard.method ? { methods: [guard.method.toUpperCase()] } : {} })
+    const method = guard.method?.toUpperCase()
+    // H3 runs a GET handler for HEAD, so a GET guard also guards HEAD.
+    const cached = findCachingRule(accessRoutePattern(guard.route, baseURL), { exempt: isPublic, ...method && method !== "GET" ? { methods: [method] } : {} })
     if (!cached) continue
     throw authErrorDiagnostics.AUTH_B0002({
       message: `[vitehub] Route rule ${JSON.stringify(cached.key)} sets \`${cached.name}\` on ${cached.method} requests to paths that the \`access.routes\` entry ${JSON.stringify(guard.route)} guards. A cached or prerendered response is made for one visitor and served to others.`,

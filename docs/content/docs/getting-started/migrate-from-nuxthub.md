@@ -22,7 +22,10 @@ through [Capabilities](/docs/agents/capabilities).
 | Nitro storage mount `kv` | Nitro storage mount `kv` | `useStorage('kv')` and modules such as nuxt-og-image use the default store. Named stores mount at `kv-<name>`. See [Use KV from useStorage and Nuxt modules](/docs/kv/server-api#use-kv-from-usestorage-and-nuxt-modules). |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
 | `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | NuxtHub uses Drizzle 0.x, ViteHub uses Drizzle 1.0. Relational queries change. ViteHub supports SQLite, libSQL, Cloudflare D1, and Postgres. |
-| `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
+| `hub.db: 'postgresql'` | `dialect: "postgresql"` with `connection: { url: process.env.POSTGRES_URL \|\| process.env.POSTGRESQL_URL \|\| process.env.DATABASE_URL }` | NuxtHub read these variables on its own. A Definition reads only its `connection`. Local PGlite data moves from `.data/db/pglite` to `.vitehub/data/database/pglite`. See [Postgres configuration](/docs/database/configure#define-a-postgres-database). |
+| `hub.db.connection.hyperdriveId` | `cloudflare.hyperdriveId` | NuxtHub named the binding `POSTGRES`. ViteHub names it `HYPERDRIVE`. |
+| `hub.db.driver: 'd1-http'` | `cloudflare: { databaseId, http: true }` | Rename `NUXT_HUB_CLOUDFLARE_ACCOUNT_ID`, `NUXT_HUB_CLOUDFLARE_API_TOKEN`, and `NUXT_HUB_CLOUDFLARE_DATABASE_ID` to `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_D1_DATABASE_ID`. |
+| `hub.db.casing` | `snakeCase.table()` per table | Drizzle 1.0 has no casing for a database. See [Name columns in snake_case](/docs/database/configure#name-columns-in-snake_case). |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.kv` with any unstorage driver | `kv` with `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. Another unstorage driver fails the build. See [Keep the cache](#keep-the-cache). |
@@ -122,6 +125,12 @@ before you write them. In development, the local `fs-lite` store ignores
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
+
+NuxtHub moved KV to Redis on its own when the build had `REDIS_URL`. ViteHub
+does not, because that variable often belongs to another service. If your KV
+used Redis, set `kv: { driver: "redis" }`. The codemod does this when an env
+file or `nuxt.config` names `REDIS_URL`, and the build warns when it finds
+`REDIS_URL` without a KV driver.
 
 NuxtHub keeps Redis and Upstash keys at the root of the database. ViteHub keeps
 them under `vitehub:kv:<store>`, such as `vitehub:kv:default:settings`. Before

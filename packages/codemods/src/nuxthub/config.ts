@@ -5,10 +5,11 @@ import { findModuleEntry, literalValue, staticOptionsObject, unwrapExpression } 
 import { CodemodError } from "../types.ts"
 
 import type { ObjectExpression } from "@babel/types"
-import type { Node } from "@vite-hub/internal/ast"
+import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { DefaultHost } from "../shared/config-editor.ts"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { FollowUp } from "../types.ts"
+import type { RedisKVSource } from "./kv-env.ts"
 import type { CloudflareResourceOptions } from "./wrangler.ts"
 
 export const moduleName = "@nuxthub/core"
@@ -30,10 +31,16 @@ interface ConfigNote {
   message: string
 }
 
+/** NuxtHub's KV used Redis: `hub.kv` set the `redis` driver, or the app has a Redis variable that NuxtHub read on its own. */
+type RedisKV =
+  | { from: "driver", options: string, otherOptions: boolean }
+  | { from: "env", source: RedisKVSource }
+
 interface HubPlan {
   features: HubFeatures
   notes: ConfigNote[]
   bindings: FeatureBindings
+  redisKV?: RedisKV
 }
 
 /** Only bindings proven by the original options may select an existing resource. */
@@ -50,6 +57,77 @@ function optionText(config: NuxtConfigFile, node: Node): string {
   return config.code.slice(start(node), end(node)).replace(/\s+/g, " ")
 }
 
+/** A `hub.db` value that the Database Definition can repeat: a string, or `process.env.NAME`. */
+export type StaticValue = { kind: "literal", value: string } | { kind: "env", name: string }
+
+/** The `hub.db` options that the codemod moves to the Database Definition or turns into follow-ups. */
+export interface HubDatabaseOptions {
+  /** NuxtHub's `connection.hyperdriveId` for Postgres. */
+  hyperdriveId?: StaticValue
+  /** NuxtHub's `driver: 'd1-http'`, with its `connection.databaseId`. */
+  d1Http?: { databaseId?: StaticValue }
+  /** NuxtHub's Drizzle `casing`, which Drizzle 1.0 sets per table. */
+  casing?: string
+  /** NuxtHub applied migrations during the build, the `applyMigrationsDuringBuild` default. */
+  migrationsDuringBuild: boolean
+}
+
+function staticValue(node: Node): StaticValue | undefined {
+  const literal = literalValue(node)
+  if (typeof literal === "string" && literal) return { kind: "literal", value: literal }
+  const value = unwrapExpression(node)
+  if (value.type !== "MemberExpression" || value.object.type !== "MemberExpression") return undefined
+  const { object } = value
+  if (object.computed || object.object.type !== "Identifier" || object.object.name !== "process" || keyName(object.property) !== "env") return undefined
+  const name = keyName(value.property, value.computed)
+  return name ? { kind: "env", name } : undefined
+}
+
+/** Reads the `hub.db` options that the codemod handles. `consumed` holds the properties that need no note. */
+function readDatabaseObject(object: ObjectExpression, dialect: Dialect): { options: HubDatabaseOptions, consumed: Set<Node> } {
+  const options: HubDatabaseOptions = { migrationsDuringBuild: true }
+  const consumed = new Set<Node>()
+  const property = (name: string) => findProperty(object, name)
+  const casing = property("casing")
+  if (casing && typeof literalValue(casing.value) === "string") {
+    options.casing = String(literalValue(casing.value))
+    consumed.add(casing)
+  }
+  const migrations = property("applyMigrationsDuringBuild")
+  if (migrations && typeof literalValue(migrations.value) === "boolean") {
+    options.migrationsDuringBuild = literalValue(migrations.value) === true
+    consumed.add(migrations)
+  }
+  const driver = property("driver")
+  const d1Http = dialect === "sqlite" && driver !== undefined && literalValue(driver.value) === "d1-http"
+  if (d1Http) consumed.add(driver)
+  const connectionProperty = property("connection")
+  const connection = connectionProperty && staticOptionsObject(connectionProperty.value)
+  if (d1Http) options.d1Http = {}
+  // Only the ids move to the Definition. Other connection options keep the note.
+  let moved = 0
+  for (const entry of connection?.properties ?? []) {
+    if (entry.type !== "ObjectProperty") continue
+    const key = keyName(entry.key, entry.computed)
+    const value = staticValue(entry.value)
+    if (value && key === "hyperdriveId" && dialect === "postgresql") options.hyperdriveId = value
+    else if (value && key === "databaseId" && options.d1Http) options.d1Http.databaseId = value
+    else continue
+    moved++
+  }
+  if (connectionProperty && connection && moved === connection.properties.length) consumed.add(connectionProperty)
+  return { options, consumed }
+}
+
+/** Reads the `hub.db` options that the Database Definition and the follow-ups need. */
+export function readDatabaseOptions(config: NuxtConfigFile, dialect: Dialect): HubDatabaseOptions {
+  const hubProperty = findProperty(config.root, "hub")
+  const hub = hubProperty && staticOptionsObject(hubProperty.value)
+  const db = hub && (findProperty(hub, "db") ?? findProperty(hub, "database"))
+  const object = db && unwrapExpression(db.value)
+  return object?.type === "ObjectExpression" ? readDatabaseObject(object, dialect).options : { migrationsDuringBuild: true }
+}
+
 function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]): Dialect | undefined {
   const literal = literalValue(value)
   if (literal === false) return undefined
@@ -63,15 +141,20 @@ function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]):
   }
   const dialectProperty = findProperty(object, "dialect")
   const dialect = dialectProperty ? readDatabase(config, dialectProperty.value, notes) : "sqlite"
-  const others = object.properties.filter(property => property !== dialectProperty)
+  const { consumed } = readDatabaseObject(object, dialect ?? "sqlite")
+  const others = object.properties.filter(property => property !== dialectProperty && !consumed.has(property))
   if (others.length) {
     notes.push({ path: ["database"], message: `hub.db also set ${others.map(property => optionText(config, property)).join(", ")}. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.` })
   }
   return dialect ?? "sqlite"
 }
 
+function featureNote(config: NuxtConfigFile, feature: (typeof featureKeys)[number], value: Node): ConfigNote {
+  return { path: [feature], message: `hub.${feature} was ${optionText(config, value)}. The codemod set ${feature}: true, which uses the default driver of the host. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "getting-started/migrate-from-nuxthub#keep-the-cache" : feature}.` }
+}
+
 /** Reads `hub` into features. Options that do not map 1:1 become notes. */
-export function readHub(config: NuxtConfigFile): HubPlan {
+export function readHub(config: NuxtConfigFile, redisSource?: RedisKVSource): HubPlan {
   const hubProperty = findProperty(config.root, "hub")
   const value = hubProperty ? unwrapExpression(hubProperty.value) : undefined
   if (value && value.type !== "ObjectExpression") {
@@ -81,6 +164,7 @@ export function readHub(config: NuxtConfigFile): HubPlan {
   const features: HubFeatures = { kv: false, blob: false, cache: false }
   const bindings: FeatureBindings = { database: "DB" }
   const notes: ConfigNote[] = []
+  let redisKV: RedisKV | undefined
   for (const property of hub?.properties ?? []) {
     if (property.type !== "ObjectProperty") {
       notes.push({ path: [], message: `hub has ${optionText(config, property)}, which the codemod cannot read. Move what it sets under vitehub by hand.` })
@@ -107,14 +191,29 @@ export function readHub(config: NuxtConfigFile): HubPlan {
           if (typeof value === "string" && value) bindings[feature] = value
         }
       }
-      if (literal !== true) {
-        notes.push({ path: [feature], message: `hub.${feature} was ${optionText(config, property.value)}. The codemod set ${feature}: true, which uses the default driver of the host. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "getting-started/migrate-from-nuxthub#keep-the-cache" : feature}.` })
+      const kvDriver = feature === "kv" && options ? findProperty(options, "driver") : undefined
+      if (options && kvDriver && literalValue(kvDriver.value) === "redis") {
+        redisKV = { from: "driver", options: optionText(config, property.value), otherOptions: options.properties.length > 1 }
       }
+      else if (feature === "kv" && literal === true && redisSource) redisKV = { from: "env", source: redisSource }
+      else if (literal !== true) notes.push(featureNote(config, feature, property.value))
       continue
     }
     notes.push({ path: [], message: key && droppedKeys[key] ? `${droppedKeys[key]} The codemod dropped it.` : `hub.${key ?? optionText(config, property.key)} has no ViteHub option. The codemod dropped it.` })
   }
-  return { features, notes, bindings }
+  return { features, notes, bindings, redisKV }
+}
+
+/** The `vitehub.kv` value and its note for NuxtHub's Redis KV. ViteHub selects Redis only from an explicit driver. */
+function redisKVOption(redisKV: RedisKV, style: CodeStyle): { value: string, note?: ConfigNote } {
+  const variable = redisKV.from === "env" ? redisKV.source.variable : "REDIS_URL"
+  const value = `{ driver: ${quoteString("redis", style)}${variable === "KV_URL" ? `, url: ${quoteString("env:KV_URL", style)}` : ""} }`
+  if (redisKV.from === "driver") {
+    return redisKV.otherOptions
+      ? { value, note: { path: ["kv"], message: `hub.kv was ${redisKV.options}. The codemod set kv: ${value}, which reads REDIS_URL at runtime. Move the other Redis options, such as url, under vitehub.kv by hand. See https://vitehub.dev/docs/kv/configure.` } }
+      : { value }
+  }
+  return { value, note: { path: ["kv"], message: `${redisKV.source.file} has ${variable}, so NuxtHub kept KV in Redis. ViteHub does not select Redis on its own, so the codemod set kv: ${value}. If that Redis belongs to another service, such as BullMQ, set kv: true.` } }
 }
 
 /** Chooses the deployment host: nitro.preset, then a Wrangler config, then Node. */
@@ -128,6 +227,8 @@ export interface ConfigEditResult {
   followUps: FollowUp[]
   /** The Cloudflare resources that the new options keep. */
   written: CloudflareResourceOptions
+  /** `vitehub.kv` selects Redis, so no local KV data moves. */
+  redisKV: boolean
 }
 
 /** Replaces `@nuxthub/core` with `vite-hub/nuxt` and `hub` with `vitehub`. */
@@ -145,14 +246,24 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
   // On Cloudflare, keep the namespaces and the bucket that the Wrangler config names. The IDs are not secrets.
   const written: CloudflareResourceOptions = {}
   const options: Array<[string, string]> = []
+  const followUps: Array<{ path: string[], message: string }> = [...plan.notes]
+  // Workers have no Redis TCP client, so the Cloudflare host keeps its KV binding.
+  const redisKV = plan.redisKV && hostChoice.host !== "cloudflare" ? redisKVOption(plan.redisKV, style) : undefined
+  if (redisKV?.note) followUps.push(redisKV.note)
+  if (!redisKV && plan.redisKV?.from === "driver") {
+    followUps.push({ path: ["kv"], message: `hub.kv was ${plan.redisKV.options}. The codemod set kv: true, which uses the default driver of the host. ViteHub Redis does not run on Cloudflare Workers, so check the KV driver. See https://vitehub.dev/docs/kv.` })
+  }
   if (features.database) options.push(["database", "true"])
   for (const feature of featureKeys) {
     if (!features[feature]) continue
+    if (feature === "kv" && redisKV) {
+      options.push([feature, redisKV.value])
+      continue
+    }
     const resource = hostChoice.host === "cloudflare" ? resources[feature] : undefined
     if (resource) written[feature] = resource
     options.push([feature, resource ? `{ ${Object.entries(resource).map(([key, value]) => `${key}: ${quoteString(value, style)}`).join(", ")} }` : "true"])
   }
-  const followUps: Array<{ path: string[], message: string }> = [...plan.notes]
   const existingViteHub = findProperty(config.root, "vitehub")
 
   const hub = hubProperty ? unwrapExpression(hubProperty.value) : undefined
@@ -189,6 +300,7 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
     code,
     host: hostChoice.host,
     written,
+    redisKV: Boolean(redisKV),
     followUps: followUps.map(note => ({ file: config.fileName, line: lineOf(["vitehub", ...note.path]) ?? (hubProperty ? line(hubProperty) : undefined), message: note.message })),
   }
 }
