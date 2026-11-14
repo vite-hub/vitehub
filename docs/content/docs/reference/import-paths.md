@@ -34,6 +34,8 @@ the same behavior.
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. `useChat(agent, { page })` connects the page's ui-sdk bridge. |
 | `vite-hub/agent/page` | [`connectPage()`](/docs/agents/capabilities/page): lets an Agent with `page()` work this page through ui-sdk's agent bridge, in any framework. |
+| `vite-hub/agent/ui` | The contract for UI that an Agent sends: the json-render catalog of layout and display parts, `validateSpec()`, `catalogPrompt()`, and `checkSpecForm()` for a Form of `@vite-hub/forms`. Needs `zod`, `@json-render/core`, and `@json-render/vue`. |
+| `vite-hub/agent/ui/vue` | Default Vue components and `defineCatalogRegistry()` to render an Agent UI spec with `@json-render/vue`. |
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
