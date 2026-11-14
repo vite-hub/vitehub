@@ -1,14 +1,13 @@
 import { blob } from "vite-hub/blob"
+import { useDatabase } from "vite-hub/database"
 import { sendQueue } from "vite-hub/queue"
 import { defineWorkspace } from "vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore } from "vite-hub/workspace/blob-database"
 
-import contentDatabase from "../databases/content/index"
-
 export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({
     blob: blob.store("default"),
-    database: contentDatabase,
+    database: () => useDatabase("content").db,
     workspace: "site",
   }),
   hooks: {

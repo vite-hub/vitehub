@@ -13,6 +13,10 @@ icon: i-lucide-circle-alert
 - Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a new Sandbox for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes the run's files after each attempt, caches prepared projects by digest, and runs calls with the same ID one at a time in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
 
+## SANDBOX_R0165
+
+The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM` to `kill()`. On Vercel, pass `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL`, `SIGTERM`, `SIGCONT`, `SIGSTOP`, or a signal number.
+
 ## Cleanup failures
 
 `runSandboxTask()` returns a non-2xx response when Cloudflare cannot remove the run's files from a Sandbox that stays open, even when the handler succeeds. The files can then stay in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing removes the files. A failed session cleanup also returns a non-2xx response.

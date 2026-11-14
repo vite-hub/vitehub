@@ -1,5 +1,8 @@
 // Markdown negotiation and the Markdown 404 body. This module imports no Markdown parser, so the generated middleware
 // can load it when the server starts and load server/content.ts only on the first request that asks for Markdown.
+import { contentReadDenied, contentReadGated } from "./read-gate.ts"
+
+import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { DefineContentSeoOptions } from "./sitemap.ts"
 
 /** The `Vary` value of every response that depends on the `Accept` header. */
@@ -112,7 +115,7 @@ export function renderContentMarkdownNotFound(options: { path: string, site: str
 export type ContentMiddleware = (event: { req: Request, res?: { status?: number, headers: Headers, errHeaders?: Headers } }, next?: () => unknown) => Promise<unknown>
 
 /** The part of a Content runtime that Markdown copies need. */
-export interface ContentMarkdownRuntime {
+export interface ContentMarkdownRuntime extends ContentReadAccess {
   readonly seo: DefineContentSeoOptions | undefined
   markdown(path: string, options?: { site?: string }): Promise<string | null>
   /** Whether `markdown(path)` has a copy. Without it, the middleware renders the copy to find out. */
@@ -120,7 +123,7 @@ export interface ContentMarkdownRuntime {
 }
 
 /** `defineContentMarkdownHandler(content, options)`. */
-export interface ContentMarkdownHandlerOptions {
+export interface ContentMarkdownHandlerOptions extends ContentHandlerOptions {
   /**
    * Render a page as HTML inside the server, such as `serverFetch` from `nitro`. With `seo: { markdown: { pages: true } }`,
    * a Markdown request for a page that is not a Content document gets the page converted from this HTML.
@@ -238,12 +241,13 @@ function etagMatches(header: string | null, etag: string): boolean {
  * - `<url>.md` returns the copy from `content.markdown()`.
  * - A page URL with `Accept: text/markdown` before `text/html` returns the same copy.
  * - A Markdown request that no handler answers gets a Markdown 404 body.
- * - An HTML page that has a copy gets `Vary: Accept` and a `Link` header that names the copy. A page 404 gets
- *   `Vary: Accept` too, because a Markdown request gets the Markdown 404. Other responses do not change.
+ * - Every response at a page URL with a copy gets `Vary: Accept`; a successful HTML page also gets a
+ *   `Link` header naming the copy. Page 404s vary too, because Markdown requests get the Markdown 404.
  *
- * A copy has `Content-Location` and an `ETag`, so `If-None-Match` gets a 304. Every other request passes through. Pass
- * the Content runtime, or a function that loads it: the middleware then loads Content only for requests that ask for
- * Markdown and for HTML pages. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
+ * A copy has `Content-Location` and an `ETag`, so `If-None-Match` gets a 304. A Markdown request first asks
+ * `authorize` with `action: "read"`, as `/api/content/**` does. Every other request passes through. Pass the Content
+ * runtime, or a function that loads it: the middleware loads Content for Markdown requests and to check whether
+ * downstream responses have copies. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
  */
 export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>), options: ContentMarkdownHandlerOptions = {}): ContentMiddleware {
   const render = options.render
@@ -264,24 +268,24 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     }
     // H3 overwrites returned Response headers with prepared headers. Merge after downstream handlers finish.
     const vary = (result: unknown) => setHeader("vary", mergeVary(event.res?.headers.get("vary"), event.res?.errHeaders?.get("vary"), resultHeaders(result)?.get("vary")))
-    /** Mark an HTML page that has a copy, and a page 404, which a Markdown request gets as the Markdown 404. */
+    /** Vary copy-backed responses and page 404s; advertise copies only from successful HTML pages. */
     const alternate = async (result: unknown) => {
-      if (!page || !event.res || result === notFound) return result
+      if (!page || !event.res) return result
       const status = responseStatus(result) ?? event.res.status ?? 200
-      if (status === 404) {
+      if (result === notFound || status === 404) {
         vary(result)
         return result
       }
       const headers = resultHeaders(result)?.has("content-type") ? resultHeaders(result) : event.res.headers
-      if (status !== 200 || !isHtml(headers)) return result
+      const html = status === 200 && isHtml(headers)
       const runtime = await load()
       if (!runtime.seo?.markdown) return result
       // With `pages`, every HTML page that indexes may list has a converted copy.
-      const exists = render && convertsPages(runtime.seo)
-        ? !noindex(resultHeaders(result)) && !noindex(event.res.headers)
-        : runtime.hasMarkdown ? await runtime.hasMarkdown(twin) : await runtime.markdown(twin) !== null
+      const converted = html && render !== undefined && convertsPages(runtime.seo) && !noindex(resultHeaders(result)) && !noindex(event.res.headers)
+      const exists = converted || (runtime.hasMarkdown ? await runtime.hasMarkdown(twin) : await runtime.markdown(twin) !== null)
       if (!exists) return result
       vary(result)
+      if (!html) return result
       const links = [event.res.headers.get("link"), resultHeaders(result)?.get("link"), markdownAlternateLink(twin)].filter(Boolean)
       event.res.headers.set("link", [...new Set(links)].join(", "))
       return result
@@ -299,18 +303,26 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     const runtime = await load()
     const seo = runtime.seo
     if (!seo?.markdown) return
+    const denied = await contentReadDenied(runtime, request, options)
+    if (denied) {
+      vary(denied)
+      setHeader("cache-control", "private, no-store")
+      return denied
+    }
+    if (contentReadGated(runtime)) setHeader("cache-control", "private, no-store")
     const site = seo.site ?? url.origin
     const target = copy ? copyPage(url.pathname, seo) : url.pathname
     const respond = async (body: string, status = 200, page?: Headers, robots?: string) => {
+      const gated = contentReadGated(runtime)
       const headers = new Headers({
         "content-type": "text/markdown; charset=utf-8",
-        "cache-control": status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
+        "cache-control": gated ? "private, no-store" : status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
       })
       if (page) {
         // A page rendered with the reader's credentials is theirs: a shared cache must not give it to another reader.
         const cookies = page.getSetCookie()
         for (const cookie of cookies) headers.append("set-cookie", cookie)
-        if (privateCache(page.get("cache-control"))) headers.set("cache-control", page.get("cache-control")!)
+        if (!gated && privateCache(page.get("cache-control"))) headers.set("cache-control", page.get("cache-control")!)
         else if (cookies.length || request.headers.has("cookie") || request.headers.has("authorization")) headers.set("cache-control", "private, no-store")
         // The copy keeps the indexing rules of its page, and names the page as the canonical URL.
         if (robots) headers.set("x-robots-tag", robots)

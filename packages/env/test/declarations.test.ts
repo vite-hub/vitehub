@@ -146,6 +146,15 @@ describe("env declarations", () => {
     expect(defined.values).toEqual({ "nested.token": "conventional", "api-key": { token: "conventional" } })
   })
 
+  it("reads an empty build variable as missing, so the conventional name wins", async () => {
+    const input = {
+      context: createSourceContext({ env: { VITEHUB_PUBLIC_NAME: "", PUBLIC_NAME: "Acme" }, mode: "build", rootDir: process.cwd() }),
+      timing: "test",
+    }
+    const result = await resolveEnvEntries({ name: env({ mode: "build" }) }, { ...input, exposure: "build public", section: "env.public" })
+    expect(result.entries[0]?.value).toBe("Acme")
+  })
+
   it("ignores inherited values when resolving environment sources", async () => {
     const inheritedEnv = Object.create({ INHERITED_TOKEN: "ambient-secret" }) as Record<string, string | undefined>
     const result = await resolveEnvEntries({

@@ -176,7 +176,7 @@ it.each([
   ["@vite-hub/source", ["/_vitehub/content/github", "/api/content/**"]],
 ])("adds the GitHub push webhook route when server/content.ts imports github from %s", async (module, routes) => {
   const generated = await generatedRoutes({
-    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) } })\n`,
+    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, access: "public" })\n`,
   })
   expect(generated.routes).toEqual(routes)
 })
@@ -242,6 +242,50 @@ it("adds no GitHub push webhook route without a github() Source", async () => {
     "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,
   })
   expect(generated.routes).toEqual(["/api/content/**"])
+})
+
+it.each([
+  [false, "export default defineContentHandler(content)"],
+  [true, "export default defineContentHandler(content, { user: async request => (await useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null })"],
+])("passes the Auth session user to the Content route when auth is %s", async (auth, line) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\n\nexport default defineContent({ authorize: ({ user }) => user !== null })\n`)
+    await prepareSourceGeneration({ projectRoot, auth, contentImportBase: "vite-hub/content" })
+    const route = await readFile(join(projectRoot, ".vitehub/content/route.mjs"), "utf8")
+    expect(route).toContain(line)
+    expect(route.includes('import { useAuth } from "#vitehub/auth/server"')).toBe(auth)
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+it("passes the Auth session user to every Content reader except robots.txt", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\n\nexport default defineContent({ authorize: ({ user }) => user !== null, previews: true, seo: { sitemap: true, robots: true, rss: true, mcp: true, llms: true } })\n`)
+    await prepareSourceGeneration({ projectRoot, auth: true, contentImportBase: "vite-hub/content" })
+    const read = (name: string) => readFile(join(projectRoot, ".vitehub/content", name), "utf8")
+    const user = "{ user: async request => (await useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }"
+    for (const [name, helper] of [["sitemap.mjs", "defineContentSitemapHandler"], ["rss.mjs", "defineContentRssHandler"], ["mcp.mjs", "defineContentMcpHandler"], ["llms.mjs", "defineContentLlmsHandler"]]) {
+      const file = await read(name!)
+      expect(file, name).toContain(`export default ${helper}(content, ${user})`)
+      expect(file, name).toContain('import { useAuth } from "#vitehub/auth/server"')
+    }
+    expect(await read("robots.mjs")).toContain("export default defineContentRobotsHandler(content)")
+    expect(await read("robots.mjs")).not.toContain("useAuth")
+    // Entries that load when the server starts import Auth on the first request that asks.
+    const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
+    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), { render: request => serverFetch(request), ${lazyUser.slice(2)})`)
+    expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
+    expect(await read("markdown.mjs")).not.toContain("import { useAuth }")
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
 })
 
 it("removes the Collection types wrapper that earlier versions wrote", async () => {

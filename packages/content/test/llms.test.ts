@@ -75,18 +75,44 @@ describe("llms files", { timeout: 30_000 }, () => {
     for (const left of ["Draft only", "Hidden", "Copy", "Settings", "Private"]) expect(text).not.toContain(left)
   })
 
-  it("joins every page copy in llms-full.txt", async () => {
+  it("joins every page copy in llms-full.txt, each with its URL", async () => {
     const content = await site()
     const full = await content.llms({ file: "llms-full.txt" })
-    expect(full).toBe([
-      "# Home\n\nWelcome to [the blog](https://example.com/blog/hello).\n",
-      "# About us\n\n> Who we are.\n\nAbout body.\n",
-      "# Hello\n\n> The first post.\n\nHello body.\n",
-      "# Empezar\n\nCuerpo.\n",
-      "# Start\n\nStart body.\n",
-    ].join("\n\n"))
+    expect(full).toBe(`${[
+      "# Example\n\n> Notes about examples.",
+      "URL: https://example.com/\n\n# Home\n\nWelcome to [the blog](https://example.com/blog/hello).",
+      "URL: https://example.com/blog/about\n\n# About us\n\n> Who we are.\n\nAbout body.",
+      "URL: https://example.com/blog/hello\n\n# Hello\n\n> The first post.\n\nHello body.",
+      "URL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.",
+      "URL: https://example.com/guides/start\n\n# Start\n\nStart body.",
+    ].join("\n\n---\n\n")}\n`)
     expect(full).not.toContain("Draft body")
     expect(full).not.toContain("Private body")
+  })
+
+  it("escapes link titles and quotes every line of the description", async () => {
+    expect(renderContentLlms({
+      title: "Example",
+      description: "Line one.\nLine two.",
+      details: "Rules for agents.\nRead them.",
+      sections: [{ title: "Docs", links: [
+        { title: "Array[0] and \\ guide", href: "https://example.com/a.md", description: "Two\n  lines." },
+        { title: "[Draft]", href: "https://example.com/b.md" },
+      ] }],
+    })).toBe([
+      "# Example",
+      "> Line one.\n> Line two.",
+      "Rules for agents.\nRead them.",
+      "## Docs",
+      "- [Array\\[0\\] and \\\\ guide](https://example.com/a.md): Two lines.\n- [\\[Draft\\]](https://example.com/b.md)",
+    ].join("\n\n"))
+    const content = await site({ site: "https://example.com", llms: { title: "Ex]ample", description: "First line.\nSecond line." } })
+    await content.collection("posts").save("brackets", { data: { title: "Arrays [and] lists" }, body: "Body." })
+    await content.publish({ ids: ["brackets"], collection: "posts" })
+    const text = await content.llms()
+    expect(text).toContain("> First line.\n> Second line.")
+    expect(text).toContain("- [Ex\\]ample](https://example.com/llms-full.txt): First line. Second line.")
+    expect(text).toContain("- [Arrays \\[and\\] lists](https://example.com/blog/brackets.md)")
   })
 
   it("groups pages by their first path segment in sitemap.md", async () => {
@@ -214,7 +240,12 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
     expect(await content.markdown("/raw/errors/e1.md")).toContain("An error.")
     expect(await content.markdown("/raw/missing.md")).toBeNull()
     const full = await content.llms({ file: "llms-full.txt" })
-    expect(full).toBe(["# Copy of /\n\nWelcome.\n", "# Copy of /about\n\nAbout us.\n", "# Copy of /guide\n\nRead [this](/guide).\n"].join("\n\n"))
+    expect(full).toBe(`${[
+      "# Example\n\n> Notes.\n\nRules for agents.",
+      "URL: https://example.com/\n\n# Copy of /\n\nWelcome.",
+      "URL: https://example.com/about\n\n# Copy of /about\n\nAbout us.",
+      "URL: https://example.com/guide\n\n# Copy of /guide\n\nRead [this](/guide).",
+    ].join("\n\n---\n\n")}\n`)
     expect((await content.pages()).map(page => page.path).sort()).toEqual(["/", "/about", "/guide"])
     expect(await content.page("/errors/e1")).toMatchObject({ path: "/errors/e1", content: "# Copy of /errors/e1\n\nAn error.\n" })
   })
@@ -374,7 +405,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(browser.headers.get("content-type")).not.toContain("markdown")
   })
 
-  it("loads Content only for requests that ask for Markdown and for HTML pages", async () => {
+  it("loads Content to check copies for downstream responses", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
     let loads = 0
     const lazy = app(() => {
@@ -383,15 +414,15 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     }, () => new Response("body {}", { headers: { "content-type": "text/css" } }))
     expect(await (await lazy.request("https://example.com/style.css")).text()).toBe("body {}")
     expect(await (await lazy.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })).text()).toBe("body {}")
-    expect(loads).toBe(0)
+    expect(loads).toBe(2)
     expect(await (await lazy.request("https://example.com/blog/hello.md")).text()).toMatch(/^# Hello\n/)
-    expect(loads).toBe(1)
-    // An HTML page loads Content to find its copy.
+    expect(loads).toBe(3)
+    // An HTML page also loads Content to find its copy.
     expect((await app(() => {
       loads++
       return content
     }).request("https://example.com/blog/hello")).headers.get("link")).toContain("</blog/hello.md>")
-    expect(loads).toBe(2)
+    expect(loads).toBe(4)
   })
 
   it("links the copy from an HTML page that has one", async () => {
@@ -414,13 +445,30 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(linked.headers.get("link")).toBe("</style.css>; rel=preload; as=style, </blog/hello.md>; rel=\"alternate\"; type=\"text/markdown\"")
   })
 
-  it("adds no Vary or Link to responses that Accept: text/markdown does not change", async () => {
+  it("varies every representation at copy-backed URLs, but leaves unrelated responses alone", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
-    // JSON, assets, and redirects do not change with Accept: text/markdown, so they get neither header.
     for (const response of [Response.json({ ok: true }), new Response("body {}", { headers: { "content-type": "text/css" } }), new Response(null, { status: 302, headers: { location: "/blog/hello" } })]) {
-      const result = await app(content, () => response.clone()).request("https://example.com/blog/hello", { headers: { accept: "application/json" } })
-      expect(result.headers.get("vary")).toBeNull()
-      expect(result.headers.get("link")).toBeNull()
+      for (const path of ["/blog/hello", "/unrelated"]) {
+        const handler = app(content, () => response.clone())
+        const result = await handler.request(`https://example.com${path}`, { headers: { accept: "application/json" } })
+        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(result.headers.get("link")).toBeNull()
+        const markdown = await handler.request(`https://example.com${path}`, { headers: { accept: "text/markdown" } })
+        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        if (path === "/blog/hello") expect(await markdown.text()).toMatch(/^# Hello\n/)
+        else expect(await markdown.text()).toBe(await response.clone().text())
+      }
+    }
+  })
+
+  it("varies unmatched browser and Markdown 404s", async () => {
+    const content = await site({ markdown: true })
+    const handler = new H3().use(defineContentMarkdownHandler(content))
+    for (const accept of ["text/html", "text/markdown"]) {
+      const result = await handler.request("https://example.com/missing", { headers: { accept } })
+      expect(result.status).toBe(404)
+      expect(result.headers.get("vary")).toBe("Accept")
+      expect(result.headers.get("content-type")?.includes("text/markdown")).toBe(accept === "text/markdown")
     }
   })
 
@@ -605,7 +653,7 @@ describe("parity with @vite-hub/docs", () => {
   it("renders llms.txt sections and links byte for byte", async () => {
     const expected = (await fixture("llms-head.txt")).replace(/\n$/, "")
     const blocks = expected.split("\n\n")
-    const description = blocks.slice(1, blocks.indexOf("## Overview")).join("\n\n").replace(/^> /, "")
+    const [description, ...details] = blocks.slice(1, blocks.indexOf("## Overview"))
     const sectionText = blocks[blocks.indexOf("## When to use ViteHub") + 1]!
     const links = blocks.at(-1)!.split("\n").map((line) => {
       const [, title, href, linkDescription] = /^- \[(.+?)\]\((.+?)\): (.+)$/.exec(line)!
@@ -613,7 +661,8 @@ describe("parity with @vite-hub/docs", () => {
     })
     expect(renderContentLlms({
       title: "ViteHub",
-      description,
+      description: description!.replace(/^> /, ""),
+      details: details.join("\n\n"),
       sections: [
         { title: "Overview", links: [{ title: "ViteHub", href: "https://vitehub.dev/raw/index.md" }] },
         { title: "Documentation Sets", links: [{ title: "ViteHub", href: "https://vitehub.dev/llms-full.txt", description: "Portable Agents for Vite, built on Server Primitives." }] },

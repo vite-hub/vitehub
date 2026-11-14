@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Field, FieldLabel } from "@vite-hub/kit/field"
-import { Input } from "@vite-hub/kit/input"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
 import {
   Popover,
   PopoverClose,
@@ -8,7 +8,7 @@ import {
   PopoverDescription,
   PopoverTitle,
   PopoverTrigger,
-} from "@vite-hub/kit/popover"
+} from "@ui-sdk/vue/popover"
 </script>
 
 <template>
