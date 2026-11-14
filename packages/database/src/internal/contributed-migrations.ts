@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs"
 
 import { basename, join } from "pathe"
 
@@ -67,8 +67,15 @@ export function planContributedMigrations(
     }
   }
   const plan: ContributedMigrationsPlan = { added: [], pending: [] }
+  const identities = new Map<string, string>()
   for (const contribution of contributions) {
     for (const migration of listContributedMigrations(contribution, dialect)) {
+      const identity = JSON.stringify([contribution.name, basename(migration.file)])
+      const previous = identities.get(migration.key)
+      if (previous && previous !== identity) {
+        throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Contributed migration identity collision for ${migration.key}. Rename the contribution or SQL file.` })
+      }
+      identities.set(migration.key, identity)
       const folder = folders.get(migration.key)
       if (folder) plan.added.push({ ...migration, folder })
       else plan.pending.push(migration)
@@ -85,6 +92,21 @@ function folderStamp(time: number): string {
 function folderTime(folder: string): number {
   const part = (start: number, end: number) => Number.parseInt(folder.slice(start, end), 10)
   return Date.UTC(part(0, 4), part(4, 6) - 1, part(6, 8), part(8, 10), part(10, 12), part(12, 14))
+}
+
+/** Move only newly generated folders past all committed history, including SQL-only folders. */
+export function orderGeneratedMigrations(migrationsDir: string, foldersBefore: readonly string[]): void {
+  if (!existsSync(migrationsDir)) return
+  let newest = [...foldersBefore].sort().at(-1)
+  const generated = readdirSync(migrationsDir).filter(name => /^\d{14}_/.test(name) && !foldersBefore.includes(name)).sort()
+  for (const folder of generated) {
+    let ordered = folder
+    if (newest && folder.slice(0, 14) <= newest.slice(0, 14)) {
+      ordered = `${folderStamp(folderTime(newest) + 1000)}_${folder.slice(15)}`
+      renameSync(join(migrationsDir, folder), join(migrationsDir, ordered))
+    }
+    newest = ordered
+  }
 }
 
 /**

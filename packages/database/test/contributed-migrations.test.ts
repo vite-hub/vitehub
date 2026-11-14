@@ -5,7 +5,9 @@ import { basename, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { collectDatabaseContributions } from "../src/contributions.ts"
-import { planContributedMigrations, toMigrationSql, writeContributedMigrations } from "../src/internal/contributed-migrations.ts"
+import { orderGeneratedMigrations, planContributedMigrations, toMigrationSql, writeContributedMigrations } from "../src/internal/contributed-migrations.ts"
+
+import { readMigrations, readPendingMigration } from "../src/internal/migration-journal.ts"
 
 import type { ResolvedDatabaseMigrations } from "../src/contributions.ts"
 
@@ -28,6 +30,42 @@ async function createDirs() {
 }
 
 describe("contributed migrations", () => {
+  it("keeps later generation after future SQL folders", async () => {
+    const { migrationsDir } = await createDirs()
+    const before = await readdir(migrationsDir)
+    const generated = "20260101000000_schema"
+    await mkdir(join(migrationsDir, generated))
+    await writeFile(join(migrationsDir, generated, "migration.sql"), "ALTER TABLE users ADD COLUMN name text;")
+    orderGeneratedMigrations(migrationsDir, before)
+    expect((await readdir(migrationsDir)).sort()).toEqual([...before, "20990101000001_schema"])
+  })
+
+  it("rejects colliding identities even when the first migration was already added", async () => {
+    const { contribution, migrationsDir, source } = await createDirs()
+    await writeFile(join(source, "0001_init.sql"), "SELECT 1;")
+    const first = { ...contribution, name: "foo-bar" }
+    writeContributedMigrations(migrationsDir, planContributedMigrations(migrationsDir, [first], "sqlite").pending)
+    expect(() => planContributedMigrations(migrationsDir, [first, { ...contribution, name: "foo_bar" }], "sqlite")).toThrow("identity collision")
+  })
+
+  it("preserves column evidence across index SQL but distrusts arbitrary DDL", async () => {
+    const { migrationsDir } = await createDirs()
+    await writeFile(join(migrationsDir, "20990101000000_init/snapshot.json"), JSON.stringify({ ddl: [
+      { entityType: "tables", name: "users" },
+      { entityType: "columns", table: "users", name: "id" },
+    ] }))
+    const middle = join(migrationsDir, "20990101000001_contribution")
+    const rebuild = join(migrationsDir, "20990101000002_rebuild")
+    await mkdir(middle)
+    await mkdir(rebuild)
+    await writeFile(join(middle, "migration.sql"), "CREATE INDEX users_id ON users(id);")
+    await writeFile(join(rebuild, "migration.sql"), "CREATE TABLE __new_users (id integer NOT NULL);\n--> statement-breakpoint\nINSERT INTO __new_users (id) SELECT id FROM users;\n--> statement-breakpoint\nDROP TABLE users;\n--> statement-breakpoint\nALTER TABLE __new_users RENAME TO users;")
+    const entries = readMigrations(migrationsDir)
+    expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries).dataLoss).toEqual([])
+    await writeFile(join(middle, "migration.sql"), "ALTER TABLE users ADD COLUMN secret text;")
+    expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries).dataLoss.length).toBeGreaterThan(0)
+  })
+
   it("validates `migrations` as an absolute folder on table contributions and uses", async () => {
     const plugin = (migrations: unknown) => ({ name: "feedback/vite", vitehub: { databases: [{ migrations, name: "feedback" }] } })
     await expect(collectDatabaseContributions([plugin("/srv/feedback/migrations")], { projectRoot: "/app", root: "/app", rootDir: "/app" })).resolves.toMatchObject({
