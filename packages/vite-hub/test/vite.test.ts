@@ -715,6 +715,7 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/agent-option-missing",
       "vite-hub/standard-context",
       "vite-hub/database-disabled",
       "vite-hub/unavailable-services",

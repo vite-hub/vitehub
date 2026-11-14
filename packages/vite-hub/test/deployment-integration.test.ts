@@ -64,6 +64,26 @@ describe("built-in host integration", () => {
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 
+  it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
+    const resolve = () => resolveConfig({
+      root,
+      plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false, ...(agent === undefined ? {} : { agent }) })],
+    }, "build")
+    if (agent === undefined) {
+      // An app that adds hubAgent() itself is not missing the option.
+      await expect(resolveConfig({
+        root,
+        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), { name: "@vite-hub/agent/vite" }],
+      }, "build")).resolves.toBeTruthy()
+    }
+    if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })
+    else await expect(resolve()).resolves.toBeTruthy()
+  })
+
   it("applies deployment-owned Nitro configuration only during build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-command-"))
     try {
