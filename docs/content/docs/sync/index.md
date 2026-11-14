@@ -2,12 +2,12 @@
 title: Sync
 layout: landing
 navigation.title: Overview
-description: Serve a table to the browser with a scope for each caller and an atomic change log. The server stays the authority for every row.
+description: Keep a local copy of a table in the browser. Writes show at once, work offline, and the server stays the authority for every row.
 navigation.order: 1
 icon: i-lucide-refresh-cw
 ---
 
-::product-hero{tagline="Say which rows a person may see. Sync serves them, applies writes once and in order, and tells each caller what changed." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
+::product-hero{tagline="Say which rows a person may see. The browser keeps a copy of them, writes at once, and syncs when the network is there." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
   :::code-tree
   ```ts [server/sync/todos.ts] fragment
   import { defineSync } from 'vite-hub/sync'
@@ -18,6 +18,27 @@ icon: i-lucide-refresh-cw
     table: todos,
     where: ({ user }) => user ? { ownerId: user.id } : false,
   })
+  ```
+
+  ```vue [app/pages/todos.vue] fragment
+  <script setup lang="ts">
+  const todos = useSync('todos')
+  const title = ref('')
+  </script>
+
+  <!-- Rows show at once, also offline and after a reload -->
+  <template>
+    <form @submit.prevent="todos.insert({ title }); title = ''">
+      <input v-model="title">
+    </form>
+    <ul>
+      <li v-for="todo in todos.rows" :key="todo.id">
+        <input type="checkbox" :checked="todo.done" @change="todos.update(todo.id, { done: !todo.done })">
+        {{ todo.title }}
+      </li>
+    </ul>
+    <p v-if="todos.queued">{{ todos.queued }} changes wait for the network</p>
+  </template>
   ```
 
   ```bash [terminal]
@@ -32,12 +53,16 @@ icon: i-lucide-refresh-cw
 
 | Part | What it does |
 | --- | --- |
-| One route | Each `server/sync/<name>.ts` gets `GET` to pull and `POST` to push at `/api/_vitehub/sync/<name>`. |
+| Local copy | The browser keeps the rows in IndexedDB. A reload shows them at once, then pulls what changed. |
+| Writes at once | `insert`, `update`, and `delete` change `rows` at once. Each write goes to a queue in IndexedDB before it is sent, so it survives offline time, a reload, and a crash. |
+| Order | One push at a time, with the writes in the order you made them. Two updates of one row apply in that order. |
 | Scope | `where` returns the rows that the caller may see. The server filters reads with it, writes its values into inserts, and refuses writes that change them. |
-| Change log | Each write and its change apply in one transaction in the Database. A pull gets the rows that changed since its cursor. |
-| Once only | Each write has an id. When a caller sends a write again, the server does not apply it twice. |
-| Order | The writes of one push apply in the order that they were sent. |
+| Account guard | Each write keeps the scope that it was made for. After a sign-in as another person, old writes are never sent: they show in `failures`. |
+| Once only | Each write has an id. When an answer is lost and the client sends the write again, the server does not apply it twice. |
+| Fresh rows | The client pulls on start, when the page shows again, when the network comes back, every 30 seconds while the page shows, and after each write. Other tabs see a change at once. |
 | Inspection | `vitehub sync list` and `vitehub sync changes <name>`, and the `sync.list` and `sync.changes` operations. |
+
+The client needs no framework. Vue gets `useSync()`, and other frameworks use the same store through `createSync()`.
 
 ## Sync, Database, or Realtime
 
@@ -45,6 +70,7 @@ Does each person work on their own rows, and must the page work offline? Then us
 
 ## Next
 
-- [Get started](/docs/sync/get-started): serve a todo table and pull it.
+- [Get started](/docs/sync/get-started): a todo list that works offline.
 - [Server API](/docs/sync/server-api): every option of `defineSync()`, the route, and the CLI.
 - [Limits and errors](/docs/sync/limits-and-errors): what v1 does not do, and the `SYNC_*` codes.
+- [Vue](/docs/sync/vue): `useSync()`, failures, and sign-out.

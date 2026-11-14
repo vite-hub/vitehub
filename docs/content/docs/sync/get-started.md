@@ -1,13 +1,13 @@
 ---
-title: Serve a todo table with Sync
-description: Serve a todo table with ViteHub Sync, write a row, and pull what changed since a cursor.
+title: Build a todo list that works offline
+description: Sync a todo table to the browser with ViteHub. Rows show at once, writes wait offline, and a reload keeps them.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-You need a ViteHub app from [Installation](/docs/getting-started/installation). Run the commands from its root.
+You need a ViteHub app with Vue or Nuxt from [Installation](/docs/getting-started/installation). Run the commands from its root.
 
 ::tutorial-step{title="Install Sync"}
 ## Install Sync
@@ -24,7 +24,7 @@ pnpm add -D drizzle-kit
 ::tutorial-step{title="Write the table"}
 ## Write the table
 
-Sync needs a SQLite table with one text primary key. The caller makes the keys, such as with `crypto.randomUUID()`, so a new row has its key before the server sees it.
+Sync needs a SQLite table with one text primary key. The browser makes the keys with `crypto.randomUUID()`, so a new row has its key before the server sees it.
 
 ```ts [server/databases/default.ts] fragment
 import { defineDatabase } from 'vite-hub/database'
@@ -68,31 +68,52 @@ vitehub database migrate
 
 ::
 
-::tutorial-step{title="Pull the rows"}
-## Pull the rows
+::tutorial-step{title="Show the rows"}
+## Show the rows
 
-Start the dev server with `pnpm dev`. Then pull the table:
+Nuxt imports `useSync()` for you. In a Vue app without Nuxt, import it from `vite-hub/sync/vue`.
 
-```bash [commands/pull]
-curl http://localhost:3000/api/_vitehub/sync/todos
+```vue [app/pages/todos.vue] fragment
+<script setup lang="ts">
+const todos = useSync('todos')
+const title = ref('')
+
+function add() {
+  todos.insert({ title: title.value })
+  title.value = ''
+}
+</script>
+
+<template>
+  <form @submit.prevent="add">
+    <input v-model="title" aria-label="New todo">
+    <button>Add</button>
+  </form>
+  <ul>
+    <li v-for="todo in todos.rows" :key="todo.id">
+      <label>
+        <input type="checkbox" :checked="todo.done" @change="todos.update(todo.id, { done: !todo.done })">
+        {{ todo.title }}
+      </label>
+      <button @click="todos.delete(todo.id)">Delete</button>
+    </li>
+  </ul>
+  <p v-if="todos.queued">{{ todos.queued }} changes wait for the network</p>
+</template>
 ```
 
-The answer has the rows, a `cursor`, and the `scope` of the caller. The table is empty, so `rows` is `[]`. Keep `scope.id` and `cursor` for the next steps.
+Start the dev server with `pnpm dev` and open `/todos`. Add a todo. It shows at once, and the server stores it a moment later.
 
 ::
 
-::tutorial-step{title="Write a row"}
-## Write a row
+::tutorial-step{title="Go offline"}
+## Go offline
 
-Push one insert. Put the `scope.id` and `cursor` of the pull into the body:
+Open the browser's developer tools, go to **Network**, and set it to **Offline**. Add two todos and tick one. The page shows them, and `todos.queued` counts 3.
 
-```bash [commands/push]
-curl -X POST http://localhost:3000/api/_vitehub/sync/todos \
-  -H 'content-type: application/json' \
-  -d '{"scope":"<scope.id>","cursor":0,"mutations":[{"id":"write-1","op":"insert","value":{"id":"todo-1","title":"Buy milk"}}]}'
-```
+Reload the page while you are still offline. The todos are still there: the rows and the queued writes are in IndexedDB.
 
-The result of the write is `applied`, and `pull.rows` has the new todo. Send the same command again: the result is `duplicate`, and the server does not write the row twice.
+Set the network back to **No throttling**. The client sends the 3 writes in order, and `todos.queued` goes to 0. Open the page in a second tab: it shows the same rows.
 
 ::
 
@@ -125,6 +146,6 @@ export default defineSync({
 })
 ```
 
-Each person now sees only their own todos. A new todo gets `ownerId` from the server. A visitor gets 401 `SYNC_UNAUTHORIZED`.
+Each person now sees only their own todos. A new todo gets `ownerId` from the server, and the browser shows it with that value at once. Call `clearSync()` when a person signs out, so the next person on the device does not see the rows. See [Vue](/docs/sync/vue#sign-out).
 
 ::

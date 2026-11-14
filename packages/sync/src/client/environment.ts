@@ -1,0 +1,86 @@
+/** A page event that the store reacts to. */
+type SyncEvent = "online" | "offline" | "visible"
+
+/** A message between tabs. `change` tells that the stored copy of a Sync route changed. */
+type SyncMessage = { type: "change", id: string } | { type: "clear" }
+
+/** What the store needs from the browser. Tests pass a fake one. */
+interface SyncEnvironment {
+  listen: (listener: (event: SyncEvent) => void) => () => void
+  isVisible: () => boolean
+  isOnline: () => boolean
+  /** Runs `task` while this tab holds the lock `name`, so one tab at a time sends. */
+  lock: <T>(name: string, task: () => Promise<T>) => Promise<T>
+  post: (message: SyncMessage) => void
+  receive: (listener: (message: SyncMessage) => void) => () => void
+  /** Runs `task` after `ms`. Returns a function that cancels it. */
+  schedule: (task: () => void, ms: number) => () => void
+  random: () => number
+}
+
+const channelName = "vitehub-sync"
+
+function isSyncMessage(value: unknown): value is SyncMessage {
+  if (!value || typeof value !== "object") return false
+  const type: unknown = Reflect.get(value, "type")
+  return type === "clear" || (type === "change" && typeof Reflect.get(value, "id") === "string")
+}
+
+/** The real browser: window events, Web Locks, and a BroadcastChannel, each only when the browser has it. */
+function createBrowserEnvironment(): SyncEnvironment {
+  let channel: BroadcastChannel | undefined
+  return {
+    listen(listener) {
+      const online = () => listener("online")
+      const offline = () => listener("offline")
+      const visibility = () => {
+        if (document.visibilityState === "visible") listener("visible")
+      }
+      window.addEventListener("online", online)
+      window.addEventListener("offline", offline)
+      document.addEventListener("visibilitychange", visibility)
+      return () => {
+        window.removeEventListener("online", online)
+        window.removeEventListener("offline", offline)
+        document.removeEventListener("visibilitychange", visibility)
+      }
+    },
+    isVisible: () => document.visibilityState !== "hidden",
+    isOnline: () => navigator.onLine !== false,
+    lock(name, task) {
+      const locks = navigator.locks
+      return locks ? locks.request(name, task) : task()
+    },
+    post(message) {
+      channel?.postMessage(message)
+    },
+    receive(listener) {
+      if (typeof BroadcastChannel !== "function") return () => undefined
+      const own = new BroadcastChannel(channelName)
+      channel = own
+      own.onmessage = (event: MessageEvent<unknown>) => {
+        if (isSyncMessage(event.data)) listener(event.data)
+      }
+      return () => {
+        own.close()
+        if (channel === own) channel = undefined
+      }
+    },
+    schedule(task, ms) {
+      const timer = setTimeout(task, ms)
+      return () => clearTimeout(timer)
+    },
+    random: Math.random,
+  }
+}
+
+/** Tells the other tabs that every store was cleared. */
+function postClear(): void {
+  if (typeof BroadcastChannel !== "function") return
+  const channel = new BroadcastChannel(channelName)
+  channel.postMessage({ type: "clear" } satisfies SyncMessage)
+  channel.close()
+}
+
+export { createBrowserEnvironment, postClear }
+export type { SyncEnvironment, SyncEvent, SyncMessage }

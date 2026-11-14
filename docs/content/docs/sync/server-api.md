@@ -51,7 +51,7 @@ export default defineSync({
 })
 ```
 
-The values also make the scope of the caller. Each pull has its `scope.id`. When the values change, such as after a sign-in as another person, the id changes. The server then refuses a push of the old scope with `SYNC_SCOPE_CHANGED`, and the next pull is every row of the new scope.
+The values also make the scope of the caller. When the values change, such as after a sign-in as another person, the browser drops the rows of the old scope. Writes that it made for the old scope are never sent.
 
 ## The route
 
