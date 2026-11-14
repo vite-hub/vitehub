@@ -16,8 +16,6 @@ import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
-const vercelSandboxPackage = "@vercel/sandbox";
-
 export type VercelSandboxSource =
   | { depth?: number; revision?: string; type: "git"; url: string }
   | { password: string; username: string; depth?: number; revision?: string; type: "git"; url: string }
@@ -221,11 +219,15 @@ function ownNetworkPolicyMember<T extends object, K extends keyof T>(
   return value !== null && value !== undefined && Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
-async function loadVercelSandbox() {
+// A literal specifier lets the server bundler include the SDK. Nitro output has no `node_modules`, so a variable
+// specifier cannot load the SDK there.
+async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
   try {
-    const { Sandbox } = await import(/* @vite-ignore */ vercelSandboxPackage);
+    const { Sandbox } = await import("@vercel/sandbox");
     return async (options: VercelSandboxCreateOptions) =>
-      await Sandbox.create(options);
+      await Sandbox.create(
+        options as Parameters<typeof Sandbox.create>[0],
+      ) as unknown as VercelSandboxInstance;
   } catch (error) {
     throw sandboxErrorDiagnostics.SANDBOX_R0142({ message: `[vitehub] The vercel Sandbox runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}` });
   }
