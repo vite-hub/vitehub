@@ -94,7 +94,7 @@ describe("documentation tutorials", () => {
 
   it("covers public packages that live outside a primitive section", async () => {
     for (const [page, title] of [
-      ["content/docs/ui/get-started.md", "Get started"],
+      ["content/docs/ui/chat-tutorial.md", "Chat tutorial"],
       ["content/docs/agents/sandbox-tutorial.md", "Sandbox tutorial"],
       ["content/docs/reference/markdown-template-tutorial.md", "Tutorial"],
     ]) {

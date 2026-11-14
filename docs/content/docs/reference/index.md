@@ -77,7 +77,7 @@ Capabilities, and other app APIs come from feature subpaths.
 
 ## Package tutorials
 
-- [Build your first UI view](/docs/ui/get-started) for `@vite-hub/ui`.
+- [Build your first chat view](/docs/ui/chat-tutorial) for `@vite-hub/ui`.
 - [Run your first Sandbox](/docs/agents/sandbox-tutorial) for `@vite-hub/sandbox`.
 - [Render your first Markdown template](/docs/reference/markdown-template-tutorial) for `@vite-hub/markdown-template`.
 

@@ -1,10 +1,10 @@
 ---
-title: Build your first UI view
-description: "Install ViteHub UI, render a local question and reply with the Chat component in a Nuxt application, and check the result."
+title: Build your first chat view
+description: "Install the AI components, render a local question and reply with the Chat component in a Nuxt application, and check the result."
 layout: tutorial
-navigation.title: Get started
-navigation.order: 2
-navigation.group: Start
+navigation.title: Chat tutorial
+navigation.order: 8
+navigation.group: AI components
 icon: i-lucide-rocket
 ---
 

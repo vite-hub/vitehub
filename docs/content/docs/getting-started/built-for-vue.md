@@ -24,7 +24,7 @@ these blocks, then replace its slots when your app needs different controls.
 
 The components use Vue props, events, and slots. The Nuxt integration
 registers them for you. Read [Installation](/docs/ui/installation) for setup
-and required styles, or follow the [UI tutorial](/docs/ui/get-started) to
+and required styles, or follow the [chat tutorial](/docs/ui/chat-tutorial) to
 render your first component.
 
 ## Connect your own data
