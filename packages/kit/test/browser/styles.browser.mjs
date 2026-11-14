@@ -1,4 +1,4 @@
-// Renders every kit part under the default style family in headless Chromium, closed and open, light and dark, at a
+// Renders every ui-sdk part and the kit parts under the default style family in headless Chromium, closed and open, light and dark, at a
 // desktop and a phone width. The check fails when a page throws, when a part renders with a `data-slot` that the family
 // does not style, or when `[data-theme="dark"]` and `.dark` give different tokens.
 //

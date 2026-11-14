@@ -110,7 +110,7 @@ describe("Highlight in the Comments segment", () => {
 
     button(bar, "Done")!.click()
     await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
-    expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([{ color: "#facc15", points: [[20, 20], [70, 22], [120, 24]] }])
+    expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([{ tip: "marker", color: "#ec4899", points: [[20, 20], [70, 22], [120, 24]] }])
     // The strokes stay on the page, where they were drawn, while the comment is written. The toolbar is back.
     expect(layer()!.hasAttribute("data-frozen")).toBe(true)
     expect(tool(bar, "Highlight")).not.toBeNull()
@@ -154,6 +154,100 @@ describe("Highlight in the Comments segment", () => {
     await vi.waitFor(() => expect(layer()).not.toBeNull())
     press(document.body, "b")
     await vi.waitFor(() => expect(layer()).toBeNull())
+  })
+
+  it("draws with the pen, an arrow, and a text label, each in the color picked", async () => {
+    const { bar, shadow } = await site()
+    tool(bar, "Highlight")!.click()
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    expect(button(bar, "Marker")?.getAttribute("aria-pressed")).toBe("true")
+    expect(button(bar, "Pink ink")?.getAttribute("aria-pressed")).toBe("true")
+
+    press(document.body, "p")
+    await vi.waitFor(() => expect(button(bar, "Pen")?.getAttribute("aria-pressed")).toBe("true"))
+    button(bar, "Blue ink")!.click()
+    stroke([[20, 20], [60, 30], [100, 20]])
+    expect(layer()!.querySelector("path.pen")?.getAttribute("stroke")).toBe("#2563eb")
+
+    button(bar, "Arrow")!.click()
+    button(bar, "Green ink")!.click()
+    // An arrow this short is a slip and goes.
+    stroke([[300, 300], [304, 302]])
+    stroke([[20, 80], [80, 100], [140, 140]])
+    expect(layer()!.querySelectorAll("path.arrow")).toHaveLength(1)
+    expect(layer()!.querySelector("path.arrow")?.getAttribute("stroke")).toBe("#16a34a")
+
+    press(document.body, "t")
+    await vi.waitFor(() => expect(button(bar, "Text")?.getAttribute("aria-pressed")).toBe("true"))
+    stroke([[200, 100]])
+    const input = layer()!.querySelector<HTMLInputElement>('input[aria-label="Label"]')!
+    expect(input).not.toBeNull()
+    await type(input, "Too big")
+    // A color picked while the label is typed goes to that label.
+    button(bar, "Amber ink")!.click()
+    // Enter puts the label down; it does not finish the Marker, and the page does not see it.
+    const seen = vi.fn()
+    document.addEventListener("keydown", seen)
+    press(input, "Enter")
+    document.removeEventListener("keydown", seen)
+    expect(seen).not.toHaveBeenCalled()
+    expect(layer()!.querySelector("input")).toBeNull()
+    // Amber is light, so the words are dark.
+    expect(layer()!.querySelector(".label rect")?.getAttribute("fill")).toBe("#f59e0b")
+    expect(layer()!.querySelector(".label text")?.getAttribute("fill")).toBe("#0a0a0a")
+    expect(layer()!.querySelector(".label text")?.textContent).toBe("Too big")
+
+    // B with another tip in hand takes the marker, and does not turn Highlight off.
+    press(document.body, "b")
+    await vi.waitFor(() => expect(button(bar, "Marker")?.getAttribute("aria-pressed")).toBe("true"))
+    expect(layer()).not.toBeNull()
+
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
+    button(bar, "Done")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([
+      { tip: "pen", color: "#2563eb", points: [[20, 20], [60, 30], [100, 20]] },
+      { tip: "arrow", color: "#16a34a", points: [[20, 80], [140, 140]] },
+      { tip: "text", color: "#f59e0b", points: [[191, 100]], text: "Too big" },
+    ])
+  })
+
+  it("edits, moves, and empties a label with the text tip, and Cmd Enter in a label finishes", async () => {
+    const { bar, shadow } = await site()
+    press(document.body, "b")
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    press(document.body, "t")
+    stroke([[200, 100]])
+    await type(layer()!.querySelector<HTMLInputElement>("input")!, "Wrong")
+    press(layer()!.querySelector("input")!, "Escape")
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
+
+    // A click on the label edits it; emptied, it goes.
+    stroke([[210, 100]])
+    const input = layer()!.querySelector<HTMLInputElement>("input")!
+    expect(input.value).toBe("Wrong")
+    await type(input, "")
+    press(input, "Enter")
+    expect(layer()!.querySelector(".label")).toBeNull()
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(true))
+
+    stroke([[200, 100]])
+    await type(layer()!.querySelector<HTMLInputElement>("input")!, "Move me")
+    press(layer()!.querySelector("input")!, "Enter")
+    // A drag on the label moves it.
+    stroke([[210, 100], [260, 150]])
+    press(document.body, "p")
+    stroke([[20, 20], [60, 20]])
+    press(document.body, "t")
+    stroke([[300, 300]])
+    await type(layer()!.querySelector<HTMLInputElement>("input")!, "Send")
+    press(layer()!.querySelector("input")!, "Enter", { metaKey: true })
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([
+      { tip: "text", color: "#ec4899", points: [[241, 150]], text: "Move me" },
+      { tip: "pen", color: "#ec4899", points: [[20, 20], [60, 20]] },
+      { tip: "text", color: "#ec4899", points: [[291, 300]], text: "Send" },
+    ])
   })
 
   it("marks the area without a picture when the page cannot be drawn", async () => {

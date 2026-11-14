@@ -21,7 +21,7 @@ Then install the dependency required by the selected provider:
 
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
+| Cloudflare Workflows | None in application code                                           | Cloudflare owns run state. Without the binding, only `vite dev` runs inline; a Worker fails with `WORKFLOW_R0036`. |
 | Vercel Workflow      | `@vercel/functions`; add `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
 
@@ -131,7 +131,7 @@ export default defineConfig({
 });
 ```
 
-The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on other supported hosts. Node and Docker select OpenWorkflow when its storage is configured. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on Vercel hosting. On other hosts, such as Node, Docker, and Deno, `postgres.url` or `sqlite.path` selects OpenWorkflow. Without them, a build fails with `WORKFLOW_C0020` and shows the config to add. Netlify cannot infer a provider. `vite dev`, and the Workflow that only the Agent turns on, run each Workflow inline in the process instead. `vitehub durability list` shows the store that the app uses.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 

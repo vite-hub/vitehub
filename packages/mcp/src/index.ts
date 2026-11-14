@@ -54,6 +54,7 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
   annotations?: McpToolAnnotations
   /**
    * Also serve the tool at `mcp.publicRoute`, where anyone may call it without sign-in. There, `caller` is `undefined`.
+   * Set it only with `mcp.publicRoute`. Without one, the server fails with `MCP_R0001`.
    */
   public?: boolean
   /**
@@ -263,13 +264,13 @@ export interface McpOptions {
   /** The route of the MCP server. Defaults to `/mcp`. */
   route?: string
   /**
-   * Require an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`. Defaults to `true` when the app has `auth`.
-   * Set `false` for a public server, or to check callers in each handler.
+   * Require an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`. Defaults to `true`, and then the app needs
+   * `auth`. Set `false` to let anyone call every tool, or to check callers in each handler.
    */
   auth?: boolean
   /**
    * A second route, such as `/mcp`, that serves only the tools with `public: true`, with no sign-in. MCP clients do not
-   * sign in on a route that answers without a token, so the tools that need a person stay on `route`.
+   * sign in on a route that answers without a token, so the tools that need a person stay on `route`. Needs `auth`.
    */
   publicRoute?: string
   /** What `initialize` tells the Agent about the server, such as which tool to call first. Defaults to a short generic text. */

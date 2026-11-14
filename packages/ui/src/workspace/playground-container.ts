@@ -26,7 +26,7 @@ import { useConnectStore } from "./connect-store.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
-import { WorkspacePreview } from "./workspace-preview.ts";
+import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
@@ -163,6 +163,8 @@ const PlaygroundSession = defineComponent({
     const workspace = useWebContainer({
       files: props.files,
       port: props.port,
+      // The browser frame of the preview reads the page address and goes Back and Forward through this script.
+      previewScript: workspacePreviewScript,
       env: props.connect && store.env(props.connect),
       ...booted.snapshot && { snapshot: booted.snapshot, install: sameManifest ? false : "install" },
     });
@@ -214,7 +216,9 @@ const PlaygroundSession = defineComponent({
       selected.value = firstFile(next, next.files);
       previewPath.value = next.preview ?? "/";
       emit("change", next);
-      await workspace.setFiles(next.files, { mode: "replace" });
+      // A failed write is in the terminal. The files on disk are not the template's, so the server does not start again.
+      try { await workspace.setFiles(next.files, { mode: "replace" }); }
+      catch { return; }
       // The Vite config can differ, so the dev server starts again.
       await workspace.restart();
     }
@@ -253,7 +257,8 @@ const PlaygroundSession = defineComponent({
 
     const source = computed({
       get: () => workspace.files.value[selected.value] ?? "",
-      set: value => void workspace.setFiles({ [selected.value]: value }),
+      // A failed write is in the terminal, and the next edit writes the file again.
+      set: value => void workspace.setFiles({ [selected.value]: value }).catch(() => {}),
     });
 
     const hasConnect = computed(() => (props.connect?.providers.length ?? 0) > 0);

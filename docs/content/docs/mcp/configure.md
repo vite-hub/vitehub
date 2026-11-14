@@ -11,8 +11,8 @@ Set `mcp: true` in the ViteHub options, or pass an object with these options:
 | Option | Default | Use |
 | --- | --- | --- |
 | `route` | `/mcp` | The path of the server below the application base. |
-| `auth` | `true` with `auth` | Require an access token from `mcpOAuth()`. |
-| `publicRoute` | none | A second path that serves the tools, prompts, and resources with `public: true` without sign-in. |
+| `auth` | `true` | Require an access token from `mcpOAuth()`. The app needs `auth`. `false` lets anyone call every tool. |
+| `publicRoute` | none | A second path that serves the tools, prompts, and resources with `public: true` without sign-in. Needs `auth`. |
 | `instructions` | A short generic text | What `initialize` tells the Agent about the server. |
 | `serverInfo` | The app name, version `"1"` | The `name`, `title`, `version`, `description`, `websiteUrl`, and `icons` that MCP clients show. |
 
@@ -75,21 +75,27 @@ An icon `src` or a `websiteUrl` that starts with `/` is a path on the origin of 
 
 ## Sign in with MCP OAuth
 
-With `auth` in `vitehub()`, the MCP server needs an access token. Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`. Then add `mcpOAuth()` to the Auth, with the URL of the server as its resource:
+The MCP server needs an access token, so set `auth` in `vitehub()`. Without `auth`, the build fails with `VITE_HUB_R0141`. Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`. Then add `mcpOAuth()` to the Auth, with the URL of the server as its resource:
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { mcpOAuth } from 'vite-hub/auth/mcp'
 
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
+  database: authDatabase(),
   plugins: [...mcpOAuth({ resource: `${requestOrigin}/mcp`, loginPage: '/sign-in' })],
 }))
 ```
 
 A request without a valid token gets `401` with `WWW-Authenticate: Bearer resource_metadata="…"`, and the MCP client starts the OAuth flow. The server also answers the discovery documents at `/.well-known/`. The `caller` of a handler has the `user`, the approved `scopes`, and the `clientName`, such as `Claude Code`. See [MCP OAuth](/docs/auth/configure#sign-mcp-clients-in) for the options of `mcpOAuth()`.
 
-Set `mcp: { auth: false }` for a public server in an app with Auth, or to check callers in each handler. To give the handlers the app's own user instead of the Auth user, add `resolveCaller` in [`server/mcp.ts`](/docs/mcp/server-api#resolve-the-caller-and-log-tool-calls).
+## Make every tool public
+
+Set `mcp: { auth: false }` to let anyone who knows the URL call every tool, or to check callers in each handler. This works with or without `auth` in `vitehub()`. Without `resolveCaller`, `caller` is always `undefined`, and `publicRoute` fails the build with [`MCP_B0003`](/docs/mcp/limits-and-errors#mcp_b0003).
+
+To give the handlers the app's own identity, add `resolveCaller` in [`server/mcp.ts`](/docs/mcp/server-api#resolve-the-caller-and-log-tool-calls).
 
 ## Serve the app below a base path
 
@@ -144,3 +150,5 @@ export default defineMcpTool({
 ```
 
 `/mcp` lists only the tools with `public: true`. Prompts and resources with `public: true` are on it too. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
+
+Set `public` on a tool only with `publicRoute`. Without `publicRoute`, a tool with `public: true` or `public: false` fails the server with [`MCP_R0001`](/docs/mcp/limits-and-errors#mcp_r0001), because the option would do nothing.

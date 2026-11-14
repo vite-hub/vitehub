@@ -1,5 +1,8 @@
 // Markdown negotiation and the Markdown 404 body. This module imports no Markdown parser, so the generated middleware
 // can load it when the server starts and load server/content.ts only on the first request that asks for Markdown.
+import { contentReadDenied, contentReadGated } from "./read-gate.ts"
+
+import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { DefineContentSeoOptions } from "./sitemap.ts"
 
 /** The `Vary` value of every response that depends on the `Accept` header. */
@@ -112,9 +115,11 @@ export function renderContentMarkdownNotFound(options: { path: string, site: str
 export type ContentMiddleware = (event: { req: Request, res?: { status?: number, headers: Headers, errHeaders?: Headers } }, next?: () => unknown) => Promise<unknown>
 
 /** The part of a Content runtime that Markdown copies need. */
-export interface ContentMarkdownRuntime {
+export interface ContentMarkdownRuntime extends ContentReadAccess {
   readonly seo: DefineContentSeoOptions | undefined
   markdown(path: string, options?: { site?: string }): Promise<string | null>
+  /** Whether `markdown(path)` has a copy. Without it, the middleware renders the copy to find out. */
+  hasMarkdown?(path: string): Promise<boolean>
 }
 
 const notFound = Symbol.for("h3.notFound")
@@ -141,7 +146,7 @@ function errorStatus(error: unknown): unknown {
   return Reflect.get(error, "status") ?? Reflect.get(error, "statusCode")
 }
 
-function markdownVary(...values: (string | null | undefined)[]): string {
+function mergeVary(...values: (string | null | undefined)[]): string {
   const fields = new Map<string, string>()
   for (const value of [...values, contentMarkdownVary]) {
     for (const field of value?.split(",") ?? []) {
@@ -153,17 +158,48 @@ function markdownVary(...values: (string | null | undefined)[]): string {
   return [...fields.values()].join(", ")
 }
 
+/** The `Link` header value that names the Markdown copy of a page. */
+export function markdownAlternateLink(href: string): string {
+  return `<${href}>; rel="alternate"; type="text/markdown"`
+}
+
+function resultHeaders(result: unknown): Headers | undefined {
+  const headers: unknown = isResponse(result) || result instanceof Error ? Reflect.get(result, "headers") : undefined
+  return headers instanceof Headers ? headers : undefined
+}
+
+/** A strong ETag from the SHA-256 digest of the body. */
+async function markdownEtag(body: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)))
+  let hex = ""
+  for (const byte of digest.subarray(0, 16)) hex += byte.toString(16).padStart(2, "0")
+  return `"${hex}"`
+}
+
+/** Whether an `If-None-Match` header names `etag`. The weak comparison of RFC 9110 ignores `W/`. */
+function etagMatches(header: string | null, etag: string): boolean {
+  if (!header) return false
+  return header.split(",").some((tag) => {
+    const value = tag.trim()
+    return value === "*" || value.replace(/^W\//, "") === etag
+  })
+}
+
 /**
  * Serve Markdown copies as H3 middleware, not as a Fetchable route: Nitro routes cannot match a suffix.
  *
  * - `<url>.md` returns the copy from `content.markdown()`.
- * - A page URL with `Accept: text/markdown` before `text/html` returns the same copy. Page responses get `Vary: Accept`.
+ * - A page URL with `Accept: text/markdown` before `text/html` returns the same copy.
  * - A Markdown request that no handler answers gets a Markdown 404 body.
+ * - Every response at a page URL with a copy gets `Vary: Accept`; a successful HTML page also gets a
+ *   `Link` header naming the copy. Page 404s vary too, because Markdown requests get the Markdown 404.
  *
- * Every other request passes through. Pass the Content runtime, or a function that loads it: the middleware then loads
- * Content only for requests that ask for Markdown. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
+ * A copy has `Content-Location` and an `ETag`, so `If-None-Match` gets a 304. A Markdown request first asks
+ * `authorize` with `action: "read"`, as `/api/content/**` does. Every other request passes through. Pass the Content
+ * runtime, or a function that loads it: the middleware loads Content for Markdown requests and to check whether
+ * downstream responses have copies. ViteHub generates it when `defineContent({ seo: { markdown: true } })`.
  */
-export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>)): ContentMiddleware {
+export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (() => ContentMarkdownRuntime | Promise<ContentMarkdownRuntime>), options: ContentHandlerOptions = {}): ContentMiddleware {
   return async (event, next) => {
     if (typeof content !== "function" && !content.seo?.markdown) return
     const request = event.req
@@ -173,51 +209,86 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     // A dot can belong to a document ID or configured URL. Only Content can decide whether a copy exists.
     const page = !copy
     const negotiated = page && acceptsMarkdown(request.headers.get("accept"))
-    const vary = (result: unknown) => {
-      if (page && event.res) {
-        const headers: unknown = isResponse(result) || result instanceof Error ? Reflect.get(result, "headers") : undefined
-        const value = markdownVary(event.res.headers.get("vary"), event.res.errHeaders?.get("vary"), headers instanceof Headers ? headers.get("vary") : undefined)
-        // H3 overwrites returned Response headers with prepared headers. Merge after downstream handlers finish.
-        event.res.headers.set("vary", value)
-        event.res.errHeaders?.set("vary", value)
+    const twin = markdownCopyUrl(url.pathname)
+    const load = async () => typeof content === "function" ? await content() : content
+    const setHeader = (name: string, value: string) => {
+      event.res?.headers.set(name, value)
+      event.res?.errHeaders?.set(name, value)
+    }
+    // H3 overwrites returned Response headers with prepared headers. Merge after downstream handlers finish.
+    const vary = (result: unknown) => setHeader("vary", mergeVary(event.res?.headers.get("vary"), event.res?.errHeaders?.get("vary"), resultHeaders(result)?.get("vary")))
+    /** Vary copy-backed responses and page 404s; advertise copies only from successful HTML pages. */
+    const alternate = async (result: unknown) => {
+      if (!page || !event.res) return result
+      const status = responseStatus(result) ?? event.res.status ?? 200
+      if (result === notFound || status === 404) {
+        vary(result)
+        return result
       }
+      const type = resultHeaders(result)?.get("content-type") ?? event.res.headers.get("content-type") ?? ""
+      const runtime = await load()
+      if (!runtime.seo?.markdown) return result
+      const exists = runtime.hasMarkdown ? await runtime.hasMarkdown(twin) : await runtime.markdown(twin) !== null
+      if (!exists) return result
+      vary(result)
+      if (status !== 200 || !/^\s*(?:text\/html|application\/xhtml\+xml)\b/i.test(type)) return result
+      const links = [event.res.headers.get("link"), resultHeaders(result)?.get("link"), markdownAlternateLink(twin)].filter(Boolean)
+      event.res.headers.set("link", [...new Set(links)].join(", "))
       return result
     }
     const downstream = async () => {
       try {
-        return vary(await next?.())
+        return await next?.()
       }
       catch (error) {
-        vary(error)
+        if (page && errorStatus(error) === 404) vary(error)
         throw error
       }
     }
-    if (!copy && !negotiated) return await downstream()
-    const runtime = typeof content === "function" ? await content() : content
+    if (!copy && !negotiated) return await alternate(await downstream())
+    const runtime = await load()
     const seo = runtime.seo
     if (!seo?.markdown) return
+    const denied = await contentReadDenied(runtime, request, options)
+    if (denied) {
+      vary(denied)
+      setHeader("cache-control", "private, no-store")
+      return denied
+    }
+    if (contentReadGated(runtime)) setHeader("cache-control", "private, no-store")
     const site = seo.site ?? url.origin
-    const respond = (body: string, status = 200) => new Response(request.method === "HEAD" ? null : body, {
-      status,
-      headers: {
+    const respond = async (body: string, status = 200) => {
+      const headers = new Headers({
         "content-type": "text/markdown; charset=utf-8",
-        "cache-control": status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
-        ...negotiated ? { vary: contentMarkdownVary } : {},
-      },
-    })
-    const markdown = await runtime.markdown(copy ? url.pathname : markdownCopyUrl(url.pathname), { site })
-    if (markdown !== null) return vary(respond(markdown))
+        "cache-control": contentReadGated(runtime) ? "private, no-store" : status === 200 ? "public, max-age=0, must-revalidate" : "no-cache",
+      })
+      if (negotiated) headers.set("vary", contentMarkdownVary)
+      let response: Response
+      if (status !== 200) response = new Response(request.method === "HEAD" ? null : body, { status, headers })
+      else {
+        headers.set("content-location", copy ? url.pathname : twin)
+        const etag = await markdownEtag(body)
+        headers.set("etag", etag)
+        const fresh = etagMatches(request.headers.get("if-none-match"), etag)
+        if (fresh) headers.delete("content-type")
+        response = new Response(fresh || request.method === "HEAD" ? null : body, { status: fresh ? 304 : status, headers })
+      }
+      if (negotiated) vary(response)
+      return response
+    }
+    const markdown = await runtime.markdown(copy ? url.pathname : twin, { site })
+    if (markdown !== null) return await respond(markdown)
     if (!next) return
-    const missing = () => vary(respond(renderContentMarkdownNotFound({ path: url.pathname, site, links: contentMarkdownErrorLinks(seo) }), 404))
+    const missing = async () => await respond(renderContentMarkdownNotFound({ path: url.pathname, site, links: contentMarkdownErrorLinks(seo) }), 404)
     let result: unknown
     try {
-      result = await downstream()
+      result = await next()
     }
     catch (error) {
-      if (errorStatus(error) === 404) return missing()
+      if (errorStatus(error) === 404) return await missing()
       throw error
     }
-    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return missing()
+    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return await missing()
     return result
   }
 }

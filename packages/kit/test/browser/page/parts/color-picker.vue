@@ -6,7 +6,7 @@ import {
   ColorPickerInput,
   ColorPickerSlider,
   ColorPickerSliderThumb,
-} from "@vite-hub/kit/color-picker"
+} from "@ui-sdk/vue/color-picker"
 </script>
 
 <template>

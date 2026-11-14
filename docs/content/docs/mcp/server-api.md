@@ -29,7 +29,7 @@ export default defineMcpTool({
 | `title` | A short name for people, such as "List drops". |
 | `input` | The arguments: a Standard Schema that also gives its JSON Schema, such as a Zod 4 object or a Valibot schema in `toStandardJsonSchema()`. `tools/list` shows its JSON Schema. |
 | `annotations` | The MCP tool annotations that clients read before a call: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. |
-| `public` | Set `true` to include the tool on `mcp.publicRoute`. See [Public tools](/docs/mcp/configure#serve-public-tools-without-sign-in). |
+| `public` | Set `true` to include the tool on `mcp.publicRoute`. Without `mcp.publicRoute`, the server fails with `MCP_R0001`. See [Public tools](/docs/mcp/configure#serve-public-tools-without-sign-in). |
 | `handler` | Runs the call. |
 
 The server checks the arguments with `input` before the handler runs. Invalid arguments are a tool error for protocol `2025-11-25`, or JSON-RPC `-32602` for `2025-06-18`.

@@ -37,8 +37,8 @@ describe("AgentInvocationTimeline", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]!.attributes()).toMatchObject({ "data-owner": "vitehub", title: "Reading workspace files — 12 files" });
     expect(rows[1]!.attributes("data-status")).toBe("failed");
-    expect(rows[0]!.get(".vh-visually-hidden").text()).toBe("ViteHub:");
-    expect(rows[1]!.get(".vh-visually-hidden").text()).toBe("Agent, failed:");
+    expect(rows[0]!.get('[data-slot="visually-hidden"]').text()).toBe("ViteHub:");
+    expect(rows[1]!.get('[data-slot="visually-hidden"]').text()).toBe("Agent, failed:");
     expect(rows[1]!.get("time").text()).toBe("+2m 8s · 41.2s");
     await rows[1]!.trigger("click");
     expect(wrapper.emitted("selectActivity")).toEqual([["tests"]]);

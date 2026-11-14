@@ -7,7 +7,7 @@ import {
   AutocompleteItem,
   AutocompleteLabel,
   AutocompleteList,
-} from "@vite-hub/kit/autocomplete"
+} from "@ui-sdk/vue/autocomplete"
 
 const fruits = [
   "Apple",
