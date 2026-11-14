@@ -123,13 +123,17 @@ export function installWorkflowRuntime() {
 ```ts fragment
 // vite.config.ts
 import { hubWorkflow } from "@vite-hub/workflow/vite";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import { workflowConfig } from "./server/workflow-runtime.ts";
 
 export default defineConfig({
-  plugins: [hubWorkflow(workflowConfig)],
+  nitro: { serverDir: "./server" },
+  plugins: [hubWorkflow(workflowConfig), nitro()],
 });
 ```
+
+`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the provider config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
 
 The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting and Vercel on Vercel hosting. On other hosts, such as Node, Docker, and Deno, `postgres.url` or `sqlite.path` selects OpenWorkflow. Without them, a build fails with `WORKFLOW_C0020` and shows the config to add. Netlify cannot infer a provider. `vite dev`, and the Workflow that only the Agent turns on, run each Workflow inline in the process instead. `vitehub durability list` shows the store that the app uses.
 
