@@ -33,5 +33,17 @@ describe("defineSync", () => {
     expect(() => defineSync({ table: todos, where, schema: {} })).toThrow("`schema`")
     expect(() => defineSync({ table: todos, where, database: "" })).toThrow("`database`")
     expect(() => defineSync({ table: pgTable("t", { id: pgInteger("id") }), where })).toThrow("Postgres")
+    // @ts-expect-error `live` is a boolean.
+    expect(() => defineSync({ table: todos, where, live: "yes" })).toThrow("`live`")
+  })
+
+  it("checks the actions", () => {
+    const complete = ({ update }: { update: (key: string, patch: { title: string }) => void }, { id }: { id: string }) => update(id, { title: "done" })
+    expect(defineSync({ table: todos, where, actions: { complete } }).options.actions).toEqual({ complete })
+    // @ts-expect-error an action is a function.
+    expect(() => defineSync({ table: todos, where, actions: { complete: true } })).toThrow(expect.objectContaining({ code: "SYNC_INVALID_DEFINITION", message: expect.stringContaining("`complete` must be a function") }))
+    expect(() => defineSync({ table: todos, where, actions: { "mark-done": complete } })).toThrow("must start with a letter")
+    expect(() => defineSync({ table: todos, where, actions: { _hidden: complete } })).toThrow("must start with a letter")
+    expect(() => defineSync({ table: todos, where, actions: [complete] })).toThrow("`actions` must be an object")
   })
 })
