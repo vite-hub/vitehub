@@ -205,6 +205,9 @@ runtime, because an R2 binding alone cannot sign requests. To serve files
 without your own route, set `blob: { serve: { access: "public" } }` for public
 files, or `blob: { serve: { authorize: true } }` to require a session.
 
+NuxtHub has no image service. The served route of ViteHub resizes images, and
+`<NuxtImg provider="vitehub">` uses it. See [Nuxt Image](/docs/blob/media#nuxt-image).
+
 ## Move the database
 
 NuxtHub uses Drizzle 0.x. ViteHub uses Drizzle 1.0, so relations, `db.query`,
@@ -236,6 +239,30 @@ export default defineDatabase({
   schema,
 })
 ```
+
+### Keep a Turso or libSQL connection
+
+NuxtHub connects to `TURSO_DATABASE_URL`, `LIBSQL_URL`, or `DATABASE_URL`
+without config. A ViteHub Database Definition reads only its `connection`.
+Without one, it uses the local file `.vitehub/data/database/sqlite.db` and
+prints `DATABASE_URL_VARIABLE_IGNORED` when one of these variables is set. Name
+the variable in the Definition:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from "vite-hub/database"
+import * as schema from "./schema"
+
+export default defineDatabase({
+  connection: {
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+  schema,
+})
+```
+
+When the variable is not set, as on your computer, the Definition still uses
+the local file.
 
 `vite-hub/database` exports `db` and `schema` for the `default`
 Database. For `db.select()`, `db.insert()`, and the other SQL-like queries,

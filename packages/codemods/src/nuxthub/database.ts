@@ -64,6 +64,20 @@ async function findSchema(cwd: string, dialect: Dialect): Promise<{ files: strin
 }
 
 /**
+ * NuxtHub connects a SQLite app to Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set, with no config. A
+ * ViteHub Definition reads only its `connection`, so the codemod names the variables when an env file of the app sets
+ * both. It reads only the variable names.
+ */
+async function usesTursoVariables(cwd: string): Promise<boolean> {
+  const names = new Set<string>()
+  for (const file of await glob([".env", ".env.*"], { cwd, dot: true })) {
+    const code = await readFile(join(cwd, file), "utf8")
+    for (const match of code.matchAll(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=/gm)) names.add(match[1]!)
+  }
+  return names.has("TURSO_DATABASE_URL") && names.has("TURSO_AUTH_TOKEN")
+}
+
+/**
  * Moves the NuxtHub schema to `server/databases/default/` and writes the Database Definition. Relative imports in the
  * moved files are rewritten when they point outside the moved set.
  */
@@ -144,12 +158,22 @@ export async function moveSchema(cwd: string, dialect: Dialect): Promise<SchemaM
     result.oldModule = schema.files[0]!.replace(scriptExtension, "")
   }
   const semicolon = style.semicolons ? ";" : ""
+  const turso = dialect === "sqlite" && await usesTursoVariables(cwd)
+  if (turso) result.followUps.push({ file: definitionFile, message: "An env file of the app sets TURSO_DATABASE_URL and TURSO_AUTH_TOKEN, which NuxtHub read on its own. The codemod set connection to these variables. Without them, the Database uses the local SQLite file." })
   const definition = [
     `import { defineDatabase } from ${quoteString("vite-hub/database", style)}${semicolon}`,
     `import * as schema from ${quoteString("./schema", style)}${semicolon}`,
     "",
     "export default defineDatabase({",
     ...(dialect === "postgresql" ? [`${style.indent}dialect: ${quoteString("postgresql", style)},`] : []),
+    ...(turso
+      ? [
+          `${style.indent}connection: {`,
+          `${style.indent}${style.indent}url: process.env.TURSO_DATABASE_URL || undefined,`,
+          `${style.indent}${style.indent}authToken: process.env.TURSO_AUTH_TOKEN,`,
+          `${style.indent}},`,
+        ]
+      : []),
     `${style.indent}schema,`,
     `})${semicolon}`,
     "",

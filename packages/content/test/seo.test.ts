@@ -282,6 +282,7 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
   it("lists the documents of read-only Sources with a url", async () => {
     const reader = (items: Array<{ path: string, content: string }>) => ({ async items() { return items.map(item => ({ key: item.path, ...item })) } })
     const content = defineContent({
+      access: "public",
       route: false,
       logger: false,
       sources: {
