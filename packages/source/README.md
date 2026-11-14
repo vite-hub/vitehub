@@ -240,6 +240,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
   if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
   return await response.json() as Article[]
 }, {
+  access: 'public',
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
   querySchema: v.object({ author: v.optional(v.string()) }),
@@ -265,7 +266,10 @@ export const useArticles = () => useCollection("articles", {
 ViteHub discovers modules in `server/collections` and generates the collection
 registry and GET handler. The module must export a Collection with the same name
 as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`.
-A Collection is a public read model unless it sets `authorize`. `authorize: true`
+Each routed Collection must set `authorize` or `access: "public"`, or
+`defineCollection()` throws `SOURCE_R0035`. `access: "public"` makes the route
+public. `authorize: false` throws `SOURCE_R0037`, and `access: "public"` with
+`authorize` throws `SOURCE_R0038`. `authorize: true`
 requires a signed-in `@vite-hub/auth` session, and a callback receives
 `{ request, session, user }` and returns `true`, `false` for `403`, or a
 `Response`. The route checks access before it parses the query. Without a session
@@ -273,7 +277,8 @@ it returns `401`, and `useCollection()` sets `error` to a `CollectionAccessError
 with that `status`. Generated routes wrap the page with Auth's `withAuthorization` when the host
 enables Auth with a discovered Auth Definition (`hubSource({ auth: true })`
 alongside `hubAuth()` outside `vite-hub`); otherwise a
-Collection with `authorize` fails closed. Do not repeat the route under
+Collection with `authorize: true` or a callback fails closed. Set `route: false`
+to keep a Collection server-only. Then neither is needed. Do not repeat the route under
 `server/api`. Restart Nuxt after
 adding, removing, or renaming a Collection module so Nitro rebuilds its handler
 manifest.
@@ -296,6 +301,7 @@ It filters, searches, sorts, counts, and pages the array, and returns `total` an
 import { array, defineCollection } from "@vite-hub/source"
 
 export const articles = defineCollection({
+  access: 'public',
   source: array(() => loadArticles(), {
     facets: ["category"],
     filters: ["category", "authors.name"],
@@ -319,7 +325,17 @@ page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
-`vite-hub/source/drizzle`.
+`vite-hub/source/drizzle`. `table()` selects every column. A public Collection
+over it must set `transform` to return only the public fields, or
+`defineCollection()` throws `SOURCE_R0036`:
+
+```ts fragment
+export const authors = defineCollection({
+  access: 'public',
+  source: table({ db, orderBy: { column: users.id, direction: "asc", tieBreaker: users.id }, table: users }),
+  transform: ({ id, name }) => ({ id, name }),
+})
+```
 
 Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
 Cancelled reads reject with the signal's reason, including when a loader or

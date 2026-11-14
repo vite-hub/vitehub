@@ -1,4 +1,4 @@
-import { CollectionCursorError } from "./core/collection.ts"
+import { assertCollectionAccess, CollectionCursorError } from "./core/collection.ts"
 
 import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
@@ -19,7 +19,7 @@ export type CollectionAuthorizationGuard = <TResult>(
 ) => (request: Request) => Promise<TResult | Response>
 
 export interface CollectionHandlerOptions {
-  /** Required when the Collection declares `authorize`. Generated routes pass Auth's `withAuthorization`. */
+  /** Required unless the Collection sets `access: "public"`. Generated routes pass Auth's `withAuthorization`. */
   withAuthorization?: CollectionAuthorizationGuard
 }
 
@@ -121,7 +121,8 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   assertCollection(collection)
   // The build reads only a literal `route: false`. For any other form it writes the route, and the route answers 404.
   if (collection.route === false) return { fetch: async () => errorResponse(404, "Not Found") }
-  const { authorize } = collection
+  // Fail closed: a Collection object that does not say who can read it gets no route.
+  const { authorize } = assertCollectionAccess(collection)
   const { withAuthorization } = options
   if (authorize && !withAuthorization) {
     // Fail closed: without Auth, the route cannot read a session.

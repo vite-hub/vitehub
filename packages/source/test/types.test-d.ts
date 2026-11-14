@@ -133,6 +133,7 @@ describe("@vite-hub/source types", () => {
         return [{ createdAt: 1, id: "meal_1", photoPath: "private/original" }]
       },
       {
+        access: "public",
         cursor: row => [row.createdAt, row.id] as const,
         cursorSchema: v.tuple([v.number(), v.string()]),
         querySchema: v.object({ day: v.optional(v.string()) }),
@@ -154,6 +155,7 @@ describe("@vite-hub/source types", () => {
         return [{ id: query.search }]
       },
       {
+        access: "public",
         cursor: row => row.id,
         cursorSchema: v.string(),
         querySchema: v.pipe(
@@ -172,6 +174,7 @@ describe("@vite-hub/source types", () => {
       {
         cursor: row => row.id,
         cursorSchema: v.pipe(v.string(), v.transform(Number), v.number()),
+        route: false,
       },
     )
   })
@@ -188,9 +191,18 @@ describe("@vite-hub/source types", () => {
       cursorSchema: v.number(),
     })
     expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption | undefined>()
+    expectTypeOf(collection.access).toEqualTypeOf<"public" | undefined>()
     defineCollection(async () => [{ id: 1 }], { authorize: true, cursor: row => row.id, cursorSchema: v.number() })
-    // @ts-expect-error Omit authorize for a public Collection.
+    defineCollection(async () => [{ id: 1 }], { access: "public", cursor: row => row.id, cursorSchema: v.number() })
+    defineCollection(async () => [{ id: 1 }], { cursor: row => row.id, cursorSchema: v.number(), route: false })
+    // @ts-expect-error A routed Collection must set authorize.
+    defineCollection(async () => [{ id: 1 }], { cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error `false` is not a public opt-in. Use access: "public".
     defineCollection(async () => [{ id: 1 }], { authorize: false, cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error A public Collection has no authorize rule.
+    defineCollection(async () => [{ id: 1 }], { access: "public", authorize: true, cursor: row => row.id, cursorSchema: v.number() })
+    // @ts-expect-error A server-only Collection has no public route to open.
+    defineCollection(async () => [{ id: 1 }], { access: "public", cursor: row => row.id, cursorSchema: v.number(), route: false })
   })
 
   it("accepts SDK clients and transports without exposing SDK types", () => {

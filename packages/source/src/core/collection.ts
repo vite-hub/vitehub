@@ -7,6 +7,9 @@ import { parseCollectionSchema } from "./schema.ts"
 export { CollectionCursorError } from "./collection-cursor.ts"
 export type { CollectionCursorErrorOptions, CollectionCursorErrorReason } from "./collection-cursor.ts"
 
+// Keep the guard on the reader so object spreads retain it, including across package entry points.
+const untransformedTableRows = Symbol.for("@vite-hub/source/untransformed-table-rows")
+
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
 declare const collectionQueryInput: unique symbol
@@ -59,7 +62,9 @@ export interface Collection<
   TQueryInput extends object = TQuery,
 > {
   readonly [collectionQueryInput]?: TQueryInput
-  /** Access rule for the generated route. Omit it for a public Collection. */
+  /** `"public"` lets anyone read the generated route without sign-in. */
+  readonly access?: "public"
+  /** Access rule for the generated route. Undefined only with `access: "public"` or `route: false`. */
   readonly authorize?: AccessAuthorizeOption
   readonly route?: false
   readonly get?: (key: string, options?: { signal?: AbortSignal }) => Promise<TItem | null | undefined>
@@ -181,19 +186,32 @@ export type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (opti
 type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
 
 /**
+ * Who can read the generated `/api/<name>` route. A routed Collection must set `authorize` (`true` requires a
+ * signed-in Auth session, a callback also decides each request) or `access: "public"`, so a route is never public by
+ * accident. Set `route: false` to keep the Collection server-only.
+ */
+export type CollectionAccess =
+  | { access?: undefined; authorize: AccessAuthorizeOption; route?: undefined }
+  | { access: "public"; authorize?: undefined; route?: undefined }
+  | { access?: undefined; authorize?: AccessAuthorizeOption; route: false }
+
+/** The access of a source that returns whole table rows without `transform`. The route cannot be public. */
+type RawRowsAccess =
+  | { access?: undefined; authorize: AccessAuthorizeOption; route?: undefined }
+  | { access?: undefined; authorize?: AccessAuthorizeOption; route: false }
+
+/**
  * A cursor the loader must not mutate. Only object cursors become readonly, so `AnyCollectionSource` keeps `any`
  * instead of `Readonly<any>`, an index-signature object that rejects string and number cursors.
  */
 type ReadonlyCursor<TCursorInput> = TCursorInput extends object ? Readonly<TCursorInput> : TCursorInput
 
-export interface CollectionOptions<
+interface CollectionLoaderOptions<
   TSourceItem,
   TQuery extends object,
   TCursorInput extends CollectionCursorValue,
   TCursorOutput extends CollectionCursorValue = TCursorInput,
 > {
-  /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
-  authorize?: AccessAuthorizeOption
   cursor(item: NoInfer<TSourceItem>): ReadonlyCursor<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
@@ -201,12 +219,16 @@ export interface CollectionOptions<
   querySchema?: StandardSchemaV1<unknown, TQuery>
   transform?: CollectionTransform<TSourceItem>
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
-  route?: false
 }
 
-export interface ProviderCollectionOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> {
-  authorize?: AccessAuthorizeOption
-  route?: false
+export type CollectionOptions<
+  TSourceItem,
+  TQuery extends object,
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue = TCursorInput,
+> = CollectionLoaderOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> & CollectionAccess
+
+interface ProviderCollectionLoaderOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> {
   pagination: "provider"
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
   defaultLimit?: number
@@ -215,11 +237,19 @@ export interface ProviderCollectionOptions<TSourceItem, TQuery extends object = 
   transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
 }
 
+export type ProviderCollectionOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> =
+  ProviderCollectionLoaderOptions<TSourceItem, TQuery, TItem> & CollectionAccess
+
 interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery extends object> {
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
   defaultLimit?: number
   maxLimit?: number
   querySchema?: StandardSchemaV1<TQueryInput, TQuery>
+  /**
+   * `true` when the source returns whole rows, such as every column of a database table. A Collection over it needs
+   * `transform` to pick the public fields before it can set `access: "public"`.
+   */
+  rawRows?: boolean
 }
 
 /** A loader whose rows carry their own cursor. The Collection requests one extra row to detect the next page. */
@@ -290,17 +320,15 @@ type SourceContract<TSource> =
       : { load: (options: Omit<LoadOptionsOf<TSource>, "query"> & { query: TQuery }) => unknown }
     : unknown)
 
-export interface SourceCollectionOptions<TSource extends AnyCollectionSource> {
-  /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
-  authorize?: AccessAuthorizeOption
-  route?: false
-  source: TSource & SourceContract<TSource>
-}
+export type SourceCollectionOptions<TSource extends AnyCollectionSource> = { source: TSource & SourceContract<TSource> } & CollectionAccess
+
+/** A source with `rawRows: true` and no `transform` cannot have a public route. */
+type SourceAccessWithoutTransform<TSource> = TSource extends { rawRows: true } ? RawRowsAccess : unknown
 
 type CollectionDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue> = Omit<
-  CollectionOptions<TSourceItem, TQuery, TCursorInput>,
+  CollectionLoaderOptions<TSourceItem, TQuery, TCursorInput>,
   "cursorSchema" | "querySchema" | "transform"
->
+> & CollectionAccess
 
 type CursorInput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferInput<TSchema>] extends [
   CollectionCursorValue,
@@ -371,7 +399,7 @@ export function defineCollection<
   options: SourceCollectionOptions<TSource> & { transform: TTransform },
 ): Collection<Awaited<ReturnType<TTransform>>, SourceQueryOf<TSource>, SourceQueryInputOf<TSource>>
 export function defineCollection<TSource extends AnyCollectionSource>(
-  options: SourceCollectionOptions<TSource> & { transform?: undefined },
+  options: SourceCollectionOptions<TSource> & { transform?: undefined } & SourceAccessWithoutTransform<TSource>,
 ): Collection<SourceItemOf<TSource>, SourceQueryOf<TSource>, SourceQueryInputOf<TSource>>
 export function defineCollection<
   TSourceItem,
@@ -474,16 +502,11 @@ export function defineCollection<
   }
   const cursorDefinition = "cursorSchema" in definition ? definition : undefined
   const cursorCodec = cursorDefinition ? createCollectionCursorCodec(cursorDefinition.cursorSchema) : undefined
-  const authorize = definition.authorize
-  // Cross-realm functions do not pass an `instanceof Function` check.
-  // `typeof` accepts callbacks created by another JavaScript realm while
-  // still rejecting non-callable values at runtime.
-  if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
-    throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
-  }
+  const { access, authorize } = assertCollectionAccess(definition)
 
   const collection: Collection<TItem, TQuery, object> = {
-    ...(authorize ? { authorize } : {}),
+    ...(access === undefined ? {} : { access }),
+    ...(authorize === undefined ? {} : { authorize }),
     route: definition.route,
     async page(request) {
       request.signal?.throwIfAborted()
@@ -590,6 +613,9 @@ export function defineCollection<
     // SAFETY: The overload without transform fixes TItem to TSourceItem; otherwise lookup applies the typed transform.
     Object.assign(collection, { get: lookup as NonNullable<Collection<TItem>["get"]> })
   }
+  if (typeof input !== "function" && input.source.rawRows === true && definition.transform === undefined) {
+    Object.defineProperty(collection.page, untransformedTableRows, { value: true })
+  }
   return collection
 }
 
@@ -599,11 +625,15 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ) {
-  const { authorize, route, source, transform } = input
+  const { access, authorize, route, source, transform } = input
   if (Object(source) !== source || typeof source.load !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
   }
+  if (source.rawRows === true && access === "public" && route !== false && transform === undefined) {
+    throw sourceErrorDiagnostics.SOURCE_R0036()
+  }
   const shared = {
+    access,
     authorize,
     route,
     get: source.get,
@@ -615,6 +645,36 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
   return source.pagination === "provider"
     ? [source.load, { ...shared, pagination: "provider" as const }] as const
     : [source.load, { ...shared, cursor: source.cursor, cursorSchema: source.cursorSchema }] as const
+}
+
+/**
+ * Checks who can read a Collection route and returns the checked values. `defineCollectionHandler()` runs it again
+ * for Collection objects that did not come from `defineCollection()`.
+ */
+export function assertCollectionAccess(definition: { access?: unknown; authorize?: unknown; route?: unknown; page?: unknown }): {
+  access?: "public"
+  authorize?: AccessAuthorizeOption
+} {
+  const { access, authorize } = definition
+  // `false` reads as "deny" to most readers, so it is not a public opt-in.
+  if (authorize === false) throw sourceErrorDiagnostics.SOURCE_R0037()
+  // Cross-realm functions do not pass an `instanceof Function` check.
+  // `typeof` accepts callbacks created by another JavaScript realm while
+  // still rejecting non-callable values at runtime.
+  if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
+    throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
+  }
+  if (access !== undefined && access !== "public") {
+    throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection access must be \"public\" when it is set." })
+  }
+  if (access === "public" && authorize !== undefined) throw sourceErrorDiagnostics.SOURCE_R0038()
+  if (access === undefined && authorize === undefined && definition.route !== false) throw sourceErrorDiagnostics.SOURCE_R0035()
+  if (access === "public" && definition.route !== false && typeof definition.page === "function"
+    && Reflect.get(definition.page, untransformedTableRows) === true) {
+    throw sourceErrorDiagnostics.SOURCE_R0036()
+  }
+  // SAFETY: The checks above narrow authorize to true or a callable access rule.
+  return { access, authorize: authorize as AccessAuthorizeOption | undefined }
 }
 
 function isProviderCursor(value: unknown): value is string {

@@ -192,7 +192,7 @@ describe("Agent Invocation enforcement", () => {
     const run = vi.fn(() => "Must not start")
     const channel = channelAdapter("mailbox", {
       history: {
-        collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
+        collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }),
         key: item => item.id,
       },
       triggers: {

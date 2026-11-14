@@ -11,6 +11,7 @@ export { CollectionCursorError, defineCollection } from "./core/collection.ts"
 export type {
   AnyCollection,
   AnyCollectionSource,
+  CollectionAccess,
   Collection,
   CollectionClientItem,
   CollectionCursorErrorOptions,
