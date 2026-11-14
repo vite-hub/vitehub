@@ -429,10 +429,14 @@ async function migrateLegacyWebhookInbox(keyPrefix: string, state: StateAdapter,
   const legacyKey = legacyWebhookInboxIndexKey(keyPrefix)
   const moved = new Set<string>()
   const migrate = async (legacy: unknown) => {
-    if (!isRecord(legacy) || typeof legacy.id !== "string" || indexedAttempts.has(legacy.id) || moved.has(legacy.id)) return
+    if (!isRecord(legacy) || typeof legacy.id !== "string" || moved.has(legacy.id)) return
     const key = webhookInboxKey(keyPrefix, legacy.id)
     const row = await state.get(key)
     const storedRow = isStoredWebhookInboxEntry(row) ? row : undefined
+    // An hourly entry with its row is migrated. One without its row lost the body to a stop
+    // before the row write, so the copy is restored again.
+    const indexed = indexedAttempts.has(legacy.id)
+    if (indexed && storedRow) return
     // A copy without a row is replayable for as long as its row would have been kept.
     // An older one belongs to an admission whose settled marker has expired.
     const copy = !storedRow && isStoredWebhookInboxEntry(legacy) && Date.now() - Date.parse(legacy.receivedAt) < webhookInboxRetentionMs
@@ -442,13 +446,16 @@ async function migrateLegacyWebhookInbox(keyPrefix: string, state: StateAdapter,
     moved.add(legacy.id)
     const owner = await state.get(`${key}:owner`)
     if (isRecord(owner) && owner.settled === true) return
-    const attempts = Math.max(storedRow?.attempts ?? 0, typeof legacy.attempts === "number" ? legacy.attempts : 0)
-    await state.appendToList(
-      webhookInboxIndexKey(keyPrefix, webhookInboxIndexBucket(Date.now())),
-      { attempts, id: legacy.id } satisfies WebhookInboxIndexEntry,
-      { ttlMs: webhookInboxRetentionMs },
-    )
+    const attempts = Math.max(storedRow?.attempts ?? 0, typeof legacy.attempts === "number" ? legacy.attempts : 0, indexedAttempts.get(legacy.id) ?? 0)
+    // The row first, so an hourly entry never points at a missing row.
     if (copy) await state.set(key, { ...copy, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
+    if (!indexed) {
+      await state.appendToList(
+        webhookInboxIndexKey(keyPrefix, webhookInboxIndexBucket(Date.now())),
+        { attempts, id: legacy.id } satisfies WebhookInboxIndexEntry,
+        { ttlMs: webhookInboxRetentionMs },
+      )
+    }
     indexedAttempts.set(legacy.id, attempts)
   }
   const pages = state as StateAdapter & Partial<Pick<PagedListStateAdapter, "getListPage">>

@@ -264,6 +264,25 @@ describe("webhook acknowledgement after store", () => {
     await second()
   })
 
+  it("restores a legacy request whose migration stopped after its hourly entry and before its row", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, invokes, routeOptions, state } = await setup({ ackTimeoutMs: 1_000 })
+    await state.connect()
+    const body = `{"n":13}`
+    const receivedAt = Date.now() - 1_000
+    await state.appendToList(`${scope}inbox`, {
+      attempts: 1, id: "delivery-legacy-half", receivedAt: new Date(receivedAt).toISOString(), webhookId: "",
+      request: { body, method: "POST", url: "https://example.com/hook",
+        headers: { "content-type": "application/json", "x-github-delivery": "delivery-legacy-half", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` } },
+    })
+    // An earlier migration wrote the hourly entry and stopped before it wrote the row.
+    await state.appendToList(`${scope}inbox-index:${Math.floor(Date.now() / 3_600_000)}`, { attempts: 1, id: "delivery-legacy-half" }, { ttlMs: 86_400_000 })
+    const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(() => expect(invokes).toEqual([13]), { timeout: 4_000 })
+    await stop()
+  })
+
   it("reads the legacy list a page at a time, and only once", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "info").mockImplementation(() => {})
