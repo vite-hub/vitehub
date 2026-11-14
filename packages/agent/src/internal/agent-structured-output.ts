@@ -15,7 +15,8 @@ type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
 function agentOutputValidationError(code: AgentOutputValidationErrorCode, options?: ErrorOptions) {
   if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
-    throw agentDiagnostics.AGENT_R0515({ message: "[vitehub] Agent output errors require a known code." })
+    // Internal invariant: only this module calls agentOutputValidationError(), always with a typed code.
+    throw new Error("[vitehub] Agent output errors require a known code.")
   }
   return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
 }
