@@ -1,6 +1,6 @@
 // Generated startup code imports this module. Keep it free of Better Auth imports: `@vite-hub/auth/server` loads
 // Better Auth, and startup code imports it only when a request needs an Auth instance.
-import { resolveAccessRoutePath } from "../application-path.ts"
+import { canonicalAccessPath, resolveAccessRoutePath } from "../application-path.ts"
 import { unwrapAuthRequest } from "../request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 
@@ -68,11 +68,13 @@ export function createAuthAccessRouteMatcher(
   return (input) => {
     if (routedToAccessHandler(input)) return []
     const request = unwrapAuthRequest(input)
-    const pathname = new URL(request.url).pathname
+    // Match the path that the Nitro router reads.
+    const pathname = canonicalAccessPath(new URL(request.url).pathname)
     if (exceptions.some(rule => matchesPath(rule, pathname))) return []
     const method = request.method.toUpperCase()
     return rules
-      .filter(rule => (!rule.method || rule.method === method) && matchesPath(rule, pathname))
+      // H3 runs a GET handler for a HEAD request, so a GET rule also guards HEAD.
+      .filter(rule => (!rule.method || rule.method === method || (rule.method === "GET" && method === "HEAD")) && matchesPath(rule, pathname))
       .map(rule => ({ index: rule.index, authorize: rule.authorize }))
   }
 }

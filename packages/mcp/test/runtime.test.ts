@@ -6,7 +6,7 @@ import { defineMcpTool } from "../src/index.ts"
 import { createMcpHandler, toMcpToolResult } from "../src/runtime.ts"
 
 import type { H3Event } from "h3"
-import type { McpPromptDefinition, McpResourceDefinition } from "../src/index.ts"
+import type { McpPromptDefinition, McpResourceDefinition, McpToolCaller } from "../src/index.ts"
 import type { McpHandlerOptions } from "../src/runtime.ts"
 
 const add = defineMcpTool({
@@ -38,6 +38,7 @@ interface Answer {
     contents?: unknown
     instructions?: string
     isError: boolean
+    messages?: unknown
     prompts?: unknown
     resourceTemplates?: unknown
     resources?: unknown
@@ -248,6 +249,65 @@ describe("app MCP prompts, resources, and server info", () => {
     expect((await rpc({ resources }, "resources/read", { uri: "a://broken" })).body.error).toMatchObject({ code: -32603, message: "broken failed on the server." })
     expect(error).toHaveBeenCalledOnce()
     error.mockRestore()
+  })
+})
+
+describe("app MCP hooks", () => {
+  const signedIn = { clientId: "client", clientName: "Claude Code", scopes: [], user: { id: "u1", name: "Ada" } }
+  const verify = async () => [undefined, signedIn] as const
+  // SAFETY: These tests pass `resolveCaller` without the generated registry, so `caller` is typed as the OAuth caller.
+  const teamOf = (caller: unknown) => (caller as { team: string }).team
+  const team = defineMcpTool({ description: "The team of the caller.", handler: (_input, { caller }) => `Team ${teamOf(caller)}` })
+  const brief: McpPromptDefinition<undefined> = { handler: (_input, { caller }) => `Brief for ${teamOf(caller)}` }
+  const members: McpResourceDefinition = { uri: "team://members", handler: (_uri, { caller }) => `Members of ${teamOf(caller)}` }
+
+  it("passes what resolveCaller returns to tools, prompts, and resources, once per request", async () => {
+    const resolveCaller = vi.fn(async ({ caller }: { caller: McpToolCaller | undefined }) => ({ team: `team-of-${caller?.user.id}` }))
+    const options = { hooks: { resolveCaller }, prompts: { brief }, resources: { members }, tools: { team }, verify }
+    expect((await rpc(options, "tools/call", { name: "team" })).body.result.content).toEqual([{ text: "Team team-of-u1", type: "text" }])
+    expect((await rpc(options, "prompts/get", { name: "brief" })).body.result.messages).toEqual([{ content: { text: "Brief for team-of-u1", type: "text" }, role: "user" }])
+    expect((await rpc(options, "resources/read", { uri: "team://members" })).body.result.contents).toEqual([{ text: "Members of team-of-u1", uri: "team://members" }])
+    expect(resolveCaller).toHaveBeenCalledTimes(3)
+    expect(resolveCaller).toHaveBeenCalledWith({ caller: signedIn, event: expect.objectContaining({ req: expect.any(Request) }) })
+
+    await rpc(options, "initialize")
+    await rpc(options, "tools/list")
+    expect(resolveCaller).toHaveBeenCalledTimes(3)
+  })
+
+  it("refuses the call with the message of a 4xx error from resolveCaller", async () => {
+    const handler = vi.fn(() => "never")
+    const resolveCaller = () => { throw new HTTPError({ message: "Join a team first.", status: 403 }) }
+    const { body } = await rpc({ hooks: { resolveCaller }, tools: { team: { description: "Team.", handler } }, verify }, "tools/call", { name: "team" })
+    expect(body.result).toEqual({ content: [{ text: "Join a team first.", type: "text" }], isError: true })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("calls onToolCall with the name, input, caller, duration, and result of each call", async () => {
+    const onToolCall = vi.fn()
+    const hooks = { onToolCall, resolveCaller: () => ({ team: "core" }) }
+    await rpc({ hooks, verify }, "tools/call", { arguments: { a: 2, b: 3 }, name: "add" })
+    expect(onToolCall).toHaveBeenCalledWith({
+      caller: { team: "core" },
+      durationMs: expect.any(Number),
+      event: expect.objectContaining({ req: expect.any(Request) }),
+      input: { a: 2, b: 3 },
+      name: "add",
+      result: { content: [{ text: "{\"sum\":5}", type: "text" }], isError: false, structuredContent: { sum: 5 } },
+    })
+    expect(onToolCall.mock.calls[0]?.[0]).not.toHaveProperty("error")
+  })
+
+  it("gives onToolCall the thrown error, and logs an error of onToolCall without changing the result", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const thrown = new Error("database password is wrong")
+    const onToolCall = vi.fn(() => { throw new Error("log sink is down") })
+    const tools = { broken: defineMcpTool({ description: "Broken.", handler: () => { throw thrown } }) }
+    const { body } = await rpc({ hooks: { onToolCall }, tools }, "tools/call", { name: "broken" })
+    expect(body.result).toEqual({ content: [{ text: "broken failed on the server.", type: "text" }], isError: true })
+    expect(onToolCall).toHaveBeenCalledWith(expect.objectContaining({ caller: undefined, error: thrown, name: "broken", result: body.result }))
+    expect(log).toHaveBeenCalledWith("[vitehub] onToolCall failed for MCP tool broken:", expect.any(Error))
+    log.mockRestore()
   })
 })
 

@@ -8,6 +8,17 @@ icon: i-lucide-cloud-cog
 
 ## Providers
 
+| Host | Provider without `provider` |
+| --- | --- |
+| Cloudflare | Cloudflare |
+| Vercel | Vercel |
+| Netlify | None. Set `provider`. |
+| Node, Docker, Deno, and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
+| `vite dev` on a host without a provider | Inline runs in the dev server |
+
+ViteHub infers Vercel only on Vercel. The Workflow that only `agent` turns on runs inline on Node, Docker, and Deno, and a restart loses its runs. `vitehub durability list` shows the store that the app uses.
+
+
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
 | Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
@@ -24,9 +35,17 @@ pnpm add @vercel/functions
 
 For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. Plain inline handlers do not need these two packages.
 
+```bash pm
+pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
+```
+
 ### Upgrade the Vercel Workflow SDK
 
-ViteHub uses `workflow` 5.2.3 and `@workflow/builders` 5.0.6. This has the `nanoid` security fix without the inline early-advance scheduling of Workflow 5.3.0. That scheduling can complete a run while a losing `Promise.race` step still runs, cut its retries short, and write its step events after `run_completed`. So ViteHub stays on 5.2.3.
+ViteHub accepts `workflow` 5.2.3 or a later 5.x, and `@workflow/builders` 5.0.6 or a later 5.x. An exact version would make npm stop with `ERESOLVE` when the app or another package needs a newer 5.x.
+
+ViteHub tests with `workflow` 5.2.3 and `@workflow/builders` 5.0.6, and the install commands use these versions. 5.2.3 is the first version with the `nanoid` security fix. `workflow` 5.5.0 with `@workflow/builders` 5.1.0 also passes the Workflow package tests.
+
+Workflow 5.3.0 and later change how a run ends. The run completes as soon as the workflow function returns, even while a losing `Promise.race` step still runs. That step gets only its current attempt, and its step events can come after `run_completed`. Workflow 5.5.0 removes the `WORKFLOW_INLINE_EARLY_ADVANCE` setting that turned this off. The entry that ViteHub generates for a folder runs its steps one after the other, so the change does not affect it. Check your own `native` entries that use `Promise.race` before you install 5.3.0 or later. `pnpm add workflow` without a version installs the latest 5.x, which has this behavior.
 
 Workflow 5.2.0 also fixes reuse of a hook after it loses a `Promise.race`. Runs that already took the timeout branch in that case may not replay after an in-place upgrade. Finish them with the old SDK before you upgrade the process that runs them.
 
