@@ -77,6 +77,8 @@ import { recordSyncChanges } from 'vite-hub/sync'
 await recordSyncChanges('todos', { put: insertedIds, delete: deletedRows })
 ```
 
+Recording puts resets existing client snapshots on their next pull. This removes rows whose scope changed, such as an ownership transfer, without exposing another scope's keys.
+
 `put` takes keys. `delete` takes the deleted rows, so that only callers that could see a row learn that it was deleted.
 
 ## Inspect

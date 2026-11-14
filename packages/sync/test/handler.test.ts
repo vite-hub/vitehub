@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 
 import { syncChanges, syncMutations, syncState, syncTables } from "../src/database.ts"
 import { defineSync } from "../src/define.ts"
+import { recordChanges } from "../src/handler.ts"
 import { createSyncHandler, handleSyncRequest, recordSyncChanges } from "../src/runtime.ts"
 
 import type { DefineSyncOptions } from "../src/types.ts"
@@ -138,7 +139,7 @@ describe("pull", () => {
     expect(await closed.pull("alice")).toMatchObject({ status: 403, body: { code: "SYNC_FORBIDDEN" } })
   })
 
-  it("reads 150 changed keys in one pull, and pages after 500 changes", async () => {
+  it("reads 150 changed keys incrementally and resets after direct server writes", async () => {
     const app = await setup()
     const alice = await app.start("alice")
     for (let start = 0; start < 150; start += 100) {
@@ -157,11 +158,11 @@ describe("pull", () => {
     expect(error).toBeUndefined()
     expect(recorded).toEqual({ recorded: 520 })
     const first = (await app.pull("alice", { cursor: body.cursor, scope: alice.scope })).body
-    expect(first).toMatchObject({ reset: false, more: true })
-    expect(first.rows).toHaveLength(500 - 10)
+    expect(first).toMatchObject({ reset: true, more: false })
+    expect(first.rows).toHaveLength(150 + 520 - 11)
     const second = (await app.pull("alice", { cursor: first.cursor, scope: alice.scope })).body
     expect(second).toMatchObject({ reset: false, more: false })
-    expect(second.rows).toHaveLength(20 - 1)
+    expect(second.rows).toHaveLength(0)
     expect(new Set([...first.rows, ...second.rows].map(row => row.ownerId))).toEqual(new Set(["alice"]))
   })
 
@@ -317,4 +318,45 @@ describe("push", () => {
     // A client that saw the removed delete keeps pulling incrementally.
     expect((await app.pull("alice", { cursor: current, scope: alice.scope })).body).toMatchObject({ reset: false, rows: [{ id: "a2", done: true }] })
   })
+})
+
+it("rejects a constraint violation and continues the push", async () => {
+  const app = await setup()
+  const alice = await app.start("alice")
+  const { body } = await app.push("alice", { scope: alice.scope, mutations: [insert("bad", { id: "bad" }), insert("good", { id: "good", title: "ok" })] })
+  expect(body.results.map(result => result.status)).toEqual(["rejected", "applied"])
+  expect((await app.rows()).map(row => row.id)).toEqual(["good"])
+})
+
+it("revalidates concurrent patches against the committed row", async () => {
+  let release: () => void = () => {}
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  let waiting = 0
+  const app = await setup({ write: async ({ op, row }) => {
+    if (op === "update" && ++waiting <= 2) {
+      if (waiting === 2) release()
+      await barrier
+    }
+    return !(row.title === "locked" && row.done)
+  } })
+  const alice = await app.start("alice")
+  await app.push("alice", { scope: alice.scope, mutations: [insert("seed", { id: "a", title: "open" })] })
+  const replies = await Promise.all([
+    app.push("alice", { scope: alice.scope, mutations: [update("one", "a", { title: "locked" })] }),
+    app.push("alice", { scope: alice.scope, mutations: [update("two", "a", { done: true })] }),
+  ])
+  expect(replies.flatMap(reply => reply.body.results.map(result => result.status)).sort()).toEqual(["applied", "rejected"])
+  expect((await app.rows()).some(row => row.title === "locked" && row.done)).toBe(false)
+})
+
+it("resets a previous owner after a recorded scope transfer", async () => {
+  const app = await setup()
+  const alice = await app.start("alice")
+  await app.push("alice", { scope: alice.scope, mutations: [insert("seed", { id: "a", title: "open" })] })
+  const snapshot = await app.start("alice")
+  await app.db.update(todos).set({ ownerId: "bob" }).where(eq(todos.id, "a"))
+  await recordChanges("todos", app.definition, app.db, { put: ["a"] }, app.clock.now)
+  const { body } = await app.pull("alice", snapshot)
+  expect(body.reset).toBe(true)
+  expect(body.rows).toEqual([])
 })

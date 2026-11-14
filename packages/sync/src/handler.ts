@@ -253,7 +253,13 @@ function readColumns(scoped: Scoped, id: string, input: SyncRow, key: SyncKey | 
     if (!(name in table.columns)) return [invalid(id, `\`${name}\` is not a column of the table "${table.name}".`), undefined]
     if (name === table.key && key !== undefined && value !== key) return [invalid(id, `The primary key \`${name}\` cannot change.`), undefined]
     if (name in scope.values && !sameValue(value, scope.values[name])) return [rejected(id, syncErrors.SYNC_OUT_OF_SCOPE({ column: name })), undefined]
-    values[name] = decode(table, name, value)
+    try {
+      values[name] = decode(table, name, value)
+      if (values[name] instanceof Date && !Number.isFinite(values[name].getTime())) return [invalid(id, `Invalid date for column ${name}.`), undefined]
+    }
+    catch {
+      return [invalid(id, `Invalid value for column ${name}.`), undefined]
+    }
   }
   return [undefined, values]
 }
@@ -279,12 +285,13 @@ async function applied(scoped: Scoped, id: string): Promise<boolean> {
  * Applies one mutation in one atomic batch. The ledger insert comes first, so a mutation id that is there already fails
  * the whole batch, and the row stays as it is.
  */
-async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutationResult> {
+async function apply(scoped: Scoped, mutation: SyncMutation, attempt = 0): Promise<SyncMutationResult> {
   const { id } = mutation
   if (await applied(scoped, id)) return { id, status: "duplicate" }
   const { db, name, now, table, scope } = scoped
   if (scoped.definition.options.write === false) return rejected(id, syncErrors.SYNC_READ_ONLY())
-  const ledger = db.insert(syncMutations).values({ id, name, createdAt: now })
+  let ledger = db.insert(syncMutations).values({ id, name, createdAt: now })
+  let checked: Record<string, unknown> | undefined
   const keyColumn = column(table, table.key)
   const target: SQLiteTable = table.table
   try {
@@ -304,6 +311,12 @@ async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutati
     const { key } = mutation
     if (typeof key !== "string" || !key) return invalid(id, "An update or a delete needs `key`.")
     const current = await readRow(scoped, key, true)
+    if (current) {
+      checked = current
+      // A failed guard aborts the whole batch, including the ledger and change log.
+      const unchanged = db.select({ key: keyColumn }).from(target).where(whereSql(table, current))
+      ledger = db.insert(syncMutations).values({ id: sql`CASE WHEN EXISTS (${unchanged}) THEN ${id} ELSE NULL END`, name, createdAt: now })
+    }
     if (mutation.op === "delete") {
       // Deleting a missing row changes nothing, so a repeated delete is not an error.
       if (!current) {
@@ -334,6 +347,18 @@ async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutati
     if (await applied(scoped, id)) return { id, status: "duplicate" }
     if (mutation.op === "insert" && typeof mutation.value[table.key] === "string" && await readRow(scoped, String(mutation.value[table.key]), false)) {
       return rejected(id, syncErrors.SYNC_KEY_EXISTS({ key: String(mutation.value[table.key]) }))
+    }
+    if (checked && mutation.op !== "insert" && !sameValue(checked, await readRow(scoped, mutation.key, true))) {
+      if (attempt < 8) return apply(scoped, mutation, attempt + 1)
+      return invalid(id, "The row changed concurrently. Retry this mutation.")
+    }
+    // Drizzle wraps driver errors. Only deterministic input failures are rejections.
+    let cause: unknown = error
+    for (let depth = 0; cause instanceof Error && depth < 8; depth++) {
+      if (/SQLITE_CONSTRAINT|NOT NULL constraint failed|UNIQUE constraint failed|CHECK constraint failed|FOREIGN KEY constraint failed|datatype mismatch|cannot bind|can only bind|unsupported type/i.test(cause.message)) {
+        return invalid(id, "The row violates a database constraint or contains an invalid column value.")
+      }
+      cause = cause.cause
     }
     throw error
   }
@@ -466,6 +491,10 @@ export async function recordChanges(name: string, definition: SyncDefinition, db
   const table = describeSyncTable(definition.options.table)
   const target = { name, db, now }
   const statements = []
+  if (changes.put?.length) {
+    // Direct writers may transfer ownership. Invalidate existing snapshots without exposing keys.
+    statements.push(db.run(sql`INSERT INTO ${syncState} (name, floor) SELECT ${name}, coalesce(max(${syncChanges.seq}), 0) + 1 FROM ${syncChanges} WHERE ${syncChanges.name} = ${name} ON CONFLICT (name) DO UPDATE SET floor = max(floor, excluded.floor)`))
+  }
   for (const key of changes.put ?? []) statements.push(...changeStatements(target, key, "put", null))
   for (const row of changes.delete ?? []) {
     const key = row[table.key]
@@ -474,5 +503,5 @@ export async function recordChanges(name: string, definition: SyncDefinition, db
   }
   const [first, ...rest] = statements
   if (first) await db.batch([first, ...rest])
-  return statements.length / 2
+  return (changes.put?.length ?? 0) + (changes.delete?.length ?? 0)
 }
