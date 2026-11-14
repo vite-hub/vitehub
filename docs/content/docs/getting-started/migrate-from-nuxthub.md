@@ -19,9 +19,13 @@ through [Capabilities](/docs/agents/capabilities).
 | NuxtHub | ViteHub | Notes |
 | --- | --- | --- |
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
+| Nitro storage mount `kv` | Nitro storage mount `kv` | `useStorage('kv')` and modules such as nuxt-og-image use the default store. Named stores mount at `kv-<name>`. See [Use KV from useStorage and Nuxt modules](/docs/kv/server-api#use-kv-from-usestorage-and-nuxt-modules). |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
 | `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | NuxtHub uses Drizzle 0.x, ViteHub uses Drizzle 1.0. Relational queries change. ViteHub supports SQLite, libSQL, Cloudflare D1, and Postgres. |
-| `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
+| `hub.db: 'postgresql'` | `dialect: "postgresql"` with `connection: { url: process.env.POSTGRES_URL \|\| process.env.POSTGRESQL_URL \|\| process.env.DATABASE_URL }` | NuxtHub read these variables on its own. A Definition reads only its `connection`. Local PGlite data moves from `.data/db/pglite` to `.vitehub/data/database/pglite`. See [Postgres configuration](/docs/database/configure#define-a-postgres-database). |
+| `hub.db.connection.hyperdriveId` | `cloudflare.hyperdriveId` | NuxtHub named the binding `POSTGRES`. ViteHub names it `HYPERDRIVE`. |
+| `hub.db.driver: 'd1-http'` | `cloudflare: { databaseId, http: true }` | Rename `NUXT_HUB_CLOUDFLARE_ACCOUNT_ID`, `NUXT_HUB_CLOUDFLARE_API_TOKEN`, and `NUXT_HUB_CLOUDFLARE_DATABASE_ID` to `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_D1_DATABASE_ID`. |
+| `hub.db.casing` | `snakeCase.table()` per table | Drizzle 1.0 has no casing for a database. See [Name columns in snake_case](/docs/database/configure#name-columns-in-snake_case). |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.kv` with any unstorage driver | `kv` with `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. Another unstorage driver fails the build. See [Keep the cache](#keep-the-cache). |
@@ -122,6 +126,12 @@ before you write them. In development, the local `fs-lite` store ignores
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
+NuxtHub moved KV to Redis on its own when the build had `REDIS_URL`. ViteHub
+does not, because that variable often belongs to another service. If your KV
+used Redis, set `kv: { driver: "redis" }`. The codemod does this when an env
+file or `nuxt.config` names `REDIS_URL`, and the build warns when it finds
+`REDIS_URL` without a KV driver.
+
 NuxtHub keeps Redis and Upstash keys at the root of the database. ViteHub keeps
 them under `vitehub:kv:<store>`, such as `vitehub:kv:default:settings`. Before
 the switch, move the keys once with the Redis or Upstash client:
@@ -168,7 +178,7 @@ For a custom serving route on Nitro 3, see
 
 `blob.serve()` sends `Cache-Control: private, no-cache` and
 `X-Content-Type-Options: nosniff`. NuxtHub sent neither. The built-in route of
-`blob: { serve: true }` sends `public, max-age=0, s-maxage=0`, or
+`blob: { serve: { access: "public" } }` sends `public, max-age=0, s-maxage=0`, or
 `private, no-cache` with `authorize`. For HTML, SVG, XML,
 and `multipart/*` files it also sends `Content-Security-Policy: sandbox`, so the
 file cannot run script on your origin. To cache files, pass `cacheControl`:
@@ -178,7 +188,7 @@ file cannot run script on your origin. To cache files, pass `cacheControl`:
 +  return blob.serve(event.req, pathname, { cacheControl: "public, max-age=3600" })
 ```
 
-For the built-in route, set `blob: { serve: { headers: { "Cache-Control": "public, max-age=3600" } } }`.
+For the built-in route, set `blob: { serve: { access: "public", headers: { "Cache-Control": "public, max-age=3600" } } }`.
 The sandbox stays on. To serve a page that runs script, read it with
 `blob.get()` in your own route. See
 [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
@@ -201,7 +211,11 @@ Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
 `vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
 also need `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` at
 runtime, because an R2 binding alone cannot sign requests. To serve files
-without your own route, set `blob: { serve: true }`.
+without your own route, set `blob: { serve: { access: "public" } }` for public
+files, or `blob: { serve: { authorize: true } }` to require a session.
+
+NuxtHub has no image service. The served route of ViteHub resizes images, and
+`<NuxtImg provider="vitehub">` uses it. See [Nuxt Image](/docs/blob/media#nuxt-image).
 
 ## Move the database
 
@@ -234,6 +248,30 @@ export default defineDatabase({
   schema,
 })
 ```
+
+### Keep a Turso or libSQL connection
+
+NuxtHub connects to `TURSO_DATABASE_URL`, `LIBSQL_URL`, or `DATABASE_URL`
+without config. A ViteHub Database Definition reads only its `connection`.
+Without one, it uses the local file `.vitehub/data/database/sqlite.db` and
+prints `DATABASE_URL_VARIABLE_IGNORED` when one of these variables is set. Name
+the variable in the Definition:
+
+```ts [server/databases/default.ts]
+import { defineDatabase } from "vite-hub/database"
+import * as schema from "./schema"
+
+export default defineDatabase({
+  connection: {
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+  schema,
+})
+```
+
+When the variable is not set, as on your computer, the Definition still uses
+the local file.
 
 `vite-hub/database` exports `db` and `schema` for the `default`
 Database. For `db.select()`, `db.insert()`, and the other SQL-like queries,
@@ -562,6 +600,83 @@ export default defineNuxtConfig({
   },
 })
 ```
+
+## Modules that expect NuxtHub
+
+ViteHub does not emulate NuxtHub's module APIs. It has no `hub:*` or
+`@nuxthub/*` imports, and it does not call `hub:db:*` hooks. A module that
+needs `@nuxthub/core` installs NuxtHub again and can start it next to ViteHub.
+The `nuxthub` codemod and [Doctor rule VHUB0032](/docs/reference/doctor-rules#vhub0032)
+report these modules.
+
+| Module | With ViteHub |
+| --- | --- |
+| `@nuxt/content` | Nothing to do. ViteHub gives Content the Database: D1, SQLite, libSQL, and Postgres. |
+| `nuxt-og-image` | Set `ogImage: { runtimeCacheStorage: 'kv' }` and turn on `kv`. Images are cached in the KV store in production builds. |
+| `nuxt-studio` external media | Not supported. Studio uploads external media only to NuxtHub Blob. Keep media in `public/`. |
+| `@evlog/nuxthub` | Remove it. Write the drain yourself, as below. |
+
+### Replace `@evlog/nuxthub`
+
+`@evlog/nuxthub` stores evlog events in the NuxtHub database and deletes old
+ones on a cron. Keep the `evlog/nuxt` module, then do the same with ViteHub.
+
+Append this table to `server/databases/schema.ts`, alongside the tables
+created earlier. The default Database Definition already imports this file
+as its schema, so the new table is included in migration generation and
+exported as `schema.evlogEvents`. Reuse any existing Drizzle imports.
+
+```ts [server/databases/schema.ts] fragment
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const evlogEvents = sqliteTable('evlog_events', {
+  id: text().primaryKey(),
+  level: text().notNull(),
+  path: text(),
+  status: integer(),
+  data: text().notNull(),
+  createdAt: text().notNull(),
+})
+```
+
+Insert each event from the `evlog:drain` hook:
+
+```ts [server/plugins/evlog-db.ts] fragment
+import type { DrainContext } from 'evlog'
+import { db, schema } from 'vite-hub/database'
+
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('evlog:drain', async ({ event, request }: DrainContext) => {
+    await db.insert(schema.evlogEvents).values({
+      id: crypto.randomUUID(),
+      level: event.level,
+      path: request?.path,
+      status: typeof event.status === 'number' ? event.status : undefined,
+      data: JSON.stringify(event),
+      createdAt: new Date().toISOString(),
+    })
+  })
+})
+```
+
+Delete old events with a [Schedule](/docs/schedule/get-started):
+
+```ts [server/schedules/evlog-retention.ts] fragment
+import { lt } from 'drizzle-orm'
+import { db, schema } from 'vite-hub/database'
+import { defineSchedule } from 'vite-hub/schedule'
+
+// Keeps 7 days of events. Runs every day at 03:00 UTC.
+export default defineSchedule({
+  cron: '0 3 * * *',
+  async handler() {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    await db.delete(schema.evlogEvents).where(lt(schema.evlogEvents.createdAt, cutoff))
+  },
+})
+```
+
+Then run `pnpm vitehub database generate` for the new table.
 
 ## Deploy
 

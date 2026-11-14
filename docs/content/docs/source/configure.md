@@ -53,6 +53,8 @@ The build bundles a call only when its options are literals: a string, or an obj
 
 `github()`, `mcpResources()`, and your own loaders can set a cache policy. `false` turns it off. GitHub applies it to its ref, archive, and metadata caches.
 
+The consumer of the Source reads `cache`. Today that is the Workspace, which keeps a copy of the Source content and refreshes it after `maxAge`. A reader from `createSource()` alone does not cache. To cache its reads, wrap it in [`cachedSource()`](/docs/source/server-api).
+
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `maxAge` | `number` | Consumer default | Maximum cache age in seconds. Workspace uses it to decide if its copy of the Source content is still fresh. |

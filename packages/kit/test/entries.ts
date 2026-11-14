@@ -18,5 +18,5 @@ export const uiSdkEntries: string[] = exportKeys(readFileSync(new URL(import.met
   .filter((subpath) => subpath !== "." && subpath !== "./nuxt" && subpath !== "./package.json")
   .map((subpath) => subpath.slice(2));
 
-/** The entries the kit adds to ui-sdk's, with components that ui-sdk does not have. */
+/** The entries the kit adds to ui-sdk's: components that ui-sdk does not have. */
 export const ownEntries: string[] = ["tags-input"];

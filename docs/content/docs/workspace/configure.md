@@ -111,18 +111,20 @@ export default defineDatabase({ name: 'history', schema: workspaceHistorySchema 
 
 ```ts [server/workspaces/drop.ts]
 import { blob } from 'vite-hub/blob'
+import { useDatabase } from 'vite-hub/database'
 import { defineWorkspace } from 'vite-hub/workspace'
 import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
-import historyDatabase from '../databases/history/index'
 
 export const dropStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
-  database: historyDatabase,
+  database: () => useDatabase('history').db,
   workspace: 'drop-123',
 })
 
 export default defineWorkspace({ store: dropStore })
 ```
+
+`database` takes a function that returns the Drizzle database. The Store calls it on first use, because the build loads the Workspace Definition without your Databases. Do not pass the Database Definition: it holds options only. `useDatabase('history').db` has the migrations and relations of the build. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
 
 `vite-hub/workspace/blob-database` also exports the constructor and schema. This subpath needs `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.
 
@@ -197,7 +199,7 @@ export default defineWorkspace({
 | `refs` | `{ published?: string, draft?: string }` | none | Branches for the history refs `published` and `draft`. |
 | `database` | `unknown` | none | A value the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store ignores it. |
 
-A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` saves the lookup of the installation. The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
+A GitHub App installation has a rate limit of its own, apart from the personal tokens that share one account. Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and install the App on the repository with contents and pull requests write access. `VITEHUB_GITHUB_INSTALLATION_ID` with `VITEHUB_GITHUB_APP_OWNER` saves the lookup of the installation ([Installations](/docs/forge/configure#installations)). The Store mints an installation token, keeps it until a minute before it expires, and commits as the App's bot.
 
 The Store reads the repository and token at the first request, not at creation. A missing one throws `WORKSPACE_R0072` then, so a build that loads the Workspace Definition needs no token.
 

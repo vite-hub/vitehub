@@ -70,6 +70,11 @@ export interface FeatureImplication {
   feature: FeatureId
   /** Hosts where the implication does not apply. */
   except?: readonly ViteHubHost[]
+  /**
+   * Hosts where the implied feature needs no provider option, because it runs inline in the request process. A
+   * restart loses its work. The feature still needs its option when the app turns it on itself.
+   */
+  inline?: readonly ViteHubHost[]
 }
 
 /** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
@@ -180,7 +185,7 @@ export default defineAgent({
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
-    implies: [{ except: ["netlify"], feature: "workflow" }],
+    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno", "node"] }],
     packages: ["@vite-hub/agent"],
     summary: "Agents in `server/agents/` with tools, Capabilities, channels, and invocations.",
     title: "Agent",
@@ -491,13 +496,14 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
   return { id: payload.id }
 })
 `, { folder: "index", suffix: "workflow" }),
+    developmentOverrides: ["deno"],
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.provider` to \"openworkflow\" for durable runs.", "process-local"),
-      dev: native("vercel", "Vercel Workflow", "The default Node host selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
+      deno: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
+      dev: native("vercel", "Inline", "`vite dev` runs each Workflow inline in the dev server, unless `workflow.provider` or OpenWorkflow storage selects a provider.", "process-local"),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.sqlite.path` or `workflow.postgres.url` to select durable OpenWorkflow.", "process-local"),
+      node: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.sqlite.path` or `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
@@ -558,8 +564,8 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   }))
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
-  // Node selects OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  // Node and Deno select OpenWorkflow when its storage is set and no provider is.
+  if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
@@ -578,6 +584,11 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteH
   if (host !== "dev") return definition.hosts[host]
   if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
+}
+
+/** True when one of the `enabled` features turns `id` on, and `id` then runs inline on `host` without a provider option. */
+export function impliedInline(id: FeatureId, enabled: readonly FeatureId[], host: ViteHubHost): boolean {
+  return enabled.some(source => features[source].implies.some(implication => implication.feature === id && implication.inline?.includes(host)))
 }
 
 /**

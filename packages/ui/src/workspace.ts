@@ -21,6 +21,6 @@ export { bootChecklist, WorkspaceBootStatus, type BootStepState, type BootStepVi
 export { formatDuration as formatElapsed } from "./internal/format.ts";
 export { WorkspaceEditor } from "./workspace/workspace-editor.ts";
 export { WorkspaceFileTree } from "./workspace/workspace-file-tree.ts";
-export { WorkspacePreview } from "./workspace/workspace-preview.ts";
+export { WorkspacePreview, workspacePreviewScript, type WorkspacePreviewDevice } from "./workspace/workspace-preview.ts";
 export { WorkspaceShell, type WorkspaceLayout, type WorkspaceSplits, type WorkspaceTab, type WorkspaceTabItem } from "./workspace/workspace-shell.ts";
 export { WorkspaceTerminal, type WorkspaceTerminalOutput } from "./workspace/workspace-terminal.ts";
